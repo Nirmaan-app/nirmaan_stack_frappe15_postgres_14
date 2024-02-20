@@ -424,6 +424,7 @@ export const ApproveSelectVendor: React.FC = () => {
     selectedSearchField,
     additionalFilters: staticFilters,
     enabled: true,
+    requirePendingItems: true,
   });
 
   // --- Faceted Filter Options ---
