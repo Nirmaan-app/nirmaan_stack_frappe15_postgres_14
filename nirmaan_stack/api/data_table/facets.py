@@ -6,7 +6,7 @@ import json
 import hashlib
 import traceback
 
-from .constants import CACHE_EXPIRY, LINK_FIELD_MAP
+from .constants import CACHE_EXPIRY, LINK_FIELD_MAP, CHILD_TABLE_ITEM_SEARCH_MAP, JSON_ITEM_SEARCH_DOCTYPE_MAP
 from .utils import (
     _parse_filters_input, _process_filters_for_query,
     _parse_target_search_field
@@ -18,7 +18,8 @@ def get_facet_values_impl(
     filters=None,
     search_term=None,
     current_search_fields=None,
-    limit=100
+    limit=100,
+    require_pending_items=False
 ):
     try:
         if not frappe.db.exists("DocType", doctype): frappe.throw(_("Invalid DocType: {0}").format(doctype))
@@ -60,7 +61,10 @@ def get_facet_values_impl(
         
         # limit=0 means no limit, otherwise use the requested limit (no artificial cap)
         limit_int = cint(limit) if cint(limit) > 0 else None
-        cache_key_params = {"v_api": "facet_5.3", "doctype": doctype, "field": field, "filters": json.dumps(processed_filters), "limit": limit_int}
+        require_pending_items_bool = (
+            isinstance(require_pending_items, str) and require_pending_items.lower() == 'true'
+        ) or require_pending_items is True
+        cache_key_params = {"v_api": "facet_5.4", "doctype": doctype, "field": field, "filters": json.dumps(processed_filters), "limit": limit_int, "require_pending_items": require_pending_items_bool}
         cache_key = f"facet_values_{hashlib.sha1(json.dumps(cache_key_params, sort_keys=True, default=str).encode()).hexdigest()}"
         
         cached_result = frappe.cache().get_value(cache_key)
@@ -69,6 +73,44 @@ def get_facet_values_impl(
         names_query_args = {"doctype": doctype, "filters": processed_filters, "fields": ["name"], "limit_page_length": 0}
         matching_names = [doc.get("name") for doc in reportview_execute(**names_query_args) if doc.get("name")]
         
+        # --- Apply require_pending_items filter ---
+        if require_pending_items_bool and matching_names:
+            if doctype in CHILD_TABLE_ITEM_SEARCH_MAP:
+                # Use first available child table config (e.g., "order_list")
+                child_table_key = next(iter(CHILD_TABLE_ITEM_SEARCH_MAP[doctype]))
+                search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype][child_table_key]
+                child_status_field = search_config.get("status_field")
+                if child_status_field:
+                    child_doctype_name = search_config["child_doctype"]
+                    child_link_field = search_config["link_field_to_parent"]
+                    sql = (
+                        f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` "
+                        f"FROM `tab{child_doctype_name}` "
+                        f"WHERE `{child_link_field}` IN %(names_tuple)s "
+                        f"AND `parenttype` = %(parent_doctype)s "
+                        f"AND `{child_status_field}` = 'Pending'"
+                    )
+                    sql_params = {"names_tuple": tuple(matching_names), "parent_doctype": doctype}
+                    matching_names = [
+                        r[0] for r in frappe.db.sql(sql, sql_params, as_list=True) if r and r[0]
+                    ]
+            elif doctype in JSON_ITEM_SEARCH_DOCTYPE_MAP:
+                search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
+                json_field_name = search_config["json_field"]
+                item_path_parts = search_config["item_path_parts"]
+                json_array_key = item_path_parts[0]
+                json_pending_sql = (
+                    f"SELECT DISTINCT name FROM `tab{doctype}` "
+                    f"WHERE name IN %(names_tuple)s AND "
+                    f"EXISTS(SELECT 1 FROM jsonb_array_elements("
+                    f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
+                    f") AS item_obj WHERE item_obj->>'status' = 'Pending')"
+                )
+                matching_names = [
+                    r[0] for r in frappe.db.sql(json_pending_sql, {"names_tuple": tuple(matching_names)}, as_list=True) if r and r[0]
+                ]
+        # --- End require_pending_items filter ---
+
         if not matching_names:
             result = {"values": []}
             frappe.cache().set_value(cache_key, result, expires_in_sec=CACHE_EXPIRY)

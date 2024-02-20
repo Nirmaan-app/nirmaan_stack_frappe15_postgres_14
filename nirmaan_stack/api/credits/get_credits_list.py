@@ -431,3 +431,130 @@ def _calculate_aggregates(base_where: str, base_values: dict, today_date: str, a
         }
 
     return {"total_credit_amount": 0, "total_due_amount": 0, "total_paid_amount": 0}
+
+
+@frappe.whitelist()
+def get_credits_facets(
+    facet_field: str,                 # e.g., "project_name" or "vendor_name"
+    status_filter: str = "All",       # "Due", "All", or specific term_status
+    filters: str = None,              # JSON string of TanStack column filters
+    search_term: str = None,          # Search query
+    search_field: str = "name",       # Which field to search
+    limit: int = 100                  # Max number of facets to return
+):
+    """
+    Fetches dynamic facet counts for the Credits list.
+    Groups by the parent PO's facet_field, but correctly counts the matching 
+    child PO Payment Terms rows.
+    """
+    limit = cint(limit) or 100
+    
+    # Map requested facet field to SQL field
+    # E.g., 'project_name' -> 'po.project_name'
+    valid_facet_fields = {
+        'project_name': 'po.project_name',
+        'vendor_name': 'po.vendor_name',
+        'project': 'po.project',
+        'vendor': 'po.vendor'
+    }
+    
+    if facet_field not in valid_facet_fields:
+        return {"values": []}
+        
+    sql_facet_field = valid_facet_fields[facet_field]
+
+    # Get user's allowed projects
+    user = frappe.session.user
+    allowed_projects = _get_user_allowed_projects(user)
+
+    # Build WHERE conditions
+    conditions = []
+    values = {}
+
+    # Base conditions
+    conditions.append('po.status NOT IN (\'Merged\', \'Inactive\', \'PO Amendment\')')
+    conditions.append('pt.payment_type = \'Credit\'')
+    conditions.append(f'{sql_facet_field} IS NOT NULL AND {sql_facet_field} != \'\'')
+
+    # Project permission filter
+    if allowed_projects is not None:
+        if len(allowed_projects) == 0:
+            return {"values": []}
+        conditions.append('po.project IN %(allowed_projects)s')
+        values['allowed_projects'] = tuple(allowed_projects)
+
+    today_date = today()
+    values['today'] = today_date
+
+    # Status filter
+    if status_filter == "Due":
+        conditions.append('''(
+            (pt.term_status = 'Created' AND pt.due_date <= %(today)s)
+            OR pt.term_status = 'Requested'
+            OR pt.term_status = 'Approved'
+        )''')
+    elif status_filter != "All":
+        conditions.append('pt.term_status = %(status_filter)s')
+        values['status_filter'] = status_filter
+
+    # Parse column filters
+    if filters:
+        parsed_filters = _parse_tanstack_filters(filters)
+        for filter_condition, filter_value_key, filter_value in parsed_filters:
+            # Skip the filter that matches the field we are faceting on
+            # so the user can still see other options with their counts
+            if facet_field in filter_condition:
+                continue
+            conditions.append(filter_condition)
+            # Add to values only if it's not a generic 'today' mapping without a fresh value
+            if filter_value is not None:
+                values[filter_value_key] = filter_value
+
+    # Search filter
+    if search_term and search_term.strip():
+        search_patterns = []
+        search_tokens = search_term.strip().split()
+        for idx, token in enumerate(search_tokens):
+            token_key = f'facet_search_{idx}'
+            if search_field == "name":
+                search_patterns.append(f'po.name ILIKE %({token_key})s')
+            elif search_field == "vendor_name":
+                search_patterns.append(f'po.vendor_name ILIKE %({token_key})s')
+            elif search_field == "project_name":
+                search_patterns.append(f'po.project_name ILIKE %({token_key})s')
+            else:
+                search_patterns.append(f'po.name ILIKE %({token_key})s')
+            values[token_key] = f'%{token}%'
+
+        if search_patterns:
+            conditions.append(f'({" AND ".join(search_patterns)})')
+
+    where_clause = ' AND '.join(conditions)
+
+    sql = f"""
+        SELECT 
+            {sql_facet_field} as value,
+            COUNT(*) as count
+        FROM "tabProcurement Orders" po
+        INNER JOIN "tabPO Payment Terms" pt ON pt.parent = po.name
+        WHERE {where_clause}
+        GROUP BY {sql_facet_field}
+        ORDER BY count DESC, {sql_facet_field} ASC
+        LIMIT %(limit)s
+    """
+    
+    values['limit'] = limit
+    
+    results = frappe.db.sql(sql, values, as_dict=True)
+    
+    facet_values = []
+    for r in results:
+        # Assuming value is the label since we group by project_name / vendor_name
+        facet_values.append({
+            "value": r.get('value'),
+            "label": r.get('value'),
+            "count": r.get('count')
+        })
+        
+    return {"values": facet_values}
+

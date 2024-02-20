@@ -61,7 +61,8 @@ interface DataTableProps<TData, TValue> {
   totalPOsRaised?: any;
   itemSearch?: boolean;
   sortColumn?: string;
-  onExport?: () => void; // Callback to handle export logic
+  onExport?: (filteredData: TData[]) => void; // Callback to handle export logic
+  onFilteredDataChange?: (filteredData: TData[]) => void; // Expose filtered rows to parent
   /* row-level styling callback */
   getRowClassName?: (row: Row<TData>) => string | undefined;
 }
@@ -85,6 +86,7 @@ export function DataTable<TData, TValue>({
   customerOptions = undefined,
   sortColumn = undefined,
   onExport,
+  onFilteredDataChange,
   getRowClassName,
 }: DataTableProps<TData, TValue>) {
 
@@ -206,6 +208,14 @@ export function DataTable<TData, TValue>({
   //   {table.getFilteredSelectedRowModel().rows.length} of{" "}
   //   {table.getFilteredRowModel().rows.length} row(s) selected.
   // </div>
+
+  // Expose filtered data to parent if requested
+  React.useEffect(() => {
+    if (onFilteredDataChange) {
+      const currentFilteredData = table.getFilteredRowModel().rows.map(row => row.original);
+      onFilteredDataChange(currentFilteredData);
+    }
+  }, [table.getFilteredRowModel().rows, onFilteredDataChange]);
 
   return (
     <div className="space-y-4">

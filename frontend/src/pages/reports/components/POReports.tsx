@@ -157,7 +157,7 @@ export default function POReports() {
           ) {
             return (
               parseNumber(row.amountPaid) >
-              parseNumber(row.totalAmount) + payment_delta
+              parseNumber((row as any).totalAmount) + payment_delta
             );
           }
           return false;
@@ -230,10 +230,7 @@ export default function POReports() {
     // No `meta` needed here as POReportRowData contains all display fields,
     // and poColumns directly accesses them.
   });
-  const fullyFilteredData = table
-    .getFilteredRowModel()
-    .rows.map((row) => row.original);
-
+  // Removed fullyFilteredData as it's unused
   const filteredRowCount = table.getFilteredRowModel().rows.length;
   // This effect synchronizes the table's pageCount with the client-side filtered data.
   useEffect(() => {
@@ -251,39 +248,28 @@ export default function POReports() {
   }, [filteredRowCount]); // Rerun when the table instance or filtered data count changes
   // =================================================================================
   // Supporting data for faceted filters (Projects & Vendors)
-  const projectsFetchOptions = getProjectListOptions();
-  const {
-    data: projects,
-    isLoading: projectsUiLoading,
-    error: projectsUiError,
-  } = useFrappeGetDocList<Projects>(
-    "Projects",
-    projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>,
-    queryKeys.projects.list(projectsFetchOptions)
-  );
-  const {
-    data: vendors,
-    isLoading: vendorsUiLoading,
-    error: vendorsUiError,
-  } = useVendorsList({
-    vendorTypes: ["Service", "Material", "Material & Service"],
-  });
 
-  // Ensure `value` in facet options matches the data in POReportRowData's `projectName` and `vendorName`
-  const projectFacetOptions = useMemo<SelectOption[]>(
-    () =>
-      projects?.map((p) => ({
-        label: p.project_name,
-        value: p.project_name,
-      })) || [],
-    [projects]
-  );
-  const vendorFacetOptions = useMemo<SelectOption[]>(
-    () =>
-      vendors?.map((v) => ({ label: v.vendor_name, value: v.vendor_name })) ||
-      [],
-    [vendors]
-  );
+  const projectFacetOptions = useMemo<SelectOption[]>(() => {
+    const counts: Record<string, number> = {};
+    currentDisplayData.forEach(row => {
+      const val = (row as any).projectName || row.project;
+      if (val) counts[val] = (counts[val] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([val, count]) => ({ label: `${val} (${count})`, value: val }))
+      .sort((a, b) => a.value.localeCompare(b.value));
+  }, [currentDisplayData]);
+
+  const vendorFacetOptions = useMemo<SelectOption[]>(() => {
+    const counts: Record<string, number> = {};
+    currentDisplayData.forEach(row => {
+      const val = (row as any).vendorName || row.vendor;
+      if (val) counts[val] = (counts[val] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([val, count]) => ({ label: `${val} (${count})`, value: val }))
+      .sort((a, b) => a.value.localeCompare(b.value));
+  }, [currentDisplayData]);
 
   const facetOptionsConfig = useMemo(
     () => ({
@@ -343,10 +329,10 @@ export default function POReports() {
       return {
         po_id: row.name,
         creation: formatDate(row.creation),
-        project_name: row.projectName || row.project,
+        project_name: (row as any).projectName || row.project,
         assignees: formattedAssignees || "--", // New Field
-        vendor_name: row.vendorName || row.vendor,
-        total_po_amt: formatForReport(row.totalAmount),
+        vendor_name: (row as any).vendorName || row.vendor,
+        total_po_amt: formatForReport((row as any).totalAmount),
         total_invoice_amt: formatForReport(row.invoiceAmount),
         amt_paid: formatForReport(row.amountPaid),
         pending_invoice_amt: formatForReport(pendingInvoiceAmt), // New Field
@@ -406,11 +392,9 @@ export default function POReports() {
 
   const isLoadingOverall =
     isLoadingInitialData ||
-    projectsUiLoading ||
-    vendorsUiLoading ||
     isTableHookLoading;
   const overallError =
-    initialDataError || projectsUiError || vendorsUiError || tableHookError;
+    initialDataError || tableHookError;
 
   if (selectedReportType === 'DN > DC Quantity Report') {
     return <DNDCQuantityReport />;
