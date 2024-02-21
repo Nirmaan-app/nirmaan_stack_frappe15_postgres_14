@@ -1,0 +1,210 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-02-21 16:23:23.319390",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "project_details_section",
+  "project_name",
+  "customer",
+  "project_type",
+  "project_timeline_section",
+  "project_start_date",
+  "project_end_date",
+  "project_duration",
+  "project_address_details_section",
+  "project_address",
+  "project_city",
+  "project_state",
+  "project_asignees_section",
+  "project_lead",
+  "project_manager",
+  "procurement_executive",
+  "design_executive",
+  "project_work_details_section",
+  "project_work_milestones",
+  "project_scopes"
+ ],
+ "fields": [
+  {
+   "fieldname": "project_details_section",
+   "fieldtype": "Section Break",
+   "label": "Project Details"
+  },
+  {
+   "fieldname": "project_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Project Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customers"
+  },
+  {
+   "fieldname": "project_type",
+   "fieldtype": "Link",
+   "label": "Project Type",
+   "options": "Project Types"
+  },
+  {
+   "fieldname": "project_timeline_section",
+   "fieldtype": "Section Break",
+   "label": "Project Timeline"
+  },
+  {
+   "fieldname": "project_start_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Project Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project_end_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Project End Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project_duration",
+   "fieldtype": "Int",
+   "label": "Project Duration"
+  },
+  {
+   "fieldname": "project_address_details_section",
+   "fieldtype": "Section Break",
+   "label": "Project Address Details"
+  },
+  {
+   "fieldname": "project_address",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Project Address",
+   "options": "Address",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project_city",
+   "fieldtype": "Data",
+   "label": "Project City"
+  },
+  {
+   "fieldname": "project_state",
+   "fieldtype": "Data",
+   "label": "Project State"
+  },
+  {
+   "fieldname": "project_asignees_section",
+   "fieldtype": "Section Break",
+   "label": "Project Asignees"
+  },
+  {
+   "fieldname": "project_lead",
+   "fieldtype": "Link",
+   "label": "Project Lead",
+   "options": "User"
+  },
+  {
+   "fieldname": "project_manager",
+   "fieldtype": "Link",
+   "label": "Project Manager",
+   "options": "User"
+  },
+  {
+   "fieldname": "procurement_executive",
+   "fieldtype": "Link",
+   "label": "Procurement Executive",
+   "options": "User"
+  },
+  {
+   "fieldname": "design_executive",
+   "fieldtype": "Link",
+   "label": "Design Executive",
+   "options": "User"
+  },
+  {
+   "fieldname": "project_work_details_section",
+   "fieldtype": "Section Break",
+   "label": "Project Work Details"
+  },
+  {
+   "fieldname": "project_work_milestones",
+   "fieldtype": "JSON",
+   "label": "Project Work Milestones"
+  },
+  {
+   "fieldname": "project_scopes",
+   "fieldtype": "JSON",
+   "label": "Project Scopes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-02-21 20:00:37.769565",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Projects",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Procurement Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Design Executive",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
