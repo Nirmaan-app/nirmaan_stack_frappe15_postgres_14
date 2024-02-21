@@ -1,0 +1,93 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-02-21 16:35:53.282637",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "project_type_details_section",
+  "project_type_name",
+  "standard_project_duration"
+ ],
+ "fields": [
+  {
+   "fieldname": "project_type_details_section",
+   "fieldtype": "Section Break",
+   "label": "Project Type Details "
+  },
+  {
+   "fieldname": "project_type_name",
+   "fieldtype": "Data",
+   "label": "Project Type Name"
+  },
+  {
+   "fieldname": "standard_project_duration",
+   "fieldtype": "Int",
+   "label": "Standard Project Duration"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-02-21 18:21:37.400266",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Project Types",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Procurement Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Design Executive",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

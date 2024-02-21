@@ -27,13 +27,10 @@ jobs:
         image: redis:alpine
         ports:
           - 11000:6379
-      mariadb:
-        image: mariadb:10.6
-        env:
-          MYSQL_ROOT_PASSWORD: root
-        ports:
-          - 3306:3306
-        options: --health-cmd="mariadb-admin ping" --health-interval=5s --health-timeout=2s --health-retries=3
+      postgresql:
+        image: postgres:11.8
+        environment:
+          POSTGRES_PASSWORD: 123
 
     steps:
       - name: Clone
