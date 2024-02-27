@@ -1,38 +1,78 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import './App.css'
 import { FrappeProvider } from 'frappe-react-sdk'
 import { Button } from './components/ui/button'
+import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
+import Dashboard from './pages/dashboard'
+import Projects from './pages/projects'
+import Customers from './pages/customers'
+import WorkPackages from './pages/work-packages'
+import { useStickyState } from './hooks/useStickyState'
+import { ThemeProvider } from './components/theme-provider'
+
+
+const router = createBrowserRouter(
+	createRoutesFromElements(
+		<>
+			<Route path='/login' element={<h1>LOGIN</h1>} />
+			<Route path="/" >
+				<Route index element={<Dashboard />} />
+				<Route path="projects" >
+					<Route index element={<Projects />} />
+					{/* <Route path="edit" element={<EditProject />} /> */}
+					{/* <Route
+						path=":projectId"
+						// loader={(({ params }) => {
+						// 	console.log(params.projectId)
+						// })}
+						// action={(({ params }) => {})}
+						lazy={() => import('@/pages/project')}
+					/> */}
+				</Route>
+				<Route path="customers" >
+					<Route index element={<Customers />} />
+					{/* <Route path="edit" element={<EditCustomer />} /> */}
+				</Route>
+				{/* <Route index element={<ChannelRedirect />} />
+					<Route path="saved-messages" lazy={() => import('./components/feature/saved-messages/SavedMessages')} />
+					<Route path=":channelID" lazy={() => import('@/pages/ChatSpace')} />
+				</Route> */}
+				<Route path="wp" element={<WorkPackages />} />
+			</Route >
+		</>
+	), {
+	basename: `/${import.meta.env.VITE_BASE_NAME}` ?? "",
+}
+)
+
 function App() {
-	const [count, setCount] = useState(0)
+	// const [appearance, setAppearance] = useStickyState<'light' | 'dark'>('light', 'appearence');
+
+	// const toggleTheme = () => {
+	// 	setAppearance(appearance === 'dark' ? 'light' : 'dark');
+	// };
+
+
+	// Sitename support for frappe v15
+	const getSiteName = () => {
+		// @ts-ignore
+		if (window.frappe?.boot?.versions?.frappe && (window.frappe.boot.versions.frappe.startsWith('15') || window.frappe.boot.versions.frappe.startsWith('16'))) {
+			// @ts-ignore
+			return window.frappe?.boot?.sitename ?? import.meta.env.VITE_SITE_NAME
+		}
+		return import.meta.env.VITE_SITE_NAME
+
+	}
 
 	return (
-		<div className="App">
-			<FrappeProvider>
-				<div>
-					<div>
-						<a href="https://vitejs.dev" target="_blank">
-							<img src="/vite.svg" className="logo" alt="Vite logo" />
-						</a>
-						<a href="https://reactjs.org" target="_blank">
-							<img src={reactLogo} className="logo react" alt="React logo" />
-						</a>
-					</div>
-					<h1>Vite + React + Frappe</h1>
-					<div className="card">
-						<Button onClick={() => setCount((count) => count + 1)}>
-							count is {count}
-						</Button>
-						<p>
-							Edit <code>src/App.jsx</code> and save to test HMR
-						</p>
-					</div>
-					<p className="read-the-docs">
-						Click on the Vite and React logos to learn more
-					</p>
-				</div>
-			</FrappeProvider>
-		</div>
+		<FrappeProvider
+			url={import.meta.env.VITE_FRAPPE_PATH ?? ""}
+			socketPort={import.meta.env.VITE_SOCKET_PORT ? import.meta.env.VITE_SOCKET_PORT : undefined}
+			//@ts-ignore
+			siteName={getSiteName()}>
+			<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+				<RouterProvider router={router} />
+			</ThemeProvider>
+		</FrappeProvider>
 	)
 }
 
