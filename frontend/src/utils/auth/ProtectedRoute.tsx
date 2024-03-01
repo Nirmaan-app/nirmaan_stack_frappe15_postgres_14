@@ -1,0 +1,19 @@
+import { useContext } from 'react'
+import { Navigate, Outlet } from 'react-router-dom'
+//import { FullPageLoader } from '../../components/layout/Loaders'
+import { UserContext } from './UserProvider'
+
+export const ProtectedRoute = () => {
+
+    const { currentUser, isLoading } = useContext(UserContext)
+
+    if (isLoading) {
+        return <h1>Loading...</h1>
+    }
+    else if (!currentUser || currentUser === 'Guest') {
+        return <Navigate to="/login" />
+    }
+    return (
+        <Outlet />
+    )
+}

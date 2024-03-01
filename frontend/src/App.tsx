@@ -6,15 +6,18 @@ import Dashboard from './pages/dashboard'
 import Projects from './pages/projects'
 import Customers from './pages/customers'
 import WorkPackages from './pages/work-packages'
-import { useStickyState } from './hooks/useStickyState'
+//import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
+import { ProtectedRoute } from './utils/auth/ProtectedRoute'
+import { UserProvider } from './utils/auth/UserProvider'
+import AuthenticationPage from './pages/auth/login-shadcn'
 
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
 		<>
-			<Route path='/login' element={<h1>LOGIN</h1>} />
-			<Route path="/" >
+			<Route path='/login' lazy={() => import('@/pages/auth/Login')} />
+			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
 				<Route path="projects" >
 					<Route index element={<Projects />} />
@@ -37,6 +40,7 @@ const router = createBrowserRouter(
 					<Route path=":channelID" lazy={() => import('@/pages/ChatSpace')} />
 				</Route> */}
 				<Route path="wp" element={<WorkPackages />} />
+				<Route path="testlogin" element={<AuthenticationPage />} />
 			</Route >
 		</>
 	), {
@@ -69,9 +73,11 @@ function App() {
 			socketPort={import.meta.env.VITE_SOCKET_PORT ? import.meta.env.VITE_SOCKET_PORT : undefined}
 			//@ts-ignore
 			siteName={getSiteName()}>
-			<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-				<RouterProvider router={router} />
-			</ThemeProvider>
+			<UserProvider>
+				<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+					<RouterProvider router={router} />
+				</ThemeProvider>
+			</UserProvider>
 		</FrappeProvider>
 	)
 }
