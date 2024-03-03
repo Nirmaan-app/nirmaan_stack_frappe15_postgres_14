@@ -66,10 +66,19 @@ module.exports = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "shadow-drop-center": {
+          "0%": {
+            "box-shadow": "0 0 0 0 transparent"
+          },
+          to: {
+            "box-shadow": "0 0 20px 0 rgba(0, 0, 0, .35)"
+          }
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "shadow-drop-center": "shadow-drop-center 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940)   both",
       },
     },
   },
