@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
+ "autoname": "CUST-.###",
  "creation": "2024-02-21 16:29:07.484319",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -61,10 +62,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-02-22 13:16:45.537242",
+ "modified": "2024-03-04 12:27:42.132462",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Customers",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {

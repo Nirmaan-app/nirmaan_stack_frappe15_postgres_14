@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
+ "autoname": "field:project_type_name",
  "creation": "2024-02-21 16:35:53.282637",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -20,7 +21,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Project Type Name",
-   "reqd": 1
+   "reqd": 1,
+   "unique": 1
   },
   {
    "fieldname": "standard_project_duration",
@@ -30,10 +32,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-02-22 13:16:09.615132",
+ "modified": "2024-03-04 12:42:40.622949",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Types",
+ "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {

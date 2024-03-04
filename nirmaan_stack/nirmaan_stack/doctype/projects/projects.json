@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
+ "autoname": "PROJ-.#####",
  "creation": "2024-02-21 16:23:23.319390",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -145,10 +146,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-02-22 13:15:30.850035",
+ "modified": "2024-03-04 12:26:45.192081",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {

@@ -1,9 +1,8 @@
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumbs";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumb";
 import { NavBar } from "@/components/nav/nav-bar";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useFrappeGetDocCount } from "frappe-react-sdk";
 import { HardHat } from "lucide-react";
-import { Suspense } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
