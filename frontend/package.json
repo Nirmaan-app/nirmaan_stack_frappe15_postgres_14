@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn copy-html-entry",
+    "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html"
