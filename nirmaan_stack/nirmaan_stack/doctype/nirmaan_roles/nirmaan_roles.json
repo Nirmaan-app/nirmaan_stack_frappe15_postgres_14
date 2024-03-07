@@ -8,7 +8,7 @@
  "field_order": [
   "role_details_section",
   "role_name",
-  "role_profile_link"
+  "role_profile"
  ],
  "fields": [
   {
@@ -25,15 +25,16 @@
    "unique": 1
   },
   {
-   "fieldname": "role_profile_link",
+   "fieldname": "role_profile",
    "fieldtype": "Link",
    "label": "Role Profile Link",
-   "options": "Role Profile"
+   "options": "Role Profile",
+   "reqd": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-03-04 13:40:12.068461",
+ "modified": "2024-03-05 15:36:36.053359",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Nirmaan Roles",

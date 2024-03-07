@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { ColumnDef } from "@tanstack/react-table";
-import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import { HardHat } from "lucide-react";
 
 import { useMemo } from "react";
@@ -91,8 +91,6 @@ export default function Projects() {
         ],
         []
     )
-
-    //const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<ProjectsType>("Projects", {
         fields: ["name", "project_name", "project_type", "project_city", "project_state"]

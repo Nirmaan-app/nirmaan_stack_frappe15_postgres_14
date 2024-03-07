@@ -21,5 +21,5 @@ export interface NirmaanUsers{
 	/**	Email : Data	*/
 	email: string
 	/**	Nirmaan Role Name : Data	*/
-	nirmaan_role_name?: string
+	role_profile?: string
 }

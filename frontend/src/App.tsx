@@ -11,6 +11,9 @@ import { ThemeProvider } from './components/theme-provider'
 import { ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
 import AuthenticationPage from './pages/auth/login-shadcn'
+import Users from './pages/users'
+import Roles from './pages/roles'
+import Debug from './pages/debug'
 
 
 const router = createBrowserRouter(
@@ -31,6 +34,12 @@ const router = createBrowserRouter(
 						lazy={() => import('@/pages/project')}
 					/> */}
 				</Route>
+				<Route path="users">
+					<Route index element={<Users />} />
+				</Route>
+				<Route path="roles">
+					<Route index element={<Roles />} />
+				</Route>
 				<Route path="customers" >
 					<Route index element={<Customers />} />
 					{/* <Route path="edit" element={<EditCustomer />} /> */}
@@ -39,6 +48,9 @@ const router = createBrowserRouter(
 					<Route path="saved-messages" lazy={() => import('./components/feature/saved-messages/SavedMessages')} />
 					<Route path=":channelID" lazy={() => import('@/pages/ChatSpace')} />
 				</Route> */}
+				<Route path="debug">
+					<Route index element={<Debug />} />
+				</Route>
 				<Route path="wp" element={<WorkPackages />} />
 				<Route path="testlogin" element={<AuthenticationPage />} />
 			</Route >
