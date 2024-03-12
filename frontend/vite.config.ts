@@ -12,12 +12,16 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: {
-			'@': path.resolve(__dirname, 'src')
+			'@': path.resolve(__dirname, 'src'),
+			'tailwind.config.js': path.resolve(__dirname, 'tailwind.config.js'),
 		}
 	},
 	build: {
 		outDir: '../nirmaan_stack/public/frontend',
 		emptyOutDir: true,
-		target: 'es2015',
+		commonjsOptions: {
+      		include: [/tailwind.config.js/, /node_modules/],
+    	},
+    	sourcemap: true,
 	},
 });
