@@ -8,7 +8,7 @@
     "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn copy-html-entry",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "copy-html-entry": "cd ../nirmaan_stack/www && cp ../../nirmaan_stack/public/frontend/index.html frontend.html && cd ../../frontend"
+    "copy-html-entry": "ls ../nirmaan_stack && ls ../nirmaan_stack/www && ls ../nirmaan_stack/public/frontend" 
   },
   "dependencies": {
     "frappe-react-sdk": "^1.4.3",
