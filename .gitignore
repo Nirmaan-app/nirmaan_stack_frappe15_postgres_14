@@ -6,3 +6,6 @@ tags
 node_modules
 __pycache__
 .github/workflows
+nirmaan_stack/public/frontend
+nirmaan_stack/www/frontend.html
+build
