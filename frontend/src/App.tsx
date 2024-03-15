@@ -56,7 +56,7 @@ const router = createBrowserRouter(
 			</Route >
 		</>
 	), {
-	basename: "frontend",
+	basename: `/${import.meta.env.VITE_BASE_NAME}` ?? "",
 }
 )
 
