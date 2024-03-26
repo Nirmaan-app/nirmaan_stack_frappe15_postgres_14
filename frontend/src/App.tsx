@@ -1,11 +1,12 @@
-import { useState } from 'react'
+// import { useState } from 'react'
 import { FrappeProvider } from 'frappe-react-sdk'
-import { Button } from './components/ui/button'
+// import { Button } from './components/ui/button'
 import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
 import Projects from './pages/projects'
 import Customers from './pages/customers'
 import WorkPackages from './pages/work-packages'
+import EditProject from './pages/edit-project'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
 import { ProtectedRoute } from './utils/auth/ProtectedRoute'
@@ -24,7 +25,7 @@ const router = createBrowserRouter(
 				<Route index element={<Dashboard />} />
 				<Route path="projects" >
 					<Route index element={<Projects />} />
-					{/* <Route path="edit" element={<EditProject />} /> */}
+					<Route path="edit" element={<EditProject />} /> 
 					{/* <Route
 						path=":projectId"
 						// loader={(({ params }) => {
