@@ -99,7 +99,7 @@ export default function Projects() {
     return (
         <>
             <NavBar />
-            <div className="flex-1 space-y-4 p-8 pt-6">
+            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
@@ -112,11 +112,11 @@ export default function Projects() {
                         </BreadcrumbItem>
                     </Breadcrumb>
                 </div>
-                <div className="flex items-center justify-between space-y-2">
-                    <h2 className="text-3xl font-bold tracking-tight">Projects Dashboard</h2>
+                <div className="flex items-center justify-between mb-2 space-y-2">
+                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
                     <div className="flex items-center space-x-2">
                         <Button asChild>
-                            <Link to="edit"> +Add Project</Link>
+                            <Link to="edit"> +Add <span className="hidden md:flex">Project</span></Link>
                         </Button>
                     </div>
                 </div>
@@ -139,7 +139,7 @@ export default function Projects() {
                         </CardContent>
                     </Card>
                 </div>
-                <div className="container mx-auto py-10">
+                <div className="container pl-0 pr-2">
                     {isLoading && <h3>LOADING</h3>}
                     {error && <h3>ERROR</h3>}
                     <DataTable columns={columns} data={data || []} />
