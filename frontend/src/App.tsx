@@ -3,7 +3,7 @@ import { FrappeProvider } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
 import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
-import Login from './pages/login'
+//import Login from './pages/login'
 import Projects from './pages/projects'
 import Customers from './pages/customers'
 import WorkPackages from './pages/work-packages'
@@ -21,12 +21,12 @@ import Debug from './pages/debug'
 const router = createBrowserRouter(
 	createRoutesFromElements(
 		<>
-			{/* <Route path='/login' lazy={() => import('@/pages/auth/Login')} /> */}
+			<Route path='/login' lazy={() => import('@/pages/auth/Login')} />
 			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
 				<Route path="projects" >
 					<Route index element={<Projects />} />
-					<Route path="edit" element={<EditProject />} /> 
+					<Route path="edit" element={<EditProject />} />
 					{/* <Route
 						path=":projectId"
 						// loader={(({ params }) => {
