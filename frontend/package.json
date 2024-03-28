@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html"
   },
@@ -48,12 +47,8 @@
   "devDependencies": {
     "@types/react": "^18.2.56",
     "@types/react-dom": "^18.2.19",
-    "@typescript-eslint/eslint-plugin": "^7.0.2",
-    "@typescript-eslint/parser": "^7.0.2",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
-    "eslint-plugin-react-hooks": "^4.6.0",
-    "eslint-plugin-react-refresh": "^0.4.5",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.2.2",
