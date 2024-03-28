@@ -8,7 +8,7 @@
     "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "copy-html-entry": "mkdir ../nirmaan_stack/www && cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html"
+    "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
@@ -52,8 +52,6 @@
     "@typescript-eslint/parser": "^7.0.2",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
-    "cypress": "^13.7.0",
-    "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
     "postcss": "^8.4.35",
