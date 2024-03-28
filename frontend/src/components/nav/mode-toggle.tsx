@@ -13,6 +13,7 @@ export function ModeToggle() {
     const { setTheme } = useTheme()
 
     return (
+        <div className="hidden md:flex">
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon">
@@ -33,5 +34,6 @@ export function ModeToggle() {
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
+        </div>
     )
 }

@@ -6,10 +6,10 @@ export const NavBar = () => {
     return (
         <>
             {/* NAVBAR */}
-            <div className="hidden flex-col md:flex">
+            <div className="">
                 <div className="border-b">
-                    <div className="flex h-16 items-center px-4">
-                        <MainNav className="mx-6" />
+                    <div className="flex h-16 items-center px-2 md:px-4">
+                        <MainNav className="mx-2 md:mx-6"/>
                         <div className="ml-auto flex items-center space-x-4">
                             <ModeToggle />
                             <UserNav />
