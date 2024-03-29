@@ -200,7 +200,6 @@ export const Component = () => {
         )
     }
     else return <Navigate to="/" />
-
 }
 
 Component.displayName = "LoginPage";
