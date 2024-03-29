@@ -14,7 +14,9 @@ import { Link } from "react-router-dom";
 
 export default function Users() {
 
-    const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users")
+    const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+        fields: ["name", "full_name", "email", "phone"]
+    })
 
     const columns: ColumnDef<NirmaanUsers>[] = useMemo(
         () => [

@@ -6,4 +6,14 @@ from frappe.model.document import Document
 
 
 class NirmaanUsers(Document):
-	pass
+	def validate(self):
+		self.set_full_name()
+	
+	def autoname(self):
+		"""set name as Email Address"""
+		self.email = self.email.strip().lower()
+		self.name = self.email
+	
+	#REFER from frappe modules User doctype
+	def set_full_name(self):
+		self.full_name = " ".join(filter(None, [self.first_name, self.last_name]))
