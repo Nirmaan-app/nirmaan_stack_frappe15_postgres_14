@@ -95,7 +95,7 @@ export default function Projects() {
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<ProjectsType>("Projects", {
         fields: ["name", "project_name", "project_type", "project_city", "project_state"]
     })
-    console.log(data)
+
     return (
         <>
             <NavBar />
