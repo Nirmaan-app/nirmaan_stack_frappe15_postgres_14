@@ -23,10 +23,6 @@ import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
 import { Checkbox } from "./ui/checkbox"
 
-import { useState } from "react"
-import { Switch } from "./ui/switch"
-import { Label } from "./ui/label"
-
 
 const workPackages = [
     {
@@ -60,7 +56,7 @@ const workPackages = [
             {
                 name: "SOW-005",
                 scope_of_work_name: "HVAC  - VRF system",
-                isSelected: false, 
+                isSelected: false,
                 work_package: "Electrical"
             },
             {
@@ -416,25 +412,29 @@ export const ProjectForm = () => {
         filters: [["address_type", "=", "Project"]]
     });
 
-    const { data: project_lead, isLoading: project_lead_isLoading, error: project_lead_error } = useFrappeGetDocList('Employees', {
-        fields: ["name", "employee_name"],
-        filters: [["employee_role", "=", "Project Lead"]]
+    const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
+        fields: ["name", "full_name"],
     });
 
-    const { data: project_manager, isLoading: project_manager_isLoading, error: project_manager_error } = useFrappeGetDocList('Employees', {
-        fields: ["name", "employee_name"],
-        filters: [["employee_role", "=", "Project Manager"]]
-    });
+    // const { data: project_lead, isLoading: project_lead_isLoading, error: project_lead_error } = useFrappeGetDocList('Empployees', {
+    //     fields: ["name", "employee_name"],
+    //     filters: [["employee_role", "=", "Project Lead"]]
+    // });
 
-    const { data: design_lead, isLoading: design_lead_isLoading, error: design_lead_error } = useFrappeGetDocList('Employees', {
-        fields: ["name", "employee_name"],
-        filters: [["employee_role", "=", "Design Lead"]]
-    });
+    // const { data: project_manager, isLoading: project_manager_isLoading, error: project_manager_error } = useFrappeGetDocList('Employees', {
+    //     fields: ["name", "employee_name"],
+    //     filters: [["employee_role", "=", "Project Manager"]]
+    // });
 
-    const { data: procurement_lead, isLoading: procurement_lead_isLoading, error: procurement_lead_error } = useFrappeGetDocList('Employees', {
-        fields: ["name", "employee_name"],
-        filters: [["employee_role", "=", "Procurement Lead"]]
-    });
+    // const { data: design_lead, isLoading: design_lead_isLoading, error: design_lead_error } = useFrappeGetDocList('Employees', {
+    //     fields: ["name", "employee_name"],
+    //     filters: [["employee_role", "=", "Design Lead"]]
+    // });
+
+    // const { data: procurement_lead, isLoading: procurement_lead_isLoading, error: procurement_lead_error } = useFrappeGetDocList('Employees', {
+    //     fields: ["name", "employee_name"],
+    //     filters: [["employee_role", "=", "Procurement Lead"]]
+    // });
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
 
@@ -505,25 +505,30 @@ export const ProjectForm = () => {
         value: item.name
     })) || [];
 
-    const project_lead_options: SelectOption[] = project_lead?.map(item => ({
-        label: item.employee_name, // Adjust based on your data structure
+    const user_options: SelectOption[] = user?.map(item => ({
+        label: item.full_name, // Adjust based on your data structure
         value: item.name
     })) || [];
 
-    const project_manager_options: SelectOption[] = project_manager?.map(item => ({
-        label: item.employee_name, // Adjust based on your data structure
-        value: item.name
-    })) || [];
+    // const project_lead_options: SelectOption[] = project_lead?.map(item => ({
+    //     label: item.employee_name, // Adjust based on your data structure
+    //     value: item.name
+    // })) || [];
 
-    const design_lead_options: SelectOption[] = design_lead?.map(item => ({
-        label: item.employee_name, // Adjust based on your data structure
-        value: item.name
-    })) || [];
+    // const project_manager_options: SelectOption[] = project_manager?.map(item => ({
+    //     label: item.employee_name, // Adjust based on your data structure
+    //     value: item.name
+    // })) || [];
 
-    const procurement_lead_options: SelectOption[] = procurement_lead?.map(item => ({
-        label: item.employee_name, // Adjust based on your data structure
-        value: item.name
-    })) || [];
+    // const design_lead_options: SelectOption[] = design_lead?.map(item => ({
+    //     label: item.employee_name, // Adjust based on your data structure
+    //     value: item.name
+    // })) || [];
+
+    // const procurement_lead_options: SelectOption[] = procurement_lead?.map(item => ({
+    //     label: item.employee_name, // Adjust based on your data structure
+    //     value: item.name
+    // })) || [];
 
 
     return (
@@ -564,7 +569,7 @@ export const ProjectForm = () => {
 
                         )}
                     />
-                     <FormField
+                    <FormField
                         control={form.control}
                         name="customer"
                         render={({ field }) => (
@@ -893,9 +898,9 @@ export const ProjectForm = () => {
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
-                                                    {project_lead_isLoading && <div>Loading...</div>}
-                                                    {project_lead_error && <div>Error: {project_lead_error.message}</div>}
-                                                    {project_lead_options.map(option => (
+                                                    {user_isLoading && <div>Loading...</div>}
+                                                    {user_error && <div>Error: {user_error.message}</div>}
+                                                    {user_options.map(option => (
                                                         <SelectItem value={option.value}>{option.label}</SelectItem>
                                                     ))}
 
@@ -933,9 +938,9 @@ export const ProjectForm = () => {
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
-                                                    {project_manager_isLoading && <div>Loading...</div>}
-                                                    {project_manager_error && <div>Error: {project_manager_error.message}</div>}
-                                                    {project_manager_options.map(option => (
+                                                    {user_isLoading && <div>Loading...</div>}
+                                                    {user_error && <div>Error: {user_error.message}</div>}
+                                                    {user_options.map(option => (
                                                         <SelectItem value={option.value}>{option.label}</SelectItem>
                                                     ))}
 
@@ -973,9 +978,9 @@ export const ProjectForm = () => {
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
-                                                    {design_lead_isLoading && <div>Loading...</div>}
-                                                    {design_lead_error && <div>Error: {design_lead_error.message}</div>}
-                                                    {design_lead_options.map(option => (
+                                                    {user_isLoading && <div>Loading...</div>}
+                                                    {user_error && <div>Error: {user_error.message}</div>}
+                                                    {user_options.map(option => (
                                                         <SelectItem value={option.value}>{option.label}</SelectItem>
                                                     ))}
 
@@ -1013,9 +1018,9 @@ export const ProjectForm = () => {
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
-                                                    {procurement_lead_isLoading && <div>Loading...</div>}
-                                                    {procurement_lead_error && <div>Error: {procurement_lead_error.message}</div>}
-                                                    {procurement_lead_options.map(option => (
+                                                    {user_isLoading && <div>Loading...</div>}
+                                                    {user_error && <div>Error: {user_error.message}</div>}
+                                                    {user_options.map(option => (
                                                         <SelectItem value={option.value}>{option.label}</SelectItem>
                                                     ))}
 
