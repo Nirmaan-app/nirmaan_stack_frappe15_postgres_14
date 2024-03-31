@@ -37,8 +37,7 @@
    "fieldname": "project_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Project Name",
-   "reqd": 1
+   "label": "Project Name"
   },
   {
    "fieldname": "customer",
@@ -61,15 +60,13 @@
    "fieldname": "project_start_date",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Project Start Date",
-   "reqd": 1
+   "label": "Project Start Date"
   },
   {
    "fieldname": "project_end_date",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Project End Date",
-   "reqd": 1
+   "label": "Project End Date"
   },
   {
    "fieldname": "project_duration",
@@ -86,8 +83,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Project Address",
-   "options": "Address",
-   "reqd": 1
+   "options": "Address"
   },
   {
    "fieldname": "project_city",
@@ -146,7 +142,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-03-04 12:26:45.192081",
+ "modified": "2024-03-31 15:28:53.001246",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

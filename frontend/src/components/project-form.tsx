@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Button } from "./ui/button"
 import { ButtonLoading } from "./button-loading"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
-// import ProjectTypeForm from "./project-type-form"
+import ProjectTypeForm from "./project-type-form"
+import CustomerForm from "./customer-form"
 import { Separator } from "./ui/separator"
 import { AddressForm } from "./address-form"
 import { ScrollArea } from "./ui/scroll-area"
@@ -461,14 +462,19 @@ export const ProjectForm = () => {
         const formatted_end_date = values.project_end_date.toISOString().replace('T', ' ').slice(0, 19)
         // const scopes = values.project_scopes.toString()
         // const formatted_project_milestone = values.project_work_milestones.
+        console.log("before")
+        console.log(values)
         createDoc('Projects', {
             ...values,
             project_start_date: formatted_start_date,
             project_end_date: formatted_end_date
         }).then(() => {
+            console.log("after_then")
             console.log(values)
-        }).catch(() => {
+        }).catch((err) => {
             console.log(submit_error)
+            console.log(err);
+            console.log("error")
         })
         if (!mile_loading && !mile_error) {
             values.project_scopes.scopes.forEach(scope => {
@@ -485,7 +491,7 @@ export const ProjectForm = () => {
             })
         }
 
-
+        console.log("final")
         console.log(values)
     }
 
@@ -601,9 +607,23 @@ export const ProjectForm = () => {
                                         </FormDescription>
                                     </div>
                                     <div className="basis-1/4 pl-10 pt-2">
-                                        <Button variant="secondary" asChild>
+                                        {/* <Button variant="secondary" asChild>
                                             <Link to="../../customers/edit" relative="path">+ Add Customer</Link>
-                                        </Button>
+                                        </Button> */}
+                                        <Dialog>
+                                            <DialogTrigger asChild>
+                                                <Button variant="secondary"> + Add Customer</Button>
+                                            </DialogTrigger>
+                                            <DialogContent className="sm:max-w-[425px]">
+                                                <DialogHeader>
+                                                    <DialogTitle>Add New Customer</DialogTitle>
+                                                    <DialogDescription>
+                                                        Add new Customers here.
+                                                    </DialogDescription>
+                                                </DialogHeader>
+                                                <CustomerForm />
+                                            </DialogContent>
+                                        </Dialog>
                                     </div>
                                 </div>
                                 <div className="pt-2 pb-2">
@@ -656,7 +676,7 @@ export const ProjectForm = () => {
                                                             Add new project types here.
                                                         </DialogDescription>
                                                     </DialogHeader>
-                                                    {/* <ProjectTypeForm /> */}
+                                                    <ProjectTypeForm />
                                                 </DialogContent>
                                             </Dialog>
                                         </div>
