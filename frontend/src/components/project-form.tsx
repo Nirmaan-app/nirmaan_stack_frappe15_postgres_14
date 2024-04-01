@@ -60,55 +60,55 @@ const workPackages = [
                 work_package: "Electrical"
             },
             {
-                name: "SOW-017 ",
+                name: "SOW-006 ",
                 scope_of_work_name: "IOT/ Sensor work",
                 isSelected: false,
                 work_package: "Electrical"
             },
             {
-                name: "SOW-018",
+                name: "SOW-007",
                 scope_of_work_name: "Main Power Line",
                 isSelected: false,
                 work_package: "Electrical "
             },
             {
-                name: "SOW-019",
+                name: "SOW-008",
                 scope_of_work_name: "HVAC - Non VRF/ AHU",
                 isSelected: false,
                 work_package: "Electrical "
             },
             {
-                name: "SOW-020",
+                name: "SOW-009",
                 scope_of_work_name: "DB Work",
                 isSelected: false,
                 work_package: "Electrical"
             },
             {
-                name: "SOW-021",
+                name: "SOW-010",
                 scope_of_work_name: "Switch Socket",
                 isSelected: false,
                 work_package: "Electrical"
             },
             {
-                name: "SOW-022",
+                name: "SOW-011",
                 scope_of_work_name: "UPS Supply",
                 isSelected: false,
                 work_package: "Electrical"
             },
             {
-                name: "SOW-023",
+                name: "SOW-012",
                 scope_of_work_name: "Lights Supply",
                 isSelected: false,
                 work_package: "Electrical"
             },
             {
-                name: "SOW-024",
+                name: "SOW-013",
                 scope_of_work_name: "Earthing",
                 isSelected: false,
                 work_package: "Electrical"
             },
             {
-                name: "SOW-025",
+                name: "SOW-014",
                 scope_of_work_name: "Lights Installation",
                 isSelected: false,
                 work_package: "Electrical"
@@ -120,19 +120,19 @@ const workPackages = [
         isChecked: false,
         scopes: [
             {
-                name: "SOW-014",
+                name: "SOW-015",
                 scope_of_work_name: "CCTV Installation",
                 isSelected: false,
                 work_package: "Access Control & Security System"
             },
             {
-                name: "SOW-015",
+                name: "SOW-016",
                 scope_of_work_name: "Access Control Installation",
                 isSelected: false,
                 work_package: "Access Control & Security System"
             },
             {
-                name: "SOW-016",
+                name: "SOW-017",
                 scope_of_work_name: "Static IP Configuration",
                 isSelected: false,
                 work_package: "Access Control & Security System"
@@ -144,31 +144,31 @@ const workPackages = [
         isChecked: false,
         scopes: [
             {
-                name: "SOW-006",
+                name: "SOW-018",
                 scope_of_work_name: "Cabling",
                 isSelected: false,
                 work_package: "Data & Networking"
             },
             {
-                name: "SOW-007",
+                name: "SOW-019",
                 scope_of_work_name: "User Side Termination",
                 isSelected: false,
                 work_package: "Data & Networking"
             },
             {
-                name: "SOW-008",
+                name: "SOW-020",
                 scope_of_work_name: "Rack side termination",
                 isSelected: false,
                 work_package: "Data & Networking"
             },
             {
-                name: "SOW-009",
+                name: "SOW-021",
                 scope_of_work_name: "Active side work",
                 isSelected: false,
                 work_package: "Data & Networking"
             },
             {
-                name: "SOW-010",
+                name: "SOW-022",
                 scope_of_work_name: "Fluke Test",
                 isSelected: false,
                 work_package: "Data & Networking"
@@ -180,19 +180,19 @@ const workPackages = [
         isChecked: false,
         scopes: [
             {
-                name: "SOW-011",
+                name: "SOW-023",
                 scope_of_work_name: "Addressable System",
                 isSelected: false,
                 work_package: "Fire Fighting"
             },
             {
-                name: "SOW-012",
-                scope_of_work_name: "Convetional System",
+                name: "SOW-024",
+                scope_of_work_name: "Conventional System",
                 isSelected: false,
                 work_package: "Fire Fighting"
             },
             {
-                name: "SOW-013",
+                name: "SOW-025",
                 scope_of_work_name: "PA System Installation",
                 isSelected: false,
                 work_package: "Fire Fighting"
@@ -205,7 +205,7 @@ const workPackages = [
             },
             {
                 name: "SOW-027",
-                scope_of_work_name: "Integration Accces Control Systems",
+                scope_of_work_name: "Integration Access Control Systems",
                 isSelected: false,
                 work_package: "Fire Fighting"
             },
@@ -229,7 +229,7 @@ const workPackages = [
             },
             {
                 name: "SOW-031",
-                scope_of_work_name: "Modification of exisiting fire line",
+                scope_of_work_name: "Modification of existing fire line",
                 isSelected: false,
                 work_package: "Fire Fighting"
             },
@@ -246,47 +246,48 @@ const workPackages = [
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
     project_name: z
-        .string({
-            required_error: "Must Provide Project name"
-        })
+        .string(
+            {
+                required_error: "Must Provide Project name"
+            })
         .min(6, {
             message: "Employee Name must be at least 6 characters.",
         }),
     customer: z
         .string({
-            required_error: "Please select associated customer."
+            //required_error: "Please select associated customer."
         }),
     project_type: z
         .string({
-            required_error: "Please select Project Type"
+            //required_error: "Please select Project Type"
         }),
     project_address: z
         .string({
-            required_error: "Please select Project Address"
+            //required_error: "Please select Project Address"
         }),
     project_start_date: z
         .date({
-            required_error: "A start date is required.",
+            //required_error: "A start date is required.",
         }),
     project_end_date: z
         .date({
-            required_error: "An end date is required.",
+            //required_error: "An end date is required.",
         }),
     project_lead: z
         .string({
-            required_error: "Please select Project Lead"
+            //required_error: "Please select Project Lead"
         }),
     project_manager: z
         .string({
-            required_error: "Please select Project Manager"
+            //required_error: "Please select Project Manager"
         }),
     design_lead: z
         .string({
-            required_error: "Please select Design Lead"
+            //required_error: "Please select Design Lead"
         }),
     procurement_lead: z
         .string({
-            required_error: "Please select Procurement Lead"
+            //required_error: "Please select Procurement Lead"
         }),
     project_work_milestones: z
         .object({
@@ -459,8 +460,8 @@ export const ProjectForm = () => {
         // ✅ This will be type-safe and validated.
         const formatted_start_date = values.project_start_date.toISOString().replace('T', ' ').slice(0, 19)
         const formatted_end_date = values.project_end_date.toISOString().replace('T', ' ').slice(0, 19)
-        // const scopes = values.project_scopes.toString()
-        // const formatted_project_milestone = values.project_work_milestones.
+        //const scopes = values.project_scopes.toString()
+        //const formatted_project_milestone = values.project_work_milestones.
         createDoc('Projects', {
             ...values,
             project_start_date: formatted_start_date,
@@ -470,20 +471,20 @@ export const ProjectForm = () => {
         }).catch(() => {
             console.log(submit_error)
         })
-        if (!mile_loading && !mile_error) {
-            values.project_scopes.scopes.forEach(scope => {
-                const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
-                miles?.forEach(mile => {
-                    createDoc("Project Work Milestones", {
-                        project: values.project_name,
-                        work_package: scope.work_package,
-                        scope_of_work: scope.scope_of_work_name,
-                        milestone: mile.milestone_name
-                    })
-                })
+        // if (!mile_loading && !mile_error) {
+        //     values.project_scopes.scopes.forEach(scope => {
+        //         const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
+        //         miles?.forEach(mile => {
+        //             createDoc("Project Work Milestones", {
+        //                 project: values.project_name,
+        //                 work_package: scope.work_package,
+        //                 scope_of_work: scope.scope_of_work_name,
+        //                 milestone: mile.milestone_name
+        //             })
+        //         })
 
-            })
-        }
+        //     })
+        // }
 
 
         console.log(values)
