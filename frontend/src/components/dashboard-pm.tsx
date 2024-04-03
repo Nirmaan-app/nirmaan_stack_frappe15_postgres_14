@@ -4,14 +4,87 @@ import { useFrappeGetDocCount } from "frappe-react-sdk";
 import { HardHat, UserRound, PersonStanding } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
+import { useContext, useState, useEffect } from "react"
+import { OrderContextProvider } from "./order-context"
 
 export const ProjectManager = () => {
 
     const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
+    const [page,setPage] = useState<string>('default')
+
+    const addProject = (projectName: string) => {
+        setOrderData(prevData => ({
+            ...prevData,
+            projects: projectName
+        }));
+    };
+    const addCategory = (categoryName: string) => {
+        setOrderData(prevData => ({
+            ...prevData,
+            category: categoryName
+        }));
+    };
+    const addSubcategory = (subcategoryName: string) => {
+        setOrderData(prevData => ({
+            ...prevData,
+            subcategory: subcategoryName
+        }));
+    };
+
+    const [orderData,setOrderData] = useState({
+        username:'',
+        itemslist:[],
+        projects: '',
+        category: '',
+        subcategory: '',
+        createdAt: ''
+    })
+    const handleProjectClick = (project:string , value: string) => {
+        addProject(project);
+        setPage(value);
+        console.log(page);
+        console.log(orderData);
+    };
+    const handleCategoryClick = (category:string , value: string) => {
+        addCategory(category);
+        setPage(value);
+        console.log(page);
+        console.log(orderData);
+    };
+    const handleSubCategoryClick = (subcategory:string , value: string) => {
+        addSubcategory(subcategory);
+        setPage(value);
+        console.log(page);
+        console.log(orderData);
+    };
+
+    const handleClick = (value: string) => {
+        setPage(value);
+        console.log(page);
+        console.log(orderData);
+    };
+
+    interface Project {
+        title: string;
+        description: string;
+    }
+      
+    const projects: Project[] = Array.from({ length: 10 }, (_, index) => ({
+      title: `Project ${index + 1}`,
+      description: `Description for Project ${index + 1}`,
+    })); 
+    const category: Project[] = Array.from({ length: 10 }, (_, index) => ({
+        title: `Category ${index + 1}`,
+        description: `Description for Category ${index + 1}`,
+    }));
+    const subcategory: Project[] = Array.from({ length: 10 }, (_, index) => ({
+        title: `SubCategory ${index + 1}`,
+        description: `Description for Subcategory ${index + 1}`,
+    }));  
 
     return (
-        <>
-            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+        <OrderContextProvider value = {{orderData,addProject,addCategory,addSubcategory}}>
+            {page=='default' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem isCurrentPage>
@@ -25,11 +98,10 @@ export const ProjectManager = () => {
                     <h2 className="text-3xl font-bold tracking-tight">Modules List</h2>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-                    <Card className="hover:animate-shadow-drop-center" >
-                        <Link to="/projects">
+                    <Card className="hover:animate-shadow-drop-center" onClick={()=>handleClick('projectlist')}>
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
-                                    Create Order
+                                    Create order
                                 </CardTitle>
                                 <HardHat className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
@@ -41,7 +113,6 @@ export const ProjectManager = () => {
                                 </div>
                                 <p className="text-xs text-muted-foreground">COUNT</p>
                             </CardContent>
-                        </Link>
                     </Card>
                     <Card className="hover:animate-shadow-drop-center" >
                         <Link to="/projects">
@@ -60,7 +131,103 @@ export const ProjectManager = () => {
                         </Link>
                     </Card>
                 </div>
-            </div>
-        </>
+            </div>}
+            {page=='projectlist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+                <div className="flex items-center justify-between space-y-2">
+                    <Breadcrumb>
+                        <BreadcrumbItem isCurrentPage>
+                            <BreadcrumbLink href="/wp">
+                                Dashboard
+                            </BreadcrumbLink>
+                        </BreadcrumbItem>
+                    </Breadcrumb>
+                </div>
+                <div className="flex items-center justify-between space-y-2">
+                    <h2 className="text-3xl font-bold tracking-tight">Projects List</h2>
+                </div>
+                <div className="grid gap-4">
+                    {projects.map((project,index) => (
+                        <Card className="hover:animate-shadow-drop-center" onClick={()=>handleProjectClick(project.title,'categorylist')}>
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium">
+                                    {project.title}
+                                </CardTitle>
+                                <HardHat className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">
+                                    
+                                </div>
+                                <p className="text-xs text-muted-foreground">Lorem ipsum dolor sit amet consectetur, adipisicing elit. Nobis, qui?</p>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            </div>}
+            {page=='categorylist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+                <div className="flex items-center justify-between space-y-2">
+                    <Breadcrumb>
+                        <BreadcrumbItem isCurrentPage>
+                            <BreadcrumbLink href="/wp">
+                                Dashboard
+                            </BreadcrumbLink>
+                        </BreadcrumbItem>
+                    </Breadcrumb>
+                </div>
+                <div className="flex items-center justify-between space-y-2">
+                    <h2 className="text-3xl font-bold tracking-tight">Category List</h2>
+                </div>
+                <div className="grid gap-4">
+                    {category.map((item,index) => (
+                        <Card className="hover:animate-shadow-drop-center" onClick={()=>handleCategoryClick(item.title,'subcategorylist')}>
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium">
+                                    {item.title}
+                                </CardTitle>
+                                <HardHat className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">
+                                    
+                                </div>
+                                <p className="text-xs text-muted-foreground">Lorem ipsum dolor sit amet consectetur, adipisicing elit. Nobis, qui?</p>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            </div>}
+            {page=='subcategorylist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+                <div className="flex items-center justify-between space-y-2">
+                    <Breadcrumb>
+                        <BreadcrumbItem isCurrentPage>
+                            <BreadcrumbLink href="/wp">
+                                Dashboard
+                            </BreadcrumbLink>
+                        </BreadcrumbItem>
+                    </Breadcrumb>
+                </div>
+                <div className="flex items-center justify-between space-y-2">
+                    <h2 className="text-3xl font-bold tracking-tight">Sub-Category List</h2>
+                </div>
+                <div className="grid gap-4">
+                    {subcategory.map((item,index) => (
+                        <Card className="hover:animate-shadow-drop-center" onClick={()=>handleSubCategoryClick(item.title,'subcategorylist')}>
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium">
+                                    {item.title}
+                                </CardTitle>
+                                <HardHat className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">
+                                    
+                                </div>
+                                <p className="text-xs text-muted-foreground">Lorem ipsum dolor sit amet consectetur, adipisicing elit. Nobis, qui?</p>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            </div>}
+        </OrderContextProvider>
     )
 }
