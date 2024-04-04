@@ -1,6 +1,6 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "./breadcrumb";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
-import { useFrappeGetDocCount } from "frappe-react-sdk";
+import { useFrappeGetDocCount,useFrappeGetDocList,useFrappeGetDoc } from "frappe-react-sdk";
 import { HardHat, UserRound, PersonStanding } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
@@ -10,6 +10,22 @@ import { OrderContextProvider } from "./order-context"
 export const ProjectManager = () => {
 
     const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
+    const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
+    {
+        fields:['category_name']
+    });
+    const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Itemlist",
+    {
+        fields:['item_name']
+    });
+    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
+    {
+        fields:['project_name']
+    });
+
+    console.log(category_list);
+    console.log(item_list);
+
     const [page,setPage] = useState<string>('default')
 
     const addProject = (projectName: string) => {
@@ -146,11 +162,11 @@ export const ProjectManager = () => {
                     <h2 className="text-3xl font-bold tracking-tight">Projects List</h2>
                 </div>
                 <div className="grid gap-4">
-                    {projects.map((project,index) => (
-                        <Card className="hover:animate-shadow-drop-center" onClick={()=>handleProjectClick(project.title,'categorylist')}>
+                    {project_list.map((project) => (
+                        <Card className="hover:animate-shadow-drop-center" onClick={()=>handleProjectClick(project.project_name,'categorylist')}>
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
-                                    {project.title}
+                                    {project.project_name}
                                 </CardTitle>
                                 <HardHat className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
@@ -178,11 +194,11 @@ export const ProjectManager = () => {
                     <h2 className="text-3xl font-bold tracking-tight">Category List</h2>
                 </div>
                 <div className="grid gap-4">
-                    {category.map((item,index) => (
-                        <Card className="hover:animate-shadow-drop-center" onClick={()=>handleCategoryClick(item.title,'subcategorylist')}>
+                    {category_list.map((item) => (
+                        <Card className="hover:animate-shadow-drop-center" onClick={()=>handleCategoryClick(item.category_name,'subcategorylist')}>
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
-                                    {item.title}
+                                    {item.name}
                                 </CardTitle>
                                 <HardHat className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
@@ -207,14 +223,14 @@ export const ProjectManager = () => {
                     </Breadcrumb>
                 </div>
                 <div className="flex items-center justify-between space-y-2">
-                    <h2 className="text-3xl font-bold tracking-tight">Sub-Category List</h2>
+                    <h2 className="text-3xl font-bold tracking-tight">Items List</h2>
                 </div>
                 <div className="grid gap-4">
-                    {subcategory.map((item,index) => (
-                        <Card className="hover:animate-shadow-drop-center" onClick={()=>handleSubCategoryClick(item.title,'subcategorylist')}>
+                    {item_list.map((item) => (
+                        <Card className="hover:animate-shadow-drop-center" onClick={()=>handleSubCategoryClick(item.item_name,'subcategorylist')}>
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
-                                    {item.title}
+                                    {item.item_name}
                                 </CardTitle>
                                 <HardHat className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>

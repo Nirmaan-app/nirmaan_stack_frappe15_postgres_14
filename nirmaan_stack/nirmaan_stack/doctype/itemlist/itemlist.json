@@ -1,0 +1,54 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-04-04 18:18:02.596487",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "itemlist_section",
+  "item_name",
+  "category"
+ ],
+ "fields": [
+  {
+   "fieldname": "itemlist_section",
+   "fieldtype": "Section Break",
+   "label": "itemlist"
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "item name"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "label": "category",
+   "options": "Category"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-04-04 18:19:01.848624",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Itemlist",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
