@@ -23,7 +23,6 @@ import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
 import { Checkbox } from "./ui/checkbox"
 
-
 const workPackages = [
     {
         name: "Electrical",
@@ -329,6 +328,13 @@ interface SelectOption {
     label: string;
     value: string;
 }
+interface wpType {
+    work_package_name: string;
+}
+interface sowType {
+    scope_of_work_name: string;
+    work_package: string;
+}
 
 // interface PWM {
 //     name: string
@@ -350,6 +356,16 @@ interface SelectOption {
 export const ProjectForm = () => {
     // 1.b Define your form.
     // Has handleSubmit, control functions
+    const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
+    {
+        fields:['work_package_name']
+    });
+    const { data: scope_of_work_list, isLoading: sow_list_loading, error: sow_list_error } = useFrappeGetDocList("Scopes of Work",
+    {
+        fields:['scope_of_work_name','work_package']
+    });
+    
+    
     const form = useForm<ProjectFormValues>({
         resolver: zodResolver(projectFormSchema),
         mode: "onChange",
@@ -372,6 +388,8 @@ export const ProjectForm = () => {
     const { data: project_types, isLoading: project_types_isLoading, error: project_types_error, mutate: project_types_mutate } = useFrappeGetDocList('Project Types', {
         fields: ["name", "project_type_name"]
     });
+
+    
 
     // const { data: wp, isLoading: wp_isLoading, error: wp_error } = useFrappeGetDocList('Work Packages', {
     //     fields: ["name"]
@@ -530,7 +548,14 @@ export const ProjectForm = () => {
     //     label: item.employee_name, // Adjust based on your data structure
     //     value: item.name
     // })) || [];
-
+    const wp_list:wpType[] = work_package_list?.map(item => ({
+        work_package_name: item.work_package_name, // Adjust based on your data structure
+    })) || [];
+    const sow_list:sowType[] = scope_of_work_list?.map(item => ({
+        scope_of_work_name: item.scope_of_work_name, // Adjust based on your data structure
+        work_package: item.work_package
+    })) || [];
+    console.log(wp_list,sow_list)
 
     return (
         <Form {...form}>
@@ -1054,36 +1079,36 @@ export const ProjectForm = () => {
                                         Select the work packages.
                                     </FormDescription>
                                 </div>
-                                {workPackages.map((item) => (
+                                {wp_list.map((item) => (
                                     <Accordion type="single" collapsible className="w-full">
-                                        <AccordionItem value={item.name}>
+                                        <AccordionItem value={item.work_package_name}>
                                             <AccordionTrigger>
                                                 <FormField
-                                                    key={item.name}
+                                                    key={item.work_package_name}
                                                     control={form.control}
                                                     name="project_work_milestones.work_packages"
                                                     render={({ field }) => {
                                                         return (
                                                             <FormItem
-                                                                key={item.name}
+                                                                key={item.work_package_name}
                                                                 className="flex flex-row items-start space-x-3 space-y-0"
                                                             >
                                                                 <FormControl>
                                                                     <Checkbox
-                                                                        checked={field.value?.some((i) => i.name === item.name)}
+                                                                        checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
                                                                         onCheckedChange={(checked) => {
                                                                             return checked
-                                                                                ? field.onChange([...field.value, { name: item.name }])
+                                                                                ? field.onChange([...field.value, { work_package_name: work_package_name.name }])
                                                                                 : field.onChange(
                                                                                     field.value?.filter(
-                                                                                        (value) => value.name !== item.name
+                                                                                        (value) => value.work_package_name !== item.work_package_name
                                                                                     )
                                                                                 )
                                                                         }}
                                                                     />
                                                                 </FormControl>
                                                                 <FormLabel className="text-sm font-normal">
-                                                                    {item.name}
+                                                                    {item.work_package_name}
                                                                 </FormLabel>
                                                             </FormItem>
                                                         )
@@ -1091,42 +1116,27 @@ export const ProjectForm = () => {
                                                 />
                                             </AccordionTrigger>
                                             <AccordionContent>
-                                                {/* <p>HELLO WORLD</p> */}
-                                                {item.scopes.map((scope) => (
-                                                    // <p>{scope.scope_of_work_name}:{index}</p>
-                                                    <FormField
-                                                        key={scope.name}
+                                                {/* {sow_list.map((scope) => (
+                                                    if(scope.work_package === item.work_package_name){
+                                                        <FormField
+                                                        key={scope.scope_of_work_name}
                                                         control={form.control}
                                                         name="project_scopes.scopes"
                                                         render={({ field }) => (
                                                             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                                                                 <FormControl>
-                                                                    {/* <Switch
-                                                                        id={scope.name}
-                                                                        checked={field.value?.includes(scope.name)}
-                                                                        onCheckedChange={(checked) => {
-                                                                            return checked
-                                                                                ? field.onChange([...field.value, scope.name])
-                                                                                : field.onChange(
-                                                                                    field.value?.filter(
-                                                                                        (value) => value !== scope.name
-                                                                                    )
-                                                                                )
-                                                                        }}
-                                                                    />
-                                                                    <Label htmlFor={scope.name}>{scope.scope_of_work_name}</Label> */}
                                                                     <Checkbox
-                                                                        checked={field.value?.some((i) => i.name === scope.name)}
+                                                                        checked={field.value?.some((i) => i.scope_of_work_name === scope.scope_of_work_name)}
                                                                         onCheckedChange={(checked) => {
                                                                             return checked
                                                                                 ? field.onChange([...field.value, {
-                                                                                    name: scope.name,
+                                                                                    name: scope.scope_of_work_name,
                                                                                     scope_of_work_name: scope.scope_of_work_name,
                                                                                     work_package: scope.work_package
                                                                                 }])
                                                                                 : field.onChange(
                                                                                     field.value?.filter(
-                                                                                        (value) => value.name !== scope.name
+                                                                                        (value) => value.scope_of_work_name !== scope.scope_of_work_name
                                                                                     )
                                                                                 )
                                                                         }}
@@ -1137,11 +1147,45 @@ export const ProjectForm = () => {
                                                                 </FormLabel>
                                                             </FormItem>
                                                         )}
-                                                    />
-
-
-
-                                                ))}
+                                                    />}
+                                                ))
+                                                } */}
+                                                {sow_list.map((scope) => {
+                                                    if (scope.work_package === item.work_package_name) {
+                                                        return (
+                                                            <FormField
+                                                                key={scope.scope_of_work_name}
+                                                                control={form.control}
+                                                                name="project_scopes.scopes"
+                                                                render={({ field }) => (
+                                                                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                                                                        <FormControl>
+                                                                            <Checkbox
+                                                                                checked={field.value?.some((i) => i.scope_of_work_name === scope.scope_of_work_name)}
+                                                                                onCheckedChange={(checked) => {
+                                                                                    return checked
+                                                                                        ? field.onChange([...field.value, {
+                                                                                            name: scope.scope_of_work_name,
+                                                                                            scope_of_work_name: scope.scope_of_work_name,
+                                                                                            work_package: scope.work_package
+                                                                                        }])
+                                                                                        : field.onChange(
+                                                                                            field.value?.filter(
+                                                                                                (value) => value.scope_of_work_name !== scope.scope_of_work_name
+                                                                                            )
+                                                                                        )
+                                                                                }}
+                                                                            />
+                                                                        </FormControl>
+                                                                        <FormLabel className="text-sm font-normal">
+                                                                            {scope.scope_of_work_name}
+                                                                        </FormLabel>
+                                                                    </FormItem>
+                                                                )}
+                                                            />
+                                                        );
+                                                    }
+                                                })}
                                             </AccordionContent>
                                         </AccordionItem>
 
