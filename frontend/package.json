@@ -8,7 +8,7 @@
     "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry",
     "preview": "vite preview",
     "test-local": "cypress open --e2e --browser chrome",
-    "copy-html-entry": "mkdir ../nirmaan_stack/www && cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html"
+    "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
