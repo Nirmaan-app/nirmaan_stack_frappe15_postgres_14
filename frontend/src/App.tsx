@@ -55,7 +55,7 @@ const router = createBrowserRouter(
 					<Route index element={<Debug />} />
 				</Route>
 				<Route path="wp" element={<WorkPackages />} />
-				<Route path="testlogin" element={<AuthenticationPage />} />
+				{/* <Route path="testlogin" element={<AuthenticationPage />} /> */}
 			</Route >
 		</>
 	), {

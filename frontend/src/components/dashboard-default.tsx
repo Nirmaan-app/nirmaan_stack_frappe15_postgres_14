@@ -1,7 +1,7 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "./breadcrumb";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount } from "frappe-react-sdk";
-import { HardHat, UserRound, PersonStanding } from "lucide-react";
+import { HardHat, UserRound, PersonStanding, Briefcase } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
@@ -12,6 +12,8 @@ export const Default = () => {
     const { data: user_count, isLoading: user_count_loading, error: user_count_error } = useFrappeGetDocCount("Nirmaan Users");
 
     const { data: role_count, isLoading: role_count_loading, error: role_count_error } = useFrappeGetDocCount("Nirmaan Roles");
+
+    const { data: wp_count, isLoading: wp_count_loading, error: wp_count_error } = useFrappeGetDocCount("Work Packages");
 
     return (
         <>
@@ -76,6 +78,23 @@ export const Default = () => {
                                 <div className="text-2xl font-bold">
                                     {(role_count_loading) ? (<p>Loading</p>) : (role_count)}
                                     {role_count_error && <p>Error</p>}
+                                </div>
+                                <p className="text-xs text-muted-foreground">COUNT</p>
+                            </CardContent>
+                        </Link>
+                    </Card>
+                    <Card className="hover:animate-shadow-drop-center" >
+                        <Link to="/wp">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium">
+                                    Total Work Packages
+                                </CardTitle>
+                                <Briefcase className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">
+                                    {(wp_count_loading) ? (<p>Loading</p>) : (wp_count)}
+                                    {wp_count_error && <p>Error</p>}
                                 </div>
                                 <p className="text-xs text-muted-foreground">COUNT</p>
                             </CardContent>

@@ -1,0 +1,60 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "SOW-.###",
+ "creation": "2024-04-01 15:16:58.363683",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "scope_of_work_details_section",
+  "scope_of_work_name",
+  "work_package"
+ ],
+ "fields": [
+  {
+   "fieldname": "scope_of_work_details_section",
+   "fieldtype": "Section Break",
+   "label": "Scope of Work Details"
+  },
+  {
+   "fieldname": "scope_of_work_name",
+   "fieldtype": "Data",
+   "label": "Scope of Work Name",
+   "unique": 1
+  },
+  {
+   "fieldname": "work_package",
+   "fieldtype": "Link",
+   "label": "Work Package",
+   "options": "Work Packages"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-04-01 16:16:40.533774",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Scopes of Work",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "search_fields": "scope_of_work_name, work_package",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "scope_of_work_name"
+}
