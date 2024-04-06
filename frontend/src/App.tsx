@@ -12,7 +12,7 @@ import EditProject from './pages/edit-project'
 import { ThemeProvider } from './components/theme-provider'
 import { ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
-import AuthenticationPage from './pages/auth/login-shadcn'
+//import AuthenticationPage from './pages/auth/login-shadcn'
 import Users from './pages/users'
 import Roles from './pages/roles'
 import Debug from './pages/debug'
@@ -28,14 +28,14 @@ const router = createBrowserRouter(
 				<Route path="projects" >
 					<Route index element={<Projects />} />
 					<Route path="edit" element={<EditProject />} />
-					{/* <Route
+					<Route
 						path=":projectId"
 						// loader={(({ params }) => {
 						// 	console.log(params.projectId)
 						// })}
 						// action={(({ params }) => {})}
 						lazy={() => import('@/pages/project')}
-					/> */}
+					/>
 				</Route>
 				<Route path="users">
 					<Route index element={<Users />} />

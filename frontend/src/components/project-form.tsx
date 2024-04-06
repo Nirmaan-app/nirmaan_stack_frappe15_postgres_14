@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Button } from "./ui/button"
 import { ButtonLoading } from "./button-loading"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
-// import ProjectTypeForm from "./project-type-form"
+import ProjectTypeForm from "./project-type-form"
+import CustomerForm from "./customer-form"
 import { Separator } from "./ui/separator"
 import { AddressForm } from "./address-form"
 import { ScrollArea } from "./ui/scroll-area"
@@ -23,224 +24,224 @@ import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
 import { Checkbox } from "./ui/checkbox"
 
-const workPackages = [
-    {
-        name: "Electrical",
-        isChecked: false,
-        scopes: [
-            {
-                name: "SOW-001",
-                scope_of_work_name: "Raceway/ Cable Tray work",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-002",
-                scope_of_work_name: "Conduiting",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-003",
-                scope_of_work_name: "LT Panel",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-004",
-                scope_of_work_name: "Wiring",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-005",
-                scope_of_work_name: "HVAC  - VRF system",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-006 ",
-                scope_of_work_name: "IOT/ Sensor work",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-007",
-                scope_of_work_name: "Main Power Line",
-                isSelected: false,
-                work_package: "Electrical "
-            },
-            {
-                name: "SOW-008",
-                scope_of_work_name: "HVAC - Non VRF/ AHU",
-                isSelected: false,
-                work_package: "Electrical "
-            },
-            {
-                name: "SOW-009",
-                scope_of_work_name: "DB Work",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-010",
-                scope_of_work_name: "Switch Socket",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-011",
-                scope_of_work_name: "UPS Supply",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-012",
-                scope_of_work_name: "Lights Supply",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-013",
-                scope_of_work_name: "Earthing",
-                isSelected: false,
-                work_package: "Electrical"
-            },
-            {
-                name: "SOW-014",
-                scope_of_work_name: "Lights Installation",
-                isSelected: false,
-                work_package: "Electrical"
-            }
-        ]
-    },
-    {
-        name: "Access Control & Security System",
-        isChecked: false,
-        scopes: [
-            {
-                name: "SOW-015",
-                scope_of_work_name: "CCTV Installation",
-                isSelected: false,
-                work_package: "Access Control & Security System"
-            },
-            {
-                name: "SOW-016",
-                scope_of_work_name: "Access Control Installation",
-                isSelected: false,
-                work_package: "Access Control & Security System"
-            },
-            {
-                name: "SOW-017",
-                scope_of_work_name: "Static IP Configuration",
-                isSelected: false,
-                work_package: "Access Control & Security System"
-            }
-        ]
-    },
-    {
-        name: "Data & Networking",
-        isChecked: false,
-        scopes: [
-            {
-                name: "SOW-018",
-                scope_of_work_name: "Cabling",
-                isSelected: false,
-                work_package: "Data & Networking"
-            },
-            {
-                name: "SOW-019",
-                scope_of_work_name: "User Side Termination",
-                isSelected: false,
-                work_package: "Data & Networking"
-            },
-            {
-                name: "SOW-020",
-                scope_of_work_name: "Rack side termination",
-                isSelected: false,
-                work_package: "Data & Networking"
-            },
-            {
-                name: "SOW-021",
-                scope_of_work_name: "Active side work",
-                isSelected: false,
-                work_package: "Data & Networking"
-            },
-            {
-                name: "SOW-022",
-                scope_of_work_name: "Fluke Test",
-                isSelected: false,
-                work_package: "Data & Networking"
-            }
-        ]
-    },
-    {
-        name: "Fire Fighting",
-        isChecked: false,
-        scopes: [
-            {
-                name: "SOW-023",
-                scope_of_work_name: "Addressable System",
-                isSelected: false,
-                work_package: "Fire Fighting"
-            },
-            {
-                name: "SOW-024",
-                scope_of_work_name: "Conventional System",
-                isSelected: false,
-                work_package: "Fire Fighting"
-            },
-            {
-                name: "SOW-025",
-                scope_of_work_name: "PA System Installation",
-                isSelected: false,
-                work_package: "Fire Fighting"
-            },
-            {
-                name: "SOW-026",
-                scope_of_work_name: "Integration with PA System",
-                isSelected: false,
-                work_package: "Fire Fighting"
-            },
-            {
-                name: "SOW-027",
-                scope_of_work_name: "Integration Access Control Systems",
-                isSelected: false,
-                work_package: "Fire Fighting"
-            },
-            {
-                name: "SOW-028",
-                scope_of_work_name: "Integration with HVAC System",
-                isSelected: false,
-                work_package: "Fire Fighting"
-            },
-            {
-                name: "SOW-029",
-                scope_of_work_name: "Integration with Electrical Panel",
-                isSelected: false,
-                work_package: "Fire Fighting"
-            },
-            {
-                name: "SOW-030",
-                scope_of_work_name: "New fire line creation",
-                isSelected: false,
-                work_package: "Fire Fighting"
-            },
-            {
-                name: "SOW-031",
-                scope_of_work_name: "Modification of existing fire line",
-                isSelected: false,
-                work_package: "Fire Fighting"
-            },
-            {
-                name: "SOW-032",
-                scope_of_work_name: "Supply of Fire extinguisher",
-                isSelected: false,
-                work_package: "Fire Fighting"
-            }
-        ]
-    }
-] as const
+// const workPackages = [
+//     {
+//         name: "Electrical",
+//         isChecked: false,
+//         scopes: [
+//             {
+//                 name: "SOW-001",
+//                 scope_of_work_name: "Raceway/ Cable Tray work",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-002",
+//                 scope_of_work_name: "Conduiting",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-003",
+//                 scope_of_work_name: "LT Panel",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-004",
+//                 scope_of_work_name: "Wiring",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-005",
+//                 scope_of_work_name: "HVAC  - VRF system",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-006 ",
+//                 scope_of_work_name: "IOT/ Sensor work",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-007",
+//                 scope_of_work_name: "Main Power Line",
+//                 isSelected: false,
+//                 work_package: "Electrical "
+//             },
+//             {
+//                 name: "SOW-008",
+//                 scope_of_work_name: "HVAC - Non VRF/ AHU",
+//                 isSelected: false,
+//                 work_package: "Electrical "
+//             },
+//             {
+//                 name: "SOW-009",
+//                 scope_of_work_name: "DB Work",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-010",
+//                 scope_of_work_name: "Switch Socket",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-011",
+//                 scope_of_work_name: "UPS Supply",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-012",
+//                 scope_of_work_name: "Lights Supply",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-013",
+//                 scope_of_work_name: "Earthing",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             },
+//             {
+//                 name: "SOW-014",
+//                 scope_of_work_name: "Lights Installation",
+//                 isSelected: false,
+//                 work_package: "Electrical"
+//             }
+//         ]
+//     },
+//     {
+//         name: "Access Control & Security System",
+//         isChecked: false,
+//         scopes: [
+//             {
+//                 name: "SOW-015",
+//                 scope_of_work_name: "CCTV Installation",
+//                 isSelected: false,
+//                 work_package: "Access Control & Security System"
+//             },
+//             {
+//                 name: "SOW-016",
+//                 scope_of_work_name: "Access Control Installation",
+//                 isSelected: false,
+//                 work_package: "Access Control & Security System"
+//             },
+//             {
+//                 name: "SOW-017",
+//                 scope_of_work_name: "Static IP Configuration",
+//                 isSelected: false,
+//                 work_package: "Access Control & Security System"
+//             }
+//         ]
+//     },
+//     {
+//         name: "Data & Networking",
+//         isChecked: false,
+//         scopes: [
+//             {
+//                 name: "SOW-018",
+//                 scope_of_work_name: "Cabling",
+//                 isSelected: false,
+//                 work_package: "Data & Networking"
+//             },
+//             {
+//                 name: "SOW-019",
+//                 scope_of_work_name: "User Side Termination",
+//                 isSelected: false,
+//                 work_package: "Data & Networking"
+//             },
+//             {
+//                 name: "SOW-020",
+//                 scope_of_work_name: "Rack side termination",
+//                 isSelected: false,
+//                 work_package: "Data & Networking"
+//             },
+//             {
+//                 name: "SOW-021",
+//                 scope_of_work_name: "Active side work",
+//                 isSelected: false,
+//                 work_package: "Data & Networking"
+//             },
+//             {
+//                 name: "SOW-022",
+//                 scope_of_work_name: "Fluke Test",
+//                 isSelected: false,
+//                 work_package: "Data & Networking"
+//             }
+//         ]
+//     },
+//     {
+//         name: "Fire Fighting",
+//         isChecked: false,
+//         scopes: [
+//             {
+//                 name: "SOW-023",
+//                 scope_of_work_name: "Addressable System",
+//                 isSelected: false,
+//                 work_package: "Fire Fighting"
+//             },
+//             {
+//                 name: "SOW-024",
+//                 scope_of_work_name: "Conventional System",
+//                 isSelected: false,
+//                 work_package: "Fire Fighting"
+//             },
+//             {
+//                 name: "SOW-025",
+//                 scope_of_work_name: "PA System Installation",
+//                 isSelected: false,
+//                 work_package: "Fire Fighting"
+//             },
+//             {
+//                 name: "SOW-026",
+//                 scope_of_work_name: "Integration with PA System",
+//                 isSelected: false,
+//                 work_package: "Fire Fighting"
+//             },
+//             {
+//                 name: "SOW-027",
+//                 scope_of_work_name: "Integration Access Control Systems",
+//                 isSelected: false,
+//                 work_package: "Fire Fighting"
+//             },
+//             {
+//                 name: "SOW-028",
+//                 scope_of_work_name: "Integration with HVAC System",
+//                 isSelected: false,
+//                 work_package: "Fire Fighting"
+//             },
+//             {
+//                 name: "SOW-029",
+//                 scope_of_work_name: "Integration with Electrical Panel",
+//                 isSelected: false,
+//                 work_package: "Fire Fighting"
+//             },
+//             {
+//                 name: "SOW-030",
+//                 scope_of_work_name: "New fire line creation",
+//                 isSelected: false,
+//                 work_package: "Fire Fighting"
+//             },
+//             {
+//                 name: "SOW-031",
+//                 scope_of_work_name: "Modification of existing fire line",
+//                 isSelected: false,
+//                 work_package: "Fire Fighting"
+//             },
+//             {
+//                 name: "SOW-032",
+//                 scope_of_work_name: "Supply of Fire extinguisher",
+//                 isSelected: false,
+//                 work_package: "Fire Fighting"
+//             }
+//         ]
+//     }
+// ] as const
 
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
@@ -357,15 +358,15 @@ export const ProjectForm = () => {
     // 1.b Define your form.
     // Has handleSubmit, control functions
     const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
-    {
-        fields:['work_package_name']
-    });
+        {
+            fields: ['work_package_name']
+        });
     const { data: scope_of_work_list, isLoading: sow_list_loading, error: sow_list_error } = useFrappeGetDocList("Scopes of Work",
-    {
-        fields:['scope_of_work_name','work_package']
-    });
-    
-    
+        {
+            fields: ['scope_of_work_name', 'work_package']
+        });
+
+
     const form = useForm<ProjectFormValues>({
         resolver: zodResolver(projectFormSchema),
         mode: "onChange",
@@ -389,7 +390,7 @@ export const ProjectForm = () => {
         fields: ["name", "project_type_name"]
     });
 
-    
+
 
     // const { data: wp, isLoading: wp_isLoading, error: wp_error } = useFrappeGetDocList('Work Packages', {
     //     fields: ["name"]
@@ -548,14 +549,14 @@ export const ProjectForm = () => {
     //     label: item.employee_name, // Adjust based on your data structure
     //     value: item.name
     // })) || [];
-    const wp_list:wpType[] = work_package_list?.map(item => ({
+    const wp_list: wpType[] = work_package_list?.map(item => ({
         work_package_name: item.work_package_name, // Adjust based on your data structure
     })) || [];
-    const sow_list:sowType[] = scope_of_work_list?.map(item => ({
+    const sow_list: sowType[] = scope_of_work_list?.map(item => ({
         scope_of_work_name: item.scope_of_work_name, // Adjust based on your data structure
         work_package: item.work_package
     })) || [];
-    console.log(wp_list,sow_list)
+    console.log(wp_list, sow_list)
 
     return (
         <Form {...form}>
@@ -627,9 +628,23 @@ export const ProjectForm = () => {
                                         </FormDescription>
                                     </div>
                                     <div className="basis-1/4 pl-10 pt-2">
-                                        <Button variant="secondary" asChild>
+                                        {/* <Button variant="secondary" asChild>
                                             <Link to="../../customers/edit" relative="path">+ Add Customer</Link>
-                                        </Button>
+                                        </Button> */}
+                                        <Dialog>
+                                            <DialogTrigger asChild>
+                                                <Button variant="secondary"> + Add Customer</Button>
+                                            </DialogTrigger>
+                                            <DialogContent className="sm:max-w-[425px]">
+                                                <DialogHeader>
+                                                    <DialogTitle>Add New Customer</DialogTitle>
+                                                    <DialogDescription>
+                                                        Add new Customers here.
+                                                    </DialogDescription>
+                                                </DialogHeader>
+                                                <CustomerForm />
+                                            </DialogContent>
+                                        </Dialog>
                                     </div>
                                 </div>
                                 <div className="pt-2 pb-2">
@@ -682,7 +697,7 @@ export const ProjectForm = () => {
                                                             Add new project types here.
                                                         </DialogDescription>
                                                     </DialogHeader>
-                                                    {/* <ProjectTypeForm /> */}
+                                                    <ProjectTypeForm />
                                                 </DialogContent>
                                             </Dialog>
                                         </div>

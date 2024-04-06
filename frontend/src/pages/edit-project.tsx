@@ -1,9 +1,9 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumb"
 import { NavBar } from "@/components/nav/nav-bar"
-import { ProjectForm }  from "@/components/project-form"
+import { ProjectForm } from "@/components/project-form"
 import { Separator } from "@/components/ui/separator"
 
-export default function EditProject(){
+export default function EditProject() {
     return (
         <>
             <NavBar />
