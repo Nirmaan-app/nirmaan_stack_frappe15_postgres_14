@@ -14,7 +14,7 @@ import CustomerForm from "./customer-form"
 import { Separator } from "./ui/separator"
 import { AddressForm } from "./address-form"
 import { ScrollArea } from "./ui/scroll-area"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 import { cn } from "@/lib/utils"
 import { CalendarIcon } from "lucide-react"
@@ -366,7 +366,6 @@ export const ProjectForm = () => {
             fields: ['scope_of_work_name', 'work_package']
         });
 
-
     const form = useForm<ProjectFormValues>({
         resolver: zodResolver(projectFormSchema),
         mode: "onChange",
@@ -490,20 +489,22 @@ export const ProjectForm = () => {
         }).catch(() => {
             console.log(submit_error)
         })
-        // if (!mile_loading && !mile_error) {
-        //     values.project_scopes.scopes.forEach(scope => {
-        //         const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
-        //         miles?.forEach(mile => {
-        //             createDoc("Project Work Milestones", {
-        //                 project: values.project_name,
-        //                 work_package: scope.work_package,
-        //                 scope_of_work: scope.scope_of_work_name,
-        //                 milestone: mile.milestone_name
-        //             })
-        //         })
 
-        //     })
-        // }
+        if (!mile_loading && !mile_error) {
+            console.log("scopes", values.project_scopes.scopes)
+            values.project_scopes.scopes.forEach(scope => {
+                const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
+                miles?.forEach(mile => {
+                    createDoc("Project Work Milestones", {
+                        project: values.project_name,
+                        work_package: scope.work_package,
+                        scope_of_work: scope.scope_of_work_name,
+                        milestone: mile.milestone_name
+                    })
+                    console.log(mile.milestone_name, scope.scope_of_work_name, scope.work_package)
+                })
+            })
+        }
 
 
         console.log(values)
@@ -1316,6 +1317,10 @@ export const ProjectForm = () => {
                     </div>
                     <div>
                         {submit_complete && <div className="font-semibold text-green-500"> Submitted successfully</div>}
+                        {/* {
+                            const navigate = useNavigate();
+                        submit_complete && navigate("/");
+                        } */}
                     </div>
                 </div>
             </form>
