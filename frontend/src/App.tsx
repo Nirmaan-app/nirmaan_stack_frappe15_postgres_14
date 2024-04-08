@@ -8,6 +8,7 @@ import Projects from './pages/projects'
 import Customers from './pages/customers'
 import WorkPackages from './pages/work-packages'
 import EditProject from './pages/edit-project'
+import {EditProjectForm} from './components/edit-project-form'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
 import { ProtectedRoute } from './utils/auth/ProtectedRoute'
@@ -36,6 +37,7 @@ const router = createBrowserRouter(
 						// action={(({ params }) => {})}
 						lazy={() => import('@/pages/project')}
 					/>
+					<Route path="edit-one/:projectId" element={<EditProjectForm />} />
 				</Route>
 				<Route path="users">
 					<Route index element={<Users />} />
