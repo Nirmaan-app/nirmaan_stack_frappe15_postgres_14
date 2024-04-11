@@ -2,6 +2,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcr
 import { NavBar } from "@/components/nav/nav-bar"
 import { ProjectForm } from "@/components/project-form"
 import { Separator } from "@/components/ui/separator"
+import { Link } from "react-router-dom"
 
 export default function EditProject() {
     return (
@@ -11,15 +12,15 @@ export default function EditProject() {
                 <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
-                            <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+                            <Link to="/">Dashboard</Link>
                         </BreadcrumbItem>
                         <BreadcrumbItem>
-                            <BreadcrumbLink href="/projects">Projects</BreadcrumbLink>
+                            <Link to="/projects">Projects</Link>
                         </BreadcrumbItem>
                         <BreadcrumbItem isCurrentPage>
-                            <BreadcrumbLink href="/projects/edit">
+                            <Link to="/projects/edit">
                                 Edit Project
-                            </BreadcrumbLink>
+                            </Link>
                         </BreadcrumbItem>
                     </Breadcrumb>
                 </div>

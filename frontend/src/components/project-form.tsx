@@ -573,16 +573,16 @@ export const ProjectForm = () => {
                         render={({ field }) => (
 
                             <FormItem>
-                                <div className="flex flex-row pt-2 pb-2">
-                                    <div className="basis-1/4">
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
                                         <FormLabel>Project Name: </FormLabel>
                                     </div>
-                                    <div className="basis-1/4">
+                                    <div className="md:basis-1/4">
                                         <FormControl>
                                             <Input placeholder="Project Name" {...field} />
                                         </FormControl>
                                     </div>
-                                    <div className="basis-1/2 pl-10 pt-2">
+                                    <div className="md:basis-1/2 pl-10 pt-2">
                                         <FormDescription>
                                             Example: CUSTOMER+LOACTION
                                         </FormDescription>
@@ -593,8 +593,6 @@ export const ProjectForm = () => {
                                     <FormMessage />
                                 </div>
                             </FormItem>
-
-
                         )}
                     />
                     <FormField
@@ -602,11 +600,11 @@ export const ProjectForm = () => {
                         name="customer"
                         render={({ field }) => (
                             <FormItem>
-                                <div className="flex flex-row pt-2 pb-2">
-                                    <div className="basis-1/4">
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
                                         <FormLabel>Customer</FormLabel>
                                     </div>
-                                    <div className="basis-1/4">
+                                    <div className="md:basis-1/4">
                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                             <FormControl>
                                                 <SelectTrigger>
@@ -623,12 +621,12 @@ export const ProjectForm = () => {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <div className="basis-1/4 pl-10 pt-2">
+                                    <div className="md:basis-1/4 pl-10 pt-2">
                                         <FormDescription>
                                             Customer associated with this project
                                         </FormDescription>
                                     </div>
-                                    <div className="basis-1/4 pl-10 pt-2">
+                                    <div className="md:basis-1/4 pl-10 pt-2">
                                         {/* <Button variant="secondary" asChild>
                                             <Link to="../../customers/edit" relative="path">+ Add Customer</Link>
                                         </Button> */}
@@ -660,11 +658,11 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem>
-                                    <div className="flex flex-row pt-2 pb-2 ">
-                                        <div className="basis-1/4">
+                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
+                                        <div className="md:basis-1/4">
                                             <FormLabel>Project Type</FormLabel>
                                         </div>
-                                        <div className="basis-1/4">
+                                        <div className="md:basis-1/4">
                                             <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                 <FormControl>
                                                     <SelectTrigger>
@@ -681,12 +679,12 @@ export const ProjectForm = () => {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="basis-1/4 pl-10 pt-2">
+                                        <div className="md:basis-1/4 pl-10 pt-2">
                                             <FormDescription>
                                                 Select Type of Project
                                             </FormDescription>
                                         </div>
-                                        <div className="basis-1/4 pl-10 pt-2">
+                                        <div className="md:basis-1/4 pl-10 pt-2">
                                             <Dialog>
                                                 <DialogTrigger asChild>
                                                     <Button variant="secondary"> + Add Project Type</Button>
@@ -715,11 +713,11 @@ export const ProjectForm = () => {
                         name="project_address"
                         render={({ field }) => (
                             <FormItem>
-                                <div className="flex flex-row pt-2 pb-2 ">
-                                    <div className="basis-1/4">
+                                <div className="md:flex md:flex-row pt-2 pb-2 ">
+                                    <div className="md:basis-1/4">
                                         <FormLabel>Project Address</FormLabel>
                                     </div>
-                                    <div className="basis-1/4">
+                                    <div className="md:basis-1/4">
                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                             <FormControl>
                                                 <SelectTrigger>
@@ -736,12 +734,12 @@ export const ProjectForm = () => {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <div className="basis-1/4 pl-10 pt-2">
+                                    <div className="md:basis-1/4 pl-10 pt-2">
                                         <FormDescription>
                                             Select Project Address
                                         </FormDescription>
                                     </div>
-                                    <div className="basis-1/4 pl-10 pt-2">
+                                    <div className="md:basis-1/4 pl-10 pt-2">
                                         <Dialog>
                                             <DialogTrigger asChild>
                                                 <Button variant="secondary"> + Add Project Address</Button>
@@ -779,11 +777,11 @@ export const ProjectForm = () => {
                         render={({ field }) => (
 
                             <FormItem>
-                                <div className="flex flex-row pt-2 pb-2">
-                                    <div className="basis-1/4">
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
                                         <FormLabel>Project Start Date: </FormLabel>
                                     </div>
-                                    <div className="basis-1/4">
+                                    <div className="md:basis-1/4">
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <FormControl>
@@ -815,7 +813,7 @@ export const ProjectForm = () => {
                                             </PopoverContent>
                                         </Popover>
                                     </div>
-                                    <div className="basis-1/2 pl-10 pt-2">
+                                    <div className="md:basis-1/2 pl-10 pt-2">
                                         <FormDescription>
                                             Select project start date
                                         </FormDescription>
@@ -836,11 +834,11 @@ export const ProjectForm = () => {
                         render={({ field }) => (
 
                             <FormItem>
-                                <div className="flex flex-row pt-2 pb-2">
-                                    <div className="basis-1/4">
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
                                         <FormLabel>Project End Date: </FormLabel>
                                     </div>
-                                    <div className="basis-1/4">
+                                    <div className="md:basis-1/4">
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <FormControl>
@@ -874,7 +872,7 @@ export const ProjectForm = () => {
                                             </PopoverContent>
                                         </Popover>
                                     </div>
-                                    <div className="basis-1/2 pl-10 pt-2">
+                                    <div className="md:basis-1/2 pl-10 pt-2">
                                         <FormDescription>
                                             Select Project End date
                                         </FormDescription>
@@ -890,11 +888,11 @@ export const ProjectForm = () => {
                         )}
                     />
                     <div className="pt-2 pb-2">
-                        <div className="flex flex-row pt-2 pb-2">
-                            <div className="basis-1/4">
+                        <div className="md:flex md:flex-row pt-2 pb-2">
+                            <div className="md:basis-1/4">
                                 <h1>Duration: </h1>
                             </div>
-                            <div className="basis-1/4">
+                            <div className="md:basis-1/4">
                                 <h1>{
                                     (Math.round(form.getValues("project_end_date").getTime() - form.getValues("project_start_date").getTime()) / (1000 * 3600 * 24)) || "0"
                                 }Days
@@ -903,9 +901,9 @@ export const ProjectForm = () => {
                         </div>
                     </div>
                     <Separator className="my-6" />
-                    <div className="flex items-center justify-between">
+                    <div className="md:flex items-center justify-between">
                         <p className="text-sky-600 font-semibold pb-9">Project Asignees</p>
-                        <div className="flex items-center">
+                        <div className="md:flex items-center">
                             <Dialog>
                                 <DialogTrigger asChild>
                                     <Button variant="secondary"> + Add Employee</Button>
@@ -928,11 +926,11 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem>
-                                    <div className="flex flex-row pt-2 pb-2 ">
-                                        <div className="basis-1/4">
+                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
+                                        <div className="md:basis-1/4">
                                             <FormLabel>Project Lead:</FormLabel>
                                         </div>
-                                        <div className="basis-1/4">
+                                        <div className="md:basis-1/4">
                                             <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                 <FormControl>
                                                     <SelectTrigger>
@@ -949,7 +947,7 @@ export const ProjectForm = () => {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="basis-1/4 pl-10 pt-2">
+                                        <div className="md:basis-1/4 pl-10 pt-2">
                                             <FormDescription>
                                                 Select Project Lead
                                             </FormDescription>
@@ -968,11 +966,11 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem>
-                                    <div className="flex flex-row pt-2 pb-2 ">
-                                        <div className="basis-1/4">
+                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
+                                        <div className="md:basis-1/4">
                                             <FormLabel>Project Manager:</FormLabel>
                                         </div>
-                                        <div className="basis-1/4">
+                                        <div className="md:basis-1/4">
                                             <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                 <FormControl>
                                                     <SelectTrigger>
@@ -989,7 +987,7 @@ export const ProjectForm = () => {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="basis-1/4 pl-10 pt-2">
+                                        <div className="md:basis-1/4 pl-10 pt-2">
                                             <FormDescription>
                                                 Select Project Manager
                                             </FormDescription>
@@ -1008,11 +1006,11 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem>
-                                    <div className="flex flex-row pt-2 pb-2 ">
-                                        <div className="basis-1/4">
+                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
+                                        <div className="md:basis-1/4">
                                             <FormLabel>Design Lead:</FormLabel>
                                         </div>
-                                        <div className="basis-1/4">
+                                        <div className="md:basis-1/4">
                                             <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                 <FormControl>
                                                     <SelectTrigger>
@@ -1029,7 +1027,7 @@ export const ProjectForm = () => {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="basis-1/4 pl-10 pt-2">
+                                        <div className="md:basis-1/4 pl-10 pt-2">
                                             <FormDescription>
                                                 Select Design Lead
                                             </FormDescription>
@@ -1048,11 +1046,11 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem>
-                                    <div className="flex flex-row pt-2 pb-2 ">
-                                        <div className="basis-1/4">
+                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
+                                        <div className="md:basis-1/4">
                                             <FormLabel>Procurement Lead:</FormLabel>
                                         </div>
-                                        <div className="basis-1/4">
+                                        <div className="md:basis-1/4">
                                             <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                 <FormControl>
                                                     <SelectTrigger>
@@ -1069,7 +1067,7 @@ export const ProjectForm = () => {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="basis-1/4 pl-10 pt-2">
+                                        <div className="md:basis-1/4 pl-10 pt-2">
                                             <FormDescription>
                                                 Select Procurement Lead
                                             </FormDescription>

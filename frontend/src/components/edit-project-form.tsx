@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeGetDoc } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 // import React from "react"
 import * as z from "zod"
@@ -248,11 +248,9 @@ const projectFormSchema = z.object({
     project_name: z
         .string(
             {
-                required_error: "Must Provide Project name"
-            })
-        .min(6, {
-            message: "Employee Name must be at least 6 characters.",
+
         }),
+        
     customer: z
         .string({
             //required_error: "Please select associated customer."
@@ -293,7 +291,7 @@ const projectFormSchema = z.object({
         .object({
             work_packages: z.array(
                 z.object({
-                    name: z.string()
+                    work_package_name: z.string()
                 })
             )
             // scopes: z.array(z.string()).refine((value) => value.some((item) => item), {
@@ -363,7 +361,7 @@ export const EditProjectForm = () => {
         'Projects',
         `${projectId}`
     );
-    console.log(data);
+    // console.log(data);
     const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
         {
             fields: ['work_package_name']
@@ -462,8 +460,8 @@ export const EditProjectForm = () => {
     //     filters: [["employee_role", "=", "Procurement Lead"]]
     // });
 
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-
+    // const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
     // const handleCheckboxChange = (item: WorkPackages) => {
     //     item.isChecked = !item.isChecked
     //     setWorkPackages([...workPackages.filter(wp => wp.name !== item.name), item])
@@ -478,7 +476,6 @@ export const EditProjectForm = () => {
         fields: ["name", "milestone_name", "scope_of_work"]
     })
 
-
     // 2. Define a submit handler.
     function onSubmit(values: z.infer<typeof projectFormSchema>) {
         // Do something with the form values.
@@ -488,6 +485,17 @@ export const EditProjectForm = () => {
         //const scopes = values.project_scopes.toString()
         //const formatted_project_milestone = values.project_work_milestones.
         console.log("values",values);
+        if(!values.project_name) values.project_name = data.project_name
+        if(!values.customer) values.customer = data.customer
+        if(!values.project_type) values.project_type = data.project_type
+        if(!values.project_address) values.project_address = data.project_address
+        if(!values.project_lead) values.project_lead = data.project_lead
+        if(!values.project_manager) values.project_manager = data.project_manager
+        if(!values.design_lead) values.design_lead = data.design_lead
+        if(!values.procurement_lead) values.procurement_lead = data.procurement_lead
+        if(!values.project_work_milestones) values.project_work_milestones = data.project_work_milestones
+        if(!values.project_scopes) values.project_scopes = data.project_scopes
+
         updateDoc('Projects',`${projectId}`, {
             ...values,
             project_start_date: formatted_start_date,
@@ -569,21 +577,17 @@ export const EditProjectForm = () => {
     return (
         <div className="p-10">
         <Form {...form}>
-            
             <form onSubmit={(event) => {
                 event.stopPropagation();
                 return form.handleSubmit(onSubmit)(event);
             }} className="flex flex-col space-y-8">
+                
                 <div className="flex flex-col">
                     <p className="text-sky-600 font-semibold pb-9">Project Details</p>
                     <FormField
                         control={form.control}
                         name="project_name"
                         render={({ field }) => {
-                            // const updatedField = {
-                            //     ...field,
-                            //     project_name: data?.project_name 
-                            // };
                             return (<FormItem>
                                 <div className="flex flex-row pt-2 pb-2">
                                     <div className="basis-1/4">
@@ -599,7 +603,6 @@ export const EditProjectForm = () => {
                                             Example: CUSTOMER+LOACTION
                                         </FormDescription>
                                     </div>
-
                                 </div>
                                 <div className="pt-2 pb-2">
                                     <FormMessage />
@@ -1115,9 +1118,9 @@ export const EditProjectForm = () => {
                                                     control={form.control}
                                                     name="project_work_milestones.work_packages"
                                                     render={({ field }) => {
-                                                        {JSON.parse(data?.project_work_milestones!).work_packages.map((wp) => (
-                                                            field.value.push(wp)
-                                                        )) || ""} 
+                                                        // {JSON.parse(data?.project_work_milestones!).work_packages.map((wp) => (
+                                                        //     field.value.push(wp)
+                                                        // )) || ""} 
                                                         return (
                                                             <FormItem
                                                                 key={item.work_package_name}
@@ -1128,7 +1131,7 @@ export const EditProjectForm = () => {
                                                                         checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
                                                                         onCheckedChange={(checked) => {
                                                                             return checked
-                                                                                ? field.onChange([...field.value, { work_package_name: work_package_name.name }])
+                                                                                ? field.onChange([...field.value, { work_package_name: item.work_package_name }])
                                                                                 : field.onChange(
                                                                                     field.value?.filter(
                                                                                         (value) => value.work_package_name !== item.work_package_name
@@ -1154,9 +1157,6 @@ export const EditProjectForm = () => {
                                                                 control={form.control}
                                                                 name="project_scopes.scopes"
                                                                 render={({ field }) => (
-                                                                    // {JSON.parse(data.project_scopes!).scopes.map((it) => (
-                                                                    //     field.value.push(it)
-                                                                    // )) || ""}
                                                                     <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                                                                         <FormControl>
                                                                             <Checkbox
