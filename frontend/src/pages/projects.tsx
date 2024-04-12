@@ -103,12 +103,12 @@ export default function Projects() {
                 <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
-                            <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+                            <Link to="/" className="md:text-base text-sm">Dashboard</Link>
                         </BreadcrumbItem>
                         <BreadcrumbItem isCurrentPage>
-                            <BreadcrumbLink href="/projects">
+                            <Link to="/projects" className="text-gray-400 md:text-base text-sm">
                                 Projects
-                            </BreadcrumbLink>
+                            </Link>
                         </BreadcrumbItem>
                     </Breadcrumb>
                 </div>

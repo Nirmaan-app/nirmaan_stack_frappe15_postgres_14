@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 // import React from "react"
 import * as z from "zod"
@@ -14,7 +14,7 @@ import CustomerForm from "./customer-form"
 import { Separator } from "./ui/separator"
 import { AddressForm } from "./address-form"
 import { ScrollArea } from "./ui/scroll-area"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 import { cn } from "@/lib/utils"
 import { CalendarIcon } from "lucide-react"
@@ -23,7 +23,7 @@ import { format } from "date-fns"
 // import EmployeeForm from "./employee-form"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
 import { Checkbox } from "./ui/checkbox"
-
+import { useState,useEffect } from "react"
 
 // const workPackages = [
 //     {
@@ -249,11 +249,9 @@ const projectFormSchema = z.object({
     project_name: z
         .string(
             {
-                required_error: "Must Provide Project name"
-            })
-        .min(6, {
-            message: "Employee Name must be at least 6 characters.",
+
         }),
+        
     customer: z
         .string({
             //required_error: "Please select associated customer."
@@ -309,7 +307,7 @@ const projectFormSchema = z.object({
                     work_package: z.string()
                 })
             )
-        }),
+        })
 })
 // project_work_milestones: z
 //     .object({
@@ -355,9 +353,17 @@ interface sowType {
 //     isSelected: boolean
 // }
 
-export const ProjectForm = () => {
+export const EditProjectForm = () => {
     // 1.b Define your form.
     // Has handleSubmit, control functions
+
+    const { projectId } = useParams<{ projectId: string }>()
+    // console.log("projectId",projectId);
+    const { data, error, isValidating } = useFrappeGetDoc<Projects>(
+        'Projects',
+        `${projectId}`
+    );
+    // console.log(data);
     const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
         {
             fields: ['work_package_name']
@@ -366,13 +372,21 @@ export const ProjectForm = () => {
         {
             fields: ['scope_of_work_name', 'work_package'],
             limit: 100,
-        });
+        }
+    );
 
     const form = useForm<ProjectFormValues>({
         resolver: zodResolver(projectFormSchema),
         mode: "onChange",
         defaultValues: {
             project_name: "",
+            customer: "",
+            project_type: "",
+            project_address: "",
+            project_lead: "",
+            project_manager: "",
+            design_lead: "",
+            procurement_lead: "",
             project_start_date: new Date(),
             project_end_date: new Date(),
             project_work_milestones: {
@@ -380,7 +394,7 @@ export const ProjectForm = () => {
             },
             project_scopes: {
                 scopes: []
-            },
+            }
         },
     })
     const { data: company, isLoading: company_isLoading, error: company_error } = useFrappeGetDocList('Customers', {
@@ -457,8 +471,8 @@ export const ProjectForm = () => {
     //     filters: [["employee_role", "=", "Procurement Lead"]]
     // });
 
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-
+    // const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
     // const handleCheckboxChange = (item: WorkPackages) => {
     //     item.isChecked = !item.isChecked
     //     setWorkPackages([...workPackages.filter(wp => wp.name !== item.name), item])
@@ -473,7 +487,6 @@ export const ProjectForm = () => {
         fields: ["name", "milestone_name", "scope_of_work"]
     })
 
-
     // 2. Define a submit handler.
     function onSubmit(values: z.infer<typeof projectFormSchema>) {
         // Do something with the form values.
@@ -482,7 +495,27 @@ export const ProjectForm = () => {
         const formatted_end_date = values.project_end_date.toISOString().replace('T', ' ').slice(0, 19)
         //const scopes = values.project_scopes.toString()
         //const formatted_project_milestone = values.project_work_milestones.
-        createDoc('Projects', {
+        if(!values.project_name) values.project_name = data.project_name
+        if(!values.customer) values.customer = data.customer
+        if(!values.project_type) values.project_type = data.project_type
+        if(!values.project_address) values.project_address = data.project_address
+        if(!values.project_lead) values.project_lead = data.project_lead
+        if(!values.project_manager) values.project_manager = data.project_manager
+        if(!values.design_lead) values.design_lead = data.design_lead
+        if(!values.procurement_lead) values.procurement_lead = data.procurement_lead
+        if(values.project_work_milestones.work_packages.length === 0){
+            JSON.parse(data.project_work_milestones).work_packages.map((item)=>(
+                values.project_work_milestones.work_packages.push(item)
+            ))
+        }  
+        if(values.project_scopes.scopes.length === 0){
+            JSON.parse(data.project_scopes).scopes.map((item)=>(
+                values.project_scopes.scopes.push(item)
+            ))
+        }
+
+        console.log("values",values);
+        updateDoc('Projects',`${projectId}`, {
             ...values,
             project_start_date: formatted_start_date,
             project_end_date: formatted_end_date
@@ -492,21 +525,20 @@ export const ProjectForm = () => {
             console.log(submit_error)
         })
 
-        if (!mile_loading && !mile_error) {
-            console.log("scopes", values.project_scopes.scopes)
-            values.project_scopes.scopes.forEach(scope => {
-                const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
-                miles?.forEach(mile => {
-                    createDoc("Project Work Milestones", {
-                        project: values.project_name,
-                        work_package: scope.work_package,
-                        scope_of_work: scope.scope_of_work_name,
-                        milestone: mile.milestone_name
-                    })
-                    console.log(mile.milestone_name, scope.scope_of_work_name, scope.work_package)
-                })
-            })
-        }
+        // if (!mile_loading && !mile_error) {
+        //     values.project_scopes.scopes.forEach(scope => {
+        //         const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
+        //         miles?.forEach(mile => {
+        //             createDoc("Project Work Milestones", {
+        //                 project: values.project_name,
+        //                 work_package: scope.work_package,
+        //                 scope_of_work: scope.scope_of_work_name,
+        //                 milestone: mile.milestone_name
+        //             })
+        //             console.log(mile.milestone_name, scope.scope_of_work_name, scope.work_package)
+        //         })
+        //     })
+        // }
 
 
         console.log(values)
@@ -559,58 +591,70 @@ export const ProjectForm = () => {
         scope_of_work_name: item.scope_of_work_name, // Adjust based on your data structure
         work_package: item.work_package
     })) || [];
-    console.log(wp_list, sow_list)
+    console.log("scope_of_work_list",scope_of_work_list)
+    
+//     const [workPackagesValue, setWorkPackagesValue] = useState(data?.project_work_milestones.work_packages);
+
+// useEffect(() => {
+//     // Update the default value if data changes
+//     setWorkPackagesValue(data?.project_work_milestones.work_packages);
+// }, [data?.project_work_milestones.work_packages]);
 
     return (
+        <div className="p-10">
         <Form {...form}>
             <form onSubmit={(event) => {
                 event.stopPropagation();
                 return form.handleSubmit(onSubmit)(event);
             }} className="flex flex-col space-y-8">
+                
                 <div className="flex flex-col">
                     <p className="text-sky-600 font-semibold pb-9">Project Details</p>
                     <FormField
                         control={form.control}
                         name="project_name"
-                        render={({ field }) => (
-
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                        render={({ field }) => {
+                            return (<FormItem>
+                                <div className="flex flex-row pt-2 pb-2">
+                                    <div className="basis-1/4">
                                         <FormLabel>Project Name: </FormLabel>
                                     </div>
-                                    <div className="md:basis-1/4">
+                                    <div className="basis-1/4">
                                         <FormControl>
-                                            <Input placeholder="Project Name" {...field} />
+                                            <Input defaultValue={data?.project_name} placeholder={`${data?.project_name}`} {...field} />
                                         </FormControl>
                                     </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
+                                    <div className="basis-1/2 pl-10 pt-2">
                                         <FormDescription>
                                             Example: CUSTOMER+LOACTION
                                         </FormDescription>
                                     </div>
-
                                 </div>
                                 <div className="pt-2 pb-2">
                                     <FormMessage />
                                 </div>
-                            </FormItem>
-                        )}
+                            </FormItem>)
+
+                        }}
                     />
                     <FormField
                         control={form.control}
                         name="customer"
-                        render={({ field }) => (
+                        render={({ field }) => {
+                            // field.value = data?.customer; 
+                            // console.log("customer",field)
+                            return (
                             <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                <div className="flex flex-row pt-2 pb-2">
+                                    <div className="basis-1/4">
                                         <FormLabel>Customer</FormLabel>
                                     </div>
-                                    <div className="md:basis-1/4">
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <div className="basis-1/4">
+                                        <Select onValueChange={field.onChange} defaultValue={data?.customer} >
+                                        {/* <Select {...field} onValueChange={field.onChange} defaultValue={customerValue}> */}
                                             <FormControl>
                                                 <SelectTrigger>
-                                                    <SelectValue placeholder="Select the customer" />
+                                                    <SelectValue placeholder={`${data?.customer}`} />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
@@ -623,12 +667,12 @@ export const ProjectForm = () => {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <div className="md:basis-1/4 pl-10 pt-2">
+                                    <div className="basis-1/4 pl-10 pt-2">
                                         <FormDescription>
                                             Customer associated with this project
                                         </FormDescription>
                                     </div>
-                                    <div className="md:basis-1/4 pl-10 pt-2">
+                                    <div className="basis-1/4 pl-10 pt-2">
                                         {/* <Button variant="secondary" asChild>
                                             <Link to="../../customers/edit" relative="path">+ Add Customer</Link>
                                         </Button> */}
@@ -636,8 +680,7 @@ export const ProjectForm = () => {
                                             <DialogTrigger asChild>
                                                 <Button variant="secondary"> + Add Customer</Button>
                                             </DialogTrigger>
-                                            <DialogContent className="max-w-[300px] md:max-w-[425px] ">
-                                                <ScrollArea className="max-h-[400px] md:max-h-[500px] ">
+                                            <DialogContent className="sm:max-w-[425px]">
                                                 <DialogHeader>
                                                     <DialogTitle>Add New Customer</DialogTitle>
                                                     <DialogDescription>
@@ -645,7 +688,6 @@ export const ProjectForm = () => {
                                                     </DialogDescription>
                                                 </DialogHeader>
                                                 <CustomerForm />
-                                                </ScrollArea>
                                             </DialogContent>
                                         </Dialog>
                                     </div>
@@ -654,7 +696,7 @@ export const ProjectForm = () => {
                                     <FormMessage />
                                 </div>
                             </FormItem>
-                        )}
+                        )}}
                     />
                     <FormField
                         control={form.control}
@@ -662,15 +704,15 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
+                                    <div className="flex flex-row pt-2 pb-2 ">
+                                        <div className="basis-1/4">
                                             <FormLabel>Project Type</FormLabel>
                                         </div>
-                                        <div className="md:basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="basis-1/4">
+                                            <Select onValueChange={field.onChange}  defaultValue={data?.project_type} >
                                                 <FormControl>
                                                     <SelectTrigger>
-                                                        <SelectValue placeholder="Select a project type" />
+                                                        <SelectValue placeholder={`${data?.project_type}`} />
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
@@ -683,17 +725,17 @@ export const ProjectForm = () => {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
+                                        <div className="basis-1/4 pl-10 pt-2">
                                             <FormDescription>
                                                 Select Type of Project
                                             </FormDescription>
                                         </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
+                                        <div className="basis-1/4 pl-10 pt-2">
                                             <Dialog>
                                                 <DialogTrigger asChild>
                                                     <Button variant="secondary"> + Add Project Type</Button>
                                                 </DialogTrigger>
-                                                <DialogContent className="max-w-[300px] md:max-w-[425px]">
+                                                <DialogContent className="sm:max-w-[425px]">
                                                     <DialogHeader>
                                                         <DialogTitle>Add New Project Type</DialogTitle>
                                                         <DialogDescription>
@@ -717,15 +759,15 @@ export const ProjectForm = () => {
                         name="project_address"
                         render={({ field }) => (
                             <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                    <div className="md:basis-1/4">
+                                <div className="flex flex-row pt-2 pb-2 ">
+                                    <div className="basis-1/4">
                                         <FormLabel>Project Address</FormLabel>
                                     </div>
-                                    <div className="md:basis-1/4">
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <div className="basis-1/4">
+                                        <Select onValueChange={field.onChange}  defaultValue={data?.project_address} >
                                             <FormControl>
                                                 <SelectTrigger>
-                                                    <SelectValue placeholder="Select an address" />
+                                                    <SelectValue placeholder={`${data?.project_address}`} />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
@@ -738,18 +780,19 @@ export const ProjectForm = () => {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <div className="md:basis-1/4 pl-10 pt-2">
+                                    <div className="basis-1/4 pl-10 pt-2">
                                         <FormDescription>
                                             Select Project Address
                                         </FormDescription>
                                     </div>
-                                    <div className="md:basis-1/4 pl-10 pt-2">
+                                    <div className="basis-1/4 pl-10 pt-2">
                                         <Dialog>
                                             <DialogTrigger asChild>
                                                 <Button variant="secondary"> + Add Project Address</Button>
                                             </DialogTrigger>
-                                            <DialogContent className="max-w-[300px] md:max-w-[425px]">
-                                                <ScrollArea className="max-h-[400px] md:max-h-[500px] ">
+
+                                            <DialogContent className="sm:max-w-[425px]">
+                                                <ScrollArea className="h-[600px] w-[350px]">
                                                     <DialogHeader>
                                                         <DialogTitle>Add New Project Address</DialogTitle>
                                                         <DialogDescription>
@@ -780,11 +823,11 @@ export const ProjectForm = () => {
                         render={({ field }) => (
 
                             <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                <div className="flex flex-row pt-2 pb-2">
+                                    <div className="basis-1/4">
                                         <FormLabel>Project Start Date: </FormLabel>
                                     </div>
-                                    <div className="md:basis-1/4">
+                                    <div className="basis-1/4">
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <FormControl>
@@ -796,7 +839,6 @@ export const ProjectForm = () => {
                                                         )}
                                                     >
                                                         {field.value ? (
-
                                                             format(field.value, "yyyy-MM-dd")
                                                         ) : (
                                                             <span>Pick a date</span>
@@ -816,7 +858,7 @@ export const ProjectForm = () => {
                                             </PopoverContent>
                                         </Popover>
                                     </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
+                                    <div className="basis-1/2 pl-10 pt-2">
                                         <FormDescription>
                                             Select project start date
                                         </FormDescription>
@@ -837,11 +879,11 @@ export const ProjectForm = () => {
                         render={({ field }) => (
 
                             <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                <div className="flex flex-row pt-2 pb-2">
+                                    <div className="basis-1/4">
                                         <FormLabel>Project End Date: </FormLabel>
                                     </div>
-                                    <div className="md:basis-1/4">
+                                    <div className="basis-1/4">
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <FormControl>
@@ -875,7 +917,7 @@ export const ProjectForm = () => {
                                             </PopoverContent>
                                         </Popover>
                                     </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
+                                    <div className="basis-1/2 pl-10 pt-2">
                                         <FormDescription>
                                             Select Project End date
                                         </FormDescription>
@@ -891,11 +933,11 @@ export const ProjectForm = () => {
                         )}
                     />
                     <div className="pt-2 pb-2">
-                        <div className="md:flex md:flex-row pt-2 pb-2">
-                            <div className="md:basis-1/4">
+                        <div className="flex flex-row pt-2 pb-2">
+                            <div className="basis-1/4">
                                 <h1>Duration: </h1>
                             </div>
-                            <div className="md:basis-1/4">
+                            <div className="basis-1/4">
                                 <h1>{
                                     (Math.round(form.getValues("project_end_date").getTime() - form.getValues("project_start_date").getTime()) / (1000 * 3600 * 24)) || "0"
                                 }Days
@@ -904,14 +946,14 @@ export const ProjectForm = () => {
                         </div>
                     </div>
                     <Separator className="my-6" />
-                    <div className="md:flex items-center justify-between">
+                    <div className="flex items-center justify-between">
                         <p className="text-sky-600 font-semibold pb-9">Project Asignees</p>
-                        <div className="md:flex items-center">
+                        <div className="flex items-center">
                             <Dialog>
                                 <DialogTrigger asChild>
                                     <Button variant="secondary"> + Add Employee</Button>
                                 </DialogTrigger>
-                                <DialogContent className="max-w-[300px] md:max-w-[425px]">
+                                <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>
                                         <DialogTitle>Add New Employee</DialogTitle>
                                         <DialogDescription>
@@ -929,15 +971,15 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
+                                    <div className="flex flex-row pt-2 pb-2 ">
+                                        <div className="basis-1/4">
                                             <FormLabel>Project Lead:</FormLabel>
                                         </div>
-                                        <div className="md:basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="basis-1/4">
+                                            <Select onValueChange={field.onChange} defaultValue={data?.project_lead}>
                                                 <FormControl>
                                                     <SelectTrigger>
-                                                        <SelectValue placeholder="Select project lead" />
+                                                        <SelectValue placeholder={`${data?.project_lead}`} />
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
@@ -950,7 +992,7 @@ export const ProjectForm = () => {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
+                                        <div className="basis-1/4 pl-10 pt-2">
                                             <FormDescription>
                                                 Select Project Lead
                                             </FormDescription>
@@ -969,15 +1011,15 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
+                                    <div className="flex flex-row pt-2 pb-2 ">
+                                        <div className="basis-1/4">
                                             <FormLabel>Project Manager:</FormLabel>
                                         </div>
-                                        <div className="md:basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="basis-1/4">
+                                            <Select onValueChange={field.onChange} defaultValue={data?.project_manager}>
                                                 <FormControl>
                                                     <SelectTrigger>
-                                                        <SelectValue placeholder="Select project manager" />
+                                                        <SelectValue placeholder={`${data?.project_manager}`} />
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
@@ -990,7 +1032,7 @@ export const ProjectForm = () => {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
+                                        <div className="basis-1/4 pl-10 pt-2">
                                             <FormDescription>
                                                 Select Project Manager
                                             </FormDescription>
@@ -1009,15 +1051,15 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
+                                    <div className="flex flex-row pt-2 pb-2 ">
+                                        <div className="basis-1/4">
                                             <FormLabel>Design Lead:</FormLabel>
                                         </div>
-                                        <div className="md:basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="basis-1/4">
+                                            <Select onValueChange={field.onChange} defaultValue={data?.design_lead}>
                                                 <FormControl>
                                                     <SelectTrigger>
-                                                        <SelectValue placeholder="Select design lead" />
+                                                        <SelectValue placeholder={`${data?.design_lead}`} />
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
@@ -1030,7 +1072,7 @@ export const ProjectForm = () => {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
+                                        <div className="basis-1/4 pl-10 pt-2">
                                             <FormDescription>
                                                 Select Design Lead
                                             </FormDescription>
@@ -1049,15 +1091,15 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
+                                    <div className="flex flex-row pt-2 pb-2 ">
+                                        <div className="basis-1/4">
                                             <FormLabel>Procurement Lead:</FormLabel>
                                         </div>
-                                        <div className="md:basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="basis-1/4">
+                                            <Select onValueChange={field.onChange} defaultValue={data?.procurement_lead_lead}>
                                                 <FormControl>
                                                     <SelectTrigger>
-                                                        <SelectValue placeholder="Select procurement lead" />
+                                                        <SelectValue placeholder={`${data?.procurement_lead}`} />
                                                     </SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
@@ -1070,7 +1112,7 @@ export const ProjectForm = () => {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
+                                        <div className="basis-1/4 pl-10 pt-2">
                                             <FormDescription>
                                                 Select Procurement Lead
                                             </FormDescription>
@@ -1105,13 +1147,16 @@ export const ProjectForm = () => {
                                                     control={form.control}
                                                     name="project_work_milestones.work_packages"
                                                     render={({ field }) => {
+                                                        
+                                                        // console.log(field) 
+                                                        // if(data) field.value = JSON.parse(data.project_work_milestones).work_packages
                                                         return (
                                                             <FormItem
                                                                 key={item.work_package_name}
                                                                 className="flex flex-row items-start space-x-3 space-y-0"
                                                             >
                                                                 <FormControl>
-                                                                    <Checkbox
+                                                                <Checkbox
                                                                         checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
                                                                         onCheckedChange={(checked) => {
                                                                             return checked
@@ -1121,6 +1166,11 @@ export const ProjectForm = () => {
                                                                                         (value) => value.work_package_name !== item.work_package_name
                                                                                     )
                                                                                 )
+                                                                            // const updatedValue = checked
+                                                                            //     ? [...workPackagesValue, { work_package_name: item.work_package_name }]
+                                                                            //     : workPackagesValue.filter(value => value.work_package_name !== item.work_package_name);
+                                                                            // setWorkPackagesValue(updatedValue);
+                                                                            // field.onChange(updatedValue);
                                                                         }}
                                                                     />
                                                                 </FormControl>
@@ -1134,7 +1184,7 @@ export const ProjectForm = () => {
                                             </AccordionTrigger>
                                             <AccordionContent>
                                                 {sow_list.map((scope) => {
-                                                    if (scope.work_package === item.work_package_name) {
+                                                    if (scope.work_package === item.work_package_name){
                                                         return (
                                                             <FormField
                                                                 key={scope.scope_of_work_name}
@@ -1145,6 +1195,7 @@ export const ProjectForm = () => {
                                                                         <FormControl>
                                                                             <Checkbox
                                                                                 checked={field.value?.some((i) => i.scope_of_work_name === scope.scope_of_work_name)}
+                                                                                
                                                                                 onCheckedChange={(checked) => {
                                                                                     return checked
                                                                                         ? field.onChange([...field.value, {
@@ -1292,5 +1343,6 @@ export const ProjectForm = () => {
                 </div>
             </form>
         </Form>
+        </div>
     )
 }

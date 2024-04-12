@@ -110,15 +110,15 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                 <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
-                            <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+                            <Link to="/" className="md:text-base text-sm">Dashboard</Link>
                         </BreadcrumbItem>
                         <BreadcrumbItem>
-                            <BreadcrumbLink href="/projects">Projects</BreadcrumbLink>
+                            <Link to="/projects" className="md:text-base text-sm">Projects</Link>
                         </BreadcrumbItem>
                         <BreadcrumbItem isCurrentPage>
-                            <BreadcrumbLink href="/projects/edit">
+                            <Link to="/projects/edit" className="text-gray-400 md:text-base text-sm">
                                 {projectId}
-                            </BreadcrumbLink>
+                            </Link>
                         </BreadcrumbItem>
                     </Breadcrumb>
                 </div>
@@ -129,8 +129,8 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                         <div className="flex items-center justify-between space-y-2">
                             <h2 className="text-3xl font-bold tracking-tight">{data.project_name}</h2>
                             <div className="flex items-center space-x-2">
-                                <Button asChild disabled>
-                                    <Link to=""> Edit Project</Link>
+                                <Button asChild>
+                                    <Link to={`/projects/edit-one/${projectId}`}> Edit Project</Link>
                                 </Button>
                             </div>
                         </div>
@@ -203,11 +203,11 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                                         </CardTitle>
                                         <HardHat className="h-4 w-4 text-muted-foreground" />
                                     </CardHeader>
-                                    {/* <CardContent>
+                                    <CardContent>
                                         {JSON.parse(data.project_work_milestones!).work_packages.map((wp: WPN) => (
-                                            <Badge variant="outline">{wp.name}</Badge>
+                                            <Badge variant="outline">{wp.work_package_name}</Badge>
                                         )) || ""} 
-                                </CardContent> */}
+                                </CardContent>
                                 </Card>
                                 <Card>
                                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

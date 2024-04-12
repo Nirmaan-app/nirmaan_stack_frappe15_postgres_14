@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 //import { HardHat } from "lucide-react";
 // import { useMemo } from "react";
-// import { Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 // import { ColumnDef } from "@tanstack/react-table";
 // import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 // import { DataTable } from "@/components/data-table/data-table";
@@ -11,10 +11,38 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcr
 import { WPCard } from "@/components/wp-card";
 import { NavBar } from "@/components/nav/nav-bar";
 
+import { zodResolver } from "@hookform/resolvers/zod"
+import { useForm } from "react-hook-form"
+import * as z from "zod"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import {
+    Form,
+    FormControl,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
+} from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
+import { useFrappeCreateDoc } from "frappe-react-sdk"
+import { ButtonLoading } from "@/components/button-loading"
+
 
 interface WorkPackage {
     work_package_name: string
 }
+
+const SOWFormSchema = z.object({
+    work_package_name: z
+        .string({
+            required_error: "Must provide type Name"
+        })
+        .min(3, {
+            message: "Type Name must be at least 3 characters.",
+        }),
+})
+
+type SOWFormValues = z.infer<typeof SOWFormSchema>
 
 export default function Projects() {
     //const { data: wp_count, isLoading: wp_count_loading, error: wp_count_error } = useFrappeGetDocCount("Work Packages");
@@ -22,6 +50,28 @@ export default function Projects() {
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<WorkPackage>("Work Packages", {
         fields: ["work_package_name"]
     })
+    const form = useForm<SOWFormValues>({
+        resolver: zodResolver(SOWFormSchema),
+        defaultValues: {
+            work_package_name: "",
+        },
+        mode: "onChange",
+    })
+
+    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    // 2. Define a submit handler.
+    function onSubmit(values: z.infer<typeof SOWFormSchema>) {
+        // Do something with the form values.
+        // ✅ This will be type-safe and validated.
+        console.log("values ",values)
+
+        createDoc('Work Packages', values)
+            .then(() => {
+                console.log(values)
+            }).catch(() => {
+                console.log(submit_error)
+            })
+    }
 
 
     // const columns: ColumnDef<WorkPackage>[] = useMemo(
@@ -54,19 +104,57 @@ export default function Projects() {
                 <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
-                            <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+                            <Link to="/">Dashboard</Link>
                         </BreadcrumbItem>
                         <BreadcrumbItem isCurrentPage>
-                            <BreadcrumbLink href="/wp">
+                            <Link to="/wp">
                                 Work Packages
-                            </BreadcrumbLink>
+                            </Link>
                         </BreadcrumbItem>
                     </Breadcrumb>
                 </div>
                 <div className="flex items-center justify-between space-y-2">
                     <h2 className="text-3xl font-bold tracking-tight">Work Packages Dashboard</h2>
                     <div className="flex items-center space-x-2">
-                        <Button> Add New Work Packages</Button>
+                        {/* <Button> Add New Work Packages</Button> */}
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <Button className="p-3 pb-4" variant="secondary">Add New Work Packages</Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Add New Work Packages</DialogTitle>
+                                    <DialogDescription>
+                                        Add New Work Packages.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <Form {...form}>
+                                    <form onSubmit={(event) => {
+                                        event.stopPropagation();
+                                        return form.handleSubmit(onSubmit)(event);
+
+                                    }} className="space-y-8">
+                                        <FormField
+                                            control={form.control}
+                                            name="work_package_name"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Work Package Name</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder="Work Package Name" {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
+                                        <div>
+                                            {submit_complete && <div className="font-semibold text-green-500">Work Package Added</div>}
+                                        </div>
+                                    </form>
+                                </Form>
+                            </DialogContent>
+                        </Dialog>
                     </div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
