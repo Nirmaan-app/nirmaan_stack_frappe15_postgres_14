@@ -12,13 +12,13 @@ export default function EditProject() {
                 <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
-                            <Link to="/">Dashboard</Link>
+                            <Link to="/" className="md:text-base text-sm">Dashboard</Link>
                         </BreadcrumbItem>
                         <BreadcrumbItem>
-                            <Link to="/projects">Projects</Link>
+                            <Link to="/projects" className="md:text-base text-sm">Projects</Link>
                         </BreadcrumbItem>
                         <BreadcrumbItem isCurrentPage>
-                            <Link to="/projects/edit">
+                            <Link to="/projects/edit" className="text-gray-400 md:text-base text-sm">
                                 Edit Project
                             </Link>
                         </BreadcrumbItem>
@@ -35,9 +35,6 @@ export default function EditProject() {
                     <ProjectForm />
                 </div>
             </div>
-
-
-
         </>
     )
 }

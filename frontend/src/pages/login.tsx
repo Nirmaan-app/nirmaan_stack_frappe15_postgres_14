@@ -13,6 +13,7 @@ import { Box, Flex, IconButton, Text, TextField } from "@radix-ui/themes";
 import { FrappeError } from "frappe-react-sdk";
 import { ErrorText, Label } from "@/components/common/form";
 import { Button, buttonVariants } from "@/components/ui/button";
+import logo from "@/assets/logo-svg.svg"
 
 import { CardTitle, CardDescription, CardHeader, CardContent, Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -39,8 +40,10 @@ export default function Login() {
       <div className="mt-10">
       {isLoading ? <h1>Loading...</h1> :
       // {error && <h1>{error.message}</h1>}
+      
 
       <Card className="mx-auto max-w-sm">
+        <img src={logo} alt="Nirmaan" className="h-[50px] w-[300px] pl-[40px] md:pl-[80px] pt-2" />
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold">Login</CardTitle>
           <CardDescription>Enter your email and password to login to your account</CardDescription>

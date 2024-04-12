@@ -24,6 +24,7 @@ import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
 import { Checkbox } from "./ui/checkbox"
 
+
 // const workPackages = [
 //     {
 //         name: "Electrical",
@@ -363,7 +364,8 @@ export const ProjectForm = () => {
         });
     const { data: scope_of_work_list, isLoading: sow_list_loading, error: sow_list_error } = useFrappeGetDocList("Scopes of Work",
         {
-            fields: ['scope_of_work_name', 'work_package']
+            fields: ['scope_of_work_name', 'work_package'],
+            limit: 100,
         });
 
     const form = useForm<ProjectFormValues>({
@@ -634,7 +636,8 @@ export const ProjectForm = () => {
                                             <DialogTrigger asChild>
                                                 <Button variant="secondary"> + Add Customer</Button>
                                             </DialogTrigger>
-                                            <DialogContent className="sm:max-w-[425px]">
+                                            <DialogContent className="max-w-[300px] md:max-w-[425px] ">
+                                                <ScrollArea className="max-h-[400px] md:max-h-[500px] ">
                                                 <DialogHeader>
                                                     <DialogTitle>Add New Customer</DialogTitle>
                                                     <DialogDescription>
@@ -642,6 +645,7 @@ export const ProjectForm = () => {
                                                     </DialogDescription>
                                                 </DialogHeader>
                                                 <CustomerForm />
+                                                </ScrollArea>
                                             </DialogContent>
                                         </Dialog>
                                     </div>
@@ -689,7 +693,7 @@ export const ProjectForm = () => {
                                                 <DialogTrigger asChild>
                                                     <Button variant="secondary"> + Add Project Type</Button>
                                                 </DialogTrigger>
-                                                <DialogContent className="sm:max-w-[425px]">
+                                                <DialogContent className="max-w-[300px] md:max-w-[425px]">
                                                     <DialogHeader>
                                                         <DialogTitle>Add New Project Type</DialogTitle>
                                                         <DialogDescription>
@@ -744,9 +748,8 @@ export const ProjectForm = () => {
                                             <DialogTrigger asChild>
                                                 <Button variant="secondary"> + Add Project Address</Button>
                                             </DialogTrigger>
-
-                                            <DialogContent className="sm:max-w-[425px]">
-                                                <ScrollArea className="h-[600px] w-[350px]">
+                                            <DialogContent className="max-w-[300px] md:max-w-[425px]">
+                                                <ScrollArea className="max-h-[400px] md:max-h-[500px] ">
                                                     <DialogHeader>
                                                         <DialogTitle>Add New Project Address</DialogTitle>
                                                         <DialogDescription>
@@ -908,7 +911,7 @@ export const ProjectForm = () => {
                                 <DialogTrigger asChild>
                                     <Button variant="secondary"> + Add Employee</Button>
                                 </DialogTrigger>
-                                <DialogContent className="sm:max-w-[425px]">
+                                <DialogContent className="max-w-[300px] md:max-w-[425px]">
                                     <DialogHeader>
                                         <DialogTitle>Add New Employee</DialogTitle>
                                         <DialogDescription>

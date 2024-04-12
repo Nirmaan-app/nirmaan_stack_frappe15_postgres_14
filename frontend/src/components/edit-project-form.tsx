@@ -23,6 +23,7 @@ import { format } from "date-fns"
 // import EmployeeForm from "./employee-form"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
 import { Checkbox } from "./ui/checkbox"
+import { useState,useEffect } from "react"
 
 // const workPackages = [
 //     {
@@ -355,6 +356,7 @@ interface sowType {
 export const EditProjectForm = () => {
     // 1.b Define your form.
     // Has handleSubmit, control functions
+
     const { projectId } = useParams<{ projectId: string }>()
     // console.log("projectId",projectId);
     const { data, error, isValidating } = useFrappeGetDoc<Projects>(
@@ -368,14 +370,23 @@ export const EditProjectForm = () => {
         });
     const { data: scope_of_work_list, isLoading: sow_list_loading, error: sow_list_error } = useFrappeGetDocList("Scopes of Work",
         {
-            fields: ['scope_of_work_name', 'work_package']
-        });
+            fields: ['scope_of_work_name', 'work_package'],
+            limit: 100,
+        }
+    );
 
     const form = useForm<ProjectFormValues>({
         resolver: zodResolver(projectFormSchema),
         mode: "onChange",
         defaultValues: {
             project_name: "",
+            customer: "",
+            project_type: "",
+            project_address: "",
+            project_lead: "",
+            project_manager: "",
+            design_lead: "",
+            procurement_lead: "",
             project_start_date: new Date(),
             project_end_date: new Date(),
             project_work_milestones: {
@@ -484,7 +495,6 @@ export const EditProjectForm = () => {
         const formatted_end_date = values.project_end_date.toISOString().replace('T', ' ').slice(0, 19)
         //const scopes = values.project_scopes.toString()
         //const formatted_project_milestone = values.project_work_milestones.
-        console.log("values",values);
         if(!values.project_name) values.project_name = data.project_name
         if(!values.customer) values.customer = data.customer
         if(!values.project_type) values.project_type = data.project_type
@@ -493,9 +503,18 @@ export const EditProjectForm = () => {
         if(!values.project_manager) values.project_manager = data.project_manager
         if(!values.design_lead) values.design_lead = data.design_lead
         if(!values.procurement_lead) values.procurement_lead = data.procurement_lead
-        if(!values.project_work_milestones) values.project_work_milestones = data.project_work_milestones
-        if(!values.project_scopes) values.project_scopes = data.project_scopes
+        if(values.project_work_milestones.work_packages.length === 0){
+            JSON.parse(data.project_work_milestones).work_packages.map((item)=>(
+                values.project_work_milestones.work_packages.push(item)
+            ))
+        }  
+        if(values.project_scopes.scopes.length === 0){
+            JSON.parse(data.project_scopes).scopes.map((item)=>(
+                values.project_scopes.scopes.push(item)
+            ))
+        }
 
+        console.log("values",values);
         updateDoc('Projects',`${projectId}`, {
             ...values,
             project_start_date: formatted_start_date,
@@ -506,20 +525,20 @@ export const EditProjectForm = () => {
             console.log(submit_error)
         })
 
-        if (!mile_loading && !mile_error) {
-            values.project_scopes.scopes.forEach(scope => {
-                const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
-                miles?.forEach(mile => {
-                    createDoc("Project Work Milestones", {
-                        project: values.project_name,
-                        work_package: scope.work_package,
-                        scope_of_work: scope.scope_of_work_name,
-                        milestone: mile.milestone_name
-                    })
-                    console.log(mile.milestone_name, scope.scope_of_work_name, scope.work_package)
-                })
-            })
-        }
+        // if (!mile_loading && !mile_error) {
+        //     values.project_scopes.scopes.forEach(scope => {
+        //         const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
+        //         miles?.forEach(mile => {
+        //             createDoc("Project Work Milestones", {
+        //                 project: values.project_name,
+        //                 work_package: scope.work_package,
+        //                 scope_of_work: scope.scope_of_work_name,
+        //                 milestone: mile.milestone_name
+        //             })
+        //             console.log(mile.milestone_name, scope.scope_of_work_name, scope.work_package)
+        //         })
+        //     })
+        // }
 
 
         console.log(values)
@@ -572,7 +591,14 @@ export const EditProjectForm = () => {
         scope_of_work_name: item.scope_of_work_name, // Adjust based on your data structure
         work_package: item.work_package
     })) || [];
-    console.log(wp_list, sow_list)
+    console.log("scope_of_work_list",scope_of_work_list)
+    
+//     const [workPackagesValue, setWorkPackagesValue] = useState(data?.project_work_milestones.work_packages);
+
+// useEffect(() => {
+//     // Update the default value if data changes
+//     setWorkPackagesValue(data?.project_work_milestones.work_packages);
+// }, [data?.project_work_milestones.work_packages]);
 
     return (
         <div className="p-10">
@@ -595,7 +621,7 @@ export const EditProjectForm = () => {
                                     </div>
                                     <div className="basis-1/4">
                                         <FormControl>
-                                            <Input placeholder={`${data?.project_name}`} {...field} />
+                                            <Input defaultValue={data?.project_name} placeholder={`${data?.project_name}`} {...field} />
                                         </FormControl>
                                     </div>
                                     <div className="basis-1/2 pl-10 pt-2">
@@ -614,14 +640,18 @@ export const EditProjectForm = () => {
                     <FormField
                         control={form.control}
                         name="customer"
-                        render={({ field }) => (
+                        render={({ field }) => {
+                            // field.value = data?.customer; 
+                            // console.log("customer",field)
+                            return (
                             <FormItem>
                                 <div className="flex flex-row pt-2 pb-2">
                                     <div className="basis-1/4">
                                         <FormLabel>Customer</FormLabel>
                                     </div>
                                     <div className="basis-1/4">
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <Select onValueChange={field.onChange} defaultValue={data?.customer} >
+                                        {/* <Select {...field} onValueChange={field.onChange} defaultValue={customerValue}> */}
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder={`${data?.customer}`} />
@@ -666,7 +696,7 @@ export const EditProjectForm = () => {
                                     <FormMessage />
                                 </div>
                             </FormItem>
-                        )}
+                        )}}
                     />
                     <FormField
                         control={form.control}
@@ -679,7 +709,7 @@ export const EditProjectForm = () => {
                                             <FormLabel>Project Type</FormLabel>
                                         </div>
                                         <div className="basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <Select onValueChange={field.onChange}  defaultValue={data?.project_type} >
                                                 <FormControl>
                                                     <SelectTrigger>
                                                         <SelectValue placeholder={`${data?.project_type}`} />
@@ -734,7 +764,7 @@ export const EditProjectForm = () => {
                                         <FormLabel>Project Address</FormLabel>
                                     </div>
                                     <div className="basis-1/4">
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <Select onValueChange={field.onChange}  defaultValue={data?.project_address} >
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder={`${data?.project_address}`} />
@@ -809,7 +839,6 @@ export const EditProjectForm = () => {
                                                         )}
                                                     >
                                                         {field.value ? (
-
                                                             format(field.value, "yyyy-MM-dd")
                                                         ) : (
                                                             <span>Pick a date</span>
@@ -947,7 +976,7 @@ export const EditProjectForm = () => {
                                             <FormLabel>Project Lead:</FormLabel>
                                         </div>
                                         <div className="basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <Select onValueChange={field.onChange} defaultValue={data?.project_lead}>
                                                 <FormControl>
                                                     <SelectTrigger>
                                                         <SelectValue placeholder={`${data?.project_lead}`} />
@@ -987,7 +1016,7 @@ export const EditProjectForm = () => {
                                             <FormLabel>Project Manager:</FormLabel>
                                         </div>
                                         <div className="basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <Select onValueChange={field.onChange} defaultValue={data?.project_manager}>
                                                 <FormControl>
                                                     <SelectTrigger>
                                                         <SelectValue placeholder={`${data?.project_manager}`} />
@@ -1027,7 +1056,7 @@ export const EditProjectForm = () => {
                                             <FormLabel>Design Lead:</FormLabel>
                                         </div>
                                         <div className="basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <Select onValueChange={field.onChange} defaultValue={data?.design_lead}>
                                                 <FormControl>
                                                     <SelectTrigger>
                                                         <SelectValue placeholder={`${data?.design_lead}`} />
@@ -1067,7 +1096,7 @@ export const EditProjectForm = () => {
                                             <FormLabel>Procurement Lead:</FormLabel>
                                         </div>
                                         <div className="basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <Select onValueChange={field.onChange} defaultValue={data?.procurement_lead_lead}>
                                                 <FormControl>
                                                     <SelectTrigger>
                                                         <SelectValue placeholder={`${data?.procurement_lead}`} />
@@ -1118,16 +1147,16 @@ export const EditProjectForm = () => {
                                                     control={form.control}
                                                     name="project_work_milestones.work_packages"
                                                     render={({ field }) => {
-                                                        // {JSON.parse(data?.project_work_milestones!).work_packages.map((wp) => (
-                                                        //     field.value.push(wp)
-                                                        // )) || ""} 
+                                                        
+                                                        // console.log(field) 
+                                                        // if(data) field.value = JSON.parse(data.project_work_milestones).work_packages
                                                         return (
                                                             <FormItem
                                                                 key={item.work_package_name}
                                                                 className="flex flex-row items-start space-x-3 space-y-0"
                                                             >
                                                                 <FormControl>
-                                                                    <Checkbox
+                                                                <Checkbox
                                                                         checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
                                                                         onCheckedChange={(checked) => {
                                                                             return checked
@@ -1137,6 +1166,11 @@ export const EditProjectForm = () => {
                                                                                         (value) => value.work_package_name !== item.work_package_name
                                                                                     )
                                                                                 )
+                                                                            // const updatedValue = checked
+                                                                            //     ? [...workPackagesValue, { work_package_name: item.work_package_name }]
+                                                                            //     : workPackagesValue.filter(value => value.work_package_name !== item.work_package_name);
+                                                                            // setWorkPackagesValue(updatedValue);
+                                                                            // field.onChange(updatedValue);
                                                                         }}
                                                                     />
                                                                 </FormControl>
