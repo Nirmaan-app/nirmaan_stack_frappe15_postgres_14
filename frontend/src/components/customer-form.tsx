@@ -138,7 +138,7 @@ export default function CustomerForm() {
                                             </DialogHeader>
                                             <Separator className="my-6" />
 
-                                            <AddressForm type={"Customer"} />
+                                            <AddressForm type={"Office"} />
 
                                         </ScrollArea>
                                     </DialogContent>

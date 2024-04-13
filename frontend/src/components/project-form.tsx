@@ -638,13 +638,13 @@ export const ProjectForm = () => {
                                             </DialogTrigger>
                                             <DialogContent className="max-w-[300px] md:max-w-[425px] ">
                                                 <ScrollArea className="max-h-[400px] md:max-h-[500px] ">
-                                                <DialogHeader>
-                                                    <DialogTitle>Add New Customer</DialogTitle>
-                                                    <DialogDescription>
-                                                        Add new Customers here.
-                                                    </DialogDescription>
-                                                </DialogHeader>
-                                                <CustomerForm />
+                                                    <DialogHeader>
+                                                        <DialogTitle>Add New Customer</DialogTitle>
+                                                        <DialogDescription>
+                                                            Add new Customers here.
+                                                        </DialogDescription>
+                                                    </DialogHeader>
+                                                    <CustomerForm />
                                                 </ScrollArea>
                                             </DialogContent>
                                         </Dialog>
@@ -758,7 +758,7 @@ export const ProjectForm = () => {
                                                     </DialogHeader>
                                                     <Separator className="my-6" />
 
-                                                    <AddressForm type={"Project"} />
+                                                    <AddressForm type={"Shipping"} />
 
                                                 </ScrollArea>
                                             </DialogContent>

@@ -72,8 +72,7 @@ export const AddressForm: React.FC<AddressFormProps> = ({ type }) => {
         resolver: zodResolver(addressFormSchema),
         defaultValues: {
             address_type: type,
-            country: "India",
-            phone: +91
+            country: "India"
         },
         mode: "onChange",
     })
