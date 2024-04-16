@@ -69,7 +69,7 @@ app_license = "mit"
 # Installation
 # ------------
 
-before_install = "nirmaan_stack.install.before_install"
+#before_install = "nirmaan_stack.install.before_install"
 #after_install = "nirmaan_stack.install.after_install"
 
 # Uninstallation
