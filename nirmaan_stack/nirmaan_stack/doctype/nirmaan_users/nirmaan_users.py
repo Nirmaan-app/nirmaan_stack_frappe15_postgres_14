@@ -20,12 +20,17 @@ class NirmaanUsers(Document):
 
 def create_user_profile(doc, method=None):
 	if not frappe.db.exists("Nirmaan Users", {"email": doc.email}):
-		frappe.get_doc(doctype="Nirmaan Users",
+		try:
+			frappe.get_doc(doctype="Nirmaan Users",
 				 first_name=doc.first_name,
 				 full_name=doc.full_name,
 				 email=doc.email,
 				 role_profile=doc.role_profile_name).insert(ignore_permissions=True)
-		frappe.db.commit()
+			frappe.db.commit()
+		except Exception as e:
+			print(e)
+			print("could be initial user with missing role")
+			pass
 
 def on_user_update(doc, method=None):
 	create_user_profile(doc)
