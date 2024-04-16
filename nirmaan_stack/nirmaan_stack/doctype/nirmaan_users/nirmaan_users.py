@@ -28,9 +28,13 @@ def create_user_profile(doc, method=None):
 				 role_profile=doc.role_profile_name).insert(ignore_permissions=True)
 			frappe.db.commit()
 		except Exception as e:
-			print(e)
-			print("could be initial user with missing role")
-			pass
+			frappe.get_doc(doctype="Nirmaan Users",
+				 first_name=doc.first_name,
+				 full_name=doc.full_name,
+				 email=doc.email,
+				 role_profile="Nirmaan Admin").insert(ignore_permissions=True)
+			frappe.db.commit()
+			
 
 def on_user_update(doc, method=None):
 	create_user_profile(doc)
