@@ -37,12 +37,13 @@ def create_user_profile(doc, method=None):
 
 def on_user_update(doc, method=None):
 	create_user_profile(doc)
-	if any(doc.has_value_changed(field) for field in ["first_name","last_name","full_name", "mobile_no"]):
+	if any(doc.has_value_changed(field) for field in ["first_name","last_name","full_name", "mobile_no", "role_profile_name"]):
 		profile = frappe.get_doc("Nirmaan Users", {"email": doc.email})
 		profile.first_name = doc.first_name
 		profile.last_name = doc.last_name
 		profile.full_name = doc.full_name
 		profile.mobile_no = doc.mobile_no
+		profile.role_profile = doc.role_profile_name
 		profile.save(ignore_permissions=True)
 
 def delete_user_profile(doc, method=None):
