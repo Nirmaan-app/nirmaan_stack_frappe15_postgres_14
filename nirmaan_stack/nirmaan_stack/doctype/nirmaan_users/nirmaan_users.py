@@ -28,11 +28,15 @@ def create_user_profile(doc, method=None):
 				 role_profile=doc.role_profile_name).insert(ignore_permissions=True)
 			frappe.db.commit()
 		except Exception as e:
+			frappe.new_doc("Role Profile")
+			doc.name="Nirmaan Sys Admin"
+			doc.role_profile="Nirmaan Sys Admin"
+			doc.save()
 			frappe.get_doc(doctype="Nirmaan Users",
 				 first_name=doc.first_name,
 				 full_name=doc.full_name,
 				 email=doc.email,
-				 role_profile="Nirmaan Admin").insert(ignore_permissions=True)
+				 role_profile="Nirmaan Sys Admin").insert(ignore_permissions=True)
 			frappe.db.commit()
 			
 
