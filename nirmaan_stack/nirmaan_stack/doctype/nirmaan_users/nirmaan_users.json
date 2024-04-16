@@ -53,10 +53,8 @@
   },
   {
    "fieldname": "role_profile",
-   "fieldtype": "Link",
-   "label": "Nirmaan Role Name",
-   "options": "Role Profile",
-   "reqd": 1
+   "fieldtype": "Data",
+   "label": "Nirmaan Role Name"
   },
   {
    "fieldname": "mobile_no",
@@ -66,7 +64,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-04-16 13:36:04.838040",
+ "modified": "2024-04-16 20:05:57.784289",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Nirmaan Users",
