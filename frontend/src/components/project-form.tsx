@@ -430,7 +430,7 @@ export const ProjectForm = () => {
 
     const { data: project_address, isLoading: project_address_isLoading, error: project_address_error } = useFrappeGetDocList('Address', {
         fields: ["name", "address_title"],
-        filters: [["address_type", "=", "Project"]]
+        filters: [["address_type", "=", "Shipping"]]
     });
 
     const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {

@@ -58,7 +58,7 @@ export default function CustomerForm() {
 
     const { data: address, isLoading: address_isLoading, error: address_error } = useFrappeGetDocList('Address', {
         fields: ["name", "address_title"],
-        filters: [["address_type", "=", "Customer"]]
+        filters: [["address_type", "=", "Office"]]
     });
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
