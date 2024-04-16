@@ -227,5 +227,16 @@ app_license = "mit"
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+# Fixtures
+
+fixtures = [
+	# All Data
+    "Work Packages",
+    "Scopes of Work",
+    "Milestones",
+    {"dt": "Role", "filters": [["role_name", "like", "Nirmaan %"]]},
+    {"dt": "Role Profile", "filters": [["role_profile", "like", "Nirmaan %"]]},
+]
+
 
 website_route_rules = [{'from_route': '/frontend/<path:app_path>', 'to_route': 'frontend'},]
