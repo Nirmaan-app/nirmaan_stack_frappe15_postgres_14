@@ -97,7 +97,8 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
 
     const { data: mile_data, isLoading: mile_isloading, error: mile_error } = useFrappeGetDocList("Project Work Milestones", {
         fields: ["work_package", "scope_of_work", "milestone"],
-        filters: [["project", "=", `${data?.project_name}`]]
+        filters: [["project", "=", `${data?.name}`]],
+        limit: 100
     })
 
 
@@ -206,8 +207,8 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                                     <CardContent>
                                         {JSON.parse(data.project_work_milestones!).work_packages.map((wp: WPN) => (
                                             <Badge variant="outline">{wp.work_package_name}</Badge>
-                                        )) || ""} 
-                                </CardContent>
+                                        )) || ""}
+                                    </CardContent>
                                 </Card>
                                 <Card>
                                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

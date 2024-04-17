@@ -129,7 +129,10 @@ doc_events = {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.create_user_profile",
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.on_user_update",
 		"on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
-	}
+	},
+    "Projects": {
+        "after_insert": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm"
+    }
 }
 
 # Scheduled Tasks
