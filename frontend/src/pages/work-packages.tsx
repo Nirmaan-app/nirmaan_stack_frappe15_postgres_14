@@ -4,12 +4,14 @@ import { useFrappeGetDocList } from "frappe-react-sdk";
 //import { HardHat } from "lucide-react";
 // import { useMemo } from "react";
 import { Link } from "react-router-dom";
+import {DialogClose} from "@/components/ui/dialog"
 // import { ColumnDef } from "@tanstack/react-table";
 // import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 // import { DataTable } from "@/components/data-table/data-table";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumb";
 import { WPCard } from "@/components/wp-card";
 import { NavBar } from "@/components/nav/nav-bar";
+import { useEffect } from "react"
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
@@ -47,7 +49,7 @@ type SOWFormValues = z.infer<typeof SOWFormSchema>
 export default function Projects() {
     //const { data: wp_count, isLoading: wp_count_loading, error: wp_count_error } = useFrappeGetDocCount("Work Packages");
 
-    const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<WorkPackage>("Work Packages", {
+    const { data: data, isLoading: isLoading, error: error,mutate: mutate } = useFrappeGetDocList<WorkPackage>("Work Packages", {
         fields: ["work_package_name"]
     })
     const form = useForm<SOWFormValues>({
@@ -96,7 +98,10 @@ export default function Projects() {
     //     ],
     //     []
     // )
-
+    function closewindow(){
+        var button = document.getElementById('dialogClose');
+        mutate()
+    }
     return (
         <>
             <NavBar />
@@ -104,10 +109,10 @@ export default function Projects() {
                 <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
-                            <Link to="/">Dashboard</Link>
+                            <Link to="/" className="md:text-base text-sm">Dashboard</Link>
                         </BreadcrumbItem>
                         <BreadcrumbItem isCurrentPage>
-                            <Link to="/wp">
+                            <Link to="/wp" className="text-gray-400 md:text-base text-sm">
                                 Work Packages
                             </Link>
                         </BreadcrumbItem>
@@ -147,9 +152,16 @@ export default function Projects() {
                                                 </FormItem>
                                             )}
                                         />
-                                        {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
+                                        {(loading) ? (<ButtonLoading />) : (<DialogClose asChild><Button type="submit">Submit</Button></DialogClose>)}
+                                        {/* <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose> */}
                                         <div>
-                                            {submit_complete && <div className="font-semibold text-green-500">Work Package Added</div>}
+                                            {submit_complete && 
+                                            <div>
+                                            {/* <div className="font-semibold text-green-500"> Customer added</div> */}
+                                            {closewindow()}
+                                            </div>
+                                            }
+                                            {submit_error && <div>{submit_error}</div>}
                                         </div>
                                     </form>
                                 </Form>

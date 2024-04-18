@@ -1,5 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
+import { useEffect } from "react"
+
 import * as z from "zod"
 
 import { Button } from "@/components/ui/button"
@@ -11,6 +13,7 @@ import {
     FormLabel,
     FormMessage,
 } from "@/components/ui/form"
+import {DialogClose} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
 import { ButtonLoading } from "./button-loading"
@@ -35,7 +38,7 @@ const projectTypeFormSchema = z.object({
 
 type ProjectTypeFormValues = z.infer<typeof projectTypeFormSchema>
 
-export default function ProjectTypeForm() {
+export default function ProjectTypeForm({project_types_mutate}){
     // 1.b Define your form.
     // Has handleSubmit, control functions
     const form = useForm<ProjectTypeFormValues>({
@@ -57,6 +60,11 @@ export default function ProjectTypeForm() {
             }).catch(() => {
                 console.log(submit_error)
             })
+    }
+    function closewindow(){
+        var button = document.getElementById('dialogClose');
+        project_types_mutate()
+        button.click();
     }
 
     return (
@@ -99,8 +107,15 @@ export default function ProjectTypeForm() {
                     )}
                 />
                 {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
+                <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose>
                 <div>
-                    {submit_complete && <div className="font-semibold text-green-500"> Project Type added</div>}
+                    {submit_complete && 
+                    <div>
+                    <div className="font-semibold text-green-500"> Customer added</div>
+                    {closewindow()}
+                    </div>
+                    }
+                    {submit_error && <div>{submit_error}</div>}
                 </div>
             </form>
         </Form>
