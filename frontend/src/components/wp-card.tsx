@@ -1,7 +1,9 @@
 //import React, {useState, useEffect} from "react"
 import React , {useState} from "react"
+import { useEffect } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
+import {DialogClose} from "@/components/ui/dialog"
 import * as z from "zod"
 
 import { useFrappeGetDocList } from "frappe-react-sdk"
@@ -51,7 +53,7 @@ type SOWFormValues = z.infer<typeof SOWFormSchema>
 
 export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
 
-    const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<ScopesOfWork>("Scopes of Work", {
+    const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList<ScopesOfWork>("Scopes of Work", {
         fields: ["name", "scope_of_work_name"],
         filters: [["work_package", "=", wp]]
     })
@@ -80,6 +82,10 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
             })
     }
     const [current,setCurrent] = useState<string>("")
+    function closewindow(){
+        var button = document.getElementById('dialogClose');
+        mutate()
+    }
 
     return (
         <Card className="hover:animate-shadow-drop-center" >
@@ -118,9 +124,16 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
                                         </FormItem>
                                     )}
                                 />
-                                {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
-                                <div>
-                                    {submit_complete && <div className="font-semibold text-green-500"> Scope of Work added</div>}
+                                    {(loading) ? (<ButtonLoading />) : (<DialogClose asChild><Button type="submit">Submit</Button></DialogClose>)}
+                                        {/* <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose> */}
+                                        <div>
+                                            {submit_complete && 
+                                            <div>
+                                            {/* <div className="font-semibold text-green-500"> Customer added</div> */}
+                                            {closewindow()}
+                                            </div>
+                                            }
+                                    {submit_error && <div>{submit_error}</div>}
                                 </div>
                             </form>
                         </Form>

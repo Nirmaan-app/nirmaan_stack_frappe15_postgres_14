@@ -16,7 +16,6 @@ export default function Dashboard() {
 
     const userData = useUserData()
 
-
     return (
         <>
             <NavBar />
