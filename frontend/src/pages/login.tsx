@@ -29,6 +29,7 @@ export default function Login() {
   const [error, setError] = useState<FrappeError | null>(null)
   const { currentUser, login, isLoading } = useContext(UserContext)
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Inputs>()
+  
 
   async function onSubmit(values: Inputs) {
       setError(null)
@@ -36,11 +37,11 @@ export default function Login() {
           .catch((error) => { setError(error) })
   }
   if(!currentUser){
+    console.log(error)
+    
     return (
       <div className="mt-10">
       {isLoading ? <h1>Loading...</h1> :
-      // {error && <h1>{error.message}</h1>}
-      
 
       <Card className="mx-auto max-w-sm">
         <img src={logo} alt="Nirmaan" className="h-[50px] w-[300px] pl-[40px] md:pl-[80px] pt-2" />
@@ -77,10 +78,11 @@ export default function Login() {
               type="password"
               placeholder="***********" />
             </div>
-            {errors?.password && <ErrorText>{errors.password?.message}</ErrorText>}
+            {errors?.password && <h1>{errors.password?.message}</h1>}
             <Button className="w-full" type="submit" onClick={handleSubmit(onSubmit)}>
               Login
             </Button>
+            {error && <h3 className="text-red-500">{error.message}</h3>}
           </div>
         </CardContent>
       </Card>
