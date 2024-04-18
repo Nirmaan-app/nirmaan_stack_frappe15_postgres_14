@@ -1,6 +1,8 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
+import { redirect } from "react-router-dom";
+import { useEffect } from "react"
 // import React from "react"
 import * as z from "zod"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "./ui/form"
@@ -163,7 +165,7 @@ export const ProjectForm = () => {
             },
         },
     })
-    const { data: company, isLoading: company_isLoading, error: company_error } = useFrappeGetDocList('Customers', {
+    const { data: company, isLoading: company_isLoading, error: company_error,mutate: company_mutate } = useFrappeGetDocList('Customers', {
         fields: ["name", "company_name"]
     });
 
@@ -208,7 +210,7 @@ export const ProjectForm = () => {
         }
     })
 
-    const { data: project_address, isLoading: project_address_isLoading, error: project_address_error } = useFrappeGetDocList('Address', {
+    const { data: project_address, isLoading: project_address_isLoading, error: project_address_error, mutate: project_address_mutate } = useFrappeGetDocList('Address', {
         fields: ["name", "address_title"],
         filters: [["address_type", "=", "Shipping"]]
     });
@@ -340,7 +342,7 @@ export const ProjectForm = () => {
         work_package: item.work_package
     })) || [];
     console.log(wp_list, sow_list)
-
+    
     return (
         <Form {...form}>
             <form onSubmit={(event) => {
@@ -418,13 +420,15 @@ export const ProjectForm = () => {
                                             </DialogTrigger>
                                             <DialogContent className="max-w-[300px] md:max-w-[425px] ">
                                                 <ScrollArea className="max-h-[400px] md:max-h-[500px] ">
-                                                    <DialogHeader>
-                                                        <DialogTitle>Add New Customer</DialogTitle>
-                                                        <DialogDescription>
-                                                            Add new Customers here.
-                                                        </DialogDescription>
-                                                    </DialogHeader>
-                                                    <CustomerForm />
+                                                <DialogHeader>
+                                                    <DialogTitle>Add New Customer</DialogTitle>
+                                                    <DialogDescription>
+                                                        Add new Customers here.
+                                                    </DialogDescription>
+                                                </DialogHeader>
+                                                <CustomerForm company_mutate={company_mutate}/> 
+                                                {/* Dialog close and company_mutate is inside the customer form function */}
+
                                                 </ScrollArea>
                                             </DialogContent>
                                         </Dialog>
@@ -480,7 +484,7 @@ export const ProjectForm = () => {
                                                             Add new project types here.
                                                         </DialogDescription>
                                                     </DialogHeader>
-                                                    <ProjectTypeForm />
+                                                    <ProjectTypeForm project_types_mutate={project_types_mutate}/>
                                                 </DialogContent>
                                             </Dialog>
                                         </div>
@@ -537,9 +541,7 @@ export const ProjectForm = () => {
                                                         </DialogDescription>
                                                     </DialogHeader>
                                                     <Separator className="my-6" />
-
-                                                    <AddressForm type={"Shipping"} />
-
+                                                    <AddressForm type={"Shipping"} project_address_mutate={project_address_mutate}/>
                                                 </ScrollArea>
                                             </DialogContent>
                                         </Dialog>
@@ -1062,11 +1064,11 @@ export const ProjectForm = () => {
                         {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
                     </div>
                     <div>
-                        {submit_complete && <div className="font-semibold text-green-500"> Submitted successfully</div>}
-                        {/* {
-                            const navigate = useNavigate();
-                        submit_complete && navigate("/");
-                        } */}
+                        {submit_complete && 
+                        <div>
+                            <div className="font-semibold text-green-500"> Submitted successfully</div>
+                        </div>
+                        }
                     </div>
                 </div>
             </form>

@@ -8,11 +8,13 @@ import Projects from './pages/projects'
 import Customers from './pages/customers'
 import WorkPackages from './pages/work-packages'
 import EditProject from './pages/edit-project'
+import Profile from './pages/user-profile'
 import {EditProjectForm} from './components/edit-project-form'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
 import { ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
+
 //import AuthenticationPage from './pages/auth/login-shadcn'
 import Users from './pages/users'
 import Roles from './pages/roles'
@@ -26,6 +28,7 @@ const router = createBrowserRouter(
 			<Route path='/login' element={<Login />} />
 			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
+				<Route path="user-profile" element={<Profile />} />
 				<Route path="projects" >
 					<Route index element={<Projects />} />
 					<Route path="edit" element={<EditProject />} />

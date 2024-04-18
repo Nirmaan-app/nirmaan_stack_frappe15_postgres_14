@@ -3,6 +3,8 @@ import React , {useState} from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
+import { useEffect } from "react"
+import {DialogClose} from "@/components/ui/dialog"
 
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -79,6 +81,10 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
             })
     }
     const [current,setCurrent] = useState<string>("")
+    function closewindow(){
+        var button = document.getElementById('dialogClose');
+        mutate()
+    }
 
     return (
         <Card className="hover:animate-shadow-drop-center" >
@@ -117,9 +123,16 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
                                         </FormItem>
                                     )}
                                 />
-                                {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
-                                <div>
-                                    {submit_complete && <div className="font-semibold text-green-500"> Milestone added</div>}
+                                {(loading) ? (<ButtonLoading />) : (<DialogClose asChild><Button type="submit">Submit</Button></DialogClose>)}
+                                        {/* <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose> */}
+                                        <div>
+                                            {submit_complete && 
+                                            <div>
+                                            {/* <div className="font-semibold text-green-500"> Customer added</div> */}
+                                            {closewindow()}
+                                            </div>
+                                            }
+                                    {submit_error && <div>{submit_error}</div>}
                                 </div>
                             </form>
                         </Form>

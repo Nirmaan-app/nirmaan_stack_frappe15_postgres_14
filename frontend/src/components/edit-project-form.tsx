@@ -397,7 +397,7 @@ export const EditProjectForm = () => {
             }
         },
     })
-    const { data: company, isLoading: company_isLoading, error: company_error } = useFrappeGetDocList('Customers', {
+    const { data: company, isLoading: company_isLoading, error: company_error, mutate: company_mutate } = useFrappeGetDocList('Customers', {
         fields: ["name", "company_name"]
     });
 
@@ -442,7 +442,7 @@ export const EditProjectForm = () => {
         }
     })
 
-    const { data: project_address, isLoading: project_address_isLoading, error: project_address_error } = useFrappeGetDocList('Address', {
+    const { data: project_address, isLoading: project_address_isLoading, error: project_address_error, mutate: project_address_mutate } = useFrappeGetDocList('Address', {
         fields: ["name", "address_title"],
         filters: [["address_type", "=", "Project"]]
     });
@@ -687,7 +687,7 @@ export const EditProjectForm = () => {
                                                         Add new Customers here.
                                                     </DialogDescription>
                                                 </DialogHeader>
-                                                <CustomerForm />
+                                                <CustomerForm company_mutate={company_mutate} />
                                             </DialogContent>
                                         </Dialog>
                                     </div>
@@ -742,7 +742,7 @@ export const EditProjectForm = () => {
                                                             Add new project types here.
                                                         </DialogDescription>
                                                     </DialogHeader>
-                                                    <ProjectTypeForm />
+                                                    <ProjectTypeForm project_types_mutate={project_types_mutate} />
                                                 </DialogContent>
                                             </Dialog>
                                         </div>
@@ -801,7 +801,7 @@ export const EditProjectForm = () => {
                                                     </DialogHeader>
                                                     <Separator className="my-6" />
 
-                                                    <AddressForm type={"Project"} />
+                                                    <AddressForm type={"Project"} project_address_mutate={project_address_mutate} />
 
                                                 </ScrollArea>
                                             </DialogContent>
