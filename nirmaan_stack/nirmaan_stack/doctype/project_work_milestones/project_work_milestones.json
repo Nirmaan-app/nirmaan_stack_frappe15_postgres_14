@@ -1,7 +1,6 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "PWM-.######",
  "creation": "2024-02-21 20:11:09.080403",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -41,11 +40,10 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-04-06 17:24:10.169739",
+ "modified": "2024-04-17 12:15:47.636077",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Work Milestones",
- "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {

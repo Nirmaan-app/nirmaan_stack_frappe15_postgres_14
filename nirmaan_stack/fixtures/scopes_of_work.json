@@ -1,0 +1,274 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Raceway/ Cable Tray work",
+  "scope_of_work_name": "Raceway/ Cable Tray work",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Conduiting",
+  "scope_of_work_name": "Conduiting",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "LT Panel",
+  "scope_of_work_name": "LT Panel",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Wiring",
+  "scope_of_work_name": "Wiring",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "HVAC  - VRF system",
+  "scope_of_work_name": "HVAC  - VRF system",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "IOT/ Sensor work",
+  "scope_of_work_name": "IOT/ Sensor work",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Main Power Line",
+  "scope_of_work_name": "Main Power Line",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "HVAC - Non VRF/ AHU",
+  "scope_of_work_name": "HVAC - Non VRF/ AHU",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "DB Work",
+  "scope_of_work_name": "DB Work",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Switch Socket",
+  "scope_of_work_name": "Switch Socket",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "UPS Supply",
+  "scope_of_work_name": "UPS Supply",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Lights Supply",
+  "scope_of_work_name": "Lights Supply",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Earthing",
+  "scope_of_work_name": "Earthing",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Lights Installation",
+  "scope_of_work_name": "Lights Installation",
+  "work_package": "Electrical"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Data Cabling",
+  "scope_of_work_name": "Data Cabling",
+  "work_package": "Data & Networking"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "User Side Termination",
+  "scope_of_work_name": "User Side Termination",
+  "work_package": "Data & Networking"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Rack side terminatio",
+  "scope_of_work_name": "Rack side termination",
+  "work_package": "Data & Networking"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Active side work",
+  "scope_of_work_name": "Active side work",
+  "work_package": "Data & Networking"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Fluke Test",
+  "scope_of_work_name": "Fluke Test",
+  "work_package": "Data & Networking"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Fire Cabling",
+  "scope_of_work_name": "Fire Cabling",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Addressable System",
+  "scope_of_work_name": "Addressable System",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Conventional System",
+  "scope_of_work_name": "Conventional System",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "PA System Installation",
+  "scope_of_work_name": "PA System Installation",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Integration with PA System",
+  "scope_of_work_name": "Integration with PA System",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Integration Access Control Systems",
+  "scope_of_work_name": "Integration Access Control Systems",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Integration with HVAC System",
+  "scope_of_work_name": "Integration with HVAC System",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Integration with Electrical Panel",
+  "scope_of_work_name": "Integration with Electrical Panel",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "New fire line creation",
+  "scope_of_work_name": "New fire line creation",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Modification of existing fire line",
+  "scope_of_work_name": "Modification of existing fire line",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Supply of Fire extinguisher",
+  "scope_of_work_name": "Supply of Fire extinguisher",
+  "work_package": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Access Control Cabling",
+  "scope_of_work_name": "Access Control Cabling",
+  "work_package": "Access Control & Security System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "CCTV Installation",
+  "scope_of_work_name": "CCTV Installation",
+  "work_package": "Access Control & Security System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Access Control Installation",
+  "scope_of_work_name": "Access Control Installation",
+  "work_package": "Access Control & Security System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Scopes of Work",
+  "modified": "2024-04-13 15:25:33.807291",
+  "name": "Static IP Configuration",
+  "scope_of_work_name": "Static IP Configuration",
+  "work_package": "Access Control & Security System"
+ }
+]

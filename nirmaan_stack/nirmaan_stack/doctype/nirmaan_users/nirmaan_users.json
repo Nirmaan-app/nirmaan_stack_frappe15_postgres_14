@@ -11,7 +11,7 @@
   "last_name",
   "full_name",
   "other_details_section",
-  "phone",
+  "mobile_no",
   "email",
   "role_profile"
  ],
@@ -45,11 +45,6 @@
    "label": "Other Details"
   },
   {
-   "fieldname": "phone",
-   "fieldtype": "Data",
-   "label": "Phone"
-  },
-  {
    "fieldname": "email",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -58,14 +53,18 @@
   },
   {
    "fieldname": "role_profile",
-   "fieldtype": "Link",
-   "label": "Nirmaan Role Name",
-   "options": "Nirmaan Roles"
+   "fieldtype": "Data",
+   "label": "Nirmaan Role Name"
+  },
+  {
+   "fieldname": "mobile_no",
+   "fieldtype": "Data",
+   "label": "Mobile"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-03-29 16:29:11.547931",
+ "modified": "2024-04-16 20:46:38.216490",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Nirmaan Users",
@@ -92,7 +91,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Project Lead",
+   "role": "Nirmaan Project Lead",
    "share": 1,
    "write": 1
   },
@@ -102,7 +101,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Design Executive",
+   "role": "Nirmaan Design Executive",
    "share": 1
   },
   {
@@ -111,7 +110,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Procurement Executive",
+   "role": "Nirmaan Procurement Executive",
    "share": 1
   },
   {
@@ -120,7 +119,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Project Manager",
+   "role": "Nirmaan Project Manager",
    "share": 1
   }
  ],

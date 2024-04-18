@@ -13,23 +13,27 @@
   {
    "fieldname": "category_details_section",
    "fieldtype": "Section Break",
-   "label": "category details"
+   "label": "Category Details"
   },
   {
    "fieldname": "category_name",
    "fieldtype": "Data",
-   "label": "category name"
+   "in_list_view": 1,
+   "label": "Category Name",
+   "reqd": 1
   },
   {
    "fieldname": "work_package",
    "fieldtype": "Link",
-   "label": "work package",
-   "options": "Work Packages"
+   "in_list_view": 1,
+   "label": "Work Package",
+   "options": "Work Packages",
+   "reqd": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-04-03 20:07:17.827557",
+ "modified": "2024-04-16 21:02:59.122338",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Category",

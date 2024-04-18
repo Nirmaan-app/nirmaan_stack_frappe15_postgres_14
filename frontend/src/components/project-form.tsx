@@ -27,225 +27,6 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./
 import { Checkbox } from "./ui/checkbox"
 
 
-// const workPackages = [
-//     {
-//         name: "Electrical",
-//         isChecked: false,
-//         scopes: [
-//             {
-//                 name: "SOW-001",
-//                 scope_of_work_name: "Raceway/ Cable Tray work",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-002",
-//                 scope_of_work_name: "Conduiting",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-003",
-//                 scope_of_work_name: "LT Panel",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-004",
-//                 scope_of_work_name: "Wiring",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-005",
-//                 scope_of_work_name: "HVAC  - VRF system",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-006 ",
-//                 scope_of_work_name: "IOT/ Sensor work",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-007",
-//                 scope_of_work_name: "Main Power Line",
-//                 isSelected: false,
-//                 work_package: "Electrical "
-//             },
-//             {
-//                 name: "SOW-008",
-//                 scope_of_work_name: "HVAC - Non VRF/ AHU",
-//                 isSelected: false,
-//                 work_package: "Electrical "
-//             },
-//             {
-//                 name: "SOW-009",
-//                 scope_of_work_name: "DB Work",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-010",
-//                 scope_of_work_name: "Switch Socket",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-011",
-//                 scope_of_work_name: "UPS Supply",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-012",
-//                 scope_of_work_name: "Lights Supply",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-013",
-//                 scope_of_work_name: "Earthing",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             },
-//             {
-//                 name: "SOW-014",
-//                 scope_of_work_name: "Lights Installation",
-//                 isSelected: false,
-//                 work_package: "Electrical"
-//             }
-//         ]
-//     },
-//     {
-//         name: "Access Control & Security System",
-//         isChecked: false,
-//         scopes: [
-//             {
-//                 name: "SOW-015",
-//                 scope_of_work_name: "CCTV Installation",
-//                 isSelected: false,
-//                 work_package: "Access Control & Security System"
-//             },
-//             {
-//                 name: "SOW-016",
-//                 scope_of_work_name: "Access Control Installation",
-//                 isSelected: false,
-//                 work_package: "Access Control & Security System"
-//             },
-//             {
-//                 name: "SOW-017",
-//                 scope_of_work_name: "Static IP Configuration",
-//                 isSelected: false,
-//                 work_package: "Access Control & Security System"
-//             }
-//         ]
-//     },
-//     {
-//         name: "Data & Networking",
-//         isChecked: false,
-//         scopes: [
-//             {
-//                 name: "SOW-018",
-//                 scope_of_work_name: "Cabling",
-//                 isSelected: false,
-//                 work_package: "Data & Networking"
-//             },
-//             {
-//                 name: "SOW-019",
-//                 scope_of_work_name: "User Side Termination",
-//                 isSelected: false,
-//                 work_package: "Data & Networking"
-//             },
-//             {
-//                 name: "SOW-020",
-//                 scope_of_work_name: "Rack side termination",
-//                 isSelected: false,
-//                 work_package: "Data & Networking"
-//             },
-//             {
-//                 name: "SOW-021",
-//                 scope_of_work_name: "Active side work",
-//                 isSelected: false,
-//                 work_package: "Data & Networking"
-//             },
-//             {
-//                 name: "SOW-022",
-//                 scope_of_work_name: "Fluke Test",
-//                 isSelected: false,
-//                 work_package: "Data & Networking"
-//             }
-//         ]
-//     },
-//     {
-//         name: "Fire Fighting",
-//         isChecked: false,
-//         scopes: [
-//             {
-//                 name: "SOW-023",
-//                 scope_of_work_name: "Addressable System",
-//                 isSelected: false,
-//                 work_package: "Fire Fighting"
-//             },
-//             {
-//                 name: "SOW-024",
-//                 scope_of_work_name: "Conventional System",
-//                 isSelected: false,
-//                 work_package: "Fire Fighting"
-//             },
-//             {
-//                 name: "SOW-025",
-//                 scope_of_work_name: "PA System Installation",
-//                 isSelected: false,
-//                 work_package: "Fire Fighting"
-//             },
-//             {
-//                 name: "SOW-026",
-//                 scope_of_work_name: "Integration with PA System",
-//                 isSelected: false,
-//                 work_package: "Fire Fighting"
-//             },
-//             {
-//                 name: "SOW-027",
-//                 scope_of_work_name: "Integration Access Control Systems",
-//                 isSelected: false,
-//                 work_package: "Fire Fighting"
-//             },
-//             {
-//                 name: "SOW-028",
-//                 scope_of_work_name: "Integration with HVAC System",
-//                 isSelected: false,
-//                 work_package: "Fire Fighting"
-//             },
-//             {
-//                 name: "SOW-029",
-//                 scope_of_work_name: "Integration with Electrical Panel",
-//                 isSelected: false,
-//                 work_package: "Fire Fighting"
-//             },
-//             {
-//                 name: "SOW-030",
-//                 scope_of_work_name: "New fire line creation",
-//                 isSelected: false,
-//                 work_package: "Fire Fighting"
-//             },
-//             {
-//                 name: "SOW-031",
-//                 scope_of_work_name: "Modification of existing fire line",
-//                 isSelected: false,
-//                 work_package: "Fire Fighting"
-//             },
-//             {
-//                 name: "SOW-032",
-//                 scope_of_work_name: "Supply of Fire extinguisher",
-//                 isSelected: false,
-//                 work_package: "Fire Fighting"
-//             }
-//         ]
-//     }
-// ] as const
-
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
     project_name: z
@@ -306,7 +87,6 @@ const projectFormSchema = z.object({
         .object({
             scopes: z.array(
                 z.object({
-                    name: z.string(),
                     scope_of_work_name: z.string(),
                     work_package: z.string()
                 })
@@ -432,7 +212,7 @@ export const ProjectForm = () => {
 
     const { data: project_address, isLoading: project_address_isLoading, error: project_address_error, mutate: project_address_mutate } = useFrappeGetDocList('Address', {
         fields: ["name", "address_title"],
-        filters: [["address_type", "=", "Project"]]
+        filters: [["address_type", "=", "Shipping"]]
     });
 
     const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
@@ -471,9 +251,9 @@ export const ProjectForm = () => {
 
     // if (d) console.log(d)
 
-    const { data: mile_data, isLoading: mile_loading, error: mile_error } = useFrappeGetDocList("Milestones", {
-        fields: ["name", "milestone_name", "scope_of_work"]
-    })
+    // const { data: mile_data, isLoading: mile_loading, error: mile_error } = useFrappeGetDocList("Milestones", {
+    //     fields: ["name", "milestone_name", "scope_of_work"]
+    // })
 
 
     // 2. Define a submit handler.
@@ -494,24 +274,24 @@ export const ProjectForm = () => {
             console.log(submit_error)
         })
 
-        if (!mile_loading && !mile_error) {
-            console.log("scopes", values.project_scopes.scopes)
-            values.project_scopes.scopes.forEach(scope => {
-                const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
-                miles?.forEach(mile => {
-                    createDoc("Project Work Milestones", {
-                        project: values.project_name,
-                        work_package: scope.work_package,
-                        scope_of_work: scope.scope_of_work_name,
-                        milestone: mile.milestone_name
-                    })
-                    console.log(mile.milestone_name, scope.scope_of_work_name, scope.work_package)
-                })
-            })
-        }
+        // if (!mile_loading && !mile_error) {
+        //     console.log("scopes", values.project_scopes.scopes)
+        //     values.project_scopes.scopes.forEach(scope => {
+        //         const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
+        //         miles?.forEach(mile => {
+        //             createDoc("Project Work Milestones", {
+        //                 project: values.project_name,
+        //                 work_package: scope.work_package,
+        //                 scope_of_work: scope.scope_of_work_name,
+        //                 milestone: mile.milestone_name
+        //             })
+        //             console.log(mile.milestone_name, scope.scope_of_work_name, scope.work_package)
+        //         })
+        //     })
+        // }
 
 
-        console.log(values)
+        // console.log(values)
     }
 
     // Transform data to select options
@@ -648,6 +428,7 @@ export const ProjectForm = () => {
                                                 </DialogHeader>
                                                 <CustomerForm company_mutate={company_mutate}/> 
                                                 {/* Dialog close and company_mutate is inside the customer form function */}
+
                                                 </ScrollArea>
                                             </DialogContent>
                                         </Dialog>
@@ -760,9 +541,7 @@ export const ProjectForm = () => {
                                                         </DialogDescription>
                                                     </DialogHeader>
                                                     <Separator className="my-6" />
-
-                                                    <AddressForm type={"Project"} project_address_mutate={project_address_mutate}/>
-
+                                                    <AddressForm type={"Shipping"} project_address_mutate={project_address_mutate}/>
                                                 </ScrollArea>
                                             </DialogContent>
                                         </Dialog>
@@ -1151,7 +930,6 @@ export const ProjectForm = () => {
                                                                                 onCheckedChange={(checked) => {
                                                                                     return checked
                                                                                         ? field.onChange([...field.value, {
-                                                                                            name: scope.scope_of_work_name,
                                                                                             scope_of_work_name: scope.scope_of_work_name,
                                                                                             work_package: scope.work_package
                                                                                         }])
