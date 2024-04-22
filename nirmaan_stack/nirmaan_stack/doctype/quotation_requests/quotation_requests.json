@@ -1,0 +1,130 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-04-20 15:04:01.635641",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "rfq_links_section",
+  "procurement_task",
+  "project",
+  "category",
+  "item",
+  "vendor",
+  "rfq_address_details_section",
+  "city",
+  "state",
+  "rfq_details_section",
+  "lead_time",
+  "quantity",
+  "quote",
+  "comments",
+  "attachment"
+ ],
+ "fields": [
+  {
+   "fieldname": "rfq_links_section",
+   "fieldtype": "Section Break",
+   "label": "RFQ Links"
+  },
+  {
+   "fieldname": "procurement_task",
+   "fieldtype": "Link",
+   "label": "Procurement Task",
+   "options": "Procurement Requests"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "label": "Category",
+   "options": "Category"
+  },
+  {
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Items"
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors"
+  },
+  {
+   "fieldname": "rfq_address_details_section",
+   "fieldtype": "Section Break",
+   "label": "RFQ Address Details"
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "label": "City"
+  },
+  {
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "label": "State"
+  },
+  {
+   "fieldname": "rfq_details_section",
+   "fieldtype": "Section Break",
+   "label": "RFQ Details"
+  },
+  {
+   "fieldname": "lead_time",
+   "fieldtype": "Data",
+   "label": "Lead Time"
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Data",
+   "label": "Quantity"
+  },
+  {
+   "fieldname": "quote",
+   "fieldtype": "Data",
+   "label": "Quote"
+  },
+  {
+   "fieldname": "comments",
+   "fieldtype": "Data",
+   "label": "Comments"
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Data",
+   "label": "Attachment"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-04-20 18:32:31.366959",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Quotation Requests",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

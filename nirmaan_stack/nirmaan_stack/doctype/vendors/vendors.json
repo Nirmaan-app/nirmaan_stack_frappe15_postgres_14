@@ -1,0 +1,121 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:VENDOR-{vendor_type}-{#####}",
+ "creation": "2024-04-20 14:36:42.147284",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "vendor_details_section",
+  "vendor_name",
+  "vendor_type",
+  "vendor_address_details_section",
+  "vendor_address",
+  "vendor_city",
+  "vendor_state",
+  "vendor_contact_details_section",
+  "vendor_contact_person_name",
+  "vendor_mobile",
+  "vendor_email",
+  "vendor_taxation_details_section",
+  "vendor_gst"
+ ],
+ "fields": [
+  {
+   "fieldname": "vendor_details_section",
+   "fieldtype": "Section Break",
+   "label": "Vendor Details"
+  },
+  {
+   "fieldname": "vendor_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vendor Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "vendor_type",
+   "fieldtype": "Select",
+   "label": "Vendor Type",
+   "options": "Material\nService"
+  },
+  {
+   "fieldname": "vendor_address_details_section",
+   "fieldtype": "Section Break",
+   "label": "Vendor Address Details"
+  },
+  {
+   "fieldname": "vendor_address",
+   "fieldtype": "Link",
+   "label": "Vendor Address",
+   "options": "Address"
+  },
+  {
+   "fieldname": "vendor_city",
+   "fieldtype": "Data",
+   "label": "Vendor City"
+  },
+  {
+   "fieldname": "vendor_state",
+   "fieldtype": "Data",
+   "label": "Vendor State"
+  },
+  {
+   "fieldname": "vendor_contact_details_section",
+   "fieldtype": "Section Break",
+   "label": "Vendor Contact Details"
+  },
+  {
+   "fieldname": "vendor_contact_person_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vendor Contact Person Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "vendor_mobile",
+   "fieldtype": "Data",
+   "label": "Vendor Mobile"
+  },
+  {
+   "fieldname": "vendor_email",
+   "fieldtype": "Data",
+   "label": "Vendor Email"
+  },
+  {
+   "fieldname": "vendor_taxation_details_section",
+   "fieldtype": "Section Break",
+   "label": "Vendor Taxation Details"
+  },
+  {
+   "fieldname": "vendor_gst",
+   "fieldtype": "Data",
+   "label": "Vendor GST"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-04-20 16:32:01.810173",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Vendors",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

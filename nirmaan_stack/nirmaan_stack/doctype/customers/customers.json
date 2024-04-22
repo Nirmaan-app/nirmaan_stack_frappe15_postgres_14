@@ -13,7 +13,9 @@
   "contact_details_section",
   "company_contact_person",
   "company_phone",
-  "company_email"
+  "company_email",
+  "company_tax_details_section",
+  "company_gst"
  ],
  "fields": [
   {
@@ -58,11 +60,21 @@
    "fieldname": "company_email",
    "fieldtype": "Data",
    "label": "Company Email"
+  },
+  {
+   "fieldname": "company_tax_details_section",
+   "fieldtype": "Section Break",
+   "label": "Company Tax Details"
+  },
+  {
+   "fieldname": "company_gst",
+   "fieldtype": "Data",
+   "label": "Company GST"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-03-04 12:27:42.132462",
+ "modified": "2024-04-22 11:53:27.238376",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Customers",
@@ -89,7 +101,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Project Lead",
+   "role": "Nirmaan Project Lead",
    "share": 1,
    "write": 1
   },
@@ -99,7 +111,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Project Manager",
+   "role": "Nirmaan Project Manager",
    "share": 1
   },
   {
@@ -108,7 +120,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Procurement Executive",
+   "role": "Nirmaan Procurement Executive",
    "share": 1
   },
   {
@@ -117,7 +129,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Design Executive",
+   "role": "Nirmaan Design Executive",
    "share": 1
   }
  ],

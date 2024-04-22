@@ -1,38 +1,39 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2024-04-04 18:18:02.596487",
+ "creation": "2024-04-20 16:30:10.547870",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "itemlist_section",
-  "item_name",
+  "details_section",
+  "vendor",
   "category"
  ],
  "fields": [
   {
-   "fieldname": "itemlist_section",
+   "fieldname": "details_section",
    "fieldtype": "Section Break",
-   "label": "itemlist"
+   "label": "Details"
   },
   {
-   "fieldname": "item_name",
-   "fieldtype": "Data",
-   "label": "item name"
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors"
   },
   {
    "fieldname": "category",
    "fieldtype": "Link",
-   "label": "category",
+   "label": "Category",
    "options": "Category"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-04-04 18:19:01.848624",
+ "modified": "2024-04-20 16:31:12.884602",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
- "name": "Itemlist",
+ "name": "Vendor Category",
  "owner": "Administrator",
  "permissions": [
   {
