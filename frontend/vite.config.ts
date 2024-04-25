@@ -20,4 +20,8 @@ export default defineConfig({
 		emptyOutDir: true,
 		target: 'es2015',
 	},
+	optimizeDeps: {
+		exclude: ['node_modules/.vite/*'],
+	},
+
 });
