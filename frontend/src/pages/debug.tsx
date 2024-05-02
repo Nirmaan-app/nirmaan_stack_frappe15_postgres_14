@@ -1,4 +1,4 @@
-import { useFrappeAuth, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeGetDocList } from "frappe-react-sdk"
 import { Link } from "react-router-dom"
 
 export default function Debug() {

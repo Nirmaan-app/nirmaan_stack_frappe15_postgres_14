@@ -9,7 +9,7 @@ import Customers from './pages/customers'
 import WorkPackages from './pages/work-packages'
 import EditProject from './pages/edit-project'
 import Profile from './pages/user-profile'
-import {EditProjectForm} from './components/edit-project-form'
+import { EditProjectForm } from './components/edit-project-form'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
 import { ProtectedRoute } from './utils/auth/ProtectedRoute'
@@ -69,13 +69,6 @@ const router = createBrowserRouter(
 )
 
 function App() {
-	// const [appearance, setAppearance] = useStickyState<'light' | 'dark'>('light', 'appearence');
-
-	// const toggleTheme = () => {
-	// 	setAppearance(appearance === 'dark' ? 'light' : 'dark');
-	// };
-
-
 	// Sitename support for frappe v15
 	const getSiteName = () => {
 		// @ts-ignore
