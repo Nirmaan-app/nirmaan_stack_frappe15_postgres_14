@@ -1,5 +1,5 @@
 
-export interface ProjectTypes{
+export interface VendorCategory{
 	name: string
 	creation: string
 	modified: string
@@ -10,8 +10,8 @@ export interface ProjectTypes{
 	parentfield?: string
 	parenttype?: string
 	idx?: number
-	/**	Project Type Name : Data	*/
-	project_type_name: string
-	/**	Standard Project Duration : Int	*/
-	standard_project_duration?: number
+	/**	Vendor : Link - Vendors	*/
+	vendor?: string
+	/**	Category : Link - Category	*/
+	category?: string
 }

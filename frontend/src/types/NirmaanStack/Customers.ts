@@ -1,7 +1,7 @@
 
 export interface Customers{
-	creation: string
 	name: string
+	creation: string
 	modified: string
 	owner: string
 	modified_by: string
@@ -20,4 +20,6 @@ export interface Customers{
 	company_phone?: string
 	/**	Company Email : Data	*/
 	company_email?: string
+	/**	Company GST : Data	*/
+	company_gst?: string
 }

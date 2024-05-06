@@ -1,7 +1,7 @@
 
 export interface NirmaanUsers{
-	creation: string
 	name: string
+	creation: string
 	modified: string
 	owner: string
 	modified_by: string
@@ -16,8 +16,8 @@ export interface NirmaanUsers{
 	last_name?: string
 	/**	Full name : Data	*/
 	full_name?: string
-	/**	Phone : Phone	*/
-	phone?: string
+	/**	Mobile : Data	*/
+	mobile_no?: string
 	/**	Email : Data	*/
 	email: string
 	/**	Nirmaan Role Name : Data	*/

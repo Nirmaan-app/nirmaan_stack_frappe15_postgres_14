@@ -1,7 +1,7 @@
 
 export interface Projects{
-	creation: string
 	name: string
+	creation: string
 	modified: string
 	owner: string
 	modified_by: string
@@ -17,25 +17,25 @@ export interface Projects{
 	/**	Project Type : Link - Project Types	*/
 	project_type?: string
 	/**	Project Start Date : Date	*/
-	project_start_date: string
+	project_start_date?: string
 	/**	Project End Date : Date	*/
-	project_end_date: string
+	project_end_date?: string
 	/**	Project Duration : Int	*/
 	project_duration?: number
 	/**	Project Address : Link - Address	*/
-	project_address: string
+	project_address?: string
 	/**	Project City : Data	*/
 	project_city?: string
 	/**	Project State : Data	*/
 	project_state?: string
-	/**	Project Lead : Link - User	*/
+	/**	Project Lead : Link - Nirmaan Users	*/
 	project_lead?: string
-	/**	Project Manager : Link - User	*/
+	/**	Procurement Lead : Link - Nirmaan Users	*/
+	procurement_lead?: string
+	/**	Design Lead : Link - Nirmaan Users	*/
+	design_lead?: string
+	/**	Project Manager : Link - Nirmaan Users	*/
 	project_manager?: string
-	/**	Procurement Executive : Link - User	*/
-	procurement_executive?: string
-	/**	Design Executive : Link - User	*/
-	design_executive?: string
 	/**	Project Work Milestones : JSON	*/
 	project_work_milestones?: any
 	/**	Project Scopes : JSON	*/

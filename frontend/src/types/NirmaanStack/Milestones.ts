@@ -1,5 +1,5 @@
 
-export interface ProjectWorkMilestones{
+export interface Milestones{
 	name: string
 	creation: string
 	modified: string
@@ -10,12 +10,8 @@ export interface ProjectWorkMilestones{
 	parentfield?: string
 	parenttype?: string
 	idx?: number
-	/**	Project : Data	*/
-	project?: string
-	/**	Work Package : Data	*/
-	work_package?: string
-	/**	Scope of Work : Data	*/
+	/**	Milestone Name : Data	*/
+	milestone_name: string
+	/**	Scope of Work : Link - Scopes of Work	*/
 	scope_of_work?: string
-	/**	Milestone : Data	*/
-	milestone?: string
 }
