@@ -1,5 +1,5 @@
 
-export interface ProjectTypes{
+export interface WorkPackages{
 	name: string
 	creation: string
 	modified: string
@@ -10,8 +10,6 @@ export interface ProjectTypes{
 	parentfield?: string
 	parenttype?: string
 	idx?: number
-	/**	Project Type Name : Data	*/
-	project_type_name: string
-	/**	Standard Project Duration : Int	*/
-	standard_project_duration?: number
+	/**	Work Package Name : Data	*/
+	work_package_name?: string
 }

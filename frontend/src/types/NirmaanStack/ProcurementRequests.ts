@@ -1,5 +1,5 @@
 
-export interface ProjectTypes{
+export interface ProcurementRequests{
 	name: string
 	creation: string
 	modified: string
@@ -10,8 +10,8 @@ export interface ProjectTypes{
 	parentfield?: string
 	parenttype?: string
 	idx?: number
-	/**	Project Type Name : Data	*/
-	project_type_name: string
-	/**	Standard Project Duration : Int	*/
-	standard_project_duration?: number
+	/**	Project : Link - Projects	*/
+	project?: string
+	/**	Procurement List : JSON	*/
+	procurement_list?: any
 }
