@@ -15,7 +15,7 @@ import { Link } from "react-router-dom";
 export default function Users() {
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-        fields: ["name", "full_name", "email", "phone"]
+        fields: ["name", "full_name", "email", "mobile_no"]
     })
 
     const columns: ColumnDef<NirmaanUsers>[] = useMemo(
@@ -79,13 +79,13 @@ export default function Users() {
                 cell: ({ row }) => <div className="font-medium">{row.getValue("email")}</div>
             },
             {
-                accessorKey: "phone",
+                accessorKey: "mobile_no",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Phone" />
+                        <DataTableColumnHeader column={column} title="Mobile" />
                     )
                 },
-                cell: ({ row }) => <div className="font-medium">{row.getValue("phone")}</div>
+                cell: ({ row }) => <div className="font-medium">{row.getValue("mobile_no")}</div>
             },
 
         ],
