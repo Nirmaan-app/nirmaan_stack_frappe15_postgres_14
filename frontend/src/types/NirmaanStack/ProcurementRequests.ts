@@ -12,6 +12,8 @@ export interface ProcurementRequests{
 	idx?: number
 	/**	Project : Link - Projects	*/
 	project?: string
+	/**	Work Package : Link - Work Packages	*/
+	work_package?: string
 	/**	Procurement List : JSON	*/
 	procurement_list?: any
 }

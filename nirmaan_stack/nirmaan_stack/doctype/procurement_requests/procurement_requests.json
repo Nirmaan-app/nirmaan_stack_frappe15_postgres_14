@@ -8,6 +8,7 @@
  "field_order": [
   "procurement_task_details_section",
   "project",
+  "work_package",
   "procurement_list"
  ],
  "fields": [
@@ -26,11 +27,17 @@
    "fieldname": "procurement_list",
    "fieldtype": "JSON",
    "label": "Procurement List"
+  },
+  {
+   "fieldname": "work_package",
+   "fieldtype": "Link",
+   "label": "Work Package",
+   "options": "Work Packages"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-06 18:34:12.062810",
+ "modified": "2024-05-07 12:00:18.740222",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Requests",
