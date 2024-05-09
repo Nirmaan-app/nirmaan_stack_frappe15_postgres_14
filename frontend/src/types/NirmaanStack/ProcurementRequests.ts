@@ -16,4 +16,6 @@ export interface ProcurementRequests{
 	work_package?: string
 	/**	Procurement List : JSON	*/
 	procurement_list?: any
+	/**	Amended From : Link - Procurement Requests	*/
+	amended_from?: string
 }

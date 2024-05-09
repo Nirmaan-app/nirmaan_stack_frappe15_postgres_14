@@ -12,4 +12,6 @@ export interface WorkPackages{
 	idx?: number
 	/**	Work Package Name : Data	*/
 	work_package_name?: string
+	/**	Work Package Image : Attach Image	*/
+	work_package_image?: string
 }
