@@ -4,7 +4,7 @@
   "doctype": "Workflow",
   "document_type": "Procurement Requests",
   "is_active": 1,
-  "modified": "2024-05-09 16:06:44.457345",
+  "modified": "2024-05-09 20:25:02.857598",
   "name": "Procurement Request Workflow",
   "override_status": 0,
   "send_email_alert": 0,
