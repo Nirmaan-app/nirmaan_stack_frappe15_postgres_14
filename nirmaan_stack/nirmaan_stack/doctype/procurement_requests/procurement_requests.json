@@ -9,7 +9,8 @@
   "procurement_task_details_section",
   "project",
   "work_package",
-  "procurement_list"
+  "procurement_list",
+  "amended_from"
  ],
  "fields": [
   {
@@ -33,11 +34,22 @@
    "fieldtype": "Link",
    "label": "Work Package",
    "options": "Work Packages"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Procurement Requests",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "index_web_pages_for_search": 1,
+ "is_submittable": 1,
  "links": [],
- "modified": "2024-05-07 12:00:18.740222",
+ "modified": "2024-05-08 20:48:08.606471",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Requests",
@@ -59,5 +71,6 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

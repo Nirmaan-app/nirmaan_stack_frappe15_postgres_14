@@ -7,7 +7,8 @@
  "engine": "InnoDB",
  "field_order": [
   "work_package_details_section",
-  "work_package_name"
+  "work_package_name",
+  "work_package_image"
  ],
  "fields": [
   {
@@ -20,11 +21,16 @@
    "fieldtype": "Data",
    "label": "Work Package Name",
    "unique": 1
+  },
+  {
+   "fieldname": "work_package_image",
+   "fieldtype": "Attach Image",
+   "label": "Work Package Image"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-06 18:35:31.762839",
+ "modified": "2024-05-07 19:03:49.741728",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Work Packages",
