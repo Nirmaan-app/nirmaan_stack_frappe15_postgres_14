@@ -4,7 +4,7 @@ import { useFrappeGetDocCount,useFrappeGetDocList,useFrappeGetDoc,useFrappeCreat
 import { HardHat, UserRound, PersonStanding } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
-import { useContext, useState, useEffect } from "react"
+import { useState, useEffect } from "react"
 import DropdownMenu from './dropdown';
 import DropdownMenu2 from './dropdown2';
 import { ArrowLeft } from 'lucide-react';
@@ -14,8 +14,6 @@ import { previousTuesday } from "date-fns";
 
 
 export const ProjectManager = () => {
-
-
 
     const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
@@ -28,7 +26,7 @@ export const ProjectManager = () => {
     });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
     {
-        fields:['item_name','unit_name','category']
+        fields:['name','item_name','unit_name','category']
     });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
     {
@@ -39,9 +37,9 @@ export const ProjectManager = () => {
         fields:['name','owner','project','work_package','procurement_list','creation']
     });
 
-    console.log(category_list);
-    console.log(item_list);
-    console.log(procurement_request_list?.length);
+    // console.log(category_list);
+    // console.log(item_list);
+    // console.log(procurement_request_list?.length);
 
     interface Category {
         name: string;
@@ -51,7 +49,8 @@ export const ProjectManager = () => {
     const [curItem,setCurItem] = useState<string>('')
     const [curCategory,setCurCategory] = useState<string>('')
     const [unit,setUnit] = useState<string>('')
-    const [quantity,setQuantity] = useState<number>(0)
+    const [quantity,setQuantity] = useState<number>()
+    const [item_id,setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     
     const addProject = (projectName: string) => {
@@ -73,16 +72,9 @@ export const ProjectManager = () => {
     };
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
-        // const newCategories = { ...categories };
-        // newCategories.list.push(categoryName);
-        // const existingCategory = categories.list.find(category => category == categoryName);
-        // if (!existingCategory) {
-        //     setCategories(newCategories);
-        // }
         const isDuplicate = categories.list.some(category => category.name === categoryName);
 
         if (!isDuplicate) {
-            // If it doesn't exist, update the state with the new category
             setCategories(prevState => ({
                 ...prevState,
                 list: [...prevState.list, { name: categoryName }]
@@ -148,25 +140,42 @@ export const ProjectManager = () => {
             addProject(selectedItem);
       };
 
+  
       const handleAdd = () => {
-        if(curItem){
-            const curRequest = orderData.procurement_list.list;
-            const curValue = {
-                item: curItem,
-                unit: unit,
-                quantity: quantity,
-                category: curCategory,
-            }
-            curRequest.push(curValue)
-            setOrderData(prevState => ({
-                ...prevState,
-                procurement_list: {
-                    list:curRequest
+        if (curItem) {
+            let itemIdToUpdate = null;
+            item_list.forEach((item) => {
+                if (item.item_name === curItem) {
+                    itemIdToUpdate = item.name;
                 }
-              }));
+            });
+    
+            if (itemIdToUpdate) {
+                const curRequest = [...orderData.procurement_list.list];
+                const curValue = {
+                    item: curItem,
+                    name: itemIdToUpdate,
+                    unit: unit,
+                    quantity: quantity,
+                    category: curCategory,
+                };
+                const isDuplicate = curRequest.some((item) => item.item === curItem);
+                if (!isDuplicate) {
+                    curRequest.push(curValue);
+                }
+                setOrderData((prevState) => ({
+                    ...prevState,
+                    procurement_list: {
+                        list: curRequest,
+                    },
+                }));
+                setUnit('');
+                setQuantity(0);
+                setItem_id('');
+            }
         }
-          console.log("orderData",orderData)
-      }
+    };
+
       const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
       const handleSubmit = () => {
         console.log("orderData2",orderData)

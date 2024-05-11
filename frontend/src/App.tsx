@@ -10,6 +10,8 @@ import WorkPackages from './pages/work-packages'
 import EditProject from './pages/edit-project'
 import Profile from './pages/user-profile'
 import { EditProjectForm } from './components/edit-project-form'
+import { ApprovePR } from './pages/approve-pr'
+import { ProjectLeadComponent } from './pages/approve-order'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
 import { ProtectedRoute } from './utils/auth/ProtectedRoute'
@@ -29,7 +31,9 @@ const router = createBrowserRouter(
 			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
 				<Route path="user-profile" element={<Profile />} />
-				<Route path="projects" >
+				<Route path="approve-order" element={<ApprovePR />} />
+				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
+				<Route path="projects">
 					<Route index element={<Projects />} />
 					<Route path="edit" element={<EditProject />} />
 					<Route

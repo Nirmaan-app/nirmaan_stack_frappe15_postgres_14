@@ -13,9 +13,9 @@ def generate_pr_category(procurement_request, method=None):
 	categories = {}
 	for values in procurement_list:
 		if categories.get(values["category"]) is None:
-			categories[values["category"]]=[{"item":values["item"], "quantity": values["quantity"]}]
+			categories[values["category"]]=[{"item":values["item"], "quantity": values["quantity"],"unit": values["unit"],"name": values["name"]}]
 		else:
-			categories[values["category"]].append({"item":values["item"], "quantity": values["quantity"]})
+			categories[values["category"]].append({"item":values["item"], "quantity": values["quantity"],"unit": values["unit"],"name": values["name"]})
 	for category, items in categories.items():
 		doc = frappe.new_doc("PR Category")
 		doc.procurement_request=procurement_request.name
