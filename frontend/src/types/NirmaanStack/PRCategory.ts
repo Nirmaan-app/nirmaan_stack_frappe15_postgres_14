@@ -10,9 +10,9 @@ export interface PRCategory{
 	parentfield?: string
 	parenttype?: string
 	idx?: number
-	/**	Procurement Request : Data	*/
+	/**	Procurement Request : Link - Procurement Requests	*/
 	procurement_request?: string
-	/**	Category : Data	*/
+	/**	Category : Link - Category	*/
 	category?: string
 	/**	Item List : JSON	*/
 	item_list?: any

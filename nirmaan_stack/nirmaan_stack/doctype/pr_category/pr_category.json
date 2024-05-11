@@ -18,13 +18,15 @@
   },
   {
    "fieldname": "procurement_request",
-   "fieldtype": "Data",
-   "label": "Procurement Request"
+   "fieldtype": "Link",
+   "label": "Procurement Request",
+   "options": "Procurement Requests"
   },
   {
    "fieldname": "category",
-   "fieldtype": "Data",
-   "label": "Category"
+   "fieldtype": "Link",
+   "label": "Category",
+   "options": "Category"
   },
   {
    "fieldname": "item_list",
@@ -34,7 +36,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-09 20:38:04.693910",
+ "modified": "2024-05-11 14:51:45.331157",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "PR Category",
