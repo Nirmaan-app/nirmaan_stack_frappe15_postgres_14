@@ -29,8 +29,9 @@ import Debug from './pages/debug'
 const router = createBrowserRouter(
 	createRoutesFromElements(
 		<>
-			{/* <Route path='/login' lazy={() => import('@/pages/auth/Login')} /> */}
-			<Route path='/login' element={<Login />} />
+			<Route path='/login' lazy={() => import('@/pages/auth/Login')} />
+			{/* <Route path='/login' element={<Login />} /> */}
+			<Route path='/forgot-password' lazy={() => import('@/pages/auth/forgot-password')} />
 			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
 				<Route path="user-profile" element={<Profile />} />
@@ -77,6 +78,9 @@ const router = createBrowserRouter(
 	basename: `/${import.meta.env.VITE_BASE_NAME}` ?? "",
 }
 )
+
+
+
 
 function App() {
 	// Sitename support for frappe v15
