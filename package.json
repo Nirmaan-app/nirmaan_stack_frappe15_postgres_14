@@ -12,7 +12,5 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "@radix-ui/react-accordion": "^1.1.2"
-  }
+  "dependencies": {}
 }
