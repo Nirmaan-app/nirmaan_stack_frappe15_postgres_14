@@ -24,7 +24,7 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
     const { login, logout, currentUser, updateCurrentUser, isLoading } = useFrappeAuth()
 
     const handleLogout = async () => {
-        //localStorage.removeItem('ravenLastChannel')
+        localStorage.removeItem('app-cache')
         return logout()
             .then(() => {
                 //Clear cache on logout
@@ -33,7 +33,12 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
             .then(() => {
                 //Reload the page so that the boot info is fetched again
                 const URL = import.meta.env.VITE_BASE_NAME ? `${import.meta.env.VITE_BASE_NAME}` : ``
-                window.location.replace(`/login?redirect-to=${URL}/`)
+                if (URL) {
+                    window.location.replace(`/${URL}/login`)
+                } else {
+                    window.location.replace('/login')
+                }
+
                 // window.location.reload()
             })
     }
