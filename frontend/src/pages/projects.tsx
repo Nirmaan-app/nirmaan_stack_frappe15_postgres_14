@@ -13,6 +13,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { MainLayout } from "@/components/layout/main-layout";
 
 
 // NOTE: Modify frappe hooks field to get the data
@@ -97,8 +98,8 @@ export default function Projects() {
     })
 
     return (
-        <>
-            <NavBar />
+
+        <MainLayout>
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
@@ -145,6 +146,7 @@ export default function Projects() {
                     <DataTable columns={columns} data={data || []} />
                 </div>
             </div>
-        </>
+        </MainLayout>
+
     )
 }

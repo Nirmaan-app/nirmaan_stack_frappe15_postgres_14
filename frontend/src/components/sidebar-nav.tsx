@@ -1,0 +1,142 @@
+import React, { useState } from "react";
+import {
+    Building2,
+    LayoutGrid,
+    Shapes,
+    Menu,
+    X,
+} from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
+
+export function Sidebar({ className }) {
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const location = useLocation()
+
+    const toggleSidebar = () => {
+        setIsSidebarOpen(!isSidebarOpen);
+    };
+
+    const isActive = (path) => location.pathname === path;
+
+    return (
+        <>
+            <Button
+                variant="secondary"
+                size="sm"
+                className="md:hidden p-2 fixed top-4 left-4 z-50"
+                onClick={toggleSidebar}
+                aria-label="Toggle Menu"
+            >
+                {isSidebarOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            </Button>
+
+            <div
+                className={cn(
+                    "pb-4 text-gray-500 transition-transform duration-300 ease-in-out",
+                    isSidebarOpen ? "translate-x-0 bg-white" : "-translate-x-full",
+                    "fixed md:relative md:translate-x-0 md:w-64 w-64 h-full z-40"
+                )}
+            >
+                <div className="space-y-4 py-2">
+                    <div className="px-2 py-2">
+                        <Link to="/">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className={cn("px-2 text-xs w-full justify-start", { "bg-red-200": isActive("/") })}>
+                                <LayoutGrid className="mr-2 h-4 w-4" />
+                                Dashboard
+                            </Button>
+                        </Link>
+                        <Accordion type="multiple" >
+                            <AccordionItem value="admin-actions">
+                                <AccordionTrigger>
+                                    <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
+                                        <Shapes className="mr-2 h-4 w-4" />
+                                        Admin Options
+                                    </Button>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                    <Link to="/projects">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className={cn("w-full justify-start", { "bg-red-200": isActive("/projects") })}>
+                                            Projects
+                                        </Button>
+                                        <Button variant="ghost" size="sm" className="w-full justify-start">
+                                            Users
+                                        </Button>
+                                        <Button variant="ghost" size="sm" className="w-full justify-start">
+                                            Work Packages
+                                        </Button>
+                                    </Link>
+                                </AccordionContent>
+
+                            </AccordionItem>
+                            <AccordionItem value="pl-actions">
+                                <AccordionTrigger>
+                                    <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
+                                        <Shapes className="mr-2 h-4 w-4" />
+                                        Procurement Actions
+                                    </Button>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                        Approve PR
+                                    </Button>
+                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                        Approve Vendor
+                                    </Button>
+                                </AccordionContent>
+                            </AccordionItem>
+                            <AccordionItem value="item-2">
+                                <AccordionTrigger>
+                                    <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
+                                        <Building2 className="mr-2 h-4 w-4" />
+                                        Procurements
+                                    </Button>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                        New
+                                    </Button>
+                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                        Update Quote
+                                    </Button>
+                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                        Select Vendor
+                                    </Button>
+                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                        Release PO
+                                    </Button>
+                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                        Advance Payment
+                                    </Button>
+                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                        Track Delivery
+                                    </Button>
+                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                        Order Delivered
+                                    </Button>
+                                </AccordionContent>
+                            </AccordionItem>
+                        </Accordion>
+                    </div>
+                </div>
+            </div>
+
+            {/* Backdrop for closing sidebar on mobile view */}
+            {isSidebarOpen && (
+                <div
+                    className="fixed inset-0 bg-black opacity-50 z-30 md:hidden"
+                    onClick={toggleSidebar}
+                ></div>
+            )}
+        </>
+    );
+}
