@@ -21,5 +21,5 @@ export interface Items{
 	/**	Image Url : Data	*/
 	image_url?: string
 	/**	Category : Link - Category	*/
-	category?: string
+	category: string
 }

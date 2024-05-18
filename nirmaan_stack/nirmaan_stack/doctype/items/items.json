@@ -54,7 +54,8 @@
    "fieldname": "category",
    "fieldtype": "Link",
    "label": "Category",
-   "options": "Category"
+   "options": "Category",
+   "reqd": 1
   },
   {
    "fieldname": "image_url",
@@ -64,7 +65,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-06 18:33:44.804182",
+ "modified": "2024-05-18 17:01:12.394735",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Items",
