@@ -1,6 +1,7 @@
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from 'lucide-react';
+import { MainLayout } from "../layout/main-layout";
 
 export default function ProcurementDashboard() {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
@@ -15,9 +16,7 @@ export default function ProcurementDashboard() {
 
     return (
         <div className="flex">
-            <div className="w-1/5 h-[600px] rounded-lg m-1 p-2 border-2 border-gray-300">
-                Sidebar Content
-            </div>
+
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">
                     <ArrowLeft />

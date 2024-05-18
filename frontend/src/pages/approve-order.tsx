@@ -14,6 +14,7 @@ import { useState } from "react"
 import DropdownMenu from '@/components/dropdown';
 import { ArrowLeft } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
+import { MainLayout } from "@/components/layout/main-layout";
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
@@ -192,7 +193,7 @@ export const ProjectLeadComponent = () => {
 
         updateDoc('Procurement Requests', orderData.name, {
             procurement_list: orderData.procurement_list,
-            workflow_state: "PR Approved"
+            workflow_state: "Approved"
         })
             .then(() => {
                 console.log("orderData2", orderData)
@@ -215,12 +216,9 @@ export const ProjectLeadComponent = () => {
     }
 
     return (
-        <>
+        <MainLayout>
             {page == 'categorylist' &&
                 <div className="flex">
-                    <div className="w-1/5 h-[600px] rounded-lg m-1 p-2 border-2 border-gray-300">
-                        Sidebar Content
-                    </div>
                     <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                         <div className="flex items-center space-y-2">
                             <ArrowLeft />
@@ -243,9 +241,6 @@ export const ProjectLeadComponent = () => {
                     </div></div>}
             {page == 'itemlist' &&
                 <div className="flex">
-                    <div className="w-1/5 h-[600px] rounded-lg m-1 p-2 border-2 border-gray-300">
-                        Sidebar Content
-                    </div>
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center space-y-2">
@@ -346,9 +341,6 @@ export const ProjectLeadComponent = () => {
                 </div>}
             {page == 'approve' &&
                 <div className="flex">
-                    <div className="w-1/5 h-[600px] rounded-lg m-1 p-2 border-2 border-gray-300">
-                        Sidebar Content
-                    </div>
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center space-y-2">
@@ -412,6 +404,6 @@ export const ProjectLeadComponent = () => {
                         </div>
                     </div>
                 </div>}
-        </>
+        </MainLayout>
     )
 }

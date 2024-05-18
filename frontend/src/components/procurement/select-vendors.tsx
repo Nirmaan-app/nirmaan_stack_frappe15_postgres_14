@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
+import { MainLayout } from '../layout/main-layout';
 
 interface VendorItem {
     vendor: string;
@@ -135,12 +136,9 @@ export const SelectVendors = () => {
     console.log(selectedVendors)
 
     return (
-        <>
+        <MainLayout>
             {page == 'updatequotation' &&
                 <div className="flex">
-                    <div className="w-1/5 h-[600px] rounded-lg m-1 p-2 border-2 border-gray-300">
-                        Sidebar Content
-                    </div>
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                         <div className="flex items-center space-y-2">
                             <ArrowLeft />
@@ -222,9 +220,6 @@ export const SelectVendors = () => {
                 </div>}
             {page == 'approvequotation' &&
                 <div className="flex">
-                    <div className="w-1/5 h-[600px] rounded-lg m-1 p-2 border-2 border-gray-300">
-                        Sidebar Content
-                    </div>
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                         <div className="flex items-center space-y-2">
                             <ArrowLeft onClick={() => setPage('updatequotation')} />
@@ -284,6 +279,6 @@ export const SelectVendors = () => {
                         </div>
                     </div>
                 </div>}
-        </>
+        </MainLayout>
     )
 }
