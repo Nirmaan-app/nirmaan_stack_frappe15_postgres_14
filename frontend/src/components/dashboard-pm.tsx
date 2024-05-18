@@ -10,7 +10,6 @@ import DropdownMenu2 from './dropdown2';
 import { ArrowLeft } from 'lucide-react';
 
 import imageUrl from "@/assets/user-icon.jpeg"
-import { previousTuesday } from "date-fns";
 
 
 export const ProjectManager = () => {
@@ -73,7 +72,6 @@ export const ProjectManager = () => {
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
         const isDuplicate = categories.list.some(category => category.name === categoryName);
-
         if (!isDuplicate) {
             setCategories(prevState => ({
                 ...prevState,
@@ -89,6 +87,9 @@ export const ProjectManager = () => {
         procurement_list:{
             list:[]
         },
+        category_list:{
+            list:[]
+        }
     })
     // const handleProjectClick = (project:string , value: string) => {
     //     addProject(project);
@@ -139,7 +140,6 @@ export const ProjectManager = () => {
       const handleProjectSelect = (selectedItem: string) => {
             addProject(selectedItem);
       };
-
   
       const handleAdd = () => {
         if (curItem) {
@@ -173,18 +173,23 @@ export const ProjectManager = () => {
                 setQuantity(0);
                 setItem_id('');
             }
+            const categoryIds = categories.list.map((cat) => cat.name); // Assuming each category object has an id
+            const curCategoryIds = orderData.category_list.list.map((cat) => cat.name);
+            const newCategoryIds = categoryIds.filter((id) => !curCategoryIds.includes(id));
+            const newCategories = categories.list.filter((cat) => newCategoryIds.includes(cat.name));
+
+            setOrderData((prevState) => ({
+                ...prevState,
+                category_list: {
+                    list: [...prevState.category_list.list, ...newCategories],
+                },
+            }));
         }
     };
 
       const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
       const handleSubmit = () => {
         console.log("orderData2",orderData)
-        
-        // const updatedOrderData = {
-        //     ...orderData,
-        //     procurement_list: JSON.stringify(orderData.procurement_list)
-        // };
-        // setOrderData(updatedOrderData);
         createDoc('Procurement Requests', orderData)
             .then(() => {
                 console.log(orderData)

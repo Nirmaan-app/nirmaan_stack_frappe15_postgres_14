@@ -8,7 +8,10 @@ export default defineConfig({
 	plugins: [react()],
 	server: {
 		port: 8080,
-		proxy: proxyOptions
+		proxy: proxyOptions,
+		watch: {
+			usePolling: true
+		}
 	},
 	resolve: {
 		alias: {
