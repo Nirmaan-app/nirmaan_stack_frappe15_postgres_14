@@ -53,12 +53,14 @@
   {
    "fieldname": "vendor_city",
    "fieldtype": "Data",
-   "label": "Vendor City"
+   "label": "Vendor City",
+   "read_only": 1
   },
   {
    "fieldname": "vendor_state",
    "fieldtype": "Data",
-   "label": "Vendor State"
+   "label": "Vendor State",
+   "read_only": 1
   },
   {
    "fieldname": "vendor_contact_details_section",
@@ -95,7 +97,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-06 18:34:30.713835",
+ "modified": "2024-05-13 12:57:02.398663",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

@@ -19,7 +19,8 @@
   "quantity",
   "quote",
   "comments",
-  "attachment"
+  "attachment",
+  "is_selected"
  ],
  "fields": [
   {
@@ -101,11 +102,17 @@
    "fieldname": "attachment",
    "fieldtype": "Data",
    "label": "Attachment"
+  },
+  {
+   "default": "False",
+   "fieldname": "is_selected",
+   "fieldtype": "Data",
+   "label": "Is Selected"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-06 18:34:22.167992",
+ "modified": "2024-05-18 11:48:23.943639",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Quotation Requests",

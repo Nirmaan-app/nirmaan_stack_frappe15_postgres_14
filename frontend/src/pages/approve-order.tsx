@@ -59,7 +59,6 @@ export const ProjectLeadComponent = () => {
         } 
         console.log("categories2",categories)
     };
-    console.log("categories",categories)
     const handleCategoryClick = (category:string , value: string) => {
         addCategory(category);
         setPage(value);
@@ -71,6 +70,9 @@ export const ProjectLeadComponent = () => {
         procurement_list:{
             list:[]
         },
+        category_list:{
+            list:[]
+        }
     })
     if(!orderData.project){
         procurement_request_list?.map(item => {
@@ -147,6 +149,17 @@ export const ProjectLeadComponent = () => {
                 setQuantity(0);
                 setItem_id('');
             }
+            const categoryIds = categories.list.map((cat) => cat.name); // Assuming each category object has an id
+            const curCategoryIds = orderData.category_list.list.map((cat) => cat.name);
+            const newCategoryIds = categoryIds.filter((id) => !curCategoryIds.includes(id));
+            const newCategories = categories.list.filter((cat) => newCategoryIds.includes(cat.name));
+
+            setOrderData((prevState) => ({
+                ...prevState,
+                category_list: {
+                    list: [...prevState.category_list.list, ...newCategories],
+                },
+            }));
         }
     };
       const handleSave = (itemName: string, newQuantity: number) => {

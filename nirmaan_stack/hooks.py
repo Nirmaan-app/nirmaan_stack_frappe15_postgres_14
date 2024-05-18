@@ -133,9 +133,9 @@ doc_events = {
     "Projects": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm"
     },
-    "Procurement Requests": {
-        "on_submit": "nirmaan_stack.nirmaan_stack.doctype.pr_category.pr_category.generate_pr_category"
-    }
+    # "Procurement Requests": {
+    #     "on_submit": "nirmaan_stack.nirmaan_stack.doctype.pr_category.pr_category.generate_pr_category"
+    # }
 }
 
 # Scheduled Tasks
@@ -244,7 +244,8 @@ fixtures = [
     "Milestones",
     {"dt": "Role", "filters": [["role_name", "like", "Nirmaan %"]]},
     {"dt": "Role Profile", "filters": [["role_profile", "like", "Nirmaan %"]]},
-    "Workflow"
+    "Workflow",
+    "Workflow State"
 ]
 
 
