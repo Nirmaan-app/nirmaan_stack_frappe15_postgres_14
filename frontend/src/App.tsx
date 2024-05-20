@@ -24,6 +24,8 @@ import { UserProvider } from './utils/auth/UserProvider'
 import Users from './pages/users'
 import Roles from './pages/roles'
 import Debug from './pages/debug'
+import { ApproveSelectVendor } from './pages/approve-select-vendor'
+import { ApproveVendor } from './pages/approve-vendor'
 
 
 const router = createBrowserRouter(
@@ -37,6 +39,9 @@ const router = createBrowserRouter(
 				<Route path="user-profile" element={<Profile />} />
 				<Route path="approve-order" element={<ApprovePR />} />
 				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
+				<Route path="approve-vendor" element={<ApproveSelectVendor />} />
+				<Route path="approve-vendor/:orderId" element={<ApproveVendor />} />
+
 				<Route path="procure-request" element={<PRList />} />
 				<Route path="/procure-request/:orderId" element={<ProcurementOrder />} />
 				<Route path="/procure-request/select-vendors/:orderId" element={<SelectVendors />} />
