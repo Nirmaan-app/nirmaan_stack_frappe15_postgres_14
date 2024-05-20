@@ -86,12 +86,16 @@ export function Sidebar({ className }) {
                                     </Button>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                    <Button variant="ghost" size="sm" className="w-full justify-start">
-                                        Approve PR
-                                    </Button>
-                                    <Button variant="ghost" size="sm" className="w-full justify-start">
-                                        Approve Vendor
-                                    </Button>
+                                    <Link to="/approve-order">
+                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/approve-order") })}>
+                                            Approve PR
+                                        </Button>
+                                    </Link>
+                                    <Link to="/approve-vendor">
+                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/approve-vendor") })}>
+                                            Approve Vendor
+                                        </Button>
+                                    </Link>
                                 </AccordionContent>
                             </AccordionItem>
                             <AccordionItem value="item-2">
@@ -102,13 +106,17 @@ export function Sidebar({ className }) {
                                     </Button>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                    <Button variant="ghost" size="sm" className="w-full justify-start">
-                                        New
-                                    </Button>
-                                    <Button variant="ghost" size="sm" className="w-full justify-start">
-                                        Update Quote
-                                    </Button>
-                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                    <Link to="/procure-request">
+                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/procure-request") })}>
+                                            New
+                                        </Button>
+                                    </Link>
+                                    <Link to="">
+                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/approve-vendor/:orderId") })}>
+                                            Update Quote
+                                        </Button>
+                                    </Link>
+                                    <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/procure-request/select-vendors/:orderId") })}>
                                         Select Vendor
                                     </Button>
                                     <Button variant="ghost" size="sm" className="w-full justify-start">

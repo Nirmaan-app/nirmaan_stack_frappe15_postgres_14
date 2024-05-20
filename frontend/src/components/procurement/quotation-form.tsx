@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
+import {
+    SheetClose
+} from "@/components/ui/sheet"
 
 
 interface Category {
@@ -149,9 +152,11 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                 </div>
             })}
             <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
-                    Save
-                </button>
+                <SheetClose>
+                    <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
+                        Save
+                    </button>
+                </SheetClose>
             </div>
         </div>
     )
