@@ -135,7 +135,7 @@ export default function VendorForm({ work_package }) {
     }
 
     return (
-        <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+        <ScrollArea className="h-[450px] w-[600px] rounded-md border p-4">
             <Form {...form}>
                 <form onSubmit={(event) => {
                     event.stopPropagation();
