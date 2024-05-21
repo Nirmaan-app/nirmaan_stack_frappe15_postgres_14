@@ -122,49 +122,67 @@ export const ProcurementOrder = () => {
         const fieldName = `${name}`;
         return categories[fieldName];
     };
-    const handleSubmit = () => {
-        const cats = uniqueCategories.list
-        orderData.procurement_list.list.map((item) => {
-            const categoryExists = cats.some(category => category === item.category);
-            if (!categoryExists) {
-                cats.push(item.category)
-            }
-            const curCategory = `${item.category}`
-            selectedCategories[curCategory].map((cat) => {
-                const new_procurement_list = procurement_request_list?.find(value => value.name === orderId).procurement_list;
-                const new_quantity = new_procurement_list?.list.find(value => value.name === item.name).quantity
-                const quotation_request = {
-                    procurement_task: orderId,
-                    project: orderData.project,
-                    category: item.category,
-                    item: item.name,
-                    vendor: cat,
-                    quantity: new_quantity
-                }
-                const vendors = uniqueVendors.list;
-                vendors.push(cat)
-                const removeDuplicates = (array) => {
-                    return Array.from(new Set(array));
-                };
-                const uniqueList = removeDuplicates(vendors);
-                setUniqueVendors(prevState => ({
-                    ...prevState,
-                    list: uniqueList
-                }));
+
+const handleSubmit = async () => {
+    const cats = uniqueCategories.list;
+    const promises = [];
+
+    orderData.procurement_list.list.forEach((item) => {
+        const categoryExists = cats.some(category => category === item.category);
+        if (!categoryExists) {
+            cats.push(item.category);
+        }
+        
+        const curCategory = `${item.category}`;
+        selectedCategories[curCategory].forEach((cat) => {
+            const new_procurement_list = procurement_request_list?.find(value => value.name === orderId).procurement_list;
+            const new_quantity = new_procurement_list?.list.find(value => value.name === item.name).quantity;
+
+            const quotation_request = {
+                procurement_task: orderId,
+                project: orderData.project,
+                category: item.category,
+                item: item.name,
+                vendor: cat,
+                quantity: new_quantity
+            };
+
+            const vendors = uniqueVendors.list;
+            vendors.push(cat);
+
+            const removeDuplicates = (array) => {
+                return Array.from(new Set(array));
+            };
+            const uniqueList = removeDuplicates(vendors);
+            setUniqueVendors(prevState => ({
+                ...prevState,
+                list: uniqueList
+            }));
+
+            // Add createDoc promise to the array
+            promises.push(
                 createDoc('Quotation Requests', quotation_request)
                     .then(() => {
-                        setPage('quotation')
-                        console.log(quotation_request)
+                        console.log(quotation_request);
                     })
                     .catch(() => {
-                        console.log(submit_error)
+                        console.log(submit_error);
                     })
-            })
-        })
-        setUniqueCategories({
-            list: cats
-        })
+            );
+        });
+    });
+
+    setUniqueCategories({
+        list: cats
+    });
+
+    try {
+        await Promise.all(promises);
+        navigate(`/procure-request/quote-update/${orderId}`);
+    } catch (error) {
+        console.error("Error in creating documents:", error);
     }
+};
 
     const handleUpdateQuote = () => {
         updateDoc('Procurement Requests', orderId, {
@@ -319,58 +337,7 @@ export const ProcurementOrder = () => {
                         </div>
                     </div>
                 </div>}
-            {page == 'quotation' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
-                        <div className="flex items-center space-y-2">
-                            <ArrowLeft />
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Orders</h2>
-                        </div>
-                        <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div>
-                        </div>
-                        {uniqueVendors.list.map((item) => {
-                            return <div className="px-4 flex justify-between">
-                                <div className="px-6 py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
-                                <Sheet>
-                                    <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
-                                    <SheetContent>
-                                        <SheetHeader>
-                                            <SheetTitle>Enter Price</SheetTitle>
-                                            <SheetDescription>
-                                                <QuotationForm vendor_id={item} pr_id={orderData.name} />
-                                            </SheetDescription>
-                                        </SheetHeader>
-                                    </SheetContent>
-                                </Sheet>
-                            </div>
-                        })}
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={handleUpdateQuote}>
-                                Update Quote
-                            </button>
-                        </div>
-                    </div>
-                </div>}
+
         </MainLayout>
     )
 }

@@ -14,6 +14,7 @@ import { ApprovePR } from './pages/approve-pr'
 import { PRList } from './components/procurement/procurement-approved'
 import { ProcurementOrder } from './components/procurement/procurement-vendor'
 import { SelectVendors } from './components/procurement/select-vendors'
+import { UpdateQuote } from './components/procurement/update-quote'
 import { ProjectLeadComponent } from './pages/approve-order'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
@@ -41,10 +42,10 @@ const router = createBrowserRouter(
 				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
 				<Route path="approve-vendor" element={<ApproveSelectVendor />} />
 				<Route path="approve-vendor/:orderId" element={<ApproveVendor />} />
-
 				<Route path="procure-request" element={<PRList />} />
 				<Route path="/procure-request/:orderId" element={<ProcurementOrder />} />
-				<Route path="/procure-request/select-vendors/:orderId" element={<SelectVendors />} />
+				<Route path="/procure-request/quote-update/:orderId" element={<UpdateQuote />} />
+				<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
 				<Route path="projects">
 					<Route index element={<Projects />} />
 					<Route path="edit" element={<EditProject />} />
