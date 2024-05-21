@@ -5,5 +5,5 @@
 from frappe.tests.utils import FrappeTestCase
 
 
-class TestPRCategory(FrappeTestCase):
+class TestSentBackCategory(FrappeTestCase):
 	pass
