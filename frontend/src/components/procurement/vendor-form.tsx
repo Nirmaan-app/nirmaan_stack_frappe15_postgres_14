@@ -72,7 +72,7 @@ interface SelectOption {
 
 type VendorFormValues = z.infer<typeof VendorFormSchema>
 
-export default function VendorForm({ work_package }) {
+export default function VendorForm({ vendor_category_mutate,vendor_list_mutate,work_package }) {
     // 1.b Define your form.
     // Has handleSubmit, control functions
     const form = useForm<VendorFormValues>({
@@ -96,6 +96,7 @@ export default function VendorForm({ work_package }) {
     function onSubmit(values: z.infer<typeof VendorFormSchema>) {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
+
         createDoc('Vendors', values)
             .then((doc) => {
                 console.log("values", values)
@@ -105,7 +106,6 @@ export default function VendorForm({ work_package }) {
                         vendor: doc.name,
                         category: cat.value
                     }
-                    console.log("cat", cat)
                     createDoc('Vendor Category', vendor_category)
                         .then(() => {
                             console.log(vendor_category)
@@ -113,10 +113,13 @@ export default function VendorForm({ work_package }) {
                         .catch(() => {
                             console.log(submit_error)
                         })
+                    vendor_category_mutate()
+                    vendor_list_mutate()
                 })
             }).catch(() => {
                 console.log(submit_error)
             })
+            
     }
     const options: SelectOption[] = address?.map(item => ({
         label: item.name, // Adjust based on your data structure

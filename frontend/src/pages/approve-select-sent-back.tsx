@@ -2,15 +2,22 @@ import { MainLayout } from "@/components/layout/main-layout";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 
-export const ApproveSelectVendor = () => {
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+export const ApproveSelectSentBack = () => {
+    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
+            fields: ['name','item_list', 'workflow_state','procurement_request','category','project_name','vendor','creation'],
+            filters:[["workflow_state","=","Vendor Selected"]]
         });
-    const procurement_request_lists = [];
-    procurement_request_list?.map((item) => {
-        if (item.workflow_state === "Vendor Selected") procurement_request_lists.push(item)
-    })
+    const getTotal = (order_id: string) => {
+            let total:number = 0;
+            const orderData = sent_back_list?.find(item => item.name === order_id).item_list;
+            orderData?.list.map((item) => {
+                const price = item.quote;
+                total += price ? parseFloat(price) : 0;
+            })
+            return total;
+        }
+
     return (
         <MainLayout>
             <div className="flex">
@@ -23,24 +30,27 @@ export const ApproveSelectVendor = () => {
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
+                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sent Back ID</th>
                                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PR number</th>
                                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Package</th>
+                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
                                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimated Price</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
-                                {procurement_request_lists?.map(item => (
+                                {sent_back_list?.map(item => (
                                     <tr key={item.name}>
-                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/approve-vendor/${item.name}`}>{item.name.slice(-4)}</Link></td>
+                                        
+                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/approve-sent-back/${item.name}`}>{item.name}</Link></td>
+                                        <td className="px-6 py-4 whitespace-nowrap">{item.procurement_request.slice(-4)}</td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             {item.creation.split(" ")[0]}
                                         </td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.project}</td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.work_package}</td>
+                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.project_name}</td>
+                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.category}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            N/A
+                                        {getTotal(item.name)}
                                         </td>
                                     </tr>
                                 ))}

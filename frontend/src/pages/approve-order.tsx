@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react"
 import DropdownMenu from '@/components/dropdown';
 import { ArrowLeft } from 'lucide-react';
@@ -18,6 +18,7 @@ import { MainLayout } from "@/components/layout/main-layout";
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
+    const navigate = useNavigate()
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -33,7 +34,7 @@ export const ProjectLeadComponent = () => {
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation','category_list']
         });
 
 
@@ -150,7 +151,7 @@ export const ProjectLeadComponent = () => {
                 setQuantity(0);
                 setItem_id('');
             }
-            const categoryIds = categories.list.map((cat) => cat.name); // Assuming each category object has an id
+            const categoryIds = categories.list.map((cat) => cat.name);
             const curCategoryIds = orderData.category_list.list.map((cat) => cat.name);
             const newCategoryIds = categoryIds.filter((id) => !curCategoryIds.includes(id));
             const newCategories = categories.list.filter((cat) => newCategoryIds.includes(cat.name));
@@ -189,27 +190,17 @@ export const ProjectLeadComponent = () => {
         }));
     }
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+    console.log(orderData)
     const handleSubmit = () => {
 
         updateDoc('Procurement Requests', orderData.name, {
             procurement_list: orderData.procurement_list,
+            category_list: orderData.category_list,
             workflow_state: "Approved"
         })
             .then(() => {
                 console.log("orderData2", orderData)
-                setOrderData(prevState => ({
-                    ...prevState,
-                    project: '',
-                    work_package: '',
-                    procurement_list: {
-                        list: []
-                    },
-                }));
-                setCurCategory('');
-                setCurItem('');
-                setQuantity(0);
-                setUnit('');
-                setCategories({ list: [] })
+                navigate("/")
             }).catch(() => {
                 console.log("submit_error", submit_error)
             })

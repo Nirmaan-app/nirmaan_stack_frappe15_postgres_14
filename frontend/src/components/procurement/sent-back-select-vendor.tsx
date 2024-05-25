@@ -12,8 +12,8 @@ interface VendorItem {
     item: string;
 }
 
-export const SelectVendors = () => {
-    const { orderId } = useParams<{ orderId: string }>()
+export const SentBackSelectVendor = () => {
+    const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
@@ -28,22 +28,21 @@ export const SelectVendors = () => {
         {
             fields: ['name', 'lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote']
         });
+    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
+        {
+            fields: ['owner','name','workflow_state','procurement_request','category','project_name','vendor','creation','item_list'],
+            filters:[["workflow_state","=","Pending"]]
+        });
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
 
     const [page, setPage] = useState<string>('updatequotation')
     const [orderData, setOrderData] = useState({
-        project: '',
-        work_package: '',
-        procurement_list: {
-            list: []
-        },
-        category_list: {
-            list: []
-        }
+        project_name: '',
+        category: ''
     })
-    if (!orderData.project) {
-        procurement_request_list?.map(item => {
-            if (item.name === orderId) {
+    if (!orderData.project_name) {
+        sent_back_list?.map(item => {
+            if (item.name === id) {
                 setOrderData(item)
             }
         })
@@ -51,14 +50,13 @@ export const SelectVendors = () => {
     const [selectedVendors, setSelectedVendors] = useState({})
     const [selectedCategories, setSelectedCategories] = useState({})
     const [totals, setTotals] = useState()
+    const curCategory = orderData.category
 
     useEffect(() => {
         const updatedCategories = { ...selectedCategories };
-        orderData?.category_list.list.map((cat) => {
             const newVendorsSet = new Set();
-            const curCategory = cat.name
             quotation_request_list?.forEach((item) => {
-                if (item.category === cat.name) {
+                if (item.category === curCategory && item.procurement_task === orderData.procurement_request) {
                     if (!Array.isArray(updatedCategories[curCategory])) {
                         updatedCategories[curCategory] = [];
                     }
@@ -67,9 +65,9 @@ export const SelectVendors = () => {
             });
             const newVendors = Array.from(newVendorsSet);
             updatedCategories[curCategory] = newVendors;
-        })
+
         setSelectedCategories(updatedCategories);
-    }, [quotation_request_list]);
+    }, [quotation_request_list,orderData]);
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
@@ -82,6 +80,7 @@ export const SelectVendors = () => {
                 return { ...prevState, [cat]: vendor };
             }
         });
+        
     };
 
     const handleChangeWithParam = (cat, vendor) => {
@@ -89,32 +88,47 @@ export const SelectVendors = () => {
     };
 
     const handleSubmit = () => {
-        quotation_request_list?.map((item) => {
-            const cat = item.category;
-            if (selectedVendors[cat] === item.vendor) {
-                console.log(item)
-                updateDoc('Quotation Requests', item.name, {
-                    is_selected: "True",
-                })
-                    .then(() => {
-                        console.log("item", item.name)
-                        setPage('updatequotation')
-                    }).catch(() => {
-                        console.log(submit_error)
-                    })
-            }
-        })
-
-        updateDoc('Procurement Requests', orderId, {
+        updateDoc('Sent Back Category', id, {
             workflow_state: "Vendor Selected",
+            item_list:orderData.item_list,
+            vendor:orderData.vendor
         })
             .then(() => {
-                console.log(orderId)
+                console.log("item", id)
                 navigate("/")
             }).catch(() => {
-                console.log(submit_error)
+                console.log("submit_error",submit_error)
             })
+    }
 
+    useEffect(() => {
+        setOrderData(prevState => ({
+            ...prevState,
+            vendor: selectedVendors[curCategory]
+        }));
+    }, [selectedVendors]);
+
+    const handleUpdateOrderData = () => {
+        setPage('approvequotation')
+            setOrderData(prevState => {
+                const updatedItemList = prevState.item_list.list.map((item) => {
+                    const newPrice = quotation_request_list.find(value => 
+                        value.item === item.name && value.vendor === prevState.vendor && value.procurement_task === prevState.procurement_request
+                    ).quote
+                    console.log(newPrice)
+                    return {
+                        ...item,
+                        quote: newPrice
+                    };
+                });
+                return {
+                    ...prevState,
+                    item_list: {
+                        ...prevState.itemlist,
+                        list: updatedItemList
+                    }
+                };
+            });
     }
 
     const generateVendorItemKey = (vendor: string, item: string): string => {
@@ -129,11 +143,11 @@ export const SelectVendors = () => {
     useEffect(() => {
         const newPriceMap = new Map<string, string>();
         quotation_request_list?.forEach((item) => {
-            const key = generateVendorItemKey(item.vendor, item.item);
-            newPriceMap.set(key, item.quote);
+            if(item.procurement_task === orderData?.procurement_request){const key = generateVendorItemKey(item.vendor, item.item);
+            newPriceMap.set(key, item.quote);}
         });
         setPriceMap(newPriceMap);
-    }, [quotation_request_list]);
+    }, [quotation_request_list,sent_back_list]);
     // const getLowest = (cat: string) => {
     //     let price: number = 100000000;
     //     let vendor: string = '';
@@ -152,9 +166,9 @@ export const SelectVendors = () => {
     //     })
     //     return { quote: price, vendor_id: vendor }
     // }
-
-
-
+    const getPackage = (name: string) => {
+        return procurement_request_list?.find(item => item.name === name)?.work_package;
+    }
 
     const getLeadTime = (vendor: string, category: string) => {
         return quotation_request_list?.find(item => item.vendor === vendor && item.category === category)?.lead_time;
@@ -165,11 +179,9 @@ export const SelectVendors = () => {
 
     const getTotal = (cat: string) => {
         let total: number = 0;
-        orderData?.procurement_list.list.map((item) => {
-            if (item.category === cat) {
-                const price = getPrice(selectedVendors[cat], item.name);
-                total += price ? parseFloat(price) : 0;
-            }
+        orderData.item_list?.list.map((item) => {
+            const price = getPrice(selectedVendors[cat], item.name);
+            total += price ? parseFloat(price) : 0;
         })
         return total
     }
@@ -191,11 +203,11 @@ export const SelectVendors = () => {
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project_name}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{getPackage(orderData?.procurement_request)}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
@@ -203,32 +215,27 @@ export const SelectVendors = () => {
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                             </div>
                         </div>
-                        {orderData?.category_list?.list.map((cat) => {
-                            const curCategory = cat.name;
-                            return <div>
+                        <div>
                                 <Card className="flex w-full shadow-none border border-grey-500" >
                                     <CardHeader className="w-full">
                                         <div className='flex justify-between py-5'>
                                             <CardTitle className="font-bold text-xl">
-                                                {cat.name}
+                                                {curCategory}
                                             </CardTitle>
                                             <CardTitle className="font-bold text-xl">
-                                                {getSelectedVendor(cat.name)}
+                                                {getSelectedVendor(curCategory)}
                                             </CardTitle>
                                         </div>
                                         <div className="flex">
                                             <div className='flex-1'>
                                                 <div className="bg-gray-200 p-2 font-semibold">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></div>
-
-                                                {orderData?.procurement_list?.list.map((item) => {
-                                                    if (item.category === cat.name) {
-                                                        return <div className="py-2 text-sm px-2 font-semibold border-b">
-                                                            {item.item}
-                                                        </div>
-                                                    }
+                                                {orderData.item_list?.list.map((value) => {
+                                                    return <div className="py-2 text-sm px-2 font-semibold border-b">
+                                                        {value.item}
+                                                    </div>
                                                 })}
                                                 <div className="py-4 text-sm px-2 font-semibold">
                                                     Total
@@ -239,17 +246,16 @@ export const SelectVendors = () => {
                                                 const isSelected = selectedVendors[curCategory] === item;
                                                 const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                 return <div className={dynamicClass}>
-                                                    <div className="truncate bg-gray-200 font-semibold p-2"><input className="mr-2" type="radio" id={item} name={cat.name} value={item} onChange={handleChangeWithParam(cat.name, item)} />{getVendorName(item)}
-                                                        <div className='py-2 font-light text-sm text-opacity-20'>{getLeadTime(item, cat.name)} Days</div>
+                                                    <div className="truncate bg-gray-200 font-semibold p-2"><input className="mr-2" type="radio" id={item} name={curCategory} value={item} onChange={handleChangeWithParam(curCategory, item)} />{getVendorName(item)}
+                                                        <div className='py-2 font-light text-sm text-opacity-20'>{getLeadTime(item, curCategory)} Days</div>
                                                     </div>
-                                                    {orderData?.procurement_list.list.map((value) => {
-                                                        if (value.category === cat.name) {
-                                                            const price = getPrice(item, value.name);
-                                                            total += price ? parseFloat(price) : 0;
-                                                            return <div className="py-2 text-sm px-2 text-opacity-10 border-b">
-                                                                {price}
-                                                            </div>
-                                                        }
+                                                    {orderData.item_list?.list.map((value) => {
+                                                        const price = getPrice(item, value.name);
+                                                        total += price ? parseFloat(price) : 0;
+                                                        return <div className="py-2 text-sm px-2 text-opacity-10 border-b">
+                                                            {price}
+                                                        </div>
+                                                        
                                                     })}
                                                     <div className="py-4 font-semibold text-sm px-2">
                                                         {total}
@@ -260,9 +266,8 @@ export const SelectVendors = () => {
                                     </CardHeader>
                                 </Card>
                             </div>
-                        })}
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => setPage('approvequotation')}>
+                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleUpdateOrderData()}>
                                 Confirm
                             </button>
                         </div>
@@ -282,11 +287,11 @@ export const SelectVendors = () => {
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project_name}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{getPackage(orderData?.procurement_request)}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
@@ -294,14 +299,11 @@ export const SelectVendors = () => {
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                             </div>
                         </div>
-                        {orderData?.category_list?.list.map((cat) => {
-                            const curCategory = cat.name
-                            let total: number = 0;
-                            return <div className="w-full">
-                                <div className="font-bold text-xl py-2">{cat.name}</div>
+                        <div className="w-full">
+                                <div className="font-bold text-xl py-2">{curCategory}</div>
                                 <Card className="flex w-1/2 shadow-none border border-grey-500" >
                                     <CardHeader className="w-full">
                                         <CardTitle>
@@ -311,15 +313,12 @@ export const SelectVendors = () => {
                                                 <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
                                             </div>
                                         </CardTitle>
-                                        {orderData?.procurement_list.list.map((item) => {
-                                            if (item.category === curCategory) {
+                                        {orderData.item_list?.list.map((item) => {
                                             const price = getPrice(selectedVendors[curCategory], item.name);
-                                            total += price ? parseFloat(price) : 0;
                                                 return <div className="flex justify-between py-2">
                                                     <div className="text-sm">{item.item}</div>
                                                     <div className="text-sm">{price}</div>
                                                 </div>
-                                            }
                                         })}
                                         <div className="flex justify-between py-2">
                                             <div className="text-sm"></div>
@@ -328,7 +327,6 @@ export const SelectVendors = () => {
                                     </CardHeader>
                                 </Card>
                             </div>
-                        })}
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                             <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
                                 Send for Approval
