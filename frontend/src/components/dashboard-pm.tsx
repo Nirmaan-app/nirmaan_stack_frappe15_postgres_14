@@ -8,6 +8,9 @@ import { useState, useEffect } from "react"
 import DropdownMenu from './dropdown';
 import DropdownMenu2 from './dropdown2';
 import { ArrowLeft } from 'lucide-react';
+import ReactSelect from 'react-select';
+
+
 
 import imageUrl from "@/assets/user-icon.jpeg"
 
@@ -111,10 +114,11 @@ export const ProjectManager = () => {
         setPage(value);
     };
     const item_lists: string[] = [];
+    const item_options: string[] = [];
     const project_lists: string[] = [];
     if (curCategory) {
         item_list?.map((item) => {
-            if (item.category === curCategory) item_lists.push(item.item_name)
+            if (item.category === curCategory) item_options.push({value:item.item_name , label:item.item_name})
         })
     }
     if (project_list?.length != project_lists.length) {
@@ -138,6 +142,15 @@ export const ProjectManager = () => {
         //     }
         // })
     };
+    const handleChange = (selectedItem) => {
+        console.log('Selected item:', selectedItem);
+        setCurItem(selectedItem.value)
+        item_list?.map((item) => {
+            if (item.item_name == selectedItem.value) {
+                setUnit(item.unit_name)
+            }
+        })
+    }
     const handleProjectSelect = (selectedItem: string) => {
         addProject(selectedItem);
     };
@@ -156,7 +169,7 @@ export const ProjectManager = () => {
                     item: curItem,
                     name: itemIdToUpdate,
                     unit: unit,
-                    quantity: quantity,
+                    quantity: Number(quantity),
                     category: curCategory,
                 };
                 const isDuplicate = curRequest.some((item) => item.item === curItem);
@@ -310,17 +323,17 @@ export const ProjectManager = () => {
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Work Package</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
-                    {wp_list?.map((item) => (
-                        <Card className="flex shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
-                                <CardTitle className="text-sm font-medium">
-                                    <img className="h-32 md:h-36 w-32 md:w-36 p-2 rounded-lg p-0 text-sm" src={imageUrl} alt="Project" />
-                                    {item.work_package_name}
-                                </CardTitle>
-                                {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
-                            </CardHeader>
-                        </Card>
-                    ))}
+                {wp_list?.map((item) => (
+                    <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
+                        <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
+                            <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
+                                <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
+                                <span>{item.work_package_name}</span>
+                            </CardTitle>
+                            {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
+                        </CardHeader>
+                    </Card>
+                ))}
                 </div>
             </div>}
             {page == 'categorylist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
@@ -329,19 +342,22 @@ export const ProjectManager = () => {
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
-                    {category_list?.map((item) => {
-                        if (item.work_package === orderData.work_package) {
-                            return <Card className="flex shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick(item.category_name, 'itemlist')}>
-                                <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
-                                    <CardTitle className="text-sm font-medium">
-                                        <img className="h-32 md:h-36 w-32 md:w-36 p-2 rounded-lg p-0 text-sm" src={imageUrl} alt="Project" />
-                                        {item.category_name}
+                {category_list?.map((item) => {
+                    if (item.work_package === orderData.work_package) {
+                        return (
+                            <Card className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick(item.category_name, 'itemlist')}>
+                                <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
+                                    <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
+                                        <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
+                                        <span>{item.category_name}</span>
                                     </CardTitle>
                                     {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
                                 </CardHeader>
                             </Card>
-                        }
-                    })}
+                        );
+                    }
+                })}
+
                 </div>
             </div>}
             {page == 'itemlist' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
@@ -363,15 +379,16 @@ export const ProjectManager = () => {
                 <button className="text-sm md:text-lg text-blue-400" onClick={() => setPage('categorylist')}>+ Add Category</button>
                 <h3 className="font-bold">{curCategory}</h3>
                 <div className="flex space-x-2">
-                    <div className="flex-shrink-0">
+                    <div className="w-1/2 md:w-2/3">
                         <h5 className="text-xs text-gray-400">Items</h5>
-                        <DropdownMenu items={item_lists} onSelect={handleSelect} />
+                        {/* <DropdownMenu items={item_lists} onSelect={handleSelect} /> */}
+                        <ReactSelect options={item_options} onChange={handleChange} />
                     </div>
-                    <div className="flex-1  min-w-14 ">
+                    <div className="flex-1"> 
                         <h5 className="text-xs text-gray-400">UOM</h5>
                         <input className="h-[37px] w-full border rounded-lg" type="text" placeholder={unit} value={unit} />
                     </div>
-                    <div className="flex-1 min-w-14 ">
+                    <div className="flex-1">
                         <h5 className="text-xs text-gray-400">Qty</h5>
                         <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
                     </div>
@@ -406,7 +423,7 @@ export const ProjectManager = () => {
                         </table>
                     </div>
                 })}
-                <button className="bottom-0 h-8 w-[280px] md:w-full bg-red-700 rounded-md text-sm text-white" onClick={() => handleSubmit()}>Confirm and Submit</button>
+                <button className="bottom-0 h-8 w-[280px] mt-4 md:w-full bg-red-700 rounded-md text-sm text-white" onClick={() => handleSubmit()}>Confirm and Submit</button>
             </div>}
         </>
     )

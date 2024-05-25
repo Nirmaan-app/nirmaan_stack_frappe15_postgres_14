@@ -10,11 +10,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { useState } from "react"
+import { useState,useEffect } from "react"
 import DropdownMenu from '@/components/dropdown';
 import { ArrowLeft } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
 import { MainLayout } from "@/components/layout/main-layout";
+import ReactSelect from 'react-select';
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
@@ -76,48 +77,51 @@ export const ProjectLeadComponent = () => {
             list: []
         }
     })
-    if (!orderData.project) {
-        procurement_request_list?.map(item => {
-            if (item.name === id) {
-                setOrderData(item)
-                item.procurement_list.list.map((items) => {
-                    const isDuplicate = categories.list.some(category => category.name === items.category);
-                    if (!isDuplicate) {
-                        setCategories(prevState => ({
-                            ...prevState,
-                            list: [...prevState.list, { name: items.category }]
-                        }));
-                    }
-                    console.log(categories)
-                })
-            }
-        })
-        setCategories(prevState => ({
-            ...prevState,
-            list: prevState.list.filter((category, index, self) =>
-                index === self.findIndex((c) => (
-                    c.name === category.name
-                ))
-            )
-        }));
-    }
+    useEffect(() => {
+        if (!orderData.project) {
+            procurement_request_list?.map(item => {
+                if (item.name === id) {
+                    setOrderData(item);
+                    item.procurement_list.list.map((items) => {
+                        const isDuplicate = categories.list.some(category => category.name === items.category);
+                        if (!isDuplicate) {
+                            setCategories(prevState => ({
+                                ...prevState,
+                                list: [...prevState.list, { name: items.category }]
+                            }));
+                        }
+                    });
+                }
+            });
+            setCategories(prevState => ({
+                ...prevState,
+                list: prevState.list.filter((category, index, self) =>
+                    index === self.findIndex((c) => (
+                        c.name === category.name
+                    ))
+                )
+            }));
+        }
+    }, [procurement_request_list]);
 
     const item_lists: string[] = [];
+    const item_options: string[] = [];
+
     if (curCategory) {
         item_list?.map((item) => {
-            if (item.category === curCategory) item_lists.push(item.item_name)
+            if (item.category === curCategory) item_options.push({value:item.item_name , label:item.item_name})
         })
     }
 
-    const handleSelect = (selectedItem: string) => {
+    const handleChange = (selectedItem) => {
         console.log('Selected item:', selectedItem);
-        setCurItem(selectedItem)
+        setCurItem(selectedItem.value)
         item_list?.map((item) => {
-            if (item.item_name == selectedItem) {
+            if (item.item_name == selectedItem.value) {
                 setUnit(item.unit_name)
             }
         })
-    };
+    }
 
     const handleAdd = () => {
         if (curItem) {
@@ -134,7 +138,7 @@ export const ProjectLeadComponent = () => {
                     item: curItem,
                     name: itemIdToUpdate,
                     unit: unit,
-                    quantity: quantity,
+                    quantity: Number(quantity),
                     category: curCategory,
                 };
                 const isDuplicate = curRequest.some((item) => item.item === curItem);
@@ -190,7 +194,6 @@ export const ProjectLeadComponent = () => {
         }));
     }
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
-    console.log(orderData)
     const handleSubmit = () => {
 
         updateDoc('Procurement Requests', orderData.name, {
@@ -251,15 +254,15 @@ export const ProjectLeadComponent = () => {
                         <button className="text-sm md:text-lg text-blue-400" onClick={() => setPage('categorylist')}>+ Add Category</button>
                         <h3 className="font-bold">{curCategory}</h3>
                         {curCategory && <div className="flex space-x-2">
-                            <div className="flex-shrink-0">
+                            <div className="w-1/2 md:w-2/3">
                                 <h5 className="text-xs text-gray-400">Items</h5>
-                                <DropdownMenu items={item_lists} onSelect={handleSelect} />
+                                <ReactSelect options={item_options} onChange={handleChange} />
                             </div>
-                            <div className="flex-1  min-w-14 ">
+                            <div className="flex-1">
                                 <h5 className="text-xs text-gray-400">UOM</h5>
                                 <input className="h-[37px] w-full border rounded-lg" type="text" placeholder={unit} value={unit} />
                             </div>
-                            <div className="flex-1 min-w-14 ">
+                            <div className="flex-1">
                                 <h5 className="text-xs text-gray-400">Qty</h5>
                                 <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
                             </div>

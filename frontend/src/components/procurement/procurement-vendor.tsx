@@ -45,7 +45,7 @@ export const ProcurementOrder = () => {
         });
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error,mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
-            fields: ['vendor', 'category']
+            fields: ['vendor', 'category','vendor_name']
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
@@ -53,7 +53,8 @@ export const ProcurementOrder = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote']
+            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
+            filters: ["procurement_task","=",orderId]
         });
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc } = useFrappeUpdateDoc()
@@ -99,22 +100,16 @@ export const ProcurementOrder = () => {
       
         vendor_category_list?.forEach((item) => {
           const fieldName = `${item.category}`;
-      
-          // Initialize the field as an array if it doesn't already exist
           if (!Array.isArray(updatedCategories[fieldName])) {
             updatedCategories[fieldName] = [];
           }
-      
-          // Check if the item already exists in the array
           const exists = updatedCategories[fieldName].some(
             (entry) => entry.value === item.vendor
           );
-      
-          // Add the item only if it does not already exist
           if (!exists) {
             updatedCategories[fieldName].push({
               value: item.vendor,
-              label: getVendorName(item.vendor),
+              label: item.vendor_name,
             });
           }
         });
