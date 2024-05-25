@@ -14,7 +14,7 @@ import QuotationForm from "./quotation-form"
 
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
-import { useState } from "react"
+import { useState,useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { MainLayout } from '../layout/main-layout';
 
@@ -43,11 +43,11 @@ export const ProcurementOrder = () => {
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
         });
-    const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error } = useFrappeGetDocList("Vendor Category",
+    const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error,mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
             fields: ['vendor', 'category']
         });
-    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
+    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address']
         });
@@ -59,8 +59,9 @@ export const ProcurementOrder = () => {
     const { updateDoc: updateDoc } = useFrappeUpdateDoc()
 
     const getVendorName = (vendorName: string) => {
-        return vendor_list?.find(vendor => vendor.name === vendorName).vendor_name;
+        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
+    console.log(vendor_list)
     const [page, setPage] = useState<string>('approve')
     const [uniqueVendors, setUniqueVendors] = useState({
         list: []
@@ -93,18 +94,34 @@ export const ProcurementOrder = () => {
         list: []
     })
 
-    const handleSelectVendors = () => {
-        setPage('vendors')
+    useEffect(() => {
         const updatedCategories = { ...categories };
-        vendor_category_list?.map((item) => {
-            const fieldName = `${item.category}`;
-            if (!Array.isArray(updatedCategories[fieldName])) {
-                updatedCategories[fieldName] = [];
-            }
-            updatedCategories[fieldName].push({ value: item.vendor, label: getVendorName(item.vendor) });
-        })
+      
+        vendor_category_list?.forEach((item) => {
+          const fieldName = `${item.category}`;
+      
+          // Initialize the field as an array if it doesn't already exist
+          if (!Array.isArray(updatedCategories[fieldName])) {
+            updatedCategories[fieldName] = [];
+          }
+      
+          // Check if the item already exists in the array
+          const exists = updatedCategories[fieldName].some(
+            (entry) => entry.value === item.vendor
+          );
+      
+          // Add the item only if it does not already exist
+          if (!exists) {
+            updatedCategories[fieldName].push({
+              value: item.vendor,
+              label: getVendorName(item.vendor),
+            });
+          }
+        });
+      
         setCategories(updatedCategories);
-    }
+      }, [vendor_category_list]);
+      
     const handleChange = (category) => (selectedOptions) => {
         console.log(selectedOptions)
         const updatedCategories = { ...selectedCategories };
@@ -218,7 +235,7 @@ const handleSubmit = async () => {
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center space-y-2">
-                            <ArrowLeft />
+                            {/* <ArrowLeft /> */}
                             <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Orders</h2>
                         </div>
                         <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
@@ -272,7 +289,7 @@ const handleSubmit = async () => {
                             </table>
                         </div>
                         <div className="flex flex-col h-full justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSelectVendors()}>
+                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => setPage('vendors')}>
                                 Select Vendors
                             </button>
                         </div>
@@ -283,8 +300,8 @@ const handleSubmit = async () => {
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center space-y-2">
-                            <ArrowLeft />
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Orders</h2>
+                            {/* <ArrowLeft /> */}
+                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Vendors</h2>
                         </div>
                         <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col items-center justify-center">
@@ -321,7 +338,7 @@ const handleSubmit = async () => {
                                             <SheetHeader>
                                                 <SheetTitle>Add Vendor for {cat.name}</SheetTitle>
                                                 <SheetDescription>
-                                                    <VendorForm work_package={orderData.work_package} />
+                                                    <VendorForm work_package={orderData.work_package} vendor_category_mutate={vendor_category_mutate} vendor_list_mutate={vendor_list_mutate} />
                                                 </SheetDescription>
                                             </SheetHeader>
                                         </SheetContent>

@@ -15,7 +15,13 @@ import { PRList } from './components/procurement/procurement-approved'
 import { ProcurementOrder } from './components/procurement/procurement-vendor'
 import { SelectVendors } from './components/procurement/select-vendors'
 import { UpdateQuote } from './components/procurement/update-quote'
+import { SentBackRequest } from './components/procurement/sent-back-request'
+import { SentBackUpdateQuote } from './components/procurement/sent-back-update-quote'
+import { SentBackSelectVendor } from './components/procurement/sent-back-select-vendor'
 import { ProjectLeadComponent } from './pages/approve-order'
+import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
+import { ApproveSentBack } from './pages/approve-sent-back'
+import { PDF } from './pages/pdf'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
 import { ProtectedRoute } from './utils/auth/ProtectedRoute'
@@ -38,11 +44,17 @@ const router = createBrowserRouter(
 			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
 				<Route path="user-profile" element={<Profile />} />
+				<Route path="pdf" element={<PDF />} />
 				<Route path="approve-order" element={<ApprovePR />} />
 				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
 				<Route path="approve-vendor" element={<ApproveSelectVendor />} />
 				<Route path="approve-vendor/:orderId" element={<ApproveVendor />} />
+				<Route path="approve-sent-back" element={<ApproveSelectSentBack />} />
+				<Route path="approve-sent-back/:id" element={<ApproveSentBack />} />
 				<Route path="procure-request" element={<PRList />} />
+				<Route path="sent-back-request" element={<SentBackRequest />} />
+				<Route path="sent-back-request/:id" element={<SentBackUpdateQuote />} />
+				<Route path="sent-back-request/select-vendor/:id" element={<SentBackSelectVendor />} />
 				<Route path="/procure-request/:orderId" element={<ProcurementOrder />} />
 				<Route path="/procure-request/quote-update/:orderId" element={<UpdateQuote />} />
 				<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />

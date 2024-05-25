@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { HardHat, UserRound, PersonStanding } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
-import { Link } from "react-router-dom";
+import { Link,useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
 import DropdownMenu from './dropdown';
 import DropdownMenu2 from './dropdown2';
@@ -13,6 +13,7 @@ import imageUrl from "@/assets/user-icon.jpeg"
 
 
 export const ProjectManager = () => {
+    const navigate = useNavigate();
 
     const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
@@ -33,7 +34,7 @@ export const ProjectManager = () => {
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
+            fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation','workflow_state']
         });
 
     // console.log(category_list);
@@ -100,20 +101,14 @@ export const ProjectManager = () => {
     const handleWPClick = (wp: string, value: string) => {
         addWorkPackage(wp);
         setPage(value);
-        console.log(page);
-        console.log(orderData);
     };
     const handleCategoryClick = (category: string, value: string) => {
         addCategory(category);
         setPage(value);
-        console.log(page);
-        console.log(orderData);
     };
 
     const handleClick = (value: string) => {
         setPage(value);
-        console.log(page);
-        console.log(orderData);
     };
     const item_lists: string[] = [];
     const project_lists: string[] = [];
@@ -136,11 +131,16 @@ export const ProjectManager = () => {
                 setUnit(item.unit_name)
             }
         })
+        // setCurItem(selectedItem.value)
+        // item_list?.map((item) => {
+        //     if (item.item_name == selectedItem) {
+        //         setUnit(item.unit_name)
+        //     }
+        // })
     };
     const handleProjectSelect = (selectedItem: string) => {
         addProject(selectedItem);
     };
-
 
     const handleAdd = () => {
         if (curItem) {
@@ -150,7 +150,6 @@ export const ProjectManager = () => {
                     itemIdToUpdate = item.name;
                 }
             });
-
             if (itemIdToUpdate) {
                 const curRequest = [...orderData.procurement_list.list];
                 const curValue = {
@@ -174,19 +173,25 @@ export const ProjectManager = () => {
                 setQuantity(0);
                 setItem_id('');
             }
-            const categoryIds = categories.list.map((cat) => cat.name); // Assuming each category object has an id
-            const curCategoryIds = orderData.category_list.list.map((cat) => cat.name);
-            const newCategoryIds = categoryIds.filter((id) => !curCategoryIds.includes(id));
-            const newCategories = categories.list.filter((cat) => newCategoryIds.includes(cat.name));
-
-            setOrderData((prevState) => ({
-                ...prevState,
-                category_list: {
-                    list: [...prevState.category_list.list, ...newCategories],
-                },
-            }));
         }
     };
+
+    useEffect(() => {
+        const newCategories = [];
+        orderData.procurement_list.list.map((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({name: item.category})
+            }
+        })
+        setOrderData((prevState) => ({
+            ...prevState,
+            category_list: {
+                list: newCategories
+            },
+        }));
+      }, [orderData.procurement_list]);
+      
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const handleSubmit = () => {
@@ -194,19 +199,8 @@ export const ProjectManager = () => {
         createDoc('Procurement Requests', orderData)
             .then(() => {
                 console.log(orderData)
-                setOrderData(prevState => ({
-                    ...prevState,
-                    project: '',
-                    work_package: '',
-                    procurement_list: {
-                        list: []
-                    },
-                }));
-                setCurCategory('');
-                setCurItem('');
-                setQuantity(0);
-                setUnit('');
-                setCategories({ list: [] })
+                navigate("/")
+                setPage('projectlist')
             }).catch(() => {
                 console.log("submit_error", submit_error)
             })
@@ -295,7 +289,7 @@ export const ProjectManager = () => {
                                         return <tr key={item.name} >
                                             <td className="border-b-2 px-4 py-1 text-sm text-center">{item.name.slice(-4)}</td>
                                             <td className="border-b-2 px-4 py-1 text-sm text-center">{item.work_package}</td>
-                                            <td className="border-b-2 px-4 py-1 text-sm text-center">Approved</td>
+                                            <td className="border-b-2 px-4 py-1 text-sm text-center">{item.workflow_state}</td>
                                         </tr>
                                     }
                                 })}
