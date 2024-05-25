@@ -11,7 +11,7 @@ export default function ProcurementDashboard() {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name', 'workflow_state'],
-            filters:[["workflow_state","=","Pending"]]
+            filters: [["workflow_state", "=", "Pending"]]
         });
     console.log("procurement_request_list", procurement_request_list)
     const procurement_request_lists: string[] = [];
@@ -28,7 +28,7 @@ export default function ProcurementDashboard() {
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Dashboard</h2>
                 </div>
                 <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                    {[...Array(3)].map((_, index) => (
+                    {[...Array(1)].map((_, index) => (
                         <div key={index} className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                             <Link to="/procure-request">
                                 <p className="text-center py-6 font-bold text-gray-500">New PR Request</p>

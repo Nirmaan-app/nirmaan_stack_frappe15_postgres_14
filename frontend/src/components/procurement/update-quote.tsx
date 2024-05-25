@@ -11,7 +11,7 @@ import QuotationForm from "./quotation-form"
 
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
-import { useState,useEffect } from "react"
+import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { MainLayout } from '../layout/main-layout';
 
@@ -45,7 +45,8 @@ export const UpdateQuote = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote']
+            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
+            filters: [["procurement_task", "=", orderId]]
         });
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc } = useFrappeUpdateDoc()
@@ -76,7 +77,7 @@ export const UpdateQuote = () => {
     }
     useEffect(() => {
         const vendors = uniqueVendors.list;
-        quotation_request_list?.map((item)=>{
+        quotation_request_list?.map((item) => {
             const value = item.vendor;
             vendors.push(value)
         })
@@ -90,17 +91,17 @@ export const UpdateQuote = () => {
         }));
     }, [quotation_request_list]);
 
-    
+
 
     const handleUpdateQuote = () => {
         updateDoc('Procurement Requests', orderId, {
             workflow_state: "Quote Updated",
         })
             .then(() => {
-                console.log("orderId",orderId)
+                console.log("orderId", orderId)
                 navigate(`/procure-request/quote-update/select-vendors/${orderId}`);
             }).catch(() => {
-                console.log("submit_error",submit_error)
+                console.log("submit_error", submit_error)
             })
     }
 
