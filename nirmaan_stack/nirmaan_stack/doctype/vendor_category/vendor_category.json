@@ -7,7 +7,8 @@
  "field_order": [
   "details_section",
   "vendor",
-  "category"
+  "category",
+  "vendor_name"
  ],
  "fields": [
   {
@@ -26,11 +27,16 @@
    "fieldtype": "Link",
    "label": "Category",
    "options": "Category"
+  },
+  {
+   "fieldname": "vendor_name",
+   "fieldtype": "Data",
+   "label": "Vendor Name"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-06 18:34:53.675031",
+ "modified": "2024-05-25 13:26:51.999325",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendor Category",

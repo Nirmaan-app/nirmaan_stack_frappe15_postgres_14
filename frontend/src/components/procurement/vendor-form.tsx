@@ -104,7 +104,8 @@ export default function VendorForm({ vendor_category_mutate,vendor_list_mutate,w
                 categories.map((cat) => {
                     const vendor_category = {
                         vendor: doc.name,
-                        category: cat.value
+                        category: cat.value,
+                        vendor_name: doc.vendor_name
                     }
                     createDoc('Vendor Category', vendor_category)
                         .then(() => {

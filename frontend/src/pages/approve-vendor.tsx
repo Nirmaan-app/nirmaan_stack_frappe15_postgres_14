@@ -94,14 +94,14 @@ export const ApproveVendor = () => {
     const handleSendBack = (cat: string) => {
         const itemlist = [];
         orderData.procurement_list.list.map((value)=>{
-            const price = getPrice(selectedVendors[cat],value.name);
+            if(value.category === cat){const price = getPrice(selectedVendors[cat],value.name);
             itemlist.push({
                 name:value.name,
                 item:value.item,
                 quantity:value.quantity,
                 quote:price,
                 unit:value.unit
-            })
+            })}
         })
         const delivery_time = quotation_request_list?.find(item => item.category === cat)?.lead_time;
         const newSendBack = {
@@ -336,6 +336,12 @@ export const ApproveVendor = () => {
         })
         return total
     }
+    const handleDone = () => {
+        console.log(orderData.category_list?.list.length)
+        if(orderData.category_list?.list.length === 0){
+            navigate("/")
+        }
+    }
 
     return (
         <MainLayout>
@@ -447,7 +453,7 @@ export const ApproveVendor = () => {
                         </Button>
                     </div> : 
                     <div className="flex space-x-2 justify-end items-end fixed bottom-4 right-4">
-                        <Button>
+                        <Button onClick={()=>handleDone()}>
                             Done
                         </Button>
                     </div>

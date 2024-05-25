@@ -13,7 +13,7 @@ export const SentBackRequest = () => {
             fields: ['name', 'work_package']
         });
     const getPackage = (name: string) => {
-            return procurement_request_list?.find(item => item.name === name).work_package;
+            return procurement_request_list?.find(item => item.name === name)?.work_package;
         }
     const getTotal = (order_id: string) => {
         let total:number = 0;
