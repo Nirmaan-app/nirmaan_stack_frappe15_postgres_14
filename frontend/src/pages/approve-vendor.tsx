@@ -14,6 +14,7 @@ import {
     SheetTrigger,
     SheetClose
 } from "@/components/ui/sheet"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 
 export const ApproveVendor = () => {
@@ -22,7 +23,7 @@ export const ApproveVendor = () => {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
+            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation','procurement_executive']
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
@@ -34,7 +35,7 @@ export const ApproveVendor = () => {
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ['name', 'project_name', 'project_address']
+            fields: ['name', 'project_name', 'project_address','procurement_lead']
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
@@ -54,13 +55,14 @@ export const ApproveVendor = () => {
             list: []
         }
     })
-    if (!orderData.project) {
-        procurement_request_list?.map(item => {
-            if (item.name === orderId) {
-                setOrderData(item)
-            }
-        })
-    }
+
+    useEffect(() => {
+        const foundItem = procurement_request_list?.find(item => item.name === orderId);
+        if (foundItem) {
+            setOrderData(foundItem)
+        }
+    }, [procurement_request_list]);
+
     const [selectedVendors, setSelectedVendors] = useState({})
     const [comment,setComment] = useState('')
     const total_categories = procurement_request_list?.find(item => item.name === orderId)?.category_list.list.length;
@@ -113,7 +115,8 @@ export const ApproveVendor = () => {
                 list:itemlist
             },
             lead_time: delivery_time,
-            comments: comment
+            comments: comment,
+            procurement_executive: orderData.procurement_executive
         }
         createDoc('Sent Back Category', newSendBack)
             .then(() => {
@@ -404,6 +407,7 @@ export const ApproveVendor = () => {
                                 <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg">Add Comment and Send Back</SheetTrigger>
                                 <SheetContent>
                                     <SheetHeader>
+                                    <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
                                         <SheetTitle>Enter Price</SheetTitle>
                                         <SheetDescription>
                                             Add Comments and Send Back
@@ -437,6 +441,7 @@ export const ApproveVendor = () => {
                                             <SheetClose><Button onClick={()=>handleSendBack(curCategory)}>Submit</Button></SheetClose>
                                             </div>
                                         </SheetDescription>
+                                        </ScrollArea>
                                     </SheetHeader>
                                 </SheetContent>
                             </Sheet>

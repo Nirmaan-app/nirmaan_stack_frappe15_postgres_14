@@ -1,11 +1,14 @@
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { MainLayout } from "../layout/main-layout";
+import { useUserData } from "@/hooks/useUserData";
 
 export const PRList = () => {
+    const userData = useUserData();
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            filters: [["procurement_executive","=",userData.user_id]]
         });
     const procurement_request_lists = [];
     procurement_request_list?.map((item) => {

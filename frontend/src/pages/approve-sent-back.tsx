@@ -14,6 +14,7 @@ import {
     SheetTrigger,
     SheetClose
 } from "@/components/ui/sheet"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 export const ApproveSentBack = () => {
     const { id } = useParams<{ id: string }>()
@@ -212,6 +213,7 @@ export const ApproveSentBack = () => {
                             <Sheet>
                                 <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg">Add Comment and Send Back</SheetTrigger>
                                 <SheetContent>
+                                <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
                                     <SheetHeader>
                                         <SheetTitle>Enter Price</SheetTitle>
                                         <SheetDescription>
@@ -244,6 +246,7 @@ export const ApproveSentBack = () => {
                                             </div>
                                         </SheetDescription>
                                     </SheetHeader>
+                                    </ScrollArea>
                                 </SheetContent>
                             </Sheet>
                             <Button onClick={() => handleApprove(curCategory)}>Approve</Button>

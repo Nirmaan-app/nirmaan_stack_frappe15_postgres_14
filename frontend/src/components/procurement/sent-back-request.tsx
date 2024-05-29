@@ -1,12 +1,14 @@
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { MainLayout } from "../layout/main-layout";
+import { useUserData } from "@/hooks/useUserData";
 
 export const SentBackRequest = () => {
+    const userData = useUserData();
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name','item_list', 'workflow_state','procurement_request','category','project_name','vendor','creation'],
-            filters:[["workflow_state","=","Pending"]]
+            filters:[["workflow_state","=","Pending"],["procurement_executive","=",userData.user_id]]
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
@@ -15,6 +17,7 @@ export const SentBackRequest = () => {
     const getPackage = (name: string) => {
             return procurement_request_list?.find(item => item.name === name)?.work_package;
         }
+        
     const getTotal = (order_id: string) => {
         let total:number = 0;
         const orderData = sent_back_list?.find(item => item.name === order_id).item_list;
