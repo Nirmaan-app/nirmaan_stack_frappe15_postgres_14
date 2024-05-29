@@ -1,7 +1,11 @@
 import { MainLayout } from "@/components/layout/main-layout";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { useState,useEffect } from "react"
+import { useState,useEffect,useRef } from "react"
+import React from 'react';
+import { useReactToPrint } from 'react-to-print';
+
+
 
 export const PDF = () => {
 
@@ -25,10 +29,24 @@ export const PDF = () => {
     }, [procurement_order_list]);
     console.log(procurement_order_list)
 
+      const [isPrinting, setIsPrinting] = useState(false);
+        const componentRef = React.useRef();
+
+        const handlePrint = useReactToPrint({
+            content: () => componentRef.current,
+        });
+
+        const togglePrintMode = () => {
+            setIsPrinting(prevState => !prevState);
+            if (!isPrinting) {
+            handlePrint();
+            }
+        };
+
     return (
         // PO pdf
         <div className="align-center">
-            <div className="ml-80 w-[580px] my-4 border rounded-md p-4">
+            <div ref={componentRef} className="w-full my-4 border rounded-md p-4">
                 <div className="flex justify-between border-b-2 border-gray-600 pb-3 mb-3">
                     <div>
                         <div className="text-3xl text-red-600 font-bold">Nirmaan</div>
@@ -76,6 +94,7 @@ export const PDF = () => {
                         </table>
                     </div>
             </div>
+            <button onClick={togglePrintMode} className="mt-4 p-2 bg-blue-500 text-white">{isPrinting ? 'Exit Print Mode' : 'Print'}</button>
             {/* RFQ pdf */}
             <div className="ml-80 w-[580px] my-4 border rounded-md p-4">
                 <div className="flex justify-between border-b-2 border-gray-600 pb-3 mb-3">

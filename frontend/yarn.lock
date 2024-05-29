@@ -1232,7 +1232,6 @@
   dependencies:
     "@babel/runtime" "^7.13.10"
 
-
 "@radix-ui/themes@^3.0.4":
   version "3.0.4"
   resolved "https://registry.yarnpkg.com/@radix-ui/themes/-/themes-3.0.4.tgz#36d44d9e1835db0ceac44cdc7fc5baaffc67758e"
@@ -2358,7 +2357,6 @@ frappe-js-sdk@^1.5.0:
   dependencies:
     axios "^1.6.7"
 
-
 frappe-react-sdk@^1.7.0:
   version "1.7.0"
   resolved "https://registry.yarnpkg.com/frappe-react-sdk/-/frappe-react-sdk-1.7.0.tgz#6d7430f2e606dbe733ffbe1fda7566fc815b6a45"
@@ -2811,7 +2809,6 @@ lru-cache@^6.0.0:
   dependencies:
     yallist "^4.0.0"
 
-
 lucide-react@^0.378.0:
   version "0.378.0"
   resolved "https://registry.yarnpkg.com/lucide-react/-/lucide-react-0.378.0.tgz#232acb99c6baedfa90959a2c0dd11327b058bde8"
@@ -3263,6 +3260,11 @@ react-style-singleton@^2.2.1:
     get-nonce "^1.0.0"
     invariant "^2.2.4"
     tslib "^2.0.0"
+
+react-to-print@^2.15.1:
+  version "2.15.1"
+  resolved "https://registry.yarnpkg.com/react-to-print/-/react-to-print-2.15.1.tgz#c9a6732cadf1118fc90d886b54a9388c419561b9"
+  integrity sha512-1foogIFbCpzAVxydkhBiDfMiFYhIMphiagDOfcG4X/EcQ+fBPqJ0rby9Wv/emzY1YLkIQy/rEgOrWQT+rBKhjw==
 
 react-transition-group@^4.3.0:
   version "4.4.5"
