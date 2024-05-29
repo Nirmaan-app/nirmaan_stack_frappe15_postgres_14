@@ -147,6 +147,7 @@ export const Component = () => {
                                                     Forgot Password?
                                                 </Link>
                                             </LinkButton>
+                                            {error && <div className="text-red-600 font-semibold text-lg">{error.message}</div>}
                                         </Flex>
                                     </Flex>
                                 </Flex>

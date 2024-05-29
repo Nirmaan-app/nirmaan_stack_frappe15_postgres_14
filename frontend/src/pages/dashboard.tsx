@@ -21,7 +21,7 @@ export default function Dashboard() {
     return (
         <>
             <MainLayout>
-                <div className="flex flex-col justify-center">
+                {userData.user_id == "Administrator" && <div className="flex flex-col justify-center">
                     <div className="space-y-2">
                         <button
                             className="bg-gray-100 hover:bg-gray-600 text-black px-4 py-2 rounded"
@@ -48,15 +48,17 @@ export default function Dashboard() {
                             Procurement_Executive
                         </button>
                     </div>
-                </div>
+                </div>}
                 {selectedValue == 'default' && <Default />}
                 {selectedValue == 'Project_Manager' && <ProjectManager />}
                 {selectedValue == 'Project_Lead' && <ProjectLead />}
                 {selectedValue == 'Procurement_Executive' && <ProcurementDashboard />}
+                
 
-                {/* {userData.role == 'Nirmaan Admin' && <Default />}
-            {userData.role == 'Project Manager Profile' && <ProjectManager />}
-            {userData.role == 'Project Lead Profile' && <ProjectLead />} */}
+                {/* {userData.role == 'Nirmaan Admin' && <Default />} */}
+            {userData.role == 'Nirmaan Project Manager Profile' && <ProjectManager />}
+            {userData.role == 'Nirmaan Project Lead Profile' && <ProjectLead />}
+            {userData.role == 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
             </MainLayout>
 
         </>
