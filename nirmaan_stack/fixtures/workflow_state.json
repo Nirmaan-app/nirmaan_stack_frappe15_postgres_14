@@ -12,6 +12,15 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
+  "modified": "2024-05-27 12:06:48.794270",
+  "name": "RFQ Generated",
+  "style": "",
+  "workflow_state_name": "RFQ Generated"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
   "modified": "2024-05-17 19:24:42.421426",
   "name": "Vendor Approved",
   "style": "",
@@ -21,19 +30,19 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2024-05-23 13:54:42.653072",
-  "name": "Partially Approved",
+  "modified": "2024-05-17 19:24:17.060880",
+  "name": "Quote Updated",
   "style": "",
-  "workflow_state_name": "Partially Approved"
+  "workflow_state_name": "Quote Updated"
  },
  {
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2024-05-17 19:24:17.060880",
-  "name": "Quote Updated",
+  "modified": "2024-05-23 13:54:42.653072",
+  "name": "Partially Approved",
   "style": "",
-  "workflow_state_name": "Quote Updated"
+  "workflow_state_name": "Partially Approved"
  },
  {
   "docstatus": 0,
