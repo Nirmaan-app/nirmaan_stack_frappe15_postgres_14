@@ -3,6 +3,7 @@ import { useState,useEffect,useRef } from "react"
 import React from 'react';
 import { useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
+import redlogo from "@/assets/red-logo.png"
 
 export const ReleasePO = () => {
     const { id } = useParams<{ id: string }>()
@@ -38,28 +39,30 @@ export const ReleasePO = () => {
 
     return (
         <>
-        <div ref={componentRef} className="w-full my-4 border rounded-md p-4">
+        <div ref={componentRef} className="w-full p-4">
             <div className="flex justify-between border-b-2 border-gray-600 pb-3 mb-3">
-                <div>
-                    <div className="text-3xl text-red-600 font-bold">Nirmaan</div>
-                    <div className="py-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+            <div className="mt-6 flex justify-between">
+                    <div>
+                        <img className="w-44" src={redlogo} alt="Nirmaan" />
+                        <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                    </div>
                 </div>
                 <div>
-                    <div className="pb-2 pt-4 text-lg text-gray-600 font-semibold">Purchase Order</div>
+                    <div className="pb-2 pt-8 text-lg text-gray-600 font-semibold">Purchase Order</div>
                     <div className="text-base text-black font-bold">PO # : {orderData?.name}</div>
                 </div>
             </div>
             <div className="text-gray-500 text-sm py-2">Vendor Address</div>
-            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{orderData.vendor_address}</div>
-            <div className="text-sm font-medium text-gray-900">GSTIN: {orderData.vendor_gst}</div>
+            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{orderData?.vendor_address}</div>
+            <div className="text-sm font-medium text-gray-900">GSTIN: {orderData?.vendor_gst}</div>
             <div className="flex justify-between">
                 <div>
                     <h3 className="text-gray-500 text-sm py-2">Delivery Location</h3>
-                    <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{orderData.project_address}</div>
+                    <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{orderData?.project_address}</div>
                 </div>
                 <div className="pt-4">
-                    <div className="text-sm font-medium text-gray-900"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;{orderData.creation?.split(" ")[0]}</div>
-                    <div className="text-sm font-medium text-gray-900"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;{orderData.project_name}</div>
+                    <div className="text-sm font-medium text-gray-900"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;{orderData?.creation?.split(" ")[0]}</div>
+                    <div className="text-sm font-medium text-gray-900"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;{orderData?.project_name}</div>
                 </div>
             </div>
             <div className="overflow-x-auto pt-4">

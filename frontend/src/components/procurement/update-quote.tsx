@@ -15,6 +15,7 @@ import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { MainLayout } from '../layout/main-layout';
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { PrintRFQ } from "./rfq-pdf"
 
 export const UpdateQuote = () => {
     const { orderId } = useParams<{ orderId: string }>()
@@ -140,19 +141,48 @@ export const UpdateQuote = () => {
                         {uniqueVendors.list.map((item) => {
                             return <div className="px-4 flex justify-between">
                                 <div className="px-6 py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
+                                {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
+                                <div className="flex space-x-2">
+                                <Sheet>
+                                    <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Print</SheetTrigger>
+                                    <SheetContent>
+                                        <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                            <SheetHeader>
+                                                <SheetTitle>Print PDF</SheetTitle>
+                                                <SheetDescription>
+                                                    <PrintRFQ vendor_id={item} pr_id={orderData.name} />
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                        </ScrollArea>
+                                    </SheetContent>
+                                </Sheet>
                                 <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
                                     <SheetContent>
-                                    <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                        <SheetHeader>
-                                            <SheetTitle>Enter Price</SheetTitle>
-                                            <SheetDescription>
-                                                <QuotationForm vendor_id={item} pr_id={orderData.name} />
-                                            </SheetDescription>
-                                        </SheetHeader>
-                                    </ScrollArea>
+                                        <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                            <SheetHeader>
+                                                <SheetTitle>Enter Price</SheetTitle>
+                                                <SheetDescription>
+                                                    <QuotationForm vendor_id={item} pr_id={orderData.name} />
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                        </ScrollArea>
                                     </SheetContent>
                                 </Sheet>
+                                </div>
+                                {/* <Sheet>
+                                    <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
+                                    <SheetContent>
+                                        <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                            <SheetHeader>
+                                                <SheetTitle>Enter Price</SheetTitle>
+                                                <SheetDescription>
+                                                    <QuotationForm vendor_id={item} pr_id={orderData.name} />
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                        </ScrollArea>
+                                    </SheetContent>
+                                </Sheet> */}
                             </div>
                         })}
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
