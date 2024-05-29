@@ -18,6 +18,10 @@ import { UpdateQuote } from './components/procurement/update-quote'
 import { SentBackRequest } from './components/procurement/sent-back-request'
 import { SentBackUpdateQuote } from './components/procurement/sent-back-update-quote'
 import { SentBackSelectVendor } from './components/procurement/sent-back-select-vendor'
+import { ReleasePOSelect } from './components/procurement/release-po-select'
+import { ReleasePO } from './components/procurement/release-po'
+import { QuoteUpdateSelect } from './components/procurement/quote-update-select'
+import { SelectVendorList } from './components/procurement/select-vendor-list'
 import { ProjectLeadComponent } from './pages/approve-order'
 import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
 import { ApproveSentBack } from './pages/approve-sent-back'
@@ -33,6 +37,7 @@ import Roles from './pages/roles'
 import Debug from './pages/debug'
 import { ApproveSelectVendor } from './pages/approve-select-vendor'
 import { ApproveVendor } from './pages/approve-vendor'
+import { NewPR } from './components/new-pr'
 
 
 const router = createBrowserRouter(
@@ -45,6 +50,7 @@ const router = createBrowserRouter(
 				<Route index element={<Dashboard />} />
 				<Route path="user-profile" element={<Profile />} />
 				<Route path="pdf" element={<PDF />} />
+				<Route path="/new-pr/:id" element={<NewPR />} />
 				<Route path="approve-order" element={<ApprovePR />} />
 				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
 				<Route path="approve-vendor" element={<ApproveSelectVendor />} />
@@ -52,12 +58,17 @@ const router = createBrowserRouter(
 				<Route path="approve-sent-back" element={<ApproveSelectSentBack />} />
 				<Route path="approve-sent-back/:id" element={<ApproveSentBack />} />
 				<Route path="procure-request" element={<PRList />} />
+				<Route path="update-quote" element={<QuoteUpdateSelect />} />
+				<Route path="select-vendor-list" element={<SelectVendorList />} />
 				<Route path="sent-back-request" element={<SentBackRequest />} />
 				<Route path="sent-back-request/:id" element={<SentBackUpdateQuote />} />
 				<Route path="sent-back-request/select-vendor/:id" element={<SentBackSelectVendor />} />
 				<Route path="/procure-request/:orderId" element={<ProcurementOrder />} />
 				<Route path="/procure-request/quote-update/:orderId" element={<UpdateQuote />} />
 				<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
+				<Route path="release-po" element={<ReleasePOSelect />} />
+				<Route path="/release-po/:id" element={<ReleasePO />} />
+				
 				<Route path="projects">
 					<Route index element={<Projects />} />
 					<Route path="edit" element={<EditProject />} />
