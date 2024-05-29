@@ -20,9 +20,10 @@ import {
     TableRow,
 } from "@/components/ui/table"
 import * as React from "react"
-import { Input } from "@/components/ui/input"
 import { DataTablePagination } from "./data-table-pagination"
 import { DataTableViewOptions } from "./data-table-view-options"
+import { fuzzyFilter } from "./data-table-models"
+import DebouncedInput from "./debounced-input"
 
 interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
@@ -41,6 +42,8 @@ export function DataTable<TData, TValue>({
 
     const [rowSelection, setRowSelection] = React.useState({})
 
+    const [globalFilter, setGlobalFilter] = React.useState('')
+
     const table = useReactTable({
         data,
         columns,
@@ -52,11 +55,14 @@ export function DataTable<TData, TValue>({
         getFilteredRowModel: getFilteredRowModel(),
         onColumnVisibilityChange: setColumnVisibility,
         onRowSelectionChange: setRowSelection,
+        onGlobalFilterChange: setGlobalFilter,
+        globalFilterFn: fuzzyFilter,
         state: {
             sorting,
             columnFilters,
             columnVisibility,
             rowSelection,
+            globalFilter,
         },
     })
 
@@ -73,12 +79,14 @@ export function DataTable<TData, TValue>({
         <div className="space-y-4">
             {/* Look for data-table-toolbar in tasks example */}
             <div className="flex items-center py-4">
-                <Input
+                <DebouncedInput
                     placeholder="Filter..."
-                    value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
-                    onChange={(event) =>
-                        table.getColumn("name")?.setFilterValue(event.target.value)
-                    }
+                    //value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
+                    value={globalFilter ?? ''}
+                    // onChange={(event) =>
+                    //     table.getColumn("name")?.setFilterValue(event.target.value)
+                    // }
+                    onChange={value => setGlobalFilter(String(value))}
                     className="max-w-sm"
                 />
                 <DataTableViewOptions table={table} />

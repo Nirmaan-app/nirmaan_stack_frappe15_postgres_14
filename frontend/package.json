@@ -26,6 +26,7 @@
     "@radix-ui/react-slot": "^1.0.2",
     "@radix-ui/react-switch": "^1.0.3",
     "@radix-ui/themes": "^3.0.4",
+    "@tanstack/match-sorter-utils": "^8.15.1",
     "@tanstack/react-table": "^8.13.2",
     "@types/js-cookie": "^3.0.6",
     "@types/node": "^20.11.19",
