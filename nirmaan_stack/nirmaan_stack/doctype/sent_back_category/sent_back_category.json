@@ -12,6 +12,8 @@
   "vendor",
   "item_list",
   "lead_time",
+  "assignees_section",
+  "procurement_executive",
   "sent_back_details_section",
   "comments",
   "amended_from"
@@ -58,7 +60,7 @@
   },
   {
    "fieldname": "comments",
-   "fieldtype": "Data",
+   "fieldtype": "Long Text",
    "label": "Comments"
   },
   {
@@ -75,12 +77,23 @@
    "print_hide": 1,
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "fieldname": "assignees_section",
+   "fieldtype": "Section Break",
+   "label": "Assignees"
+  },
+  {
+   "fieldname": "procurement_executive",
+   "fieldtype": "Link",
+   "label": "Procurement Executive",
+   "options": "Nirmaan Users"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2024-05-21 19:20:13.891736",
+ "modified": "2024-05-28 16:35:56.236354",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Sent Back Category",
@@ -95,6 +108,54 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
    "share": 1,
    "write": 1
   }
