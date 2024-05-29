@@ -23,7 +23,7 @@ export const ApproveVendor = () => {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation','procurement_executive']
+            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'procurement_executive']
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
@@ -31,16 +31,16 @@ export const ApproveVendor = () => {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address','vendor_gst']
+            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst']
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ['name', 'project_name', 'project_address','procurement_lead']
+            fields: ['name', 'project_name', 'project_address', 'procurement_lead']
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote','lead_time'],
-            filters: [["is_selected", "=", "True"],["procurement_task","=",orderId]]
+            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time'],
+            filters: [["is_selected", "=", "True"], ["procurement_task", "=", orderId]]
         });
 
 
@@ -64,7 +64,7 @@ export const ApproveVendor = () => {
     }, [procurement_request_list]);
 
     const [selectedVendors, setSelectedVendors] = useState({})
-    const [comment,setComment] = useState('')
+    const [comment, setComment] = useState('')
     const total_categories = procurement_request_list?.find(item => item.name === orderId)?.category_list.list.length;
 
     const getVendorName = (vendorName: string) => {
@@ -95,15 +95,17 @@ export const ApproveVendor = () => {
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
     const handleSendBack = (cat: string) => {
         const itemlist = [];
-        orderData.procurement_list.list.map((value)=>{
-            if(value.category === cat){const price = getPrice(selectedVendors[cat],value.name);
-            itemlist.push({
-                name:value.name,
-                item:value.item,
-                quantity:value.quantity,
-                quote:price,
-                unit:value.unit
-            })}
+        orderData.procurement_list.list.map((value) => {
+            if (value.category === cat) {
+                const price = getPrice(selectedVendors[cat], value.name);
+                itemlist.push({
+                    name: value.name,
+                    item: value.item,
+                    quantity: value.quantity,
+                    quote: price,
+                    unit: value.unit
+                })
+            }
         })
         const delivery_time = quotation_request_list?.find(item => item.category === cat)?.lead_time;
         const newSendBack = {
@@ -112,7 +114,7 @@ export const ApproveVendor = () => {
             category: cat,
             vendor: selectedVendors[cat],
             item_list: {
-                list:itemlist
+                list: itemlist
             },
             lead_time: delivery_time,
             comments: comment,
@@ -124,43 +126,45 @@ export const ApproveVendor = () => {
                 setComment('')
             })
             .catch(() => {
-                console.log("submit_error",submit_error);
+                console.log("submit_error", submit_error);
             })
         updateDoc('Procurement Requests', orderId, {
-                workflow_state: "Partially Approved"
+            workflow_state: "Partially Approved"
+        })
+            .then(() => {
+                console.log("item", orderId)
+            }).catch(() => {
+                console.log("update_submit_error", update_submit_error)
             })
-                .then(() => {
-                    console.log("item", orderId)
-                }).catch(() => {
-                    console.log("update_submit_error",update_submit_error)
-                })
-            setOrderData((prevState) => {
-                const newCategoryList = prevState.category_list.list.filter(
-                    (category) => category.name !== cat
-                );
-                return {
-                    ...prevState,
-                    category_list: {
-                        ...prevState.category_list,
-                        list: newCategoryList
-                    }
-                };
-            });
+        setOrderData((prevState) => {
+            const newCategoryList = prevState.category_list.list.filter(
+                (category) => category.name !== cat
+            );
+            return {
+                ...prevState,
+                category_list: {
+                    ...prevState.category_list,
+                    list: newCategoryList
+                }
+            };
+        });
     }
 
     const handleRejectAll = () => {
-        orderData.category_list.list.map((cat)=>{
+        orderData.category_list.list.map((cat) => {
             const itemlist = [];
             const curCategory = cat.name;
-            orderData.procurement_list.list.map((value)=>{
-                const price = getPrice(selectedVendors[curCategory],value.name);
-                itemlist.push({
-                    name:value.name,
-                    item:value.item,
-                    quantity:value.quantity,
-                    quote:price,
-                    unit:value.unit
-                })
+            orderData.procurement_list.list.map((value) => {
+                if (value.category === curCategory) {
+                    const price = getPrice(selectedVendors[curCategory], value.name);
+                    itemlist.push({
+                        name: value.name,
+                        item: value.item,
+                        quantity: value.quantity,
+                        quote: price,
+                        unit: value.unit
+                    })
+                }
             })
             const delivery_time = quotation_request_list?.find(item => item.category === curCategory)?.lead_time;
             const newSendBack = {
@@ -169,18 +173,20 @@ export const ApproveVendor = () => {
                 category: curCategory,
                 vendor: selectedVendors[curCategory],
                 item_list: {
-                    list:itemlist
+                    list: itemlist
                 },
                 lead_time: delivery_time,
-                comments:comment
+                comments: comment,
+                procurement_executive: orderData.procurement_executive
             }
             createDoc('Sent Back Category', newSendBack)
                 .then(() => {
                     console.log(newSendBack);
                     setComment('')
+
                 })
                 .catch(() => {
-                    console.log("submit_error",submit_error);
+                    console.log("submit_error", submit_error);
                 })
             setOrderData((prevState) => {
                 const newCategoryList = prevState.category_list.list.filter(
@@ -195,17 +201,26 @@ export const ApproveVendor = () => {
                 };
             });
         })
+        updateDoc('Procurement Requests', orderId, {
+            workflow_state: "Partially Approved"
+        })
+            .then(() => {
+                console.log("item", orderId)
+                navigate("/")
+            }).catch(() => {
+                console.log("update_submit_error", update_submit_error)
+            })
     }
 
     const handleApproveAll = () => {
         orderData.category_list.list.map((cat) => {
             const order_list = {
-                list:[]
+                list: []
             };
-            quotation_request_list?.map((value)=>{
-                if(value.category === cat.name){
+            quotation_request_list?.map((value) => {
+                if (value.category === cat.name) {
                     const newItem = {
-                        name:value.item,
+                        name: value.item,
                         item: getItem(value.item),
                         unit: getUnit(value.item),
                         quantity: value.quantity,
@@ -232,28 +247,28 @@ export const ApproveVendor = () => {
                     navigate("/")
                 })
                 .catch(() => {
-                    console.log("submit_error",submit_error);
+                    console.log("submit_error", submit_error);
                 })
             updateDoc('Procurement Requests', orderId, {
-                    workflow_state: "Vendor Approved"
+                workflow_state: "Vendor Approved"
+            })
+                .then(() => {
+                    console.log("item", orderId)
+                }).catch(() => {
+                    console.log("update_submit_error", update_submit_error)
                 })
-                    .then(() => {
-                        console.log("item", orderId)
-                    }).catch(() => {
-                        console.log("update_submit_error",update_submit_error)
-                    })
 
         })
     }
-    
+
     const handleApprove = (cat: string) => {
         const order_list = {
-            list:[]
+            list: []
         };
-        quotation_request_list?.map((value)=>{
-            if(value.category === cat){
+        quotation_request_list?.map((value) => {
+            if (value.category === cat) {
                 const newItem = {
-                    name:value.item,
+                    name: value.item,
                     item: getItem(value.item),
                     unit: getUnit(value.item),
                     quantity: value.quantity,
@@ -279,16 +294,16 @@ export const ApproveVendor = () => {
                 console.log(newProcurementOrder);
             })
             .catch(() => {
-                console.log("submit_error",submit_error);
+                console.log("submit_error", submit_error);
             })
         updateDoc('Procurement Requests', orderId, {
-                workflow_state: "Partially Approved"
+            workflow_state: "Partially Approved"
+        })
+            .then(() => {
+                console.log("item", orderId)
+            }).catch(() => {
+                console.log("update_submit_error", update_submit_error)
             })
-                .then(() => {
-                    console.log("item", orderId)
-                }).catch(() => {
-                    console.log("update_submit_error",update_submit_error)
-                })
         setOrderData((prevState) => {
             const newCategoryList = prevState.category_list.list.filter(
                 (category) => category.name !== cat
@@ -341,7 +356,7 @@ export const ApproveVendor = () => {
     }
     const handleDone = () => {
         console.log(orderData.category_list?.list.length)
-        if(orderData.category_list?.list.length === 0){
+        if (orderData.category_list?.list.length === 0) {
             navigate("/")
         }
     }
@@ -403,65 +418,65 @@ export const ApproveVendor = () => {
                                 </CardHeader>
                             </Card>
                             <div className="py-4 flex justify-between">
-                            <Sheet>
-                                <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg">Add Comment and Send Back</SheetTrigger>
-                                <SheetContent>
-                                    <SheetHeader>
-                                    <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                        <SheetTitle>Enter Price</SheetTitle>
-                                        <SheetDescription>
-                                            Add Comments and Send Back
-                                            <div className="flex justify-between py-2">
-                                                <div className="text-sm w-1/2">Added Items</div>
-                                                <div className="text-sm">Qty</div>
-                                                <div className="text-sm">UOM</div>
-                                                <div className="text-sm">Quote</div>
-                                            </div>
-                                            {orderData?.procurement_list.list.map((item) => {
-                                                if (item.category === curCategory) {
-                                                const price = getPrice(selectedVendors[curCategory], item.name);
-                                                total += price ? parseFloat(price) : 0;
-                                                    return <div className="flex justify-between py-2">
-                                                        <div className="text-sm w-1/2 text-black font-semibold">{item.item}</div>
-                                                        <div className="text-sm text-black font-semibold">{item.quantity}</div>
-                                                        <div className="text-sm text-black font-semibold">{item.unit}</div>
-                                                        <div className="text-sm text-black font-semibold">{price}</div>
+                                <Sheet>
+                                    <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg">Add Comment and Send Back</SheetTrigger>
+                                    <SheetContent>
+                                        <SheetHeader>
+                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                                <SheetTitle>Enter Price</SheetTitle>
+                                                <SheetDescription>
+                                                    Add Comments and Send Back
+                                                    <div className="flex justify-between py-2">
+                                                        <div className="text-sm w-1/2">Added Items</div>
+                                                        <div className="text-sm">Qty</div>
+                                                        <div className="text-sm">UOM</div>
+                                                        <div className="text-sm">Quote</div>
                                                     </div>
-                                                }
-                                            })}
-                                            <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
-                                                <textarea
-                                                    id="textarea"
-                                                    className="w-full border rounded-lg p-2"
-                                                    value={comment}
-                                                    placeholder="Type your comments here"
-                                                    onChange={(e) => setComment(e.target.value)}
-                                                />
-                                            <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                                            <SheetClose><Button onClick={()=>handleSendBack(curCategory)}>Submit</Button></SheetClose>
-                                            </div>
-                                        </SheetDescription>
-                                        </ScrollArea>
-                                    </SheetHeader>
-                                </SheetContent>
-                            </Sheet>
-                            <Button onClick={() => handleApprove(curCategory)}>Approve</Button>
+                                                    {orderData?.procurement_list.list.map((item) => {
+                                                        if (item.category === curCategory) {
+                                                            const price = getPrice(selectedVendors[curCategory], item.name);
+                                                            total += price ? parseFloat(price) : 0;
+                                                            return <div className="flex justify-between py-2">
+                                                                <div className="text-sm w-1/2 text-black font-semibold">{item.item}</div>
+                                                                <div className="text-sm text-black font-semibold">{item.quantity}</div>
+                                                                <div className="text-sm text-black font-semibold">{item.unit}</div>
+                                                                <div className="text-sm text-black font-semibold">{price}</div>
+                                                            </div>
+                                                        }
+                                                    })}
+                                                    <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
+                                                    <textarea
+                                                        id="textarea"
+                                                        className="w-full border rounded-lg p-2"
+                                                        value={comment}
+                                                        placeholder="Type your comments here"
+                                                        onChange={(e) => setComment(e.target.value)}
+                                                    />
+                                                    <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                                                        <SheetClose><Button onClick={() => handleSendBack(curCategory)}>Submit</Button></SheetClose>
+                                                    </div>
+                                                </SheetDescription>
+                                            </ScrollArea>
+                                        </SheetHeader>
+                                    </SheetContent>
+                                </Sheet>
+                                <Button onClick={() => handleApprove(curCategory)}>Approve</Button>
                             </div>
                         </div>
                     })}
                     {orderData.category_list.list.length === total_categories ? <div className="flex space-x-2 justify-end items-end bottom-4 right-4">
-                        <Button className="border border-red-500 bg-white text-red-500 hover:text-white" onClick={()=>handleRejectAll()}>
+                        <Button className="border border-red-500 bg-white text-red-500 hover:text-white" onClick={() => handleRejectAll()}>
                             Reject All
                         </Button>
                         <Button onClick={() => handleApproveAll()}>
                             Approve All
                         </Button>
-                    </div> : 
-                    <div className="flex space-x-2 justify-end items-end fixed bottom-4 right-4">
-                        <Button onClick={()=>handleDone()}>
-                            Done
-                        </Button>
-                    </div>
+                    </div> :
+                        <div className="flex space-x-2 justify-end items-end fixed bottom-4 right-4">
+                            <Button onClick={() => handleDone()}>
+                                Done
+                            </Button>
+                        </div>
                     }
                 </div>
             </div>
