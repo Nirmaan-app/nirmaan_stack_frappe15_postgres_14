@@ -164,7 +164,7 @@ export const ApproveSentBack = () => {
                 <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                     <div className="flex items-center space-y-2">
                         {/* <ArrowLeft /> */}
-                        <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Comparison</h2>
+                        <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Approve</h2>
                     </div>
                     <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col items-center justify-center">

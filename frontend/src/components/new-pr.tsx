@@ -11,6 +11,7 @@ import { ArrowLeft } from 'lucide-react';
 import ReactSelect from 'react-select';
 
 import imageUrl from "@/assets/user-icon.jpeg"
+import { MainLayout } from "./layout/main-layout";
 
 export const NewPR = () => {
 
@@ -216,7 +217,7 @@ export const NewPR = () => {
     }
 
     return (
-        <>
+        <MainLayout>
             {page == 'wplist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">
                     {/* <ArrowLeft onClick={() => setPage('projectlist')} /> */}
@@ -292,7 +293,7 @@ export const NewPR = () => {
                         <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
                     </div>
                 </div>
-                <div className="flex space-x-48 md:space-x-0 mt-2">
+                <div className="flex justify-between px-2 md:space-x-0 mt-2">
                     <div></div>
                     <button className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</button>
                 </div>
@@ -300,11 +301,11 @@ export const NewPR = () => {
                 {categories.list?.map((cat) => {
                     return <div className="container mx-0 px-0">
                         <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
-                        <table className="table-auto md:w-full">
+                        <table className="table-auto w-[95%]">
                             <thead>
                                 <tr className="bg-gray-200">
                                     <th className="px-4 py-1 text-xs">Item Name</th>
-                                    <th className="px-4 py-1 pl-16 text-xs">Unit</th>
+                                    <th className="px-4 py-1 pl-10 text-xs">Unit</th>
                                     <th className="px-4 py-1 text-xs">Quantity</th>
                                 </tr>
                             </thead>
@@ -313,7 +314,7 @@ export const NewPR = () => {
                                     if (item.category === cat.name) {
                                         return <tr key={item.item} >
                                             <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.item}</td>
-                                            <td className="border-b-2 px-4 py-1 pl-16 text-xs text-gray-700 text-center">{item.unit}</td>
+                                            <td className="border-b-2 px-4 py-1 pl-10 text-xs text-gray-700 text-center">{item.unit}</td>
                                             <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.quantity}</td>
                                         </tr>
                                     }
@@ -322,8 +323,8 @@ export const NewPR = () => {
                         </table>
                     </div>
                 })}
-                <button className="bottom-0 h-8 w-[280px] mt-4 md:w-full bg-red-700 rounded-md text-sm text-white" onClick={() => handleSubmit()}>Confirm and Submit</button>
+                <button className="bottom-0 h-8 w-[95%] mt-4 md:w-full bg-red-700 rounded-md text-sm text-white" onClick={() => handleSubmit()}>Confirm and Submit</button>
             </div>}
-        </>
+        </MainLayout>
     )
 }
