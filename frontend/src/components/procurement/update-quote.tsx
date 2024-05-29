@@ -14,6 +14,7 @@ import { useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { MainLayout } from '../layout/main-layout';
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 export const UpdateQuote = () => {
     const { orderId } = useParams<{ orderId: string }>()
@@ -142,12 +143,14 @@ export const UpdateQuote = () => {
                                 <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
                                     <SheetContent>
+                                    <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
                                         <SheetHeader>
                                             <SheetTitle>Enter Price</SheetTitle>
                                             <SheetDescription>
                                                 <QuotationForm vendor_id={item} pr_id={orderData.name} />
                                             </SheetDescription>
                                         </SheetHeader>
+                                    </ScrollArea>
                                     </SheetContent>
                                 </Sheet>
                             </div>

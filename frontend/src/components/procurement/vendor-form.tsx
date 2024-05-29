@@ -110,12 +110,12 @@ export default function VendorForm({ vendor_category_mutate,vendor_list_mutate,w
                     createDoc('Vendor Category', vendor_category)
                         .then(() => {
                             console.log(vendor_category)
+                            vendor_category_mutate()
+                            vendor_list_mutate()
                         })
                         .catch(() => {
                             console.log(submit_error)
                         })
-                    vendor_category_mutate()
-                    vendor_list_mutate()
                 })
             }).catch(() => {
                 console.log(submit_error)
@@ -138,8 +138,15 @@ export default function VendorForm({ vendor_category_mutate,vendor_list_mutate,w
         setCategories(selectedOptions)
     }
 
+    function closewindow(){
+        var button = document.getElementById('dialogClose');
+        vendor_category_mutate();
+        vendor_list_mutate();
+        button.click();
+    }
+
     return (
-        <ScrollArea className="h-[450px] w-[600px] rounded-md border p-4">
+        // <ScrollArea className="h-[450px] w-[600px] rounded-md border p-4">
             <Form {...form}>
                 <form onSubmit={(event) => {
                     event.stopPropagation();
@@ -288,12 +295,14 @@ export default function VendorForm({ vendor_category_mutate,vendor_list_mutate,w
                         {submit_complete &&
                             <div>
                                 <div className="font-semibold text-green-500">New Vendor added</div>
+                                {closewindow()}
                             </div>
+
                         }
                         {submit_error && <div>{submit_error}</div>}
                     </div>
                 </form>
             </Form>
-        </ScrollArea>
+        // </ScrollArea>
     )
 }

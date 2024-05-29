@@ -6,12 +6,12 @@ import {
     DialogHeader,
     DialogTitle,
     DialogTrigger,
+    DialogClose
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState,useEffect } from "react"
-import DropdownMenu from '@/components/dropdown';
 import { ArrowLeft } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
 import { MainLayout } from "@/components/layout/main-layout";
@@ -304,12 +304,12 @@ export const ProjectLeadComponent = () => {
                                                                         <label htmlFor="">Edit Quantity</label>
                                                                     </DialogDescription>
                                                                     <DialogDescription className="flex flex-row">
-                                                                        <input type="number" onChange={(e) => setQuantity(e.target.value)} />
+                                                                        <input type="number" className="min-h-[30px] rounded-lg border my-4 p-1" onChange={(e) => setQuantity(e.target.value)} />
                                                                     </DialogDescription>
                                                                     <DialogDescription className="flex flex-row">
                                                                         <div className="flex botton-4 right-4 gap-2">
                                                                             <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                            <Button onClick={() => handleSave(item.item, quantity)}>Save</Button>
+                                                                            <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
                                                                         </div>
                                                                     </DialogDescription>
                                                                 </DialogHeader>

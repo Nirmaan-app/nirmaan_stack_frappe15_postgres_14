@@ -2,19 +2,22 @@ import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from 'lucide-react';
 import { Sidebar } from "./sidebar-nav";
+import { useUserData } from "@/hooks/useUserData";
 
 export const ProjectLead = () => {
+    const userData = useUserData();
+    
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state']
+            fields: ['name', 'workflow_state'],
+            filters: [["project_lead","=",userData.user_id]]
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name','item_list', 'workflow_state','procurement_request','category','project_name','vendor','creation','owner'],
-            filters:[["workflow_state","=","Vendor Selected"]]
+            filters:[["workflow_state","=","Vendor Selected"],["owner","=",userData.user_id]]
         });
 
-    console.log(procurement_request_list)
     const procurement_request_lists: string[] = [];
     const procurement_request_lists2: string[] = [];
 

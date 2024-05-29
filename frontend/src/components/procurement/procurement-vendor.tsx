@@ -11,6 +11,7 @@ import { ArrowLeft } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import VendorForm from "./vendor-form"
 import QuotationForm from "./quotation-form"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -57,7 +58,7 @@ export const ProcurementOrder = () => {
             filters: ["procurement_task","=",orderId]
         });
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    const { updateDoc: updateDoc } = useFrappeUpdateDoc()
+    const { updateDoc: updateDoc,loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
@@ -171,7 +172,6 @@ const handleSubmit = async () => {
                 list: uniqueList
             }));
 
-            // Add createDoc promise to the array
             promises.push(
                 createDoc('Quotation Requests', quotation_request)
                     .then(() => {
@@ -190,7 +190,16 @@ const handleSubmit = async () => {
 
     try {
         await Promise.all(promises);
-        navigate(`/procure-request/quote-update/${orderId}`);
+        updateDoc('Procurement Requests', orderId, {
+            workflow_state: "RFQ Generated",
+        })
+            .then(() => {
+                console.log(orderId)
+                navigate(`/procure-request/quote-update/${orderId}`);
+            }).catch(() => {
+                console.log("error",update_error)
+            })
+        
     } catch (error) {
         console.error("Error in creating documents:", error);
     }
@@ -330,12 +339,14 @@ const handleSubmit = async () => {
                                     <Sheet>
                                         <SheetTrigger className="text-blue-500"> + Add Vendor</SheetTrigger>
                                         <SheetContent>
+                                        <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
                                             <SheetHeader>
                                                 <SheetTitle>Add Vendor for {cat.name}</SheetTitle>
                                                 <SheetDescription>
                                                     <VendorForm work_package={orderData.work_package} vendor_category_mutate={vendor_category_mutate} vendor_list_mutate={vendor_list_mutate} />
                                                 </SheetDescription>
                                             </SheetHeader>
+                                            </ScrollArea>
                                         </SheetContent>
                                     </Sheet>
                                 </div>
