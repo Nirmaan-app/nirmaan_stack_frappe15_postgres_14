@@ -37,7 +37,7 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
     }, [procurement_request_list]);
 
     const getItem = (item: string) => {
-        const item_name = orderData?.procurement_list?.list.find(value => value.name === item).item;
+        const item_name = orderData?.procurement_list?.list.find(value => value.name === item)?.item;
         return item_name
     }
     const getProjectAddress = (item: string) => {
@@ -54,12 +54,12 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
     }
 
 
-      const [isPrinting, setIsPrinting] = useState(false);
-        const componentRef = React.useRef();
+    const [isPrinting, setIsPrinting] = useState(false);
+    const componentRef = React.useRef();
 
-        const handlePrint = useReactToPrint({
-            content: () => componentRef.current,
-        }); 
+    const handlePrint = useReactToPrint({
+        content: () => componentRef.current,
+    }); 
     const testQuotationRequestList = [];
     if(quotation_request_list){for (let i = 0; i < 100; i++) {
         testQuotationRequestList.push(...quotation_request_list);
@@ -148,17 +148,7 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
                             </thead>
                             
                             <tbody className="bg-white divide-y divide-gray-200">
-                                    {/* {quotation_request_list?.map((item)=>
-                                        {return <tr className="">
-                                        <td className="px-6 py-2 text-sm whitespace-nowrap">{getItem(item.item)}</td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">
-                                            {item.category}
-                                        </td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">meter</td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{}</td>
-                                    </tr>})} */}
-                                    {testQuotationRequestList?.map((item)=>
+                                    {quotation_request_list?.map((item)=>
                                         {return <tr className="">
                                         <td className="px-6 py-2 text-sm whitespace-nowrap">{getItem(item.item)}</td>
                                         <td className="px-2 py-2 text-sm whitespace-nowrap">
@@ -168,6 +158,16 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{}</td>
                                     </tr>})}
+                                    {/* {testQuotationRequestList?.map((item)=>
+                                        {return <tr className="">
+                                        <td className="px-6 py-2 text-sm whitespace-nowrap">{getItem(item.item)}</td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap">
+                                            {item.category}
+                                        </td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap">meter</td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{}</td>
+                                    </tr>})} */}
                             </tbody>
                         </table>
                     </div>

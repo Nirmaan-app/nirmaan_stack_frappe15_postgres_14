@@ -276,7 +276,7 @@ const handleSubmit = async () => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {orderData?.procurement_list.list.map(item => (
+                                    {orderData?.procurement_list?.list.map(item => (
                                         <tr key={item.item}>
                                             <td className="px-6 py-4 whitespace-nowrap">{item.item}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">

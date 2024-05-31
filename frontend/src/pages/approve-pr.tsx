@@ -2,6 +2,17 @@ import { MainLayout } from "@/components/layout/main-layout";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { useUserData } from "@/hooks/useUserData";
+import { useMemo } from "react";
+import { ColumnDef } from "@tanstack/react-table";
+import { DataTable } from "@/components/data-table/data-table";
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+
+type PRTable = {
+    name: string
+    project: string
+    creation: string
+    work_package: string
+}
 
 export const ApprovePR = () => {
     const userData = useUserData();
@@ -14,15 +25,102 @@ export const ApprovePR = () => {
     procurement_request_list?.map((item) => {
         if (item.workflow_state === "Pending") procurement_request_lists.push(item)
     })
+
+    const columns: ColumnDef<PRTable>[] = useMemo(
+        () => [
+            {
+                accessorKey: "name",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="PR Number" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            <Link className="underline hover:underline-offset-2" to={`/approve-order/${row.getValue("name")}`}>
+                                {row.getValue("name")?.slice(-4)}
+                            </Link>
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "creation",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("creation")?.split(" ")[0]}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "project",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Project" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("project")}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "work_package",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Package" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("work_package")}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "project_type",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Estimated Price" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            N/A
+                        </div>
+                    )
+                }
+            }
+            
+        ],
+        []
+    )
+
     return (
         <MainLayout>
             <div className="flex">
+
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center justify-between space-y-2">
                         <h2 className="text-lg font-bold tracking-tight">Approve PR</h2>
                     </div>
                     {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
-                    <div className="overflow-x-auto">
+                    <DataTable columns={columns} data={procurement_request_lists || []} />
+                    {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
@@ -49,7 +147,7 @@ export const ApprovePR = () => {
                                 ))}
                             </tbody>
                         </table>
-                    </div>
+                    </div> */}
                 </div>
             </div>
         </MainLayout>

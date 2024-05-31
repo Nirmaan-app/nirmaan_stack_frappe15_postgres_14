@@ -5,6 +5,15 @@ import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { MainLayout } from '../layout/main-layout';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
 
 interface VendorItem {
     vendor: string;
@@ -134,24 +143,24 @@ export const SelectVendors = () => {
         });
         setPriceMap(newPriceMap);
     }, [quotation_request_list]);
-    // const getLowest = (cat: string) => {
-    //     let price: number = 100000000;
-    //     let vendor: string = '';
-    //     selectedCategories[cat]?.map((ven) => {
-    //         let total: number = 0;
-    //         quotation_request_list?.map((item) => {
-    //             if (item.vendor === ven && item.category === cat) {
-    //                 const price = getPrice(ven, cat);
-    //                 total += price ? parseFloat(price) : 0;
-    //             }
-    //         })
-    //         if (total < price) {
-    //             price = total;
-    //             vendor = ven;
-    //         }
-    //     })
-    //     return { quote: price, vendor_id: vendor }
-    // }
+    const getLowest = (cat: string) => {
+        let price: number = 100000000;
+        let vendor: string = '';
+        selectedCategories[cat]?.map((ven) => {
+            let total: number = 0;
+            quotation_request_list?.map((item) => {
+                if (item.vendor === ven && item.category === cat) {
+                    const price = item.quote
+                    total += price ? parseFloat(price) : 0;
+                }
+            })
+            if (total < price) {
+                price = total;
+                vendor = ven;
+            }
+        })
+        return {quote : price , vendor:vendor}
+    }
 
 
 
@@ -300,9 +309,13 @@ export const SelectVendors = () => {
                         {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name
                             let total: number = 0;
-                            return <div className="w-full">
-                                <div className="font-bold text-xl py-2">{cat.name}</div>
-                                <Card className="flex w-1/2 shadow-none border border-grey-500" >
+                            const lowest = getLowest(cat.name);
+                            let count: number = 0;
+                            // console.log("lowest")
+                            return <div className="grid grid-cols-2 gap-4 w-full">
+                                {/* <div className="w-1/2"> */}
+                                <div className="col-span-2 font-bold text-xl py-2">{cat.name}</div>
+                                <Card className="flex w-full shadow-none border border-grey-500" >
                                     <CardHeader className="w-full">
                                         <CardTitle>
                                             <div className="text-sm text-gray-400">Selected Vendor</div>
@@ -312,7 +325,9 @@ export const SelectVendors = () => {
                                             </div>
                                         </CardTitle>
                                         {orderData?.procurement_list.list.map((item) => {
+                                            if(count === 2 ) {return }
                                             if (item.category === curCategory) {
+                                            count++;
                                             const price = getPrice(selectedVendors[curCategory], item.name);
                                             total += price ? parseFloat(price) : 0;
                                                 return <div className="flex justify-between py-2">
@@ -322,17 +337,77 @@ export const SelectVendors = () => {
                                             }
                                         })}
                                         <div className="flex justify-between py-2">
-                                            <div className="text-sm"></div>
+                                            <Dialog>
+                                                <DialogTrigger asChild>
+                                                <div className="text-sm text-blue-500 cursor-pointer">View All</div>
+                                                </DialogTrigger>
+                                                <DialogContent className="sm:max-w-[425px]">
+                                                    <DialogHeader>
+                                                        <DialogTitle>Items List</DialogTitle>
+                                                        <DialogDescription>
+                                                        <div className="flex font-medium text-black justify-between py-2">
+                                                            <div className="text-sm">Items</div>
+                                                            <div className="text-sm">price</div>
+                                                        </div>
+                                                        {orderData?.procurement_list.list.map((item) => {
+                                                            if (item.category === curCategory) {
+                                                            const price = getPrice(selectedVendors[curCategory], item.name);
+                                                            total += price ? parseFloat(price) : 0;
+                                                                return <div className="flex justify-between py-2">
+                                                                    <div className="text-sm">{item.item}</div>
+                                                                    <div className="text-sm">{price}</div>
+                                                                </div>
+                                                            }
+                                                        })}
+                                                        </DialogDescription>
+                                                    </DialogHeader>
+                                                </DialogContent>
+                                            </Dialog>
                                             <div className="text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div>
                                         </div>
                                     </CardHeader>
                                 </Card>
+                                {/* </div> */}
+                                <div>
+                                <div className="h-[50%] p-5 rounded-lg border border-grey-500">
+                                    <div className="flex justify-between">
+                                        <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
+                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest.quote}</div>
+                                    </div>
+                                    <div className="font-medium text-gray-700 text-sm">
+                                        {getVendorName(lowest.vendor)}
+                                    </div>
+                                    <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div>
+                                </div>
+                                <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
+                                    <div className="flex justify-between">
+                                        <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
+                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest.quote}</div>
+                                    </div>
+                                    <div className="font-medium text-gray-700 text-sm">
+                                        Last 3 months Lowest Price
+                                    </div>
+                                </div>
+                                </div>
                             </div>
                         })}
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
-                                Send for Approval
-                            </button>
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg">
+                                    Send for Approval
+                                </button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle>Are you Sure</DialogTitle>
+                                        <DialogDescription>
+                                            Click on Confirm to Approve.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                </DialogContent>
+                            </Dialog>
                         </div>
                     </div>
                 </div>}

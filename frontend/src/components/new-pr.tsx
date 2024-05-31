@@ -9,6 +9,9 @@ import DropdownMenu from './dropdown';
 import DropdownMenu2 from './dropdown2';
 import { ArrowLeft } from 'lucide-react';
 import ReactSelect from 'react-select';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
+import { Button } from "./ui/button"
+
 
 import imageUrl from "@/assets/user-icon.jpeg"
 import { MainLayout } from "./layout/main-layout";
@@ -323,7 +326,20 @@ export const NewPR = () => {
                         </table>
                     </div>
                 })}
-                <button className="bottom-0 h-8 w-[95%] mt-4 md:w-full bg-red-700 rounded-md text-sm text-white" onClick={() => handleSubmit()}>Confirm and Submit</button>
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <button className="bottom-0 h-8 w-[95%] mt-4 md:w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                            <DialogTitle>Are you Sure</DialogTitle>
+                            <DialogDescription>
+                                Click on Confirm to create new PR.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                    </DialogContent>
+                </Dialog>
             </div>}
         </MainLayout>
     )
