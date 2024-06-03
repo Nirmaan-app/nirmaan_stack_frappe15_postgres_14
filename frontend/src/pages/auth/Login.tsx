@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Eye, EyeOff } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 //import { FullPageLoader } from "@/components/layout/Loaders";
 import { Box, Flex, IconButton, Link as LinkButton } from "@radix-ui/themes";
 
@@ -14,12 +14,14 @@ import { ErrorBanner } from "@/components/layout/alert-banner/error-banner";
 import { Input } from "@/components/ui/input";
 
 import logo from "@/assets/logo-svg.svg"
+import { UserContext } from "@/utils/auth/UserProvider";
 
 
 export const Component = () => {
     const [error, setError] = useState<FrappeError | null>(null)
 
     const { login } = useFrappeAuth()
+    const { currentUser } = useContext(UserContext)
 
     const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginInputs>()
     const [isPasswordOpen, setIsPasswordOpen] = useState<boolean>(false)
@@ -59,109 +61,109 @@ export const Component = () => {
             </svg>
         )
     };
-    return (
-        <>
-            {error && <ErrorBanner error={error} />}
-            <div className="container relative h-screen flex flex-col items-center justify-center md:grid lg:max-w-none lg:grid-cols-2 lg:px-0">
-                <div className="relative hidden h-full flex-col bg-muted p-10 text-white lg:flex dark:border-r">
-                    <div className="absolute inset-0 bg-[#D03B45]" />
-                    <div className="relative z-20 flex flex-col items-center">
-                        <BrandingSVG color="#FFFFFF" />
-                    </div>
-                    <div className="relative z-20 mt-auto">
-                        <blockquote className="space-y-2">
-                            <p className="text-lg">
-                                &ldquo;This library has saved me countless hours of work and
-                                helped me deliver stunning designs to my clients faster than
-                                ever before.&rdquo;
-                            </p>
-                            <footer className="text-sm">Sofia Davis</footer>
-                        </blockquote>
-                    </div>
-                </div>
-                <div className="lg:p-8 w-full">
-                    <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
-                        <div className="flex flex-col space-y-2 text-center">
-                            {window.innerWidth < 768 && <BrandingSVG color="#D03B45" width={50} height={50} />}
-                            <h1 className="text-2xl font-semibold tracking-tight">
-                                Login
-                            </h1>
-                            <p className="text-sm text-muted-foreground">
-                                Login to get started
-                            </p>
+    if (!currentUser) {
+        console.log(error)
+        return (
+            <>
+                {error && <ErrorBanner error={error} />}
+                <div className="container relative h-screen flex flex-col items-center justify-center md:grid lg:max-w-none lg:grid-cols-2 lg:px-0">
+                    <div className="relative hidden h-full flex-col bg-muted p-10 text-white lg:flex dark:border-r">
+                        <div className="absolute inset-0 bg-[#D03B45]" />
+                        <div className="relative z-20 flex flex-col items-center">
+                            <BrandingSVG color="#FFFFFF" />
                         </div>
-                        <Box>
-                            <form onSubmit={handleSubmit(onSubmit)}>
-                                <Flex direction='column' gap='6'>
-                                    <Flex direction='column' gap='4'>
+                        <div className="relative z-20 mt-auto">
+                            <blockquote className="space-y-2">
+                                <p className="text-lg">
+                                    &ldquo;This library has saved me countless hours of work and
+                                    helped me deliver stunning designs to my clients faster than
+                                    ever before.&rdquo;
+                                </p>
+                                <footer className="text-sm">Sofia Davis</footer>
+                            </blockquote>
+                        </div>
+                    </div>
+                    <div className="lg:p-8 w-full">
+                        <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
+                            <div className="flex flex-col space-y-2 text-center">
+                                {window.innerWidth < 768 && <BrandingSVG color="#D03B45" width={50} height={50} />}
+                                <h1 className="text-2xl font-semibold tracking-tight">
+                                    Login
+                                </h1>
+                                <p className="text-sm text-muted-foreground">
+                                    Login to get started
+                                </p>
+                            </div>
+                            <Box>
+                                <form onSubmit={handleSubmit(onSubmit)}>
+                                    <Flex direction='column' gap='6'>
+                                        <Flex direction='column' gap='4'>
 
-                                        <Flex direction='column' gap='2'>
-                                            <Label htmlFor='email' isRequired>Email</Label>
-                                            <Input {...register("email",
-                                                {
-                                                    required: "Email is required."
-                                                })}
-                                                name="email"
-                                                type="text"
-                                                required
-                                                placeholder="jane@example.com"
-                                                tabIndex={0} />
-                                            {errors?.email && <ErrorText>{errors?.email.message}</ErrorText>}
-                                        </Flex>
-
-                                        <Flex direction='column' gap='2'>
-                                            <Label htmlFor='password' isRequired>Password</Label>
-                                            <Input
-                                                {...register("password",
+                                            <Flex direction='column' gap='2'>
+                                                <Label htmlFor='email' isRequired>Email</Label>
+                                                <Input {...register("email",
                                                     {
-                                                        required: "Password is required.",
+                                                        required: "Email is required."
                                                     })}
-                                                name="password"
-                                                type={isPasswordOpen ? "text" : "password"}
-                                                autoComplete="current-password"
-                                                required
-                                                placeholder="***********" />
-                                            <IconButton
-                                                type='button'
-                                                size='1'
-                                                variant='ghost'
-                                                aria-label={isPasswordOpen ? "Mask password" : "Reveal password"}
-                                                onClick={onClickReveal}
-                                                tabIndex={-1}>
-                                                {isPasswordOpen ? <Eye /> : <EyeOff />}
-                                            </IconButton>
-                                            {errors?.password && <ErrorText>{errors.password?.message}</ErrorText>}
-                                        </Flex>
+                                                    name="email"
+                                                    type="text"
+                                                    required
+                                                    placeholder="jane@example.com"
+                                                    tabIndex={0} />
+                                                {errors?.email && <ErrorText>{errors?.email.message}</ErrorText>}
+                                            </Flex>
 
-                                        <Flex direction='column' gap='2' >
-                                            <Button type='submit' disabled={isSubmitting} >
-                                                {isSubmitting ? <Loader /> : 'Login'}
-                                            </Button>
-                                        </Flex>
-                                        <Flex direction='column' gap='2' align="end">
-                                            <LinkButton
-                                                asChild
-                                                size="2"
-                                            >
-                                                <Link to="/forgot-password">
-                                                    Forgot Password?
-                                                </Link>
-                                            </LinkButton>
-                                            {error && <div className="text-red-600 font-semibold text-lg">{error.message}</div>}
+                                            <Flex direction='column' gap='2'>
+                                                <Label htmlFor='password' isRequired>Password</Label>
+                                                <Input
+                                                    {...register("password",
+                                                        {
+                                                            required: "Password is required.",
+                                                        })}
+                                                    name="password"
+                                                    type={isPasswordOpen ? "text" : "password"}
+                                                    autoComplete="current-password"
+                                                    required
+                                                    placeholder="***********" />
+                                                <IconButton
+                                                    type='button'
+                                                    size='1'
+                                                    variant='ghost'
+                                                    aria-label={isPasswordOpen ? "Mask password" : "Reveal password"}
+                                                    onClick={onClickReveal}
+                                                    tabIndex={-1}>
+                                                    {isPasswordOpen ? <Eye /> : <EyeOff />}
+                                                </IconButton>
+                                                {errors?.password && <ErrorText>{errors.password?.message}</ErrorText>}
+                                            </Flex>
+
+                                            <Flex direction='column' gap='2' >
+                                                <Button type='submit' disabled={isSubmitting} >
+                                                    {isSubmitting ? <Loader /> : 'Login'}
+                                                </Button>
+                                            </Flex>
+                                            <Flex direction='column' gap='2' align="end">
+                                                <LinkButton
+                                                    asChild
+                                                    size="2"
+                                                >
+                                                    <Link to="/forgot-password">
+                                                        Forgot Password?
+                                                    </Link>
+                                                </LinkButton>
+                                                {error && <div className="text-red-600 font-semibold text-lg">{error.message}</div>}
+                                            </Flex>
                                         </Flex>
                                     </Flex>
-                                </Flex>
-                            </form>
-                        </Box>
+                                </form>
+                            </Box>
+                        </div>
                     </div>
                 </div>
-            </div>
-
-
-
-            {/* </AuthContainer> */}
-        </>
-    )
+            </>
+        )
+    }
+    else return <Navigate to="/" />
 }
 
 Component.displayName = "LoginPage";
