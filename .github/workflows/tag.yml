@@ -1,0 +1,38 @@
+# This is a basic workflow that is manually triggered
+
+name: Create Tag with hashtags
+
+# Controls when the action will run. Workflow runs when manually triggered using the UI
+# or API.
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+  # workflow_dispatch:
+  #   inputs:
+  #     tag:
+  #       description: "Tag Name:"
+  #       type: string
+  #       required: true
+  
+jobs:
+  # This workflow contains a single job called "greet"
+  create-release:
+    if: github.event.pull_request.merged == true
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+    - name: Checkout Entire Repository
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.merge_commit_sha }}
+        fetch-depth: '0'
+    - name: Bump version and push tag
+      uses: anothrNick/github-tag-action@1.67.0 # Don't use @master or @v1 unless you're happy to test the latest version
+      env:
+        GITHUB_TOKEN: ${{ secrets.NIRMAAN_ADMIN_PAT }} # if you don't want to set write permissions use a PAT token
+        WITH_V: false
