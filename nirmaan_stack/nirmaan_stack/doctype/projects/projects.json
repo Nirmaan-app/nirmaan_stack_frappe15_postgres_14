@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
+ "autoname": "PROJ-.#####",
  "creation": "2024-02-21 16:23:23.319390",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -17,11 +18,11 @@
   "project_address",
   "project_city",
   "project_state",
-  "project_asignees_section",
+  "project_employees_section",
   "project_lead",
+  "procurement_lead",
+  "design_lead",
   "project_manager",
-  "procurement_executive",
-  "design_executive",
   "project_work_details_section",
   "project_work_milestones",
   "project_scopes"
@@ -60,15 +61,13 @@
    "fieldname": "project_start_date",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Project Start Date",
-   "reqd": 1
+   "label": "Project Start Date"
   },
   {
    "fieldname": "project_end_date",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Project End Date",
-   "reqd": 1
+   "label": "Project End Date"
   },
   {
    "fieldname": "project_duration",
@@ -85,47 +84,19 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Project Address",
-   "options": "Address",
-   "reqd": 1
+   "options": "Address"
   },
   {
    "fieldname": "project_city",
    "fieldtype": "Data",
-   "label": "Project City"
+   "label": "Project City",
+   "read_only": 1
   },
   {
    "fieldname": "project_state",
    "fieldtype": "Data",
-   "label": "Project State"
-  },
-  {
-   "fieldname": "project_asignees_section",
-   "fieldtype": "Section Break",
-   "label": "Project Asignees"
-  },
-  {
-   "fieldname": "project_lead",
-   "fieldtype": "Link",
-   "label": "Project Lead",
-   "options": "User"
-  },
-  {
-   "fieldname": "project_manager",
-   "fieldtype": "Link",
-   "label": "Project Manager",
-   "options": "User"
-  },
-  {
-   "fieldname": "procurement_executive",
-   "fieldtype": "Link",
-   "label": "Procurement Executive",
-   "options": "User"
-  },
-  {
-   "fieldname": "design_executive",
-   "fieldtype": "Link",
-   "label": "Design Executive",
-   "options": "User"
+   "label": "Project State",
+   "read_only": 1
   },
   {
    "fieldname": "project_work_details_section",
@@ -141,14 +112,44 @@
    "fieldname": "project_scopes",
    "fieldtype": "JSON",
    "label": "Project Scopes"
+  },
+  {
+   "fieldname": "project_employees_section",
+   "fieldtype": "Section Break",
+   "label": "Project Employees"
+  },
+  {
+   "fieldname": "project_lead",
+   "fieldtype": "Link",
+   "label": "Project Lead",
+   "options": "Nirmaan Users"
+  },
+  {
+   "fieldname": "procurement_lead",
+   "fieldtype": "Link",
+   "label": "Procurement Lead",
+   "options": "Nirmaan Users"
+  },
+  {
+   "fieldname": "design_lead",
+   "fieldtype": "Link",
+   "label": "Design Lead",
+   "options": "Nirmaan Users"
+  },
+  {
+   "fieldname": "project_manager",
+   "fieldtype": "Link",
+   "label": "Project Manager",
+   "options": "Nirmaan Users"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-02-21 20:00:37.769565",
+ "modified": "2024-05-28 16:33:17.102718",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {
@@ -164,24 +165,12 @@
    "write": 1
   },
   {
-   "create": 1,
-   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Project Lead",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Project Manager",
+   "role": "Nirmaan Project Manager",
    "share": 1
   },
   {
@@ -190,7 +179,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Procurement Executive",
+   "role": "Nirmaan Procurement Executive",
    "share": 1
   },
   {
@@ -199,7 +188,16 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Design Executive",
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
    "share": 1
   }
  ],

@@ -1,0 +1,812 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "50",
+  "milestone_name": "Static IP Configuration",
+  "modified": "2024-06-04 16:14:34.320761",
+  "name": "07ace1a3d5",
+  "scope_of_work": "Static IP Configuration",
+  "start_day": "45"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Access Control Installation",
+  "modified": "2024-06-04 16:14:34.305100",
+  "name": "37676ec3bf",
+  "scope_of_work": "Access Control Installation",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "CCTV Installation",
+  "modified": "2024-06-04 16:14:34.288336",
+  "name": "890e09e67e",
+  "scope_of_work": "CCTV Installation",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "30",
+  "milestone_name": "Access Control Cabling",
+  "modified": "2024-06-04 16:14:34.272667",
+  "name": "9359debb04",
+  "scope_of_work": "Access Control Cabling",
+  "start_day": "20"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Supply of Fire extinguisher",
+  "modified": "2024-06-04 16:14:34.257483",
+  "name": "fcbc072d02",
+  "scope_of_work": "Supply of Fire extinguisher",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "55",
+  "milestone_name": "Pressure Testing Modification",
+  "modified": "2024-06-04 16:14:34.242891",
+  "name": "4b7c04805d",
+  "scope_of_work": "Modification of existing fire line",
+  "start_day": "50"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Sprinkler Installation Modification",
+  "modified": "2024-06-04 16:14:34.227736",
+  "name": "c8fac12c00",
+  "scope_of_work": "Modification of existing fire line",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "30",
+  "milestone_name": "Branch Line Connection Modification",
+  "modified": "2024-06-04 16:14:34.212200",
+  "name": "8201de4946",
+  "scope_of_work": "Modification of existing fire line",
+  "start_day": "5"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "55",
+  "milestone_name": "Pressure Testing",
+  "modified": "2024-06-04 16:14:34.196768",
+  "name": "7cf0f70e8c",
+  "scope_of_work": "New fire line creation",
+  "start_day": "50"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Sprinkler Installation",
+  "modified": "2024-06-04 16:14:34.182032",
+  "name": "d90f7fd20f",
+  "scope_of_work": "New fire line creation",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Branch Line Connection",
+  "modified": "2024-06-04 16:14:34.167052",
+  "name": "8eceffe2c8",
+  "scope_of_work": "New fire line creation",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "40",
+  "milestone_name": "Main Header Connection",
+  "modified": "2024-06-04 16:14:34.151444",
+  "name": "7766814ae9",
+  "scope_of_work": "New fire line creation",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "30",
+  "milestone_name": "Line Marking for New Line",
+  "modified": "2024-06-04 16:14:34.136171",
+  "name": "5e0be3fd44",
+  "scope_of_work": "New fire line creation",
+  "start_day": "5"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "60",
+  "milestone_name": "Integration with Electrical Panel",
+  "modified": "2024-06-04 16:14:34.120651",
+  "name": "289229bbc0",
+  "scope_of_work": "Integration with Electrical Panel",
+  "start_day": "55"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "60",
+  "milestone_name": "Integration with HVAC System",
+  "modified": "2024-06-04 16:14:34.105729",
+  "name": "3598c54d62",
+  "scope_of_work": "Integration with HVAC System",
+  "start_day": "55"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "60",
+  "milestone_name": "Integration Access Control Systems",
+  "modified": "2024-06-04 16:14:34.091577",
+  "name": "da31577002",
+  "scope_of_work": "Integration Access Control Systems",
+  "start_day": "55"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "60",
+  "milestone_name": "Integration with Fire Panel",
+  "modified": "2024-06-04 16:14:34.077147",
+  "name": "6380b5fb60",
+  "scope_of_work": "Integration with PA System",
+  "start_day": "55"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "60",
+  "milestone_name": "Mic Installaton",
+  "modified": "2024-06-04 16:14:34.060690",
+  "name": "0c136744ac",
+  "scope_of_work": "PA System Installation",
+  "start_day": "55"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Amplifier Installation",
+  "modified": "2024-06-04 16:14:34.041458",
+  "name": "f5c952d5a8",
+  "scope_of_work": "PA System Installation",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Speaker Installation",
+  "modified": "2024-06-04 16:14:34.004341",
+  "name": "7e75cf4d8c",
+  "scope_of_work": "PA System Installation",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Panel Commissioning",
+  "modified": "2024-06-04 16:14:33.989343",
+  "name": "b6ce56d94f",
+  "scope_of_work": "Conventional System",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Module Installation",
+  "modified": "2024-06-04 16:14:33.974144",
+  "name": "db094162b8",
+  "scope_of_work": "Conventional System",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "40",
+  "milestone_name": "MCP Installation",
+  "modified": "2024-06-04 16:14:33.958429",
+  "name": "7e7ecbd14f",
+  "scope_of_work": "Conventional System",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "40",
+  "milestone_name": "Hooter Installation",
+  "modified": "2024-06-04 16:14:33.943001",
+  "name": "3e099da353",
+  "scope_of_work": "Conventional System",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "30",
+  "milestone_name": "Detector Installation",
+  "modified": "2024-06-04 16:14:33.927698",
+  "name": "9029a8dc38",
+  "scope_of_work": "Conventional System",
+  "start_day": "15"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "50",
+  "milestone_name": "Testing & Commissioining by Cause & Effect Matrix",
+  "modified": "2024-06-04 16:14:33.911216",
+  "name": "5a990e6092",
+  "scope_of_work": "Addressable System",
+  "start_day": "45"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Fire Panel Programing Addressable",
+  "modified": "2024-06-04 16:14:33.896546",
+  "name": "8ffbbe59da",
+  "scope_of_work": "Addressable System",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Module Installation Addressable",
+  "modified": "2024-06-04 16:14:33.882179",
+  "name": "b0a1256594",
+  "scope_of_work": "Addressable System",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "40",
+  "milestone_name": "MCP Installation Addressable",
+  "modified": "2024-06-04 16:14:33.866919",
+  "name": "013672b8bb",
+  "scope_of_work": "Addressable System",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "40",
+  "milestone_name": "Hooter Installation Addressable",
+  "modified": "2024-06-04 16:14:33.852487",
+  "name": "b134097618",
+  "scope_of_work": "Addressable System",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "30",
+  "milestone_name": "Detector Installation Addresable",
+  "modified": "2024-06-04 16:14:33.837704",
+  "name": "a8b75b0af9",
+  "scope_of_work": "Addressable System",
+  "start_day": "15"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "15",
+  "milestone_name": "Fire Cabling",
+  "modified": "2024-06-04 19:21:44.721811",
+  "name": "c0ad49dd77",
+  "scope_of_work": "Fire Cabling",
+  "start_day": "0"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "60",
+  "milestone_name": "Fluke Test",
+  "modified": "2024-06-04 16:14:33.808581",
+  "name": "9090fd6b39",
+  "scope_of_work": "Fluke Test",
+  "start_day": "55"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "55",
+  "milestone_name": "Active side work",
+  "modified": "2024-06-04 16:14:33.791628",
+  "name": "5ca7dbac3c",
+  "scope_of_work": "Active side work",
+  "start_day": "45"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "55",
+  "milestone_name": "Rack side termination",
+  "modified": "2024-06-04 16:14:33.774897",
+  "name": "4a3d0f9f69",
+  "scope_of_work": "Rack side termination",
+  "start_day": "45"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "30",
+  "milestone_name": "User Side Termination",
+  "modified": "2024-06-04 16:14:33.758841",
+  "name": "1bbac57d48",
+  "scope_of_work": "User Side Termination",
+  "start_day": "20"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "20",
+  "milestone_name": "Data Cabling",
+  "modified": "2024-06-04 19:21:15.391273",
+  "name": "6333dda1ab",
+  "scope_of_work": "Data Cabling",
+  "start_day": "0"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "55",
+  "milestone_name": "Installation of Decor Light Fixtures",
+  "modified": "2024-06-04 16:14:33.724356",
+  "name": "193ccc797c",
+  "scope_of_work": "Lights Installation",
+  "start_day": "50"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "55",
+  "milestone_name": "Installation of Ambient Light Fixtures",
+  "modified": "2024-06-04 16:14:33.704368",
+  "name": "a6bf341d89",
+  "scope_of_work": "Lights Installation",
+  "start_day": "43"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Supply of Decorative Light Fixtures",
+  "modified": "2024-06-04 16:14:33.688164",
+  "name": "72859603da",
+  "scope_of_work": "Lights Supply",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "35",
+  "milestone_name": "Supply of Ambient Light Fixtures",
+  "modified": "2024-06-04 16:14:33.671378",
+  "name": "db2f954896",
+  "scope_of_work": "Lights Supply",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "41",
+  "milestone_name": "Earth Megger Testing",
+  "modified": "2024-06-04 16:14:33.654384",
+  "name": "1f99ebc0f9",
+  "scope_of_work": "Earthing",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "40",
+  "milestone_name": "GI/CU Strip Connection Till LT Panel",
+  "modified": "2024-06-04 16:14:33.639990",
+  "name": "0656b48837",
+  "scope_of_work": "Earthing",
+  "start_day": "35"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "35",
+  "milestone_name": "Making of New Earthpit",
+  "modified": "2024-06-04 16:14:33.538245",
+  "name": "aebc5d306b",
+  "scope_of_work": "Earthing",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "60",
+  "milestone_name": "Lux Level Testing",
+  "modified": "2024-06-04 16:14:33.512506",
+  "name": "e1589cc5e4",
+  "scope_of_work": "Lights Supply",
+  "start_day": "57"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "60",
+  "milestone_name": "LT Panel Testing Commsisioning",
+  "modified": "2024-06-04 16:14:33.487891",
+  "name": "f9e3e7ed8a",
+  "scope_of_work": "LT Panel",
+  "start_day": "56"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "60",
+  "milestone_name": "Polarity & Switch Socket Testing",
+  "modified": "2024-06-04 16:14:33.468725",
+  "name": "d7771b7faf",
+  "scope_of_work": "Wiring",
+  "start_day": "55"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "60",
+  "milestone_name": "DB Circuit Numbering",
+  "modified": "2024-06-04 16:14:33.444552",
+  "name": "d9bbbc4a08",
+  "scope_of_work": "DB Work",
+  "start_day": "55"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "55",
+  "milestone_name": "UPS Installation",
+  "modified": "2024-06-04 16:14:33.411491",
+  "name": "b2aa6b8296",
+  "scope_of_work": "UPS Supply",
+  "start_day": "54"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "54",
+  "milestone_name": "Battery Braker Installation",
+  "modified": "2024-06-04 16:14:33.391179",
+  "name": "a9a90040d9",
+  "scope_of_work": "UPS Supply",
+  "start_day": "53"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "53",
+  "milestone_name": "Battery Installation",
+  "modified": "2024-06-04 16:14:33.375986",
+  "name": "81c6d47608",
+  "scope_of_work": "UPS Supply",
+  "start_day": "51"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "50",
+  "milestone_name": "UPS Cable Provisioning",
+  "modified": "2024-06-04 16:14:33.360393",
+  "name": "a05be7d2d4",
+  "scope_of_work": "UPS Supply",
+  "start_day": "45"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "47",
+  "milestone_name": "Sensor Installation",
+  "modified": "2024-06-04 16:14:33.345199",
+  "name": "12be812c32",
+  "scope_of_work": "IOT/ Sensor work",
+  "start_day": "43"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "50",
+  "milestone_name": "User Switch Socket Installation",
+  "modified": "2024-06-04 16:14:33.329643",
+  "name": "031dfe258d",
+  "scope_of_work": "Switch Socket",
+  "start_day": "43"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "43",
+  "milestone_name": "Wall Switch Socket Installation",
+  "modified": "2024-06-04 16:14:33.313463",
+  "name": "01254b341c",
+  "scope_of_work": "Switch Socket",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Outdoor MCB with IP65 Box VRF",
+  "modified": "2024-06-04 16:14:33.299420",
+  "name": "fc04c7db74",
+  "scope_of_work": "HVAC - VRF system",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Outdoor MCB with IP65 Box",
+  "modified": "2024-06-04 16:14:33.284238",
+  "name": "58504709d0",
+  "scope_of_work": "HVAC - Non VRF/ AHU",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "40",
+  "milestone_name": "DB Earthing Connection",
+  "modified": "2024-06-04 16:14:33.269218",
+  "name": "4655a6bbcb",
+  "scope_of_work": "DB Work",
+  "start_day": "35"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "40",
+  "milestone_name": "DB Cable Termination",
+  "modified": "2024-06-04 16:14:33.254411",
+  "name": "32d1c7191b",
+  "scope_of_work": "DB Work",
+  "start_day": "35"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "35",
+  "milestone_name": "DB Switchgear Installation",
+  "modified": "2024-06-04 16:14:33.239327",
+  "name": "33b960fb62",
+  "scope_of_work": "DB Work",
+  "start_day": "33"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "33",
+  "milestone_name": "DB Trunking Installation",
+  "modified": "2024-06-04 16:14:33.223233",
+  "name": "b6d3854d49",
+  "scope_of_work": "DB Work",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "33",
+  "milestone_name": "DB Installation",
+  "modified": "2024-06-04 16:14:33.193274",
+  "name": "e1e4348849",
+  "scope_of_work": "DB Work",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "35",
+  "milestone_name": "Outdoor Cabling VRF",
+  "modified": "2024-06-04 16:14:33.158800",
+  "name": "b017430a6c",
+  "scope_of_work": "HVAC - VRF system",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "35",
+  "milestone_name": "Outdoor Cabling",
+  "modified": "2024-06-04 16:14:33.126612",
+  "name": "cf1ede7afc",
+  "scope_of_work": "HVAC - Non VRF/ AHU",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "42",
+  "milestone_name": "LT Panel Cable Termination",
+  "modified": "2024-06-04 16:14:33.094325",
+  "name": "c8030ebc2a",
+  "scope_of_work": "LT Panel",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "40",
+  "milestone_name": "LT Panel Installation",
+  "modified": "2024-06-04 16:14:33.061341",
+  "name": "1ec69cdfe0",
+  "scope_of_work": "LT Panel",
+  "start_day": "40"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "45",
+  "milestone_name": "Main Power Cable Termination",
+  "modified": "2024-06-04 16:14:33.042772",
+  "name": "1cc8c0c16f",
+  "scope_of_work": "Main Power Line",
+  "start_day": "42"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "42",
+  "milestone_name": "Shutdown Approval",
+  "modified": "2024-06-04 16:14:33.024198",
+  "name": "1011a62e5b",
+  "scope_of_work": "Main Power Line",
+  "start_day": "35"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "35",
+  "milestone_name": "Main Power Cable Pulling",
+  "modified": "2024-06-04 16:14:33.001289",
+  "name": "7535f39e10",
+  "scope_of_work": "Main Power Line",
+  "start_day": "30"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "30",
+  "milestone_name": "Cabling for Sensor",
+  "modified": "2024-06-04 16:14:32.977407",
+  "name": "bde4a480d0",
+  "scope_of_work": "IOT/ Sensor work",
+  "start_day": "22"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "30",
+  "milestone_name": "Circuit Wiring",
+  "modified": "2024-06-04 16:14:32.958901",
+  "name": "8f85c3b020",
+  "scope_of_work": "Wiring",
+  "start_day": "22"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "30",
+  "milestone_name": "Indoor Cabling from DB VRF",
+  "modified": "2024-06-04 16:14:32.917595",
+  "name": "2d5d587214",
+  "scope_of_work": "HVAC - VRF system",
+  "start_day": "22"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "22",
+  "milestone_name": "Point Wiring",
+  "modified": "2024-06-04 16:14:32.894433",
+  "name": "6b557e4ea9",
+  "scope_of_work": "Wiring",
+  "start_day": "15"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "20",
+  "milestone_name": "LT Panel Design Approval",
+  "modified": "2024-06-04 16:14:32.877399",
+  "name": "b7ba26d550",
+  "scope_of_work": "LT Panel",
+  "start_day": "15"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "15",
+  "milestone_name": "Wall Conduit Work",
+  "modified": "2024-06-04 16:14:32.859307",
+  "name": "5a2997432a",
+  "scope_of_work": "Conduiting",
+  "start_day": "4"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "15",
+  "milestone_name": "Ceiling Conduit Work",
+  "modified": "2024-06-04 16:14:32.826670",
+  "name": "3ffc400a4a",
+  "scope_of_work": "Conduiting",
+  "start_day": "4"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "12",
+  "milestone_name": "Cable Tray Installation",
+  "modified": "2024-06-04 16:14:32.806081",
+  "name": "8ac0e7d066",
+  "scope_of_work": "Raceway/ Cable Tray work",
+  "start_day": "8"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "8",
+  "milestone_name": "Cable Tray Marking",
+  "modified": "2024-06-04 16:14:32.776325",
+  "name": "1c79dc2e02",
+  "scope_of_work": "Raceway/ Cable Tray work",
+  "start_day": "6"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "10",
+  "milestone_name": "Floor Conduit Work",
+  "modified": "2024-06-04 16:14:32.752475",
+  "name": "55e4b9c119",
+  "scope_of_work": "Conduiting",
+  "start_day": "3"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "10",
+  "milestone_name": "Raceway Installaton",
+  "modified": "2024-06-04 16:14:32.716464",
+  "name": "d75c2c0812",
+  "scope_of_work": "Raceway/ Cable Tray work",
+  "start_day": "3"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Milestones",
+  "end_day": "3",
+  "milestone_name": "Floor Marking",
+  "modified": "2024-06-04 19:20:11.506369",
+  "name": "b59d5eb19d",
+  "scope_of_work": "Raceway/ Cable Tray work",
+  "start_day": "0"
+ }
+]

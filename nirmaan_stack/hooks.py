@@ -1,3 +1,5 @@
+from . import __version__ as app_version
+
 app_name = "nirmaan_stack"
 app_title = "Nirmaan Stack"
 app_publisher = "Abhishek"
@@ -67,8 +69,8 @@ app_license = "mit"
 # Installation
 # ------------
 
-# before_install = "nirmaan_stack.install.before_install"
-# after_install = "nirmaan_stack.install.after_install"
+#before_install = "nirmaan_stack.install.before_install"
+#after_install = "nirmaan_stack.install.after_install"
 
 # Uninstallation
 # ------------
@@ -122,13 +124,19 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"User": {
+        "after_insert": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.create_user_profile",
+		"on_update": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.on_user_update",
+		"on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
+	},
+    "Projects": {
+        "after_insert": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm"
+    },
+    # "Procurement Requests": {
+    #     "on_submit": "nirmaan_stack.nirmaan_stack.doctype.pr_category.pr_category.generate_pr_category"
+    # }
+}
 
 # Scheduled Tasks
 # ---------------
@@ -227,3 +235,18 @@ app_license = "mit"
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+# Fixtures
+
+fixtures = [
+	# All Data
+    "Work Packages",
+    "Scopes of Work",
+    "Milestones",
+    {"dt": "Role", "filters": [["role_name", "like", "Nirmaan %"]]},
+    {"dt": "Role Profile", "filters": [["role_profile", "like", "Nirmaan %"]]},
+    "Workflow",
+    "Workflow State"
+]
+
+
+website_route_rules = [{'from_route': '/frontend/<path:app_path>', 'to_route': 'frontend'},]

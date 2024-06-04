@@ -1,0 +1,71 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "creation": "2024-04-01 15:45:40.883613",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "milestone_details_section",
+  "milestone_name",
+  "scope_of_work",
+  "start_day",
+  "end_day"
+ ],
+ "fields": [
+  {
+   "fieldname": "milestone_details_section",
+   "fieldtype": "Section Break",
+   "label": "Milestone Details"
+  },
+  {
+   "fieldname": "milestone_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Milestone Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "scope_of_work",
+   "fieldtype": "Link",
+   "label": "Scope of Work",
+   "options": "Scopes of Work"
+  },
+  {
+   "fieldname": "start_day",
+   "fieldtype": "Data",
+   "label": "Start Day"
+  },
+  {
+   "fieldname": "end_day",
+   "fieldtype": "Data",
+   "label": "End Day"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-06-04 15:54:27.976224",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Milestones",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "milestone_name"
+}

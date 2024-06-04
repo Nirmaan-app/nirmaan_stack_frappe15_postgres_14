@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
+ "autoname": "CUST-.###",
  "creation": "2024-02-21 16:29:07.484319",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -12,7 +13,9 @@
   "contact_details_section",
   "company_contact_person",
   "company_phone",
-  "company_email"
+  "company_email",
+  "company_tax_details_section",
+  "company_gst"
  ],
  "fields": [
   {
@@ -23,7 +26,9 @@
   {
    "fieldname": "company_name",
    "fieldtype": "Data",
-   "label": "Company Name"
+   "in_list_view": 1,
+   "label": "Company Name",
+   "reqd": 1
   },
   {
    "fieldname": "company_address_section",
@@ -55,14 +60,25 @@
    "fieldname": "company_email",
    "fieldtype": "Data",
    "label": "Company Email"
+  },
+  {
+   "fieldname": "company_tax_details_section",
+   "fieldtype": "Section Break",
+   "label": "Company Tax Details"
+  },
+  {
+   "fieldname": "company_gst",
+   "fieldtype": "Data",
+   "label": "Company GST"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-02-21 18:19:21.094440",
+ "modified": "2024-05-06 18:33:56.952657",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Customers",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {
@@ -85,7 +101,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Project Lead",
+   "role": "Nirmaan Project Lead",
    "share": 1,
    "write": 1
   },
@@ -95,7 +111,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Project Manager",
+   "role": "Nirmaan Project Manager",
    "share": 1
   },
   {
@@ -104,7 +120,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Procurement Executive",
+   "role": "Nirmaan Procurement Executive",
    "share": 1
   },
   {
@@ -113,7 +129,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Design Executive",
+   "role": "Nirmaan Design Executive",
    "share": 1
   }
  ],

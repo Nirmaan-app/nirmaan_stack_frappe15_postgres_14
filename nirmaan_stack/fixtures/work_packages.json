@@ -1,0 +1,34 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-04-13 15:25:21.468791",
+  "name": "Data & Networking",
+  "work_package_image": null,
+  "work_package_name": "Data & Networking"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-04-13 15:25:21.468791",
+  "name": "Fire Fighting",
+  "work_package_image": null,
+  "work_package_name": "Fire Fighting"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-04-13 15:25:21.468791",
+  "name": "Access Control & Security System",
+  "work_package_image": null,
+  "work_package_name": "Access Control & Security System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-05-07 19:06:31.087064",
+  "name": "Electrical",
+  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=test/2024/05/07/Work Packages/FE761JQX_electrical.jpeg&file_name=electrical.jpeg",
+  "work_package_name": "Electrical"
+ }
+]
