@@ -9,7 +9,9 @@
   "project",
   "work_package",
   "scope_of_work",
-  "milestone"
+  "milestone",
+  "start_date",
+  "end_date"
  ],
  "fields": [
   {
@@ -36,11 +38,21 @@
    "fieldname": "milestone",
    "fieldtype": "Data",
    "label": "Milestone"
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-06 18:35:08.760265",
+ "modified": "2024-06-04 19:50:24.661588",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Work Milestones",
