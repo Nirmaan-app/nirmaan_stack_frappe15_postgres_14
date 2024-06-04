@@ -9,12 +9,13 @@ import {
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { useUserData } from "@/hooks/useUserData";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 
 export function Sidebar({ className }) {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const location = useLocation()
+    const userData = useUserData()
 
     const toggleSidebar = () => {
         setIsSidebarOpen(!isSidebarOpen);
@@ -53,7 +54,7 @@ export function Sidebar({ className }) {
                             </Button>
                         </Link>
                         <Accordion type="multiple" >
-                            <AccordionItem value="admin-actions">
+                            {userData.user_id == "Administrator" && <AccordionItem value="admin-actions">
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
                                         <Shapes className="mr-2 h-4 w-4" />
@@ -77,8 +78,8 @@ export function Sidebar({ className }) {
                                     </Link>
                                 </AccordionContent>
 
-                            </AccordionItem>
-                            <AccordionItem value="pl-actions">
+                            </AccordionItem>}
+                            {(userData.role == 'Nirmaan Project Lead Profile' || userData.user_id == "Administrator") && <AccordionItem value="pl-actions">
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
                                         <Shapes className="mr-2 h-4 w-4" />
@@ -96,9 +97,14 @@ export function Sidebar({ className }) {
                                             Approve Vendor
                                         </Button>
                                     </Link>
+                                    <Link to="/approve-sent-back">
+                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/approve-sent-back") })}>
+                                            Approve Sent Back
+                                        </Button>
+                                    </Link>
                                 </AccordionContent>
-                            </AccordionItem>
-                            <AccordionItem value="item-2">
+                            </AccordionItem>}
+                            {(userData.role == 'Nirmaan Procurement Executive Profile' || userData.user_id == "Administrator") && <AccordionItem value="item-2">
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
                                         <Building2 className="mr-2 h-4 w-4" />
@@ -111,17 +117,21 @@ export function Sidebar({ className }) {
                                             New
                                         </Button>
                                     </Link>
-                                    <Link to="">
-                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/approve-vendor/:orderId") })}>
+                                    <Link to="/update-quote">
+                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/update-quote") })}>
                                             Update Quote
                                         </Button>
                                     </Link>
-                                    <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/procure-request/select-vendors/:orderId") })}>
+                                    <Link to="/select-vendor-list">
+                                    <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/select-vendor-list") })}>
                                         Select Vendor
                                     </Button>
-                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                    </Link>
+                                    <Link to="/release-po">
+                                    <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/release-po") })}>
                                         Release PO
                                     </Button>
+                                    </Link>
                                     <Button variant="ghost" size="sm" className="w-full justify-start">
                                         Advance Payment
                                     </Button>
@@ -132,7 +142,7 @@ export function Sidebar({ className }) {
                                         Order Delivered
                                     </Button>
                                 </AccordionContent>
-                            </AccordionItem>
+                            </AccordionItem>}
                         </Accordion>
                     </div>
                 </div>

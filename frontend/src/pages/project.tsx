@@ -82,6 +82,36 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                         </div>
                     )
                 }
+            },
+            {
+                accessorKey: "start_date",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Start Date" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("start_date")}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "end_date",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="End Date" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("end_date")}
+                        </div>
+                    )
+                }
             }
 
         ],
@@ -96,7 +126,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
 
 
     const { data: mile_data, isLoading: mile_isloading, error: mile_error } = useFrappeGetDocList("Project Work Milestones", {
-        fields: ["work_package", "scope_of_work", "milestone"],
+        fields: ["work_package", "scope_of_work", "milestone","start_date","end_date"],
         filters: [["project", "=", `${data?.name}`]],
         limit: 100
     })

@@ -15,6 +15,15 @@ import {
     SheetClose
 } from "@/components/ui/sheet"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+    DialogClose
+} from "@/components/ui/dialog"
 
 
 export const ApproveVendor = () => {
@@ -39,8 +48,13 @@ export const ApproveVendor = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time'],
+            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time','quantity'],
             filters: [["is_selected", "=", "True"], ["procurement_task", "=", orderId]]
+        });
+    const { data: quotation_request_list2, isLoading: quotation_request_list2_loading, error: quotation_request_list2_error } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time','quantity'],
+            filters: [["procurement_task", "=", orderId]]
         });
 
 
@@ -83,11 +97,11 @@ export const ApproveVendor = () => {
         return project_list?.find(project => project.name === projectName)?.project_address;
     }
     const getItem = (item: string) => {
-        const item_name = item_list?.find(value => value.name === item).item_name;
+        const item_name = item_list?.find(value => value.name === item)?.item_name;
         return item_name
     }
     const getUnit = (item: string) => {
-        const item_unit = item_list?.find(value => value.name === item).unit_name;
+        const item_unit = item_list?.find(value => value.name === item)?.unit_name;
         return item_unit
     }
 
@@ -150,11 +164,78 @@ export const ApproveVendor = () => {
         });
     }
 
+    // const handleRejectAll = () => {
+    //     orderData.category_list.list.map((cat) => {
+    //         const itemlist = [];
+    //         const curCategory = cat.name;
+    //         orderData.procurement_list.list.map((value) => {
+    //             if (value.category === curCategory) {
+    //                 const price = getPrice(selectedVendors[curCategory], value.name);
+    //                 itemlist.push({
+    //                     name: value.name,
+    //                     item: value.item,
+    //                     quantity: value.quantity,
+    //                     quote: price,
+    //                     unit: value.unit
+    //                 })
+    //             }
+    //         })
+    //         const delivery_time = quotation_request_list?.find(item => item.category === curCategory)?.lead_time;
+    //         const newSendBack = {
+    //             procurement_request: orderId,
+    //             project_name: orderData.project,
+    //             category: curCategory,
+    //             vendor: selectedVendors[curCategory],
+    //             item_list: {
+    //                 list: itemlist
+    //             },
+    //             lead_time: delivery_time,
+    //             comments: comment,
+    //             procurement_executive: orderData.procurement_executive
+    //         }
+    //         createDoc('Sent Back Category', newSendBack)
+    //             .then(() => {
+    //                 console.log(newSendBack);
+    //                 setComment('')
+
+    //             })
+    //             .catch(() => {
+    //                 console.log("submit_error", submit_error);
+    //             })
+    //         setOrderData((prevState) => {
+    //             const newCategoryList = prevState.category_list.list.filter(
+    //                 (category) => category.name !== curCategory
+    //             );
+    //             return {
+    //                 ...prevState,
+    //                 category_list: {
+    //                     ...prevState.category_list,
+    //                     list: newCategoryList
+    //                 }
+    //             };
+    //         });
+    //     })
+    //     updateDoc('Procurement Requests', orderId, {
+    //         workflow_state: "Partially Approved"
+    //     })
+    //         .then(() => {
+    //             console.log("item", orderId)
+    //             navigate("/")
+    //         }).catch(() => {
+    //             console.log("update_submit_error", update_submit_error)
+    //         })
+    // }
+
     const handleRejectAll = () => {
-        orderData.category_list.list.map((cat) => {
+        // Create an array to hold all the promises
+        const createDocPromises = [];
+    
+        orderData.category_list.list.forEach((cat) => {
             const itemlist = [];
             const curCategory = cat.name;
-            orderData.procurement_list.list.map((value) => {
+    
+            // Populate the itemlist with matching items
+            orderData.procurement_list.list.forEach((value) => {
                 if (value.category === curCategory) {
                     const price = getPrice(selectedVendors[curCategory], value.name);
                     itemlist.push({
@@ -163,9 +244,10 @@ export const ApproveVendor = () => {
                         quantity: value.quantity,
                         quote: price,
                         unit: value.unit
-                    })
+                    });
                 }
-            })
+            });
+    
             const delivery_time = quotation_request_list?.find(item => item.category === curCategory)?.lead_time;
             const newSendBack = {
                 procurement_request: orderId,
@@ -178,16 +260,21 @@ export const ApproveVendor = () => {
                 lead_time: delivery_time,
                 comments: comment,
                 procurement_executive: orderData.procurement_executive
-            }
-            createDoc('Sent Back Category', newSendBack)
+            };
+    
+            // Add the createDoc promise to the array
+            const createDocPromise = createDoc('Sent Back Category', newSendBack)
                 .then(() => {
                     console.log(newSendBack);
-                    setComment('')
-
+                    setComment('');
                 })
-                .catch(() => {
-                    console.log("submit_error", submit_error);
-                })
+                .catch((error) => {
+                    console.log("submit_error", error);
+                });
+    
+            createDocPromises.push(createDocPromise);
+    
+            // Update the state for the order data
             setOrderData((prevState) => {
                 const newCategoryList = prevState.category_list.list.filter(
                     (category) => category.name !== curCategory
@@ -200,24 +287,85 @@ export const ApproveVendor = () => {
                     }
                 };
             });
-        })
-        updateDoc('Procurement Requests', orderId, {
-            workflow_state: "Partially Approved"
-        })
+        });
+    
+        // Wait for all createDoc promises to resolve
+        Promise.all(createDocPromises)
             .then(() => {
-                console.log("item", orderId)
-                navigate("/")
-            }).catch(() => {
-                console.log("update_submit_error", update_submit_error)
+                // After all createDoc operations are complete, update the document
+                return updateDoc('Procurement Requests', orderId, {
+                    workflow_state: "Partially Approved"
+                });
             })
-    }
+            .then(() => {
+                console.log("item", orderId);
+                navigate("/");
+            })
+            .catch((error) => {
+                console.log("update_submit_error", error);
+            });
+    };
+    
 
+    // const handleApproveAll = () => {
+    //     orderData.category_list.list.map((cat) => {
+    //         const order_list = {
+    //             list: []
+    //         };
+    //         quotation_request_list?.map((value) => {
+    //             if (value.category === cat.name) {
+    //                 const newItem = {
+    //                     name: value.item,
+    //                     item: getItem(value.item),
+    //                     unit: getUnit(value.item),
+    //                     quantity: value.quantity,
+    //                     quote: value.quote
+    //                 }
+    //                 order_list.list.push(newItem)
+    //             }
+    //         })
+    //         const newProcurementOrder = {
+    //             procurement_request: orderId,
+    //             project: orderData.project,
+    //             project_name: getProjectName(orderData.project),
+    //             project_address: getProjectAddress(orderData.project),
+    //             category: cat.name,
+    //             vendor: selectedVendors[cat.name],
+    //             vendor_name: getVendorName(selectedVendors[cat.name]),
+    //             vendor_address: getVendorAddress(selectedVendors[cat.name]),
+    //             vendor_gst: getVendorGST(selectedVendors[cat.name]),
+    //             order_list: order_list
+    //         }
+    //         createDoc('Procurement Orders', newProcurementOrder)
+    //             .then(() => {
+    //                 console.log(newProcurementOrder);
+    //                 navigate("/")
+    //             })
+    //             .catch(() => {
+    //                 console.log("submit_error", submit_error);
+    //             })
+    //         updateDoc('Procurement Requests', orderId, {
+    //             workflow_state: "Vendor Approved"
+    //         })
+    //             .then(() => {
+    //                 console.log("item", orderId)
+    //             }).catch(() => {
+    //                 console.log("update_submit_error", update_submit_error)
+    //             })
+
+    //     })
+    // }
     const handleApproveAll = () => {
-        orderData.category_list.list.map((cat) => {
+        // Create an array to hold all the promises
+        const createDocPromises = [];
+    
+        orderData.category_list.list.forEach((cat) => {
             const order_list = {
                 list: []
             };
-            quotation_request_list?.map((value) => {
+    
+            // Populate the order_list with matching items
+            quotation_request_list?.forEach((value) => {
                 if (value.category === cat.name) {
                     const newItem = {
                         name: value.item,
@@ -225,10 +373,12 @@ export const ApproveVendor = () => {
                         unit: getUnit(value.item),
                         quantity: value.quantity,
                         quote: value.quote
-                    }
-                    order_list.list.push(newItem)
+                    };
+                    order_list.list.push(newItem);
                 }
-            })
+            });
+    
+            // Create a new procurement order object
             const newProcurementOrder = {
                 procurement_request: orderId,
                 project: orderData.project,
@@ -240,26 +390,37 @@ export const ApproveVendor = () => {
                 vendor_address: getVendorAddress(selectedVendors[cat.name]),
                 vendor_gst: getVendorGST(selectedVendors[cat.name]),
                 order_list: order_list
-            }
-            createDoc('Procurement Orders', newProcurementOrder)
+            };
+    
+            // Add the createDoc promise to the array
+            const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
                 .then(() => {
                     console.log(newProcurementOrder);
-                    navigate("/")
                 })
-                .catch(() => {
-                    console.log("submit_error", submit_error);
-                })
-            updateDoc('Procurement Requests', orderId, {
-                workflow_state: "Vendor Approved"
+                .catch((error) => {
+                    console.log("submit_error", error);
+                });
+    
+            createDocPromises.push(createDocPromise);
+        });
+    
+        // Wait for all createDoc promises to resolve
+        Promise.all(createDocPromises)
+            .then(() => {
+                // After all createDoc operations are complete, update the document
+                return updateDoc('Procurement Requests', orderId, {
+                    workflow_state: "Vendor Approved"
+                });
             })
-                .then(() => {
-                    console.log("item", orderId)
-                }).catch(() => {
-                    console.log("update_submit_error", update_submit_error)
-                })
-
-        })
-    }
+            .then(() => {
+                console.log("item", orderId);
+                navigate("/");
+            })
+            .catch((error) => {
+                console.log("update_submit_error", error);
+            });
+    };
+    
 
     const handleApprove = (cat: string) => {
         const order_list = {
@@ -349,7 +510,7 @@ export const ApproveVendor = () => {
         orderData?.procurement_list.list.map((item) => {
             if (item.category === cat) {
                 const price = getPrice(selectedVendors[cat], item.name);
-                total += price ? parseFloat(price) : 0;
+                total += (price ? parseFloat(price) : 0)*item.quantity;
             }
         })
         return total
@@ -359,6 +520,48 @@ export const ApproveVendor = () => {
         if (orderData.category_list?.list.length === 0) {
             navigate("/")
         }
+    }
+
+    const [selectedCategories, setSelectedCategories] = useState({})
+
+    useEffect(() => {
+        const updatedCategories = { ...selectedCategories };
+        orderData?.category_list.list.map((cat) => {
+            const newVendorsSet = new Set();
+            const curCategory = cat.name
+            quotation_request_list2?.forEach((item) => {
+                if (item.category === cat.name) {
+                    if (!Array.isArray(updatedCategories[curCategory])) {
+                        updatedCategories[curCategory] = [];
+                    }
+                    newVendorsSet.add(item.vendor);
+                }
+            });
+            const newVendors = Array.from(newVendorsSet);
+            updatedCategories[curCategory] = newVendors;
+        })
+        setSelectedCategories(updatedCategories);
+    }, [quotation_request_list2,orderData]);
+
+    console.log(selectedCategories,quotation_request_list2)
+
+    const getLowest = (cat: string) => {
+        let price: number = 100000000;
+        let vendor: string = '';
+        selectedCategories[cat]?.map((ven) => {
+            let total: number = 0;
+            quotation_request_list2?.map((item) => {
+                if (item.vendor === ven && item.category === cat) {
+                    const price = item.quote
+                    total += (price ? parseFloat(price) : 0)*item.quantity;
+                }
+            })
+            if (total < price) {
+                price = total;
+                vendor = ven;
+            }
+        })
+        if(price != 100000000) return {quote : price , vendor:vendor}
     }
 
     return (
@@ -393,10 +596,12 @@ export const ApproveVendor = () => {
                     </div>
                     {orderData?.category_list?.list.map((cat) => {
                         const curCategory = cat.name
+                        const lowest = getLowest(cat.name);
                         let total: number = 0;
-                        return <div className="w-full">
-                            <div className="font-bold text-xl py-2">{cat.name}</div>
-                            <Card className="flex w-1/2 shadow-none border border-grey-500" >
+                        let count: number = 0;
+                        return <div className="grid grid-cols-2 gap-4 w-full">
+                            <div className="col-span-2 font-bold text-xl py-2">{cat.name}</div>
+                            <Card className="flex w-full shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
                                         <div className="text-sm text-gray-400">Selected Vendor</div>
@@ -407,17 +612,72 @@ export const ApproveVendor = () => {
                                     </CardTitle>
                                     {orderData?.procurement_list.list.map((item) => {
                                         const price = getPrice(selectedVendors[curCategory], item.name);
-                                        total += price ? parseFloat(price) : 0;
+                                        total += (price ? parseFloat(price) : 0)*(parseFloat(item.quantity));
+                                        if(count === 2 ) {return }
+                                        count++;
                                         if (item.category === curCategory) {
                                             return <div className="flex justify-between py-2">
                                                 <div className="text-sm">{item.item}</div>
-                                                <div className="text-sm">{price}</div>
+                                                <div className="text-sm">{price*(item.quantity)}</div>
                                             </div>
                                         }
                                     })}
+                                    <Dialog>
+                                        <DialogTrigger asChild>
+                                        <div className="text-sm text-blue-500 cursor-pointer">View All</div>
+                                        </DialogTrigger>
+                                        <DialogContent className="sm:max-w-[425px]">
+                                            <DialogHeader>
+                                                <DialogTitle>Items List</DialogTitle>
+                                                <DialogDescription>
+                                                <div className="grid grid-cols-6 font-medium text-black py-2">
+                                                    <div className="text-sm col-span-2">Items</div>
+                                                    <div className="text-sm">Unit</div>
+                                                    <div className="text-sm">Qty</div>
+                                                    <div className="text-sm">Rate</div>
+                                                    <div className="text-sm">Amount</div>
+                                                </div>
+                                                {orderData?.procurement_list.list.map((item) => {
+                                                    const price = getPrice(selectedVendors[curCategory], item.name);
+                                                    total += (price ? parseFloat(price) : 0)*(item.quantity);
+                                                    if (item.category === curCategory) {
+                                                        return <div className="grid grid-cols-6 py-2">
+                                                            <div className="text-sm col-span-2">{item.item}</div>
+                                                            <div className="text-sm">{item.unit}</div>
+                                                            <div className="text-sm">{item.quantity}</div>
+                                                            <div className="text-sm">{price}</div>
+                                                            <div className="text-sm">{price*item.quantity}</div>
+                                                        </div>
+                                                    }
+                                                })}
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                        </DialogContent>
+                                    </Dialog>
                                 </CardHeader>
                             </Card>
-                            <div className="py-4 flex justify-between">
+                            <div>
+                                    <div className="h-[50%] p-5 rounded-lg border border-grey-500">
+                                        <div className="flex justify-between">
+                                            <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
+                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
+                                        </div>
+                                        <div className="font-medium text-gray-700 text-sm">
+                                            {getVendorName(lowest?.vendor)}
+                                        </div>
+                                        {/* <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div> */}
+                                    </div>
+                                    <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
+                                        <div className="flex justify-between">
+                                            <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
+                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
+                                        </div>
+                                        <div className="font-medium text-gray-700 text-sm">
+                                            Last 3 months Lowest Price
+                                        </div>
+                                    </div>
+                                    </div>
+                            <div className="col-span-2 py-4 flex justify-between">
                                 <Sheet>
                                     <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg">Add Comment and Send Back</SheetTrigger>
                                     <SheetContent>
@@ -460,17 +720,58 @@ export const ApproveVendor = () => {
                                         </SheetHeader>
                                     </SheetContent>
                                 </Sheet>
-                                <Button onClick={() => handleApprove(curCategory)}>Approve</Button>
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                    <Button>
+                                        Approve
+                                    </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="sm:max-w-[425px]">
+                                        <DialogHeader>
+                                            <DialogTitle>Are you Sure</DialogTitle>
+                                            <DialogDescription>
+                                                Click on Confirm to Approve.
+                                            </DialogDescription>
+                                        </DialogHeader>
+                                        <DialogClose><Button variant="secondary" onClick={() => handleApprove(curCategory)}>Confirm</Button></DialogClose>
+                                    </DialogContent>
+                                </Dialog>
                             </div>
                         </div>
                     })}
                     {orderData.category_list.list.length === total_categories ? <div className="flex space-x-2 justify-end items-end bottom-4 right-4">
-                        <Button className="border border-red-500 bg-white text-red-500 hover:text-white" onClick={() => handleRejectAll()}>
-                            Reject All
-                        </Button>
-                        <Button onClick={() => handleApproveAll()}>
-                            Approve All
-                        </Button>
+                        <Dialog>
+                            <DialogTrigger asChild>
+                            <Button className="border border-red-500 bg-white text-red-500 hover:text-white" >
+                                Reject All
+                            </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Are you Sure</DialogTitle>
+                                    <DialogDescription>
+                                        Click on Confirm to Reject All.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <Button variant="secondary" onClick={() => handleRejectAll()}>Confirm</Button>
+                            </DialogContent>
+                        </Dialog>
+                        <Dialog>
+                            <DialogTrigger asChild>
+                            <Button>
+                                Approve All
+                            </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Are you Sure</DialogTitle>
+                                    <DialogDescription>
+                                        Click on Confirm to Approve.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <Button variant="secondary"  onClick={() => handleApproveAll()}>Confirm</Button>
+                            </DialogContent>
+                        </Dialog>
                     </div> :
                         <div className="flex space-x-2 justify-end items-end fixed bottom-4 right-4">
                             <Button onClick={() => handleDone()}>

@@ -244,11 +244,11 @@ export const ProjectLeadComponent = () => {
                         <div className="flex justify-center md:justify-normal md:space-x-40">
                             <div className="p-2">
                                 <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
-                                <h3 className="pl-2 font-semibold text-sm md:text-lg">{orderData.project}</h3>
+                                <h3 className="pl-2 font-semibold text-sm md:text-lg">{orderData?.project}</h3>
                             </div>
                             <div className="p-2">
                                 <h5 className="text-gray-500 text-xs md:test-base">Package</h5>
-                                <h3 className="pl-2 font-semibold text-sm md:text-lg">{orderData.work_package}</h3>
+                                <h3 className="pl-2 font-semibold text-sm md:text-lg">{orderData?.work_package}</h3>
                             </div>
                         </div>
                         <button className="text-sm md:text-lg text-blue-400" onClick={() => setPage('categorylist')}>+ Add Category</button>
@@ -304,7 +304,7 @@ export const ProjectLeadComponent = () => {
                                                                         <label htmlFor="">Edit Quantity</label>
                                                                     </DialogDescription>
                                                                     <DialogDescription className="flex flex-row">
-                                                                        <input type="number" className="min-h-[30px] rounded-lg border my-4 p-1" onChange={(e) => setQuantity(e.target.value)} />
+                                                                        <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg border my-4 p-2" onChange={(e) => setQuantity(e.target.value)} />
                                                                     </DialogDescription>
                                                                     <DialogDescription className="flex flex-row">
                                                                         <div className="flex botton-4 right-4 gap-2">
@@ -344,23 +344,23 @@ export const ProjectLeadComponent = () => {
                         <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData.creation.split(" ")[0]}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData.project}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData.work_package}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData.owner}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData.name.slice(-4)}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div>
                         </div>
                         <div className="overflow-x-auto">
@@ -375,7 +375,7 @@ export const ProjectLeadComponent = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {orderData.procurement_list.list?.map(item => (
+                                    {orderData.procurement_list?.list?.map(item => (
                                         <tr key={item.item}>
                                             <td className="px-6 py-4 whitespace-nowrap">{item.item}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">
@@ -392,9 +392,22 @@ export const ProjectLeadComponent = () => {
                             </table>
                         </div>
                         <div className="flex flex-col h-full justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
-                                Approve
-                            </button>
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg">
+                                    Approve
+                                </button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Are you Sure</DialogTitle>
+                                    <DialogDescription>
+                                        Click on Confirm to Approve.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                            </DialogContent>
+                        </Dialog>
                         </div>
                     </div>
                 </div>}

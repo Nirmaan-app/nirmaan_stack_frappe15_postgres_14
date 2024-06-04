@@ -9,6 +9,9 @@ import DropdownMenu from './dropdown';
 import DropdownMenu2 from './dropdown2';
 import { ArrowLeft } from 'lucide-react';
 import ReactSelect from 'react-select';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "./ui/dialog"
+import { Button } from "./ui/button"
+
 
 import imageUrl from "@/assets/user-icon.jpeg"
 import { MainLayout } from "./layout/main-layout";
@@ -27,7 +30,7 @@ export const NewPR = () => {
         {
             fields: ['category_name', 'work_package']
         });
-    const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
+    const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'unit_name', 'category']
         });
@@ -215,7 +218,24 @@ export const NewPR = () => {
                 console.log("submit_error", submit_error)
             })
     }
-
+    const handleAddItem = () => {
+        const itemData = {
+            category: curCategory,
+            unit_name: unit,
+            item_name: curItem
+        }
+        console.log("itemData", itemData)
+        createDoc('Items', itemData)
+            .then(() => {
+                console.log(itemData)
+                setUnit('')
+                setCurItem('')
+                setPage('itemlist')
+                item_list_mutate()
+            }).catch(() => {
+                console.log("submit_error", submit_error)
+            })
+    }
     return (
         <MainLayout>
             {page == 'wplist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
@@ -276,7 +296,10 @@ export const NewPR = () => {
                         <h3 className="pl-2 font-semibold text-sm md:text-lg">{orderData.work_package}</h3>
                     </div>
                 </div>
-                <button className="text-sm py-2 md:text-lg text-blue-400" onClick={() => setPage('categorylist')}>+ Add Category</button>
+                <div className="flex justify-between">
+                    <button className="text-sm py-2 md:text-lg text-blue-400" onClick={() => setPage('categorylist')}>+ Add Category</button>
+                    <button className="text-sm py-2 md:text-lg text-blue-400" onClick={() => setPage('additem')}>+ Create new item</button>
+                </div>
                 <h3 className="font-bold">{curCategory}</h3>
                 <div className="flex space-x-2">
                     <div className="w-1/2 md:w-2/3">
@@ -323,7 +346,64 @@ export const NewPR = () => {
                         </table>
                     </div>
                 })}
-                <button className="bottom-0 h-8 w-[95%] mt-4 md:w-full bg-red-700 rounded-md text-sm text-white" onClick={() => handleSubmit()}>Confirm and Submit</button>
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <button className="bottom-0 h-8 w-[95%] mt-4 md:w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                            <DialogTitle>Are you Sure</DialogTitle>
+                            <DialogDescription>
+                                Click on Confirm to create new PR.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                    </DialogContent>
+                </Dialog>
+            </div>}
+            {page == 'additem' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
+                {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
+                <div className="flex items-center space-y-2">
+                    <ArrowLeft onClick={() => setPage('itemlist')} />
+                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">PR Item List</h2>
+                </div>
+                <div className="mb-4">
+                    <div className="text-lg font-bold py-2">{curCategory}</div>
+                <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
+                <input
+                type="text"
+                id="itemName"
+                value={curItem}
+                onChange={(e) => setCurItem(e.target.value)}
+                className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                />
+            </div>
+            <div className="mb-4">
+                <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
+                <input
+                type="text"
+                id="itemUnit"
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                />
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <button className="fixed bottom-2 h-8 left-2 right-2 md:w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                            <DialogTitle>Are you Sure</DialogTitle>
+                            <DialogDescription>
+                                Click on Confirm to create new Item.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogClose>
+                        <Button variant="secondary" onClick={() => handleAddItem()}>Confirm</Button>
+                        </DialogClose>
+                    </DialogContent>
+                </Dialog>
+            </div>
             </div>}
         </MainLayout>
     )

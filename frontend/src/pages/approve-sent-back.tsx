@@ -15,6 +15,15 @@ import {
     SheetClose
 } from "@/components/ui/sheet"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+    DialogClose
+} from "@/components/ui/dialog"
 
 export const ApproveSentBack = () => {
     const { id } = useParams<{ id: string }>()
@@ -78,11 +87,11 @@ export const ApproveSentBack = () => {
         return project_list?.find(project => project.name === projectName)?.project_address;
     }
     const getItem = (item: string) => {
-        const item_name = item_list?.find(value => value.name === item).item_name;
+        const item_name = item_list?.find(value => value.name === item)?.item_name;
         return item_name
     }
     const getUnit = (item: string) => {
-        const item_unit = item_list?.find(value => value.name === item).unit_name;
+        const item_unit = item_list?.find(value => value.name === item)?.unit_name;
         return item_unit
     }
 
@@ -153,10 +162,11 @@ export const ApproveSentBack = () => {
         let total: number = 0;
         orderData.item_list?.list.map((item) => {
             const price = item.quote;
-            total += price ? parseFloat(price) : 0;
+            total += (price ? parseFloat(price) : 0)*item.quantity
         })
         return total
     }
+    let count: number = 0;
 
     return (
         <MainLayout>
@@ -189,24 +199,56 @@ export const ApproveSentBack = () => {
                         </div>
                     </div>
                         <div className="w-full">
-                            <div className="font-bold text-xl py-2">{orderData.category}</div>
+                            <div className="font-bold text-xl py-2">{orderData?.category}</div>
                             <Card className="flex w-1/2 shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
                                         <div className="text-sm text-gray-400">Selected Vendor</div>
                                         <div className="flex justify-between border-b">
-                                            <div className="font-bold text-lg py-2 border-gray-200">{getVendorName(orderData.vendor)}</div>
+                                            <div className="font-bold text-lg py-2 border-gray-200">{getVendorName(orderData?.vendor)}</div>
                                             <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
                                         </div>
                                     </CardTitle>
                                     {orderData.item_list?.list.map((item) => {
                                         const price = item.quote;
+                                        if(count === 2 ) {return }
+                                        count++;
                                             return <div className="flex justify-between py-2">
                                                 <div className="text-sm">{item.item}</div>
-                                                <div className="text-sm">{price}</div>
+                                                <div className="text-sm">{price*item.quantity}</div>
                                             </div>
                                         
                                     })}
+                                    <Dialog>
+                                        <DialogTrigger asChild>
+                                        <div className="text-sm text-blue-500 cursor-pointer">View All</div>
+                                        </DialogTrigger>
+                                        <DialogContent className="sm:max-w-[425px]">
+                                            <DialogHeader>
+                                                <DialogTitle>Items List</DialogTitle>
+                                                <DialogDescription>
+                                                <div className="grid grid-cols-6 font-medium text-black justify-between py-2">
+                                                    <div className="text-sm col-span-2">Items</div>
+                                                    <div className="text-sm">Qty</div>
+                                                    <div className="text-sm">Unit</div>
+                                                    <div className="text-sm">Rate</div>
+                                                    <div className="text-sm">Amount</div>
+                                                </div>
+                                                {orderData.item_list?.list.map((item) => {
+                                                    const price = item.quote;
+                                                        return <div className="grid grid-cols-6 py-2">
+                                                            <div className="text-sm col-span-2">{item.item}</div>
+                                                            <div className="text-sm">{item.quantity}</div>
+                                                            <div className="text-sm">{item.unit}</div>
+                                                            <div className="text-sm">{price}</div>
+                                                            <div className="text-sm">{price*item.quantity}</div>
+                                                        </div>
+                                                    
+                                                })}
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                        </DialogContent>
+                                    </Dialog>
                                 </CardHeader>
                             </Card>
                             <div className="py-4 flex justify-between">
@@ -249,7 +291,22 @@ export const ApproveSentBack = () => {
                                     </ScrollArea>
                                 </SheetContent>
                             </Sheet>
-                            <Button onClick={() => handleApprove(curCategory)}>Approve</Button>
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                <Button>
+                                    Approve
+                                </Button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle>Are you Sure</DialogTitle>
+                                        <DialogDescription>
+                                            Click on Confirm to Approve.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <Button variant="secondary" onClick={() => handleApprove(curCategory)}>Confirm</Button>
+                                </DialogContent>
+                            </Dialog>
                             </div>
                         </div>
                 </div>
