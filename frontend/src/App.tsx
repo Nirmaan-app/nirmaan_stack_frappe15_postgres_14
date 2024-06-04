@@ -38,6 +38,7 @@ import Debug from './pages/debug'
 import { ApproveSelectVendor } from './pages/approve-select-vendor'
 import { ApproveVendor } from './pages/approve-vendor'
 import { NewPR } from './components/new-pr'
+import { PRSummary } from './components/pr-summary'
 
 
 const router = createBrowserRouter(
@@ -51,6 +52,7 @@ const router = createBrowserRouter(
 				<Route path="user-profile" element={<Profile />} />
 				<Route path="pdf" element={<PDF />} />
 				<Route path="/new-pr/:id" element={<NewPR />} />
+				<Route path="/pr-summary/:id" element={<PRSummary />} />
 				<Route path="approve-order" element={<ApprovePR />} />
 				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
 				<Route path="approve-vendor" element={<ApproveSelectVendor />} />

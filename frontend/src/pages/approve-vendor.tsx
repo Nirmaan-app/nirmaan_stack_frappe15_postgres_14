@@ -51,6 +51,11 @@ export const ApproveVendor = () => {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time','quantity'],
             filters: [["is_selected", "=", "True"], ["procurement_task", "=", orderId]]
         });
+    const { data: quotation_request_list2, isLoading: quotation_request_list2_loading, error: quotation_request_list2_error } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time','quantity'],
+            filters: [["procurement_task", "=", orderId]]
+        });
 
 
     const [page, setPage] = useState<string>('approvequotation')
@@ -505,7 +510,7 @@ export const ApproveVendor = () => {
         orderData?.procurement_list.list.map((item) => {
             if (item.category === cat) {
                 const price = getPrice(selectedVendors[cat], item.name);
-                total += price ? parseFloat(price) : 0;
+                total += (price ? parseFloat(price) : 0)*item.quantity;
             }
         })
         return total
@@ -515,6 +520,48 @@ export const ApproveVendor = () => {
         if (orderData.category_list?.list.length === 0) {
             navigate("/")
         }
+    }
+
+    const [selectedCategories, setSelectedCategories] = useState({})
+
+    useEffect(() => {
+        const updatedCategories = { ...selectedCategories };
+        orderData?.category_list.list.map((cat) => {
+            const newVendorsSet = new Set();
+            const curCategory = cat.name
+            quotation_request_list2?.forEach((item) => {
+                if (item.category === cat.name) {
+                    if (!Array.isArray(updatedCategories[curCategory])) {
+                        updatedCategories[curCategory] = [];
+                    }
+                    newVendorsSet.add(item.vendor);
+                }
+            });
+            const newVendors = Array.from(newVendorsSet);
+            updatedCategories[curCategory] = newVendors;
+        })
+        setSelectedCategories(updatedCategories);
+    }, [quotation_request_list2,orderData]);
+
+    console.log(selectedCategories,quotation_request_list2)
+
+    const getLowest = (cat: string) => {
+        let price: number = 100000000;
+        let vendor: string = '';
+        selectedCategories[cat]?.map((ven) => {
+            let total: number = 0;
+            quotation_request_list2?.map((item) => {
+                if (item.vendor === ven && item.category === cat) {
+                    const price = item.quote
+                    total += (price ? parseFloat(price) : 0)*item.quantity;
+                }
+            })
+            if (total < price) {
+                price = total;
+                vendor = ven;
+            }
+        })
+        if(price != 100000000) return {quote : price , vendor:vendor}
     }
 
     return (
@@ -549,11 +596,12 @@ export const ApproveVendor = () => {
                     </div>
                     {orderData?.category_list?.list.map((cat) => {
                         const curCategory = cat.name
+                        const lowest = getLowest(cat.name);
                         let total: number = 0;
                         let count: number = 0;
-                        return <div className="w-full">
-                            <div className="font-bold text-xl py-2">{cat.name}</div>
-                            <Card className="flex w-1/2 shadow-none border border-grey-500" >
+                        return <div className="grid grid-cols-2 gap-4 w-full">
+                            <div className="col-span-2 font-bold text-xl py-2">{cat.name}</div>
+                            <Card className="flex w-full shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
                                         <div className="text-sm text-gray-400">Selected Vendor</div>
@@ -564,13 +612,13 @@ export const ApproveVendor = () => {
                                     </CardTitle>
                                     {orderData?.procurement_list.list.map((item) => {
                                         const price = getPrice(selectedVendors[curCategory], item.name);
-                                        total += price ? parseFloat(price) : 0;
+                                        total += (price ? parseFloat(price) : 0)*(parseFloat(item.quantity));
                                         if(count === 2 ) {return }
                                         count++;
                                         if (item.category === curCategory) {
                                             return <div className="flex justify-between py-2">
                                                 <div className="text-sm">{item.item}</div>
-                                                <div className="text-sm">{price}</div>
+                                                <div className="text-sm">{price*(item.quantity)}</div>
                                             </div>
                                         }
                                     })}
@@ -582,17 +630,23 @@ export const ApproveVendor = () => {
                                             <DialogHeader>
                                                 <DialogTitle>Items List</DialogTitle>
                                                 <DialogDescription>
-                                                <div className="flex font-medium text-black justify-between py-2">
-                                                    <div className="text-sm">Items</div>
-                                                    <div className="text-sm">price</div>
+                                                <div className="grid grid-cols-6 font-medium text-black py-2">
+                                                    <div className="text-sm col-span-2">Items</div>
+                                                    <div className="text-sm">Unit</div>
+                                                    <div className="text-sm">Qty</div>
+                                                    <div className="text-sm">Rate</div>
+                                                    <div className="text-sm">Amount</div>
                                                 </div>
                                                 {orderData?.procurement_list.list.map((item) => {
                                                     const price = getPrice(selectedVendors[curCategory], item.name);
-                                                    total += price ? parseFloat(price) : 0;
+                                                    total += (price ? parseFloat(price) : 0)*(item.quantity);
                                                     if (item.category === curCategory) {
-                                                        return <div className="flex justify-between py-2">
-                                                            <div className="text-sm">{item.item}</div>
+                                                        return <div className="grid grid-cols-6 py-2">
+                                                            <div className="text-sm col-span-2">{item.item}</div>
+                                                            <div className="text-sm">{item.unit}</div>
+                                                            <div className="text-sm">{item.quantity}</div>
                                                             <div className="text-sm">{price}</div>
+                                                            <div className="text-sm">{price*item.quantity}</div>
                                                         </div>
                                                     }
                                                 })}
@@ -602,7 +656,28 @@ export const ApproveVendor = () => {
                                     </Dialog>
                                 </CardHeader>
                             </Card>
-                            <div className="py-4 flex justify-between">
+                            <div>
+                                    <div className="h-[50%] p-5 rounded-lg border border-grey-500">
+                                        <div className="flex justify-between">
+                                            <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
+                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
+                                        </div>
+                                        <div className="font-medium text-gray-700 text-sm">
+                                            {getVendorName(lowest?.vendor)}
+                                        </div>
+                                        {/* <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div> */}
+                                    </div>
+                                    <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
+                                        <div className="flex justify-between">
+                                            <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
+                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
+                                        </div>
+                                        <div className="font-medium text-gray-700 text-sm">
+                                            Last 3 months Lowest Price
+                                        </div>
+                                    </div>
+                                    </div>
+                            <div className="col-span-2 py-4 flex justify-between">
                                 <Sheet>
                                     <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg">Add Comment and Send Back</SheetTrigger>
                                     <SheetContent>

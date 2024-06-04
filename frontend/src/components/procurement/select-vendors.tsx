@@ -34,8 +34,9 @@ export const SelectVendors = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
-            filters: [["procurement_task","=",orderId]]
+            fields: ['name', 'lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote','quantity'],
+            filters: [["procurement_task","=",orderId]],
+            limit: 500
         });
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
 
@@ -78,7 +79,7 @@ export const SelectVendors = () => {
             updatedCategories[curCategory] = newVendors;
         })
         setSelectedCategories(updatedCategories);
-    }, [quotation_request_list]);
+    }, [quotation_request_list,orderData]);
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
@@ -151,7 +152,7 @@ export const SelectVendors = () => {
             quotation_request_list?.map((item) => {
                 if (item.vendor === ven && item.category === cat) {
                     const price = item.quote
-                    total += price ? parseFloat(price) : 0;
+                    total += (price ? parseFloat(price) : 0)*item.quantity;
                 }
             })
             if (total < price) {
@@ -177,7 +178,7 @@ export const SelectVendors = () => {
         orderData?.procurement_list.list.map((item) => {
             if (item.category === cat) {
                 const price = getPrice(selectedVendors[cat], item.name);
-                total += price ? parseFloat(price) : 0;
+                total += (price ? parseFloat(price) : 0)*item.quantity;
             }
         })
         return total
@@ -254,9 +255,9 @@ export const SelectVendors = () => {
                                                     {orderData?.procurement_list.list.map((value) => {
                                                         if (value.category === cat.name) {
                                                             const price = getPrice(item, value.name);
-                                                            total += price ? parseFloat(price) : 0;
+                                                            total += (price ? parseFloat(price) : 0)*value.quantity;
                                                             return <div className="py-2 text-sm px-2 text-opacity-10 border-b">
-                                                                {price}
+                                                                {price*value.quantity}
                                                             </div>
                                                         }
                                                     })}
@@ -332,7 +333,7 @@ export const SelectVendors = () => {
                                             total += price ? parseFloat(price) : 0;
                                                 return <div className="flex justify-between py-2">
                                                     <div className="text-sm">{item.item}</div>
-                                                    <div className="text-sm">{price}</div>
+                                                    <div className="text-sm">{price*item.quantity}</div>
                                                 </div>
                                             }
                                         })}
@@ -345,17 +346,23 @@ export const SelectVendors = () => {
                                                     <DialogHeader>
                                                         <DialogTitle>Items List</DialogTitle>
                                                         <DialogDescription>
-                                                        <div className="flex font-medium text-black justify-between py-2">
-                                                            <div className="text-sm">Items</div>
-                                                            <div className="text-sm">price</div>
+                                                        <div className="grid grid-cols-6  font-medium text-black justify-between py-2">
+                                                            <div className="text-sm col-span-2">Items</div>
+                                                            <div className="text-sm">Unit</div>
+                                                            <div className="text-sm">Qty</div>
+                                                            <div className="text-sm">Rate</div>
+                                                            <div className="text-sm">Amount</div>
                                                         </div>
                                                         {orderData?.procurement_list.list.map((item) => {
                                                             if (item.category === curCategory) {
                                                             const price = getPrice(selectedVendors[curCategory], item.name);
                                                             total += price ? parseFloat(price) : 0;
-                                                                return <div className="flex justify-between py-2">
-                                                                    <div className="text-sm">{item.item}</div>
+                                                                return <div className="grid grid-cols-6 py-2">
+                                                                    <div className="text-sm col-span-2">{item.item}</div>
+                                                                    <div className="text-sm">{item.unit}</div>
+                                                                    <div className="text-sm">{item.quantity}</div>
                                                                     <div className="text-sm">{price}</div>
+                                                                    <div className="text-sm">{price*item.quantity}</div>
                                                                 </div>
                                                             }
                                                         })}
@@ -369,27 +376,27 @@ export const SelectVendors = () => {
                                 </Card>
                                 {/* </div> */}
                                 <div>
-                                <div className="h-[50%] p-5 rounded-lg border border-grey-500">
-                                    <div className="flex justify-between">
-                                        <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest.quote}</div>
+                                    <div className="h-[50%] p-5 rounded-lg border border-grey-500">
+                                        <div className="flex justify-between">
+                                            <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
+                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest.quote}</div>
+                                        </div>
+                                        <div className="font-medium text-gray-700 text-sm">
+                                            {getVendorName(lowest.vendor)}
+                                        </div>
+                                        <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div>
                                     </div>
-                                    <div className="font-medium text-gray-700 text-sm">
-                                        {getVendorName(lowest.vendor)}
+                                    <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
+                                        <div className="flex justify-between">
+                                            <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
+                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest.quote}</div>
+                                        </div>
+                                        <div className="font-medium text-gray-700 text-sm">
+                                            Last 3 months Lowest Price
+                                        </div>
                                     </div>
-                                    <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div>
+                                    </div>
                                 </div>
-                                <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
-                                    <div className="flex justify-between">
-                                        <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest.quote}</div>
-                                    </div>
-                                    <div className="font-medium text-gray-700 text-sm">
-                                        Last 3 months Lowest Price
-                                    </div>
-                                </div>
-                                </div>
-                            </div>
                         })}
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                             <Dialog>

@@ -28,6 +28,7 @@ export const ReleasePO = () => {
 
         const handlePrint = useReactToPrint({
             content: () => componentRef.current,
+            documentTitle: `${orderData?.name}_${orderData?.vendor_name}`
         });
 
         const togglePrintMode = () => {
@@ -53,6 +54,7 @@ export const ReleasePO = () => {
                 </div>
             </div>
             <div className="text-gray-500 text-sm py-2">Vendor Address</div>
+            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{orderData?.vendor_name}</div>
             <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{orderData?.vendor_address}</div>
             <div className="text-sm font-medium text-gray-900">GSTIN: {orderData?.vendor_gst}</div>
             <div className="flex justify-between">
@@ -70,6 +72,7 @@ export const ReleasePO = () => {
                         <thead className="border-b border-black">
                             <tr>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                 <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
                                 <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
                                 <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
@@ -79,6 +82,7 @@ export const ReleasePO = () => {
                                 {orderData?.order_list?.list.map((item)=>
                                     {return <tr className="">
                                     <td className="px-6 py-4 text-sm whitespace-nowrap">{item.item}</td>
+                                    <td className="px-6 py-4 text-sm whitespace-nowrap">{item.unit}</td>
                                     <td className="px-6 py-4 text-sm whitespace-nowrap">
                                         {item.quantity}
                                     </td>

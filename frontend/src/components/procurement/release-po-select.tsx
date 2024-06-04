@@ -20,7 +20,7 @@ export const ReleasePOSelect = () => {
     const userData = useUserData();
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error } = useFrappeGetDocList("Procurement Orders",
         {
-            fields: ['name', 'owner','order_list','vendor_name', 'project_name','category', 'creation']
+            fields: ['name','procurement_request', 'owner','order_list','vendor_name', 'project_name','category', 'creation']
         });
 
     const getTotal = (order_id: string) => {
@@ -28,7 +28,7 @@ export const ReleasePOSelect = () => {
         const orderData = procurement_order_list?.find(item => item.name === order_id)?.order_list;
         orderData?.list.map((item) => {
             const price = item.quote;
-            total += price ? parseFloat(price) : 0;
+            total += (price ? parseFloat(price) : 0)*(item.quantity ? parseFloat(item.quantity) : 1);
         })
         return total;
     }
@@ -48,6 +48,21 @@ export const ReleasePOSelect = () => {
                             <Link className="underline hover:underline-offset-2" to={`/release-po/${row.getValue("name")}`}>
                                 {row.getValue("name")}
                             </Link>
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "procurement_request",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="PR Number" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                                {row.getValue("procurement_request")?.slice(-4)}
                         </div>
                     )
                 }

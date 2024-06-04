@@ -15,7 +15,8 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task'],
-            filters: [["procurement_task", "=", pr_id],["vendor","=",vendor_id]]
+            filters: [["procurement_task", "=", pr_id],["vendor","=",vendor_id]],
+            limit: 500
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
@@ -125,7 +126,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                     <div>Qty</div>
                 </div>
                 <div className="flex-1">
-                    <div>Price</div>
+                    <div>Rate</div>
                 </div>
             </div>
             {categories.list.map((cat) => {

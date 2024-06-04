@@ -16,7 +16,8 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project','quantity', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
-            filters: [["procurement_task","=",pr_id],["vendor","=",vendor_id]]
+            filters: [["procurement_task","=",pr_id],["vendor","=",vendor_id]],
+            limit: 500
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
@@ -24,7 +25,7 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address']
+            fields: ['name', 'vendor_name', 'vendor_address','vendor_city']
         });
     const [orderData, setOrderData] = useState({
         name:''
@@ -48,6 +49,10 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
         const name = vendor_list?.find(value => value.name === item)?.vendor_name;
         return name
     }
+    const getVendorCity = (item: string) => {
+        const name = vendor_list?.find(value => value.name === item)?.vendor_city;
+        return name
+    }
     const getProjectName = (item: string) => {
         const name = project_list?.find(value => value.name === item)?.project_name;
         return name
@@ -59,6 +64,7 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
 
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
+        documentTitle: `${getVendorName(vendor_id)}_${getVendorCity(vendor_id)}`
     }); 
     const testQuotationRequestList = [];
     if(quotation_request_list){for (let i = 0; i < 100; i++) {
@@ -110,8 +116,8 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
                                 <th colSpan="5" className="p-0">
                                 <div className="py-2 border-b-2 border-gray-600 pb-3 mb-3">
                                     <div className="flex justify-between">
-                                        <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India – 560102</div>
-                                        <div className="text-xs text-gray-500 font-normal">GST: 12345678990</div>
+                                        <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                                        <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
                                     </div>
                                 </div>
                                 </th>
@@ -146,7 +152,6 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
                                     <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Price</th>
                                 </tr>
                             </thead>
-                            
                             <tbody className="bg-white divide-y divide-gray-200">
                                     {quotation_request_list?.map((item)=>
                                         {return <tr className="">

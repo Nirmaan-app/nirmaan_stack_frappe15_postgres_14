@@ -304,7 +304,7 @@ export const ProjectLeadComponent = () => {
                                                                         <label htmlFor="">Edit Quantity</label>
                                                                     </DialogDescription>
                                                                     <DialogDescription className="flex flex-row">
-                                                                        <input type="number" className="min-h-[30px] rounded-lg border my-4 p-1" onChange={(e) => setQuantity(e.target.value)} />
+                                                                        <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg border my-4 p-2" onChange={(e) => setQuantity(e.target.value)} />
                                                                     </DialogDescription>
                                                                     <DialogDescription className="flex flex-row">
                                                                         <div className="flex botton-4 right-4 gap-2">

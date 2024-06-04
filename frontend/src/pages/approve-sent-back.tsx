@@ -162,7 +162,7 @@ export const ApproveSentBack = () => {
         let total: number = 0;
         orderData.item_list?.list.map((item) => {
             const price = item.quote;
-            total += price ? parseFloat(price) : 0;
+            total += (price ? parseFloat(price) : 0)*item.quantity
         })
         return total
     }
@@ -215,7 +215,7 @@ export const ApproveSentBack = () => {
                                         count++;
                                             return <div className="flex justify-between py-2">
                                                 <div className="text-sm">{item.item}</div>
-                                                <div className="text-sm">{price}</div>
+                                                <div className="text-sm">{price*item.quantity}</div>
                                             </div>
                                         
                                     })}
@@ -227,15 +227,21 @@ export const ApproveSentBack = () => {
                                             <DialogHeader>
                                                 <DialogTitle>Items List</DialogTitle>
                                                 <DialogDescription>
-                                                <div className="flex font-medium text-black justify-between py-2">
-                                                    <div className="text-sm">Items</div>
-                                                    <div className="text-sm">price</div>
+                                                <div className="grid grid-cols-6 font-medium text-black justify-between py-2">
+                                                    <div className="text-sm col-span-2">Items</div>
+                                                    <div className="text-sm">Qty</div>
+                                                    <div className="text-sm">Unit</div>
+                                                    <div className="text-sm">Rate</div>
+                                                    <div className="text-sm">Amount</div>
                                                 </div>
                                                 {orderData.item_list?.list.map((item) => {
                                                     const price = item.quote;
-                                                        return <div className="flex justify-between py-2">
-                                                            <div className="text-sm">{item.item}</div>
+                                                        return <div className="grid grid-cols-6 py-2">
+                                                            <div className="text-sm col-span-2">{item.item}</div>
+                                                            <div className="text-sm">{item.quantity}</div>
+                                                            <div className="text-sm">{item.unit}</div>
                                                             <div className="text-sm">{price}</div>
+                                                            <div className="text-sm">{price*item.quantity}</div>
                                                         </div>
                                                     
                                                 })}

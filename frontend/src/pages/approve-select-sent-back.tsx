@@ -27,7 +27,7 @@ export const ApproveSelectSentBack = () => {
             const orderData = sent_back_list?.find(item => item.name === order_id)?.item_list;
             orderData?.list.map((item) => {
                 const price = item.quote;
-                total += price ? parseFloat(price) : 0;
+                total += (price ? parseFloat(price) : 0)*item.quantity;
             })
             return total;
         }

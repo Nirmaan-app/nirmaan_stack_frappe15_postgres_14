@@ -45,7 +45,8 @@ export const SentBackUpdateQuote = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name','lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote']
+            fields: ['name','lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
+            limit: 500
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
@@ -98,7 +99,7 @@ export const SentBackUpdateQuote = () => {
             }));
         }
     }, [quotation_request_list,orderData]);
-    console.log(uniqueVendors)
+    console.log(uniqueVendors,quotation_request_list)
     const handleUpdateQuote = () => {
         navigate(`/sent-back-request/select-vendor/${id}`);
     }
@@ -146,7 +147,8 @@ export const SentBackUpdateQuote = () => {
                                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider pr-32">Items</th>
                                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UOM</th>
                                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimated Price</th>
+                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
+                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
@@ -157,6 +159,9 @@ export const SentBackUpdateQuote = () => {
                                             <td className="px-6 py-4 whitespace-nowrap">{item.quantity}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                 {item.quote}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                {item.quote*item.quantity}
                                             </td>
                                         </tr>
                                     ))}

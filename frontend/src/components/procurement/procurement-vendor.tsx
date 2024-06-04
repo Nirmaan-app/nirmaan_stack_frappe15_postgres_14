@@ -55,7 +55,7 @@ export const ProcurementOrder = () => {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
-            filters: ["procurement_task","=",orderId]
+            filters: [["procurement_task","=",orderId]]
         });
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc,loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
