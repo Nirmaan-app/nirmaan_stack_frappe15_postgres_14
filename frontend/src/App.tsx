@@ -39,6 +39,7 @@ import { ApproveSelectVendor } from './pages/approve-select-vendor'
 import { ApproveVendor } from './pages/approve-vendor'
 import { NewPR } from './components/new-pr'
 import { PRSummary } from './components/pr-summary'
+import { NewMilestone } from './components/new-milestone'
 
 
 const router = createBrowserRouter(
@@ -53,6 +54,7 @@ const router = createBrowserRouter(
 				<Route path="pdf" element={<PDF />} />
 				<Route path="/new-pr/:id" element={<NewPR />} />
 				<Route path="/pr-summary/:id" element={<PRSummary />} />
+				<Route path="/milestone/:id" element={<NewMilestone/>} />
 				<Route path="approve-order" element={<ApprovePR />} />
 				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
 				<Route path="approve-vendor" element={<ApproveSelectVendor />} />
