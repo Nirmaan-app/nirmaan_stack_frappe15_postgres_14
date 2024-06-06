@@ -11,6 +11,9 @@ import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { HardHat } from "lucide-react"
 import { useMemo } from "react"
 import { Link, useParams } from "react-router-dom"
+import { useReactToPrint } from 'react-to-print';
+import redlogo from "@/assets/red-logo.png"
+import React from 'react';
 
 interface WPN {
     name: string
@@ -122,8 +125,11 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
         'Projects',
         `${projectId}`
     );
-
-
+    const componentRef = React.useRef();
+    const handlePrint = useReactToPrint({
+        content: () => componentRef.current,
+        documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
+    }); 
 
     const { data: mile_data, isLoading: mile_isloading, error: mile_error } = useFrappeGetDocList("Project Work Milestones", {
         fields: ["work_package", "scope_of_work", "milestone","start_date","end_date"],
@@ -159,7 +165,10 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                     <>
                         <div className="flex items-center justify-between space-y-2">
                             <h2 className="text-3xl font-bold tracking-tight">{data.project_name}</h2>
-                            <div className="flex items-center space-x-2">
+                            <div className="flex space-x-2">
+                                <Button onClick={handlePrint}>
+                                     Print
+                                </Button>
                                 <Button asChild>
                                     <Link to={`/projects/edit-one/${projectId}`}> Edit Project</Link>
                                 </Button>
@@ -272,6 +281,77 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                         </div>
                     </>
                 }
+                 <div className="hidden">
+                    <div ref={componentRef} className="px-4 pb-4">
+                    <div className="">
+                            <table className="w-full">
+                                <thead className="w-full">
+                                <tr>
+                                    <th colSpan="6" className="p-0">
+                                    <div className="mt-6 flex justify-between">
+                                        <div>
+                                            <img className="w-44" src={redlogo} alt="Nirmaan" />
+                                            <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                                        </div>
+                                    </div>
+                                    </th>
+                                </tr>
+                                <tr>
+                                    <th colSpan="6" className="p-0">
+                                    <div className="py-2 border-b-2 border-gray-600 pb-3 mb-3">
+                                        <div className="flex justify-between">
+                                            <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                                            <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                        </div>
+                                    </div>
+                                    </th>
+                                </tr>
+                                <tr>
+                                    <th colSpan="6">
+                                    <div className="grid grid-cols-6 gap-4 justify-between border border-gray-100 rounded-lg p-4 mb-3">
+                                        <div className="border-0 flex flex-col col-span-2">
+                                            <p className="text-left py-1 font-medium text-xs text-gray-500">Name and address</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{data?.project_name}</p>
+                                            <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_address}</p>
+                                        </div>
+                                        <div className="border-0 flex flex-col col-span-2">
+                                            <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{data?.project_start_date} to {data?.project_end_date}</p>
+                                        </div>
+                                        <div className="border-0 flex flex-col col-span-2">
+                                            <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
+                                        </div>
+
+                                    </div>
+                                    </th>
+                                </tr>
+                                <tr className="">
+                                    <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Work Package</th>
+                                    <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Scope of Work</th>
+                                    <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Milestone</th>
+                                    <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Start Date</th>
+                                    <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">End Date</th>
+                                    <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Status - Common Area</th>
+                                </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                        {mile_data?.map((item)=>
+                                            {return <tr className="">
+                                            <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
+                                                {item.scope_of_work}
+                                            </td>
+                                            <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.start_date}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.end_date}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">Pending</td>
+                                        </tr>})}
+                                </tbody>
+                            </table>
+                        </div>
+                </div>
+                </div>
                 <div className="container mx-auto py-10">
                     <DataTable columns={columns} data={mile_data || []} />
                 </div>
