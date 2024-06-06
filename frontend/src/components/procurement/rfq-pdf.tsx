@@ -66,10 +66,10 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
         content: () => componentRef.current,
         documentTitle: `${getVendorName(vendor_id)}_${getVendorCity(vendor_id)}`
     }); 
-    const testQuotationRequestList = [];
-    if(quotation_request_list){for (let i = 0; i < 100; i++) {
-        testQuotationRequestList.push(...quotation_request_list);
-    }}
+    // const testQuotationRequestList = [];
+    // if(quotation_request_list){for (let i = 0; i < 100; i++) {
+    //     testQuotationRequestList.push(...quotation_request_list);
+    // }}
 
     return (
         <div className="align-center">

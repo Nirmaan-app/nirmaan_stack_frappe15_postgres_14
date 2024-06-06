@@ -11,7 +11,8 @@
   "scope_of_work",
   "milestone",
   "start_date",
-  "end_date"
+  "end_date",
+  "status"
  ],
  "fields": [
   {
@@ -48,11 +49,17 @@
    "fieldname": "start_date",
    "fieldtype": "Date",
    "label": "Start Date"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-06-04 19:50:24.661588",
+ "modified": "2024-06-06 16:11:41.576177",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Work Milestones",

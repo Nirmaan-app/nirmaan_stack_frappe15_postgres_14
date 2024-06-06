@@ -357,13 +357,13 @@ export const SelectVendors = () => {
                                                             if (item.category === curCategory) {
                                                             const price = getPrice(selectedVendors[curCategory], item.name);
                                                             total += price ? parseFloat(price) : 0;
-                                                                return <div className="grid grid-cols-6 py-2">
-                                                                    <div className="text-sm col-span-2">{item.item}</div>
-                                                                    <div className="text-sm">{item.unit}</div>
-                                                                    <div className="text-sm">{item.quantity}</div>
-                                                                    <div className="text-sm">{price}</div>
-                                                                    <div className="text-sm">{price*item.quantity}</div>
-                                                                </div>
+                                                            return <div className="grid grid-cols-6 py-2">
+                                                                <div className="text-sm col-span-2">{item.item}</div>
+                                                                <div className="text-sm">{item.unit}</div>
+                                                                <div className="text-sm">{item.quantity}</div>
+                                                                <div className="text-sm">{price}</div>
+                                                                <div className="text-sm">{price*item.quantity}</div>
+                                                            </div>
                                                             }
                                                         })}
                                                         </DialogDescription>
