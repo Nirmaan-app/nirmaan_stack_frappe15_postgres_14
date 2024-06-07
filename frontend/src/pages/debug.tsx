@@ -1,3 +1,4 @@
+import ImageCrop from "@/components/image-dialog";
 import { Button } from "@/components/ui/button";
 import { useFrappeFileUpload, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { useState } from "react";
@@ -6,8 +7,9 @@ import { Link } from "react-router-dom"
 export default function Debug() {
     const { upload: upload_img, loading: upload_loading, error: upload_error, reset: upload_reset } = useFrappeFileUpload()
     const { updateDoc: update, loading: update_loading, error: update_error } = useFrappeUpdateDoc()
-    const [file, setFile] = useState(); //Your File object
-    const [preview, setPreview] = useState(); //Your File object
+    const [selectedFile, setSelectedFile] = useState(null)
+    const [croppedImage, setCroppedImage] = useState(null)
+    const [preview, setPreview] = useState(); //Your File Preview
 
     const fileArgs = {
         /** If the file access is private then set to TRUE (optional) */
@@ -21,15 +23,27 @@ export default function Debug() {
         /** Field to be linked in the Document **/
         "fieldname": "image_url"
     }
-    function handleChange(e) {
+    function handleFileChange(e) {
         console.log(e.target.files);
-        setPreview(URL.createObjectURL(e.target.files[0]));
-        setFile(e.target.files[0]);
+
+        if (e.target.files && e.target.files.length > 0) {
+            setSelectedFile(e.target.files[0])
+            setPreview(URL.createObjectURL(e.target.files[0]));
+        }
+    }
+
+    const handleCroppedImage = (croppedImage) => {
+        setCroppedImage(croppedImage)
+    }
+
+    const handleReset = () => {
+        setSelectedFile(null)
+        setCroppedImage(null)
     }
 
     function saveImage() {
         upload_img(
-            file,
+            croppedImage,
             fileArgs,
             'frappe.handler.upload_file'
         )
@@ -44,9 +58,27 @@ export default function Debug() {
     return (
         <>
             <h2>Add Image:</h2>
-            <input type="file" onChange={handleChange} />
+            <div>
+                {croppedImage ? (
+                    <div>
+                        <img src={croppedImage} alt="Cropped" />
+                        <Button onClick={handleReset} color="secondary">
+                            Crop Another Image
+                        </Button>
+                        <Button onClick={saveImage}>Save</Button>
+                    </div>
+                ) : (
+                    <div>
+                        <input type="file" onChange={handleFileChange} accept="image/*" />
+                        {selectedFile ? (
+                            <ImageCrop imageFile={selectedFile} onCroppedImage={handleCroppedImage} />
+                        ) : <></>}
+                    </div>
+                )}
+            </div>
+            {/* <input type="file" onChange={handleChange} />
             <img src={preview} />
-            <button onClick={saveImage}>Save</button>
+            <button onClick={saveImage}>Save</button> */}
             {/* {user_error && <h1>ERROR</h1>}
             {user_loading ? <p>Loading</p> : user_data?.map(item => <><Link key={item.name + "_l"} to="/debug">{item.name}</Link><br /><DebugRoles key={item.name} user={item.name} /></>)} */}
         </>
@@ -65,3 +97,5 @@ export default function Debug() {
 //         </>
 //     )
 // }
+
+

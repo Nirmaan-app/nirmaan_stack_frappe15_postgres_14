@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { HardHat, UserRound, PersonStanding } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
-import { Link,useNavigate,useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 import DropdownMenu from './dropdown';
 import DropdownMenu2 from './dropdown2';
@@ -36,11 +36,11 @@ export const NewPR = () => {
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ['name', 'project_name', 'project_address','project_lead','procurement_lead']
+            fields: ['name', 'project_name', 'project_address', 'project_lead', 'procurement_lead']
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation','workflow_state']
+            fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'workflow_state']
         });
 
     // console.log(category_list);
@@ -110,7 +110,7 @@ export const NewPR = () => {
     const project_lists: string[] = [];
     if (curCategory) {
         item_list?.map((item) => {
-            if (item.category === curCategory) item_options.push({value:item.item_name , label:item.item_name})
+            if (item.category === curCategory) item_options.push({ value: item.item_name, label: item.item_name })
         })
     }
     if (project_list?.length != project_lists.length) {
@@ -183,7 +183,7 @@ export const NewPR = () => {
         orderData.procurement_list.list.map((item) => {
             const isDuplicate = newCategories.some(category => category.name === item.category);
             if (!isDuplicate) {
-                newCategories.push({name: item.category})
+                newCategories.push({ name: item.category })
             }
         })
         setOrderData((prevState) => ({
@@ -192,20 +192,20 @@ export const NewPR = () => {
                 list: newCategories
             },
         }));
-      }, [orderData.procurement_list]);
+    }, [orderData.procurement_list]);
 
-      useEffect(() => {
+    useEffect(() => {
         const curProject = project_list?.find(proj => proj.name === id);
-        
+
         if (curProject) {
-          setOrderData(prevData => ({
-            ...prevData,
-            project_lead: curProject.project_lead,
-            procurement_executive: curProject.procurement_lead
-        }));
+            setOrderData(prevData => ({
+                ...prevData,
+                project_lead: curProject.project_lead,
+                procurement_executive: curProject.procurement_lead
+            }));
         }
-      }, [project_list]);
-      
+    }, [project_list]);
+
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const handleSubmit = () => {
@@ -244,17 +244,17 @@ export const NewPR = () => {
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Work Package</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
-                {wp_list?.map((item) => (
-                    <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
-                        <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
-                            <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
-                                <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
-                                <span>{item.work_package_name}</span>
-                            </CardTitle>
-                            {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
-                        </CardHeader>
-                    </Card>
-                ))}
+                    {wp_list?.map((item) => (
+                        <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
+                            <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
+                                <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
+                                    <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
+                                    <span>{item.work_package_name}</span>
+                                </CardTitle>
+                                {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
+                            </CardHeader>
+                        </Card>
+                    ))}
                 </div>
             </div>}
             {page == 'categorylist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
@@ -263,21 +263,21 @@ export const NewPR = () => {
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
-                {category_list?.map((item) => {
-                    if (item.work_package === orderData.work_package) {
-                        return (
-                            <Card className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick(item.category_name, 'itemlist')}>
-                                <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
-                                    <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
-                                        <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
-                                        <span>{item.category_name}</span>
-                                    </CardTitle>
-                                    {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
-                                </CardHeader>
-                            </Card>
-                        );
-                    }
-                })}
+                    {category_list?.map((item) => {
+                        if (item.work_package === orderData.work_package) {
+                            return (
+                                <Card className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick(item.category_name, 'itemlist')}>
+                                    <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
+                                        <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
+                                            <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
+                                            <span>{item.category_name}</span>
+                                        </CardTitle>
+                                        {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
+                                    </CardHeader>
+                                </Card>
+                            );
+                        }
+                    })}
                 </div>
             </div>}
             {page == 'itemlist' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
@@ -307,7 +307,7 @@ export const NewPR = () => {
                         {/* <DropdownMenu items={item_lists} onSelect={handleSelect} /> */}
                         <ReactSelect options={item_options} onChange={handleChange} />
                     </div>
-                    <div className="flex-1"> 
+                    <div className="flex-1">
                         <h5 className="text-xs text-gray-400">UOM</h5>
                         <input className="h-[37px] w-full border rounded-lg" type="text" placeholder={unit} value={unit} />
                     </div>
@@ -365,45 +365,45 @@ export const NewPR = () => {
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center space-y-2">
                     <ArrowLeft onClick={() => setPage('itemlist')} />
-                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">PR Item List</h2>
+                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Add new Item</h2>
                 </div>
                 <div className="mb-4">
-                    <div className="text-lg font-bold py-2">{curCategory}</div>
-                <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
-                <input
-                type="text"
-                id="itemName"
-                value={curItem}
-                onChange={(e) => setCurItem(e.target.value)}
-                className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                />
-            </div>
-            <div className="mb-4">
-                <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
-                <input
-                type="text"
-                id="itemUnit"
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                />
-                <Dialog>
-                    <DialogTrigger asChild>
-                        <button className="fixed bottom-2 h-8 left-2 right-2 md:w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                            <DialogTitle>Are you Sure</DialogTitle>
-                            <DialogDescription>
-                                Click on Confirm to create new Item.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogClose>
-                        <Button variant="secondary" onClick={() => handleAddItem()}>Confirm</Button>
-                        </DialogClose>
-                    </DialogContent>
-                </Dialog>
-            </div>
+                    <div className="text-lg font-bold py-2">Category: {curCategory}</div>
+                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
+                    <input
+                        type="text"
+                        id="itemName"
+                        value={curItem}
+                        onChange={(e) => setCurItem(e.target.value)}
+                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                </div>
+                <div className="mb-4">
+                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
+                    <input
+                        type="text"
+                        id="itemUnit"
+                        value={unit}
+                        onChange={(e) => setUnit(e.target.value)}
+                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            <button className="fixed bottom-2 h-8 left-2 right-2 md:w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[425px]">
+                            <DialogHeader>
+                                <DialogTitle>Are you Sure</DialogTitle>
+                                <DialogDescription>
+                                    Click on Confirm to create new Item.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogClose>
+                                <Button variant="secondary" onClick={() => handleAddItem()}>Confirm</Button>
+                            </DialogClose>
+                        </DialogContent>
+                    </Dialog>
+                </div>
             </div>}
         </MainLayout>
     )
