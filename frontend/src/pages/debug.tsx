@@ -36,6 +36,7 @@ export default function Debug() {
 
     const handleCroppedImage = (croppedImage) => {
         setCroppedImage(croppedImage)
+        console.log(croppedImage)
     }
 
     const handleReset = () => {
@@ -44,8 +45,9 @@ export default function Debug() {
     }
 
     function saveImage() {
+        let cropped_file = new File([croppedImage], "cropped.png", { type: "image/png" })
         upload_img(
-            croppedImage,
+            cropped_file,
             fileArgs,
             'frappe.handler.upload_file'
         )
@@ -74,14 +76,14 @@ export default function Debug() {
                         <input type="file" onChange={handleFileChange} accept="image/*" />
                         {selectedFile ? (
                             <Dialog>
-                            <DialogTrigger asChild>
-                                <Button>Edit Image</Button>
-                            </DialogTrigger>
-                            <DialogContent className="dialogContent">
-                                <DialogHeader>
-                                <ImageCrop imageFile={selectedFile} onCroppedImage={handleCroppedImage} />
-                                </DialogHeader>
-                            </DialogContent>
+                                <DialogTrigger asChild>
+                                    <Button>Edit Image</Button>
+                                </DialogTrigger>
+                                <DialogContent className="dialogContent">
+                                    <DialogHeader>
+                                        <ImageCrop imageFile={selectedFile} onCroppedImage={handleCroppedImage} />
+                                    </DialogHeader>
+                                </DialogContent>
                             </Dialog>
                         ) : <></>}
                     </div>
@@ -108,5 +110,3 @@ export default function Debug() {
 //         </>
 //     )
 // }
-
-

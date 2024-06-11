@@ -71,51 +71,52 @@ export default function ImageCrop({ imageFile, onCroppedImage }) {
                 <DialogOverlay className="dialogOverlay" />
                 <DialogContent className="dialogContent">
                     <DialogHeader> */}
-                        <div className="relative w-full h-60 mt-4 overflow-hidden">
-                            <Cropper
-                                image={imageSrc}
-                                crop={crop}
-                                rotation={rotation}
-                                zoom={zoom}
-                                aspect={4 / 3}
-                                onCropChange={setCrop}
-                                onRotationChange={setRotation}
-                                onCropComplete={onCropComplete}
-                                onZoomChange={setZoom}
+            <div className="relative w-full h-60 mt-4 overflow-hidden">
+                <Cropper
+                    image={imageSrc}
+                    crop={crop}
+                    rotation={rotation}
+                    zoom={zoom}
+                    aspect={4 / 3}
+                    onCropChange={setCrop}
+                    onRotationChange={setRotation}
+                    onCropComplete={onCropComplete}
+                    onZoomChange={setZoom}
 
-                            />
-                        </div>
-                        <div >
-                                <div className="py-4">
-                                    <Slider
-                                        value={[zoom]}
-                                        min={1}
-                                        max={3}
-                                        step={0.1}
-                                        aria-labelledby="Zoom"
-                                        onValueChange={([zoom]) => setZoom(zoom)}
-                                    />
-                                </div>
-                                <div className="py-4">
-                                    <Slider
-                                        value={[rotation]}
-                                        min={0}
-                                        max={360}
-                                        step={1}
-                                        aria-labelledby="Rotation"
-                                        onValueChange={([rotation]) => setRotation(rotation)}
-                                    />
-                                </div>
-                            <Button
-                                onClick={showCroppedImage}
-                                color="primary"
-                            >
-                                Show Result
-                            </Button>
-                        </div>
-                    {/* </DialogHeader> */}
-                    {/* <ImgDialog img={croppedImage} onClose={onClose} /> */}
-                {/* </DialogContent>
+                />
+            </div>
+            <div >
+                <div className="py-4">
+                    <Slider
+                        value={[zoom]}
+                        min={1}
+                        max={3}
+                        step={0.1}
+                        aria-labelledby="Zoom"
+                        onValueChange={([zoom]) => setZoom(zoom)}
+                    />
+                </div>
+                <div className="py-4">
+                    <Slider
+                        value={[rotation]}
+                        min={0}
+                        max={360}
+                        step={1}
+                        aria-labelledby="Rotation"
+                        onValueChange={([rotation]) => setRotation(rotation)}
+                    />
+                </div>
+                <Button
+                    onClick={showCroppedImage}
+                    color="primary"
+                >
+                    Show Result
+                </Button>
+            </div>
+            {/* </DialogHeader> */}
+            {/* <ImgDialog img={croppedImage} onClose={onClose} /> */}
+            {/* </DialogContent>
+
             </Dialog> */}
         </div>
     )

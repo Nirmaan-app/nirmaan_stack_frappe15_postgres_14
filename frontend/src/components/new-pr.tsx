@@ -25,7 +25,7 @@ export const NewPR = () => {
     const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
         {
-            fields: ['work_package_name']
+            fields: ['work_package_name', "work_package_image"]
         });
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -261,7 +261,7 @@ export const NewPR = () => {
                         <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
                             <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
                                 <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
-                                    <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
+                                    <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.work_package_image === null ? imageUrl : item.work_package_image} alt="Project" />
                                     <span>{item.work_package_name}</span>
                                 </CardTitle>
                                 {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
@@ -395,6 +395,14 @@ export const NewPR = () => {
                 </div>
                 <div className="mb-4">
                     <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
+                    <input
+                        type="text"
+                        id="itemUnit"
+                        value={unit}
+                        onChange={(e) => setUnit(e.target.value)}
+                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Image</label>
                     <input
                         type="text"
                         id="itemUnit"
