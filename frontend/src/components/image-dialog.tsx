@@ -116,6 +116,7 @@ export default function ImageCrop({ imageFile, onCroppedImage }) {
             {/* </DialogHeader> */}
             {/* <ImgDialog img={croppedImage} onClose={onClose} /> */}
             {/* </DialogContent>
+
             </Dialog> */}
         </div>
     )

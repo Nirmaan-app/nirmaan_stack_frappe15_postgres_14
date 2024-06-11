@@ -266,6 +266,16 @@ export const SelectVendors = () => {
                                                     </div>
                                                 </div>
                                             })}
+                                            <div className='flex-1'>
+                                                <div className="bg-gray-200 p-2 font-semibold">Last 3 months Lowest Quote<div className='py-2 font-light text-sm'>3 Days</div></div>
+                                                {orderData?.procurement_list?.list.map((item) => {
+                                                    if (item.category === cat.name) {
+                                                        return <div className="py-2 text-sm px-2 border-b">
+                                                            Price
+                                                        </div>
+                                                    }
+                                                })}
+                                            </div>
                                         </div>
                                     </CardHeader>
                                 </Card>

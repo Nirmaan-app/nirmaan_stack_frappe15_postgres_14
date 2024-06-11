@@ -63,7 +63,6 @@ export const ProcurementOrder = () => {
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
-    console.log(vendor_list)
     const [page, setPage] = useState<string>('approve')
     const [uniqueVendors, setUniqueVendors] = useState({
         list: []
@@ -137,6 +136,7 @@ export const ProcurementOrder = () => {
     };
 
 const handleSubmit = async () => {
+    if(Object.keys(selectedCategories).length != orderData.category_list.list.length) return
     const cats = uniqueCategories.list;
     const promises = [];
 
@@ -204,33 +204,7 @@ const handleSubmit = async () => {
         console.error("Error in creating documents:", error);
     }
 };
-
-    const handleUpdateQuote = () => {
-        updateDoc('Procurement Requests', orderId, {
-            workflow_state: "Quote Updated",
-        })
-            .then(() => {
-                console.log(orderId)
-
-                navigate(`/procure-request/select-vendors/${orderId}`);
-            }).catch(() => {
-                console.log(submit_error)
-            })
-    }
-
-    const handleRadioChange = (cat, vendor) => {
-        setSelectedVendors(prevState => {
-            if (prevState.hasOwnProperty(cat)) {
-                return { ...prevState, [cat]: vendor };
-            } else {
-                return { ...prevState, [cat]: vendor };
-            }
-        });
-    };
-
-    const handleChangeWithParam = (cat, vendor) => {
-        return () => handleRadioChange(cat, vendor);
-    };
+console.log("selectedCategories",Object.keys(selectedCategories).length)
 
     return (
         <MainLayout>
@@ -354,9 +328,9 @@ const handleSubmit = async () => {
                             </div>
                         })}
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
+                            {(loading || update_loading) ? <div>loading...</div> : <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
                                 Send RFQ
-                            </button>
+                            </button>}
                         </div>
                     </div>
                 </div>}
