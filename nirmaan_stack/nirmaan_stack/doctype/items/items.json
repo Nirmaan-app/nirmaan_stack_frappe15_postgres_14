@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_import": 1,
  "allow_rename": 1,
  "autoname": "ITEM-.######",
  "creation": "2024-04-20 14:01:40.397823",
@@ -65,7 +66,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-06-06 20:51:02.841856",
+ "modified": "2024-06-07 17:57:29.280954",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Items",
