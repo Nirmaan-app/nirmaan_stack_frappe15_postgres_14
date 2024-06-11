@@ -39,7 +39,7 @@ export const ApproveSentBack = () => {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address','vendor_gst']
+            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst']
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
@@ -47,13 +47,13 @@ export const ApproveSentBack = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote','lead_time'],
+            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time'],
             filters: [["is_selected", "=", "True"]]
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name','item_list', 'workflow_state','procurement_request','category','project_name','vendor','creation','owner'],
-            filters:[["workflow_state","=","Vendor Selected"]]
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'owner'],
+            filters: [["workflow_state", "=", "Vendor Selected"]]
         });
 
 
@@ -69,7 +69,7 @@ export const ApproveSentBack = () => {
             }
         })
     }
-    const [comment,setComment] = useState('')
+    const [comment, setComment] = useState('')
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
@@ -107,24 +107,24 @@ export const ApproveSentBack = () => {
                 console.log("item", id)
                 navigate("/")
             }).catch(() => {
-                console.log("update_submit_error",update_submit_error)
+                console.log("update_submit_error", update_submit_error)
             })
     }
     const curCategory = orderData.category
-    
+
     const handleApprove = (cat: string) => {
         const order_list = {
-            list:[]
+            list: []
         };
-        orderData.item_list?.list.map((value)=>{
-                const newItem = {
-                    name:value.name,
-                    item: getItem(value.name),
-                    unit: getUnit(value.name),
-                    quantity: value.quantity,
-                    quote: value.quote
-                }
-                order_list.list.push(newItem)
+        orderData.item_list?.list.map((value) => {
+            const newItem = {
+                name: value.name,
+                item: getItem(value.name),
+                unit: getUnit(value.name),
+                quantity: value.quantity,
+                quote: value.quote
+            }
+            order_list.list.push(newItem)
         })
         const newProcurementOrder = {
             procurement_request: orderData.procurement_request,
@@ -144,25 +144,25 @@ export const ApproveSentBack = () => {
                 navigate("/")
             })
             .catch(() => {
-                console.log("submit_error",submit_error);
+                console.log("submit_error", submit_error);
             })
         updateDoc('Sent Back Category', id, {
-                workflow_state: "Approved"
+            workflow_state: "Approved"
+        })
+            .then(() => {
+                console.log("item", id)
+                navigate("/")
+            }).catch(() => {
+                console.log("update_submit_error", update_submit_error)
             })
-                .then(() => {
-                    console.log("item", id)
-                    navigate("/")
-                }).catch(() => {
-                    console.log("update_submit_error",update_submit_error)
-                })
-        
+
     }
 
     const getTotal = (cat: string) => {
         let total: number = 0;
         orderData.item_list?.list.map((item) => {
             const price = item.quote;
-            total += (price ? parseFloat(price) : 0)*item.quantity
+            total += (price ? parseFloat(price) : 0) * item.quantity
         })
         return total
     }
@@ -198,35 +198,35 @@ export const ApproveSentBack = () => {
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                         </div>
                     </div>
-                        <div className="w-full">
-                            <div className="font-bold text-xl py-2">{orderData?.category}</div>
-                            <Card className="flex w-1/2 shadow-none border border-grey-500" >
-                                <CardHeader className="w-full">
-                                    <CardTitle>
-                                        <div className="text-sm text-gray-400">Selected Vendor</div>
-                                        <div className="flex justify-between border-b">
-                                            <div className="font-bold text-lg py-2 border-gray-200">{getVendorName(orderData?.vendor)}</div>
-                                            <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
-                                        </div>
-                                    </CardTitle>
-                                    {orderData.item_list?.list.map((item) => {
-                                        const price = item.quote;
-                                        if(count === 2 ) {return }
-                                        count++;
-                                            return <div className="flex justify-between py-2">
-                                                <div className="text-sm">{item.item}</div>
-                                                <div className="text-sm">{price*item.quantity}</div>
-                                            </div>
-                                        
-                                    })}
-                                    <Dialog>
-                                        <DialogTrigger asChild>
+                    <div className="w-full">
+                        <div className="font-bold text-xl py-2">{orderData?.category}</div>
+                        <Card className="flex w-1/2 shadow-none border border-grey-500" >
+                            <CardHeader className="w-full">
+                                <CardTitle>
+                                    <div className="text-sm text-gray-400">Selected Vendor</div>
+                                    <div className="flex justify-between border-b">
+                                        <div className="font-bold text-lg py-2 border-gray-200">{getVendorName(orderData?.vendor)}</div>
+                                        <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
+                                    </div>
+                                </CardTitle>
+                                {orderData.item_list?.list.map((item) => {
+                                    const price = item.quote;
+                                    if (count === 2) { return }
+                                    count++;
+                                    return <div className="flex justify-between py-2">
+                                        <div className="text-sm">{item.item}</div>
+                                        <div className="text-sm">{price * item.quantity}</div>
+                                    </div>
+
+                                })}
+                                <Dialog>
+                                    <DialogTrigger asChild>
                                         <div className="text-sm text-blue-500 cursor-pointer">View All</div>
-                                        </DialogTrigger>
-                                        <DialogContent className="sm:max-w-[425px]">
-                                            <DialogHeader>
-                                                <DialogTitle>Items List</DialogTitle>
-                                                <DialogDescription>
+                                    </DialogTrigger>
+                                    <DialogContent className="sm:max-w-[425px]">
+                                        <DialogHeader>
+                                            <DialogTitle>Items List</DialogTitle>
+                                            <DialogDescription>
                                                 <div className="grid grid-cols-6 font-medium text-black justify-between py-2">
                                                     <div className="text-sm col-span-2">Items</div>
                                                     <div className="text-sm">Qty</div>
@@ -236,46 +236,48 @@ export const ApproveSentBack = () => {
                                                 </div>
                                                 {orderData.item_list?.list.map((item) => {
                                                     const price = item.quote;
-                                                        return <div className="grid grid-cols-6 py-2">
-                                                            <div className="text-sm col-span-2">{item.item}</div>
-                                                            <div className="text-sm">{item.quantity}</div>
-                                                            <div className="text-sm">{item.unit}</div>
-                                                            <div className="text-sm">{price}</div>
-                                                            <div className="text-sm">{price*item.quantity}</div>
-                                                        </div>
-                                                    
+                                                    return <div className="grid grid-cols-6 py-2">
+                                                        <div className="text-sm col-span-2">{item.item}</div>
+                                                        <div className="text-sm">{item.quantity}</div>
+                                                        <div className="text-sm">{item.unit}</div>
+                                                        <div className="text-sm">{price}</div>
+                                                        <div className="text-sm">{price * item.quantity}</div>
+                                                    </div>
+
                                                 })}
-                                                </DialogDescription>
-                                            </DialogHeader>
-                                        </DialogContent>
-                                    </Dialog>
-                                </CardHeader>
-                            </Card>
-                            <div className="py-4 flex justify-between">
+                                            </DialogDescription>
+                                        </DialogHeader>
+                                    </DialogContent>
+                                </Dialog>
+                            </CardHeader>
+                        </Card>
+                        <div className="py-4 flex justify-between">
                             <Sheet>
                                 <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg">Add Comment and Send Back</SheetTrigger>
                                 <SheetContent>
-                                <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                    <SheetHeader>
-                                        <SheetTitle>Enter Price</SheetTitle>
-                                        <SheetDescription>
-                                            Add Comments and Send Back
-                                            <div className="flex justify-between py-2">
-                                                <div className="text-sm w-1/2">Added Items</div>
-                                                <div className="text-sm">Qty</div>
-                                                <div className="text-sm">UOM</div>
-                                                <div className="text-sm">Quote</div>
-                                            </div>
-                                            {orderData.item_list?.list.map((item) => {
+                                    <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                        <SheetHeader>
+                                            <SheetTitle>Enter Price</SheetTitle>
+                                            <SheetDescription>
+                                                Add Comments and Send Back
+                                                <div className="flex justify-between py-2">
+                                                    <div className="text-sm w-[45%]">Added Items</div>
+                                                    <div className="text-sm">Qty</div>
+                                                    <div className="text-sm">UOM</div>
+                                                    <div className="text-sm">Rate</div>
+                                                    <div className="text-sm w-[20%]">Last 3 months Lowest Rate</div>
+                                                </div>
+                                                {orderData.item_list?.list.map((item) => {
                                                     return <div className="flex justify-between py-2">
-                                                        <div className="text-sm w-1/2 text-black font-semibold">{item.item}</div>
+                                                        <div className="text-sm w-[45%] text-black font-semibold">{item.item}</div>
                                                         <div className="text-sm text-black font-semibold">{item.quantity}</div>
                                                         <div className="text-sm text-black font-semibold">{item.unit}</div>
                                                         <div className="text-sm text-black font-semibold">{item.quote}</div>
+                                                        <div className="text-sm text-black font-semibold w-[20%]">{"N/A"}</div>
                                                     </div>
-                                            })}
-                                            
-                                            <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
+                                                })}
+
+                                                <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
                                                 <textarea
                                                     id="textarea"
                                                     className="w-full border rounded-lg p-2"
@@ -283,19 +285,19 @@ export const ApproveSentBack = () => {
                                                     placeholder="Type your comments here"
                                                     onChange={(e) => setComment(e.target.value)}
                                                 />
-                                            <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                                            <SheetClose><Button onClick={()=>handleSendBack(curCategory)}>Submit</Button></SheetClose>
-                                            </div>
-                                        </SheetDescription>
-                                    </SheetHeader>
+                                                <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                                                    <SheetClose><Button onClick={() => handleSendBack(curCategory)}>Submit</Button></SheetClose>
+                                                </div>
+                                            </SheetDescription>
+                                        </SheetHeader>
                                     </ScrollArea>
                                 </SheetContent>
                             </Sheet>
                             <Dialog>
                                 <DialogTrigger asChild>
-                                <Button>
-                                    Approve
-                                </Button>
+                                    <Button>
+                                        Approve
+                                    </Button>
                                 </DialogTrigger>
                                 <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>
@@ -307,8 +309,8 @@ export const ApproveSentBack = () => {
                                     <Button variant="secondary" onClick={() => handleApprove(curCategory)}>Confirm</Button>
                                 </DialogContent>
                             </Dialog>
-                            </div>
                         </div>
+                    </div>
                 </div>
             </div>
         </MainLayout>

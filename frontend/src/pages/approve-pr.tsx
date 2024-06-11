@@ -6,25 +6,23 @@ import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Badge } from "@/components/ui/badge";
 
 type PRTable = {
     name: string
     project: string
     creation: string
     work_package: string
+    category_list: {}
 }
 
 export const ApprovePR = () => {
     const userData = useUserData();
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
-            filters: [["project_lead","=",userData.user_id]]
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'category_list', 'procurement_list', 'creation'],
+            filters: [["project_lead", "=", userData.user_id], ["workflow_state", "=", "Pending"]]
         });
-    const procurement_request_lists = [];
-    procurement_request_list?.map((item) => {
-        if (item.workflow_state === "Pending") procurement_request_lists.push(item)
-    })
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -91,6 +89,21 @@ export const ApprovePR = () => {
                 }
             },
             {
+                accessorKey: "category_list",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Categories" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div>
+                            {row.getValue("category_list").list.map((obj) => <Badge>{obj["name"]}</Badge>)}
+                        </div>
+                    )
+                }
+            },
+            {
                 accessorKey: "project_type",
                 header: ({ column }) => {
                     return (
@@ -105,7 +118,7 @@ export const ApprovePR = () => {
                     )
                 }
             }
-            
+
         ],
         []
     )
@@ -119,7 +132,7 @@ export const ApprovePR = () => {
                         <h2 className="text-lg font-bold tracking-tight">Approve PR</h2>
                     </div>
                     {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
-                    <DataTable columns={columns} data={procurement_request_lists || []} />
+                    <DataTable columns={columns} data={procurement_request_list || []} />
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">

@@ -10,7 +10,7 @@ import { ArrowLeft } from 'lucide-react';
 import SentBackQuotationForm from "./sent-back-quotation-form"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
-import { useState,useEffect } from "react"
+import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { MainLayout } from '../layout/main-layout';
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -45,13 +45,13 @@ export const SentBackUpdateQuote = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name','lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
+            fields: ['name', 'lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
             limit: 500
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['owner','name', 'workflow_state','procurement_request','category','project_name','vendor','creation','item_list','comments'],
-            filters:[["workflow_state","=","Pending"]]
+            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'item_list', 'comments'],
+            filters: [["workflow_state", "=", "Pending"]]
         });
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc } = useFrappeUpdateDoc()
@@ -67,7 +67,7 @@ export const SentBackUpdateQuote = () => {
         list: []
     })
     const [orderData, setOrderData] = useState({
-        project_name:''
+        project_name: ''
     })
 
     useEffect(() => {
@@ -79,14 +79,14 @@ export const SentBackUpdateQuote = () => {
     }, [sent_back_list]);
 
     useEffect(() => {
-        if(orderData.project_name){
-            console.log(orderData,quotation_request_list)
+        if (orderData.project_name) {
+            console.log(orderData, quotation_request_list)
             const vendors = uniqueVendors.list;
-            quotation_request_list?.map((item)=>{
-                if(orderData.procurement_request === item.procurement_task && orderData.category === item.category){
+            quotation_request_list?.map((item) => {
+                if (orderData.procurement_request === item.procurement_task && orderData.category === item.category) {
                     const value = item.vendor;
                     vendors.push(value)
-                    console.log("value",value)  
+                    console.log("value", value)
                 }
             })
             const removeDuplicates = (array) => {
@@ -98,8 +98,8 @@ export const SentBackUpdateQuote = () => {
                 list: uniqueList
             }));
         }
-    }, [quotation_request_list,orderData]);
-    console.log(uniqueVendors,quotation_request_list)
+    }, [quotation_request_list, orderData]);
+    console.log(uniqueVendors, quotation_request_list)
     const handleUpdateQuote = () => {
         navigate(`/sent-back-request/select-vendor/${id}`);
     }
@@ -114,7 +114,7 @@ export const SentBackUpdateQuote = () => {
                             <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Summary</h2>
                         </div>
                         <div className="grid grid-cols-6 gap-4 border border-gray-100 rounded-lg p-4">
-                            
+
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Sent Back ID</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name}</p>
@@ -161,7 +161,7 @@ export const SentBackUpdateQuote = () => {
                                                 {item.quote}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                {item.quote*item.quantity}
+                                                {item.quote * item.quantity}
                                             </td>
                                         </tr>
                                     ))}
@@ -185,7 +185,7 @@ export const SentBackUpdateQuote = () => {
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                         <div className="flex items-center space-y-2">
-                            <ArrowLeft onClick={()=>setPage('summary')}/>
+                            <ArrowLeft onClick={() => setPage('summary')} />
                             <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Update Quote</h2>
                         </div>
                         <div className="grid grid-cols-6 gap-4 border border-gray-100 rounded-lg p-4">
@@ -220,14 +220,14 @@ export const SentBackUpdateQuote = () => {
                                 <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
                                     <SheetContent>
-                                    <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                        <SheetHeader>
-                                            <SheetTitle>Enter Price</SheetTitle>
-                                            <SheetDescription>
-                                                <SentBackQuotationForm cat={orderData.category} vendor_id={item} pr_id={orderData.procurement_request} />
-                                            </SheetDescription>
-                                        </SheetHeader>
-                                    </ScrollArea>
+                                        <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                            <SheetHeader>
+                                                <SheetTitle>Enter Price</SheetTitle>
+                                                <SheetDescription>
+                                                    <SentBackQuotationForm cat={orderData.category} vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                        </ScrollArea>
                                     </SheetContent>
                                 </Sheet>
                             </div>

@@ -48,12 +48,12 @@ export const ApproveVendor = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time','quantity'],
+            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["is_selected", "=", "True"], ["procurement_task", "=", orderId]]
         });
     const { data: quotation_request_list2, isLoading: quotation_request_list2_loading, error: quotation_request_list2_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time','quantity'],
+            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["procurement_task", "=", orderId]]
         });
 
@@ -79,7 +79,10 @@ export const ApproveVendor = () => {
 
     const [selectedVendors, setSelectedVendors] = useState({})
     const [comment, setComment] = useState('')
-    const [editCategory, setEditCategory] = useState('')
+    const [selectedItem, setSelectedItem] = useState({
+        list: []
+    })
+    const [selectAll, setSelectAll] = useState(false);
     const total_categories = procurement_request_list?.find(item => item.name === orderId)?.category_list.list.length;
 
     const getVendorName = (vendorName: string) => {
@@ -108,9 +111,31 @@ export const ApproveVendor = () => {
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+    const handleCheckboxChange = (id: string) => {
+        const isSelected = selectedItem.list.some(item => item.name === id);
+        const updatedSelectedList = isSelected
+            ? selectedItem.list.filter(item => item.name !== id)
+            : [...selectedItem.list, orderData.procurement_list?.list.find(item => item.name === id)];
+
+        setSelectedItem({ list: updatedSelectedList });
+    };
+
+    const handleSelectAllChange = () => {
+        const newSelectAll = !selectAll;
+        setSelectAll(newSelectAll);
+
+        const updatedSelectedList = newSelectAll ? [...orderData.procurement_list?.list] : [];
+        setSelectedItem({ list: updatedSelectedList });
+    };
+
+    const handleTrigger = () => {
+        setSelectAll(false);
+        setSelectedItem({ list: [] });
+    }
+
     const handleSendBack = (cat: string) => {
         const itemlist = [];
-        orderData.procurement_list.list.map((value) => {
+        selectedItem.list.map((value) => {
             if (value.category === cat) {
                 const price = getPrice(selectedVendors[cat], value.name);
                 itemlist.push({
@@ -163,17 +188,52 @@ export const ApproveVendor = () => {
                 }
             };
         });
+        const order_list = {
+            list: []
+        };
+        quotation_request_list?.map((value) => {
+            const isSelected = selectedItem.list.some(item => item.name === value.item);
+            if (value.category === cat && !isSelected) {
+                const newItem = {
+                    name: value.item,
+                    item: getItem(value.item),
+                    unit: getUnit(value.item),
+                    quantity: value.quantity,
+                    quote: value.quote
+                }
+                order_list.list.push(newItem)
+            }
+        })
+        const newProcurementOrder = {
+            procurement_request: orderId,
+            project: orderData.project,
+            project_name: getProjectName(orderData.project),
+            project_address: getProjectAddress(orderData.project),
+            category: cat,
+            vendor: selectedVendors[cat],
+            vendor_name: getVendorName(selectedVendors[cat]),
+            vendor_address: getVendorAddress(selectedVendors[cat]),
+            vendor_gst: getVendorGST(selectedVendors[cat]),
+            order_list: order_list
+        }
+        createDoc('Procurement Orders', newProcurementOrder)
+            .then(() => {
+                console.log(newProcurementOrder);
+            })
+            .catch(() => {
+                console.log("submit_error", submit_error);
+            })
     }
 
 
     const handleRejectAll = () => {
         // Create an array to hold all the promises
         const createDocPromises = [];
-    
+
         orderData.category_list.list.forEach((cat) => {
             const itemlist = [];
             const curCategory = cat.name;
-    
+
             // Populate the itemlist with matching items
             orderData.procurement_list.list.forEach((value) => {
                 if (value.category === curCategory) {
@@ -187,7 +247,7 @@ export const ApproveVendor = () => {
                     });
                 }
             });
-    
+
             const delivery_time = quotation_request_list?.find(item => item.category === curCategory)?.lead_time;
             const newSendBack = {
                 procurement_request: orderId,
@@ -201,7 +261,7 @@ export const ApproveVendor = () => {
                 comments: comment,
                 procurement_executive: orderData.procurement_executive
             };
-    
+
             // Add the createDoc promise to the array
             const createDocPromise = createDoc('Sent Back Category', newSendBack)
                 .then(() => {
@@ -211,9 +271,9 @@ export const ApproveVendor = () => {
                 .catch((error) => {
                     console.log("submit_error", error);
                 });
-    
+
             createDocPromises.push(createDocPromise);
-    
+
             // Update the state for the order data
             setOrderData((prevState) => {
                 const newCategoryList = prevState.category_list.list.filter(
@@ -228,7 +288,7 @@ export const ApproveVendor = () => {
                 };
             });
         });
-    
+
         // Wait for all createDoc promises to resolve
         Promise.all(createDocPromises)
             .then(() => {
@@ -245,17 +305,17 @@ export const ApproveVendor = () => {
                 console.log("update_submit_error", error);
             });
     };
-    
+
 
     const handleApproveAll = () => {
         // Create an array to hold all the promises
         const createDocPromises = [];
-    
+
         orderData.category_list.list.forEach((cat) => {
             const order_list = {
                 list: []
             };
-    
+
             // Populate the order_list with matching items
             quotation_request_list?.forEach((value) => {
                 if (value.category === cat.name) {
@@ -269,7 +329,7 @@ export const ApproveVendor = () => {
                     order_list.list.push(newItem);
                 }
             });
-    
+
             // Create a new procurement order object
             const newProcurementOrder = {
                 procurement_request: orderId,
@@ -283,7 +343,7 @@ export const ApproveVendor = () => {
                 vendor_gst: getVendorGST(selectedVendors[cat.name]),
                 order_list: order_list
             };
-    
+
             // Add the createDoc promise to the array
             const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
                 .then(() => {
@@ -292,10 +352,10 @@ export const ApproveVendor = () => {
                 .catch((error) => {
                     console.log("submit_error", error);
                 });
-    
+
             createDocPromises.push(createDocPromise);
         });
-    
+
         // Wait for all createDoc promises to resolve
         Promise.all(createDocPromises)
             .then(() => {
@@ -312,7 +372,7 @@ export const ApproveVendor = () => {
                 console.log("update_submit_error", error);
             });
     };
-    
+
 
     const handleApprove = (cat: string) => {
         const order_list = {
@@ -402,7 +462,7 @@ export const ApproveVendor = () => {
         orderData?.procurement_list.list.map((item) => {
             if (item.category === cat) {
                 const price = getPrice(selectedVendors[cat], item.name);
-                total += (price ? parseFloat(price) : 0)*item.quantity;
+                total += (price ? parseFloat(price) : 0) * item.quantity;
             }
         })
         return total
@@ -433,9 +493,9 @@ export const ApproveVendor = () => {
             updatedCategories[curCategory] = newVendors;
         })
         setSelectedCategories(updatedCategories);
-    }, [quotation_request_list2,orderData]);
+    }, [quotation_request_list2, orderData]);
 
-    console.log(selectedCategories,quotation_request_list2)
+    console.log(selectedCategories, quotation_request_list2)
 
     const getLowest = (cat: string) => {
         let price: number = 100000000;
@@ -445,7 +505,7 @@ export const ApproveVendor = () => {
             quotation_request_list2?.map((item) => {
                 if (item.vendor === ven && item.category === cat) {
                     const price = item.quote
-                    total += (price ? parseFloat(price) : 0)*item.quantity;
+                    total += (price ? parseFloat(price) : 0) * item.quantity;
                 }
             })
             if (total < price) {
@@ -453,9 +513,9 @@ export const ApproveVendor = () => {
                 vendor = ven;
             }
         })
-        if(price != 100000000) return {quote : price , vendor:vendor}
+        if (price != 100000000) return { quote: price, vendor: vendor }
     }
-    
+
     return (
         <MainLayout>
             {page == 'approvequotation' && <div className="flex" >
@@ -492,7 +552,7 @@ export const ApproveVendor = () => {
                         let total: number = 0;
                         let count: number = 0;
                         return <div className="grid grid-cols-2 gap-4 w-full">
-                            <div className="col-span-2 font-bold text-xl py-2">{cat.name} <button onClick={()=>setPage('editvendor')}>Edit</button></div>
+                            <div className="col-span-2 font-bold text-xl py-2">{cat.name} </div>
                             <Card className="flex w-full shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
@@ -504,44 +564,44 @@ export const ApproveVendor = () => {
                                     </CardTitle>
                                     {orderData?.procurement_list.list.map((item) => {
                                         const price = getPrice(selectedVendors[curCategory], item.name);
-                                        total += (price ? parseFloat(price) : 0)*(parseFloat(item.quantity));
-                                        if(count === 2 ) {return }
+                                        total += (price ? parseFloat(price) : 0) * (parseFloat(item.quantity));
+                                        if (count === 2) { return }
                                         count++;
                                         if (item.category === curCategory) {
                                             return <div className="flex justify-between py-2">
                                                 <div className="text-sm">{item.item}</div>
-                                                <div className="text-sm">{price*(item.quantity)}</div>
+                                                <div className="text-sm">{price * (item.quantity)}</div>
                                             </div>
                                         }
                                     })}
                                     <Dialog>
                                         <DialogTrigger asChild>
-                                        <div className="text-sm text-blue-500 cursor-pointer">View All</div>
+                                            <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                         </DialogTrigger>
                                         <DialogContent className="sm:max-w-[425px]">
                                             <DialogHeader>
                                                 <DialogTitle>Items List</DialogTitle>
                                                 <DialogDescription>
-                                                <div className="grid grid-cols-6 font-medium text-black py-2">
-                                                    <div className="text-sm col-span-2">Items</div>
-                                                    <div className="text-sm">Unit</div>
-                                                    <div className="text-sm">Qty</div>
-                                                    <div className="text-sm">Rate</div>
-                                                    <div className="text-sm">Amount</div>
-                                                </div>
-                                                {orderData?.procurement_list.list.map((item) => {
-                                                    const price = getPrice(selectedVendors[curCategory], item.name);
-                                                    total += (price ? parseFloat(price) : 0)*(item.quantity);
-                                                    if (item.category === curCategory) {
-                                                        return <div className="grid grid-cols-6 py-2">
-                                                            <div className="text-sm col-span-2">{item.item}</div>
-                                                            <div className="text-sm">{item.unit}</div>
-                                                            <div className="text-sm">{item.quantity}</div>
-                                                            <div className="text-sm">{price}</div>
-                                                            <div className="text-sm">{price*item.quantity}</div>
-                                                        </div>
-                                                    }
-                                                })}
+                                                    <div className="grid grid-cols-6 font-medium text-black py-2">
+                                                        <div className="text-sm col-span-2">Items</div>
+                                                        <div className="text-sm">Unit</div>
+                                                        <div className="text-sm">Qty</div>
+                                                        <div className="text-sm">Rate</div>
+                                                        <div className="text-sm">Amount</div>
+                                                    </div>
+                                                    {orderData?.procurement_list.list.map((item) => {
+                                                        const price = getPrice(selectedVendors[curCategory], item.name);
+                                                        total += (price ? parseFloat(price) : 0) * (item.quantity);
+                                                        if (item.category === curCategory) {
+                                                            return <div className="grid grid-cols-6 py-2">
+                                                                <div className="text-sm col-span-2">{item.item}</div>
+                                                                <div className="text-sm">{item.unit}</div>
+                                                                <div className="text-sm">{item.quantity}</div>
+                                                                <div className="text-sm">{price}</div>
+                                                                <div className="text-sm">{price * item.quantity}</div>
+                                                            </div>
+                                                        }
+                                                    })}
                                                 </DialogDescription>
                                             </DialogHeader>
                                         </DialogContent>
@@ -549,29 +609,29 @@ export const ApproveVendor = () => {
                                 </CardHeader>
                             </Card>
                             <div>
-                                    <div className="h-[50%] p-5 rounded-lg border border-grey-500">
-                                        <div className="flex justify-between">
-                                            <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
-                                        </div>
-                                        <div className="font-medium text-gray-700 text-sm">
-                                            {getVendorName(lowest?.vendor)}
-                                        </div>
-                                        {/* <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div> */}
+                                <div className="h-[50%] p-5 rounded-lg border border-grey-500">
+                                    <div className="flex justify-between">
+                                        <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
+                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
                                     </div>
-                                    <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
-                                        <div className="flex justify-between">
-                                            <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
-                                        </div>
-                                        <div className="font-medium text-gray-700 text-sm">
-                                            Last 3 months Lowest Price
-                                        </div>
+                                    <div className="font-medium text-gray-700 text-sm">
+                                        {getVendorName(lowest?.vendor)}
                                     </div>
+                                    {/* <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div> */}
+                                </div>
+                                <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
+                                    <div className="flex justify-between">
+                                        <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
+                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
                                     </div>
+                                    <div className="font-medium text-gray-700 text-sm">
+                                        Last 3 months Lowest Price
+                                    </div>
+                                </div>
+                            </div>
                             <div className="col-span-2 py-4 flex justify-between">
                                 <Sheet>
-                                    <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg">Add Comment and Send Back</SheetTrigger>
+                                    <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg" onClick={() => handleTrigger()}>Add Comment and Send Back</SheetTrigger>
                                     <SheetContent>
                                         <SheetHeader>
                                             <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
@@ -579,17 +639,27 @@ export const ApproveVendor = () => {
                                                 <SheetDescription>
                                                     Add Comments and Send Back
                                                     <div className="flex justify-between py-2">
-                                                        <div className="text-sm w-1/2">Added Items</div>
+                                                        <div className="text-sm w-[45%]">Added Items</div>
                                                         <div className="text-sm">Qty</div>
                                                         <div className="text-sm">UOM</div>
-                                                        <div className="text-sm">Quote</div>
+                                                        <div className="text-sm">Rate</div>
+                                                        <div className="text-sm w-[15%]">3 months Lowest Rate</div>
                                                     </div>
+                                                    <label className="text-black">
+                                                        <input
+                                                            className="botton-0 mr-2 w-4 h-4"
+                                                            type="checkbox"
+                                                            checked={selectAll}
+                                                            onChange={handleSelectAllChange}
+                                                        />
+                                                        Select All
+                                                    </label>
                                                     {orderData?.procurement_list.list.map((item) => {
                                                         if (item.category === curCategory) {
                                                             const price = getPrice(selectedVendors[curCategory], item.name);
                                                             total += price ? parseFloat(price) : 0;
                                                             return <div className="flex justify-between py-2">
-                                                                <div className="text-sm w-1/2 text-black font-semibold">{item.item}</div>
+                                                                <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.quantity}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.unit}</div>
                                                                 <div className="text-sm text-black font-semibold">{price}</div>
@@ -614,9 +684,9 @@ export const ApproveVendor = () => {
                                 </Sheet>
                                 <Dialog>
                                     <DialogTrigger asChild>
-                                    <Button>
-                                        Approve
-                                    </Button>
+                                        <Button>
+                                            Approve
+                                        </Button>
                                     </DialogTrigger>
                                     <DialogContent className="sm:max-w-[425px]">
                                         <DialogHeader>
@@ -634,9 +704,9 @@ export const ApproveVendor = () => {
                     {orderData.category_list.list.length === total_categories ? <div className="flex space-x-2 justify-end items-end bottom-4 right-4">
                         <Dialog>
                             <DialogTrigger asChild>
-                            <Button className="border border-red-500 bg-white text-red-500 hover:text-white" >
-                                Reject All
-                            </Button>
+                                <Button className="border border-red-500 bg-white text-red-500 hover:text-white" >
+                                    Reject All
+                                </Button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
@@ -650,9 +720,9 @@ export const ApproveVendor = () => {
                         </Dialog>
                         <Dialog>
                             <DialogTrigger asChild>
-                            <Button>
-                                Approve All
-                            </Button>
+                                <Button>
+                                    Approve All
+                                </Button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
@@ -661,7 +731,7 @@ export const ApproveVendor = () => {
                                         Click on Confirm to Approve.
                                     </DialogDescription>
                                 </DialogHeader>
-                                <Button variant="secondary"  onClick={() => handleApproveAll()}>Confirm</Button>
+                                <Button variant="secondary" onClick={() => handleApproveAll()}>Confirm</Button>
                             </DialogContent>
                         </Dialog>
                     </div> :

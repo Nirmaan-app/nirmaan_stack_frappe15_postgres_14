@@ -10,13 +10,28 @@ interface Category {
     name: string;
 }
 
-export default function SentBackQuotationForm({ cat,vendor_id, pr_id }) {
-
+export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) {
+    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
+        {
+            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'item_list'],
+            filters: [["name", "=", sb_id]]
+        });
+    const [orderData, setOrderData] = useState({
+        project_name: '',
+        category: ''
+    })
+    if (!orderData.project_name) {
+        sent_back_list?.map(item => {
+            if (item.name === sb_id) {
+                setOrderData(item)
+            }
+        })
+    }
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name','lead_time','quote', 'project', 'item', 'category', 'vendor', 'procurement_task'],
-            filters: [["procurement_task", "=", pr_id],["vendor","=",vendor_id]],
-            limit:500
+            fields: ['name', 'lead_time', 'quote', 'project', 'item', 'category', 'vendor', 'procurement_task'],
+            filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
+            limit: 500
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
@@ -130,27 +145,28 @@ export default function SentBackQuotationForm({ cat,vendor_id, pr_id }) {
                     <div>Rate</div>
                 </div>
             </div>
-                <div>
-                    <div>{cat}</div>
-                    {quotation_request_list?.map((q) => {
-                        if (q.category === cat && q.vendor === vendor_id) {
-                            return <div className="flex space-x-2">
-                                <div className="w-1/2 font-semibold text-black flex-shrink-0">
-                                    <div>{getItem(q.item)}</div>
-                                </div>
-                                <div className="flex-1">
-                                    <Input type="text" placeholder={getUnit(q.item)} />
-                                </div>
-                                <div className="flex-1">
-                                    <Input type="text" placeholder={getQuantity(q.item)} />
-                                </div>
-                                <div className="flex-1">
-                                    <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
-                                </div>
+            <div>
+                <div>{cat}</div>
+                {quotation_request_list?.map((q) => {
+                    const isSelected = orderData.item_list?.list.some(item => item.name === q.item);
+                    if (q.category === cat && q.vendor === vendor_id && isSelected) {
+                        return <div className="flex space-x-2">
+                            <div className="w-1/2 font-semibold text-black flex-shrink-0">
+                                <div>{getItem(q.item)}</div>
                             </div>
-                        }
-                    })}
-                </div>
+                            <div className="flex-1">
+                                <Input type="text" placeholder={getUnit(q.item)} />
+                            </div>
+                            <div className="flex-1">
+                                <Input type="text" placeholder={getQuantity(q.item)} />
+                            </div>
+                            <div className="flex-1">
+                                <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
+                            </div>
+                        </div>
+                    }
+                })}
+            </div>
             <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                 <SheetClose>
                     <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
