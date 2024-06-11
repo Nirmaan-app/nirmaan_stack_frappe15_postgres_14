@@ -1,9 +1,9 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "./breadcrumb";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { HardHat, UserRound, PersonStanding } from "lucide-react";
+import { HardHat, UserRound, PersonStanding, CirclePlus } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
-import { Link,useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
 import DropdownMenu from './dropdown';
 import DropdownMenu2 from './dropdown2';
@@ -12,6 +12,7 @@ import ReactSelect from 'react-select';
 import { useUserData } from "@/hooks/useUserData";
 
 import imageUrl from "@/assets/user-icon.jpeg"
+import { Button } from "./ui/button";
 
 
 export const ProjectManager = () => {
@@ -33,12 +34,12 @@ export const ProjectManager = () => {
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ['name', 'project_name', 'project_address',"project_manager"],
-            filters: [["project_manager","=",userData.user_id]]
+            fields: ['name', 'project_name', 'project_address', "project_manager"],
+            filters: [["project_manager", "=", userData.user_id]]
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation','workflow_state']
+            fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'workflow_state']
         });
     const [orderData, setOrderData] = useState({
         project: '',
@@ -52,7 +53,7 @@ export const ProjectManager = () => {
     })
     const { data: project_work_milestones_list, isLoading: project_work_milestones_list_loading, error: project_work_milestones_list_error, mutate: project_work_milestones_list_mutate } = useFrappeGetDocList("Project Work Milestones",
         {
-            fields: ['name','project', 'work_package', 'scope_of_work', 'milestone', 'start_date', 'end_date', 'status']
+            fields: ['name', 'project', 'work_package', 'scope_of_work', 'milestone', 'start_date', 'end_date', 'status']
         });
 
     interface Category {
@@ -66,7 +67,7 @@ export const ProjectManager = () => {
     const [quantity, setQuantity] = useState<number>()
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
-    const [curMilestone,setCurMilestone] = useState<string>('')
+    const [curMilestone, setCurMilestone] = useState<string>('')
     const [selectedOption, setSelectedOption] = useState('');
 
     const handleClick = (value: string) => {
@@ -83,9 +84,9 @@ export const ProjectManager = () => {
         }));
     }
 
-    if(project_list?.length != project_options.length){
+    if (project_list?.length != project_options.length) {
         project_list?.map((proj) => {
-            project_options.push({value:proj.name , label:proj.project_name})
+            project_options.push({ value: proj.name, label: proj.project_name })
         })
     }
 
@@ -116,7 +117,7 @@ export const ProjectManager = () => {
     console.log(curMilestone)
 
     return (
-        <>  
+        <>
             {page == 'dashboard' && <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center space-y-2">
@@ -124,7 +125,7 @@ export const ProjectManager = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center" onClick={() => setPage("newprlist")}>
-                            <p className="text-center py-6 font-bold text-gray-500">New PR</p>
+                            <p className="text-center py-6 font-bold text-gray-500">Procurement Requests</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p>
                         </div>
                         <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center" onClick={() => setPage("milestonelist")}>
@@ -134,21 +135,23 @@ export const ProjectManager = () => {
                     </div>
                 </div>
             </div>}
-            {page == 'newprlist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                <div className="flex items-center space-y-2">
+            {page == 'newprlist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
+                <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft onClick={() => setPage('dashboard')} />
-                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Procurement Request</h2>
+                    <h2 className="text-base pl-2  font-bold tracking-tight">Procurement Requests</h2>
                 </div>
-                <div className="gap-4 border border-gray-200 rounded-lg">
+                <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
                     {/* <DropdownMenu2 items={project_lists} onSelect={handleProjectSelect} /> */}
-                    <ReactSelect options={project_options} onChange={handleChange} />
-                    {orderData.project && <div className="container mx-0 px-0 pt-8">
+
+                    <ReactSelect options={project_options} onChange={handleChange} placeholder="Select Project" />
+                    {orderData.project && <div className="container mx-0 px-0 pt-4">
+
                         <table className="table-auto w-full">
                             <thead>
                                 <tr className="w-full border-b">
-                                    <th className="px-4 py-1 text-sm text-gray-600">PR number</th>
-                                    <th className="px-4 py-1 text-sm text-gray-600">Package</th>
-                                    <th className="px-4 py-1 text-sm text-gray-600">Status</th>
+                                    <th className="px-4 py-1 text-xs text-gray-600">PR no.</th>
+                                    <th className="px-4 py-1 text-xs text-gray-600">Package</th>
+                                    <th className="px-4 py-1 text-xs text-gray-600">Status</th>
                                 </tr>
                             </thead>
                             <tbody className="w-full">
@@ -163,13 +166,18 @@ export const ProjectManager = () => {
                                 })}
                             </tbody>
                         </table>
+
                     </div>}
                     <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                        <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg">
+                        <Button className="font-normal py-2 px-6">
                             <Link to={`/new-pr/${orderData.project}`}>
-                                Create New PR
+                                <div className="flex">
+                                    <CirclePlus className="w-5 h-5 mt- pr-1" />
+                                    Create New PR
+                                </div>
+
                             </Link>
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>}
@@ -193,18 +201,20 @@ export const ProjectManager = () => {
                                 </tr>
                             </thead>
                             <tbody className="w-full">
-                            {project_work_milestones_list?.map((item)=>{
-                                console.log(item.start_date)
-                                const startDate = new Date(item.start_date);
-                                const today = new Date();
-                                const futureDate = new Date(today);
-                                futureDate.setDate(today.getDate() + 30);
-                                if(item.project === orderData.project && (startDate <= futureDate)){return <tr key={item.name} >
-                                <td className="border-b-2 px- py-1 text-sm text-center text-blue-600 cursor-pointer" onClick={()=>handleMilestone(item.name)}>{item.milestone}</td>
-                                <td className="border-b-2 px- py-1 text-sm text-center">{item.work_package}-({item.scope_of_work})</td>
-                                <td className="border-b-2 px- py-1 text-sm text-center">{item?.status ? item?.status : "Pending"}</td>
-                            </tr>}
-                            })}
+                                {project_work_milestones_list?.map((item) => {
+                                    console.log(item.start_date)
+                                    const startDate = new Date(item.start_date);
+                                    const today = new Date();
+                                    const futureDate = new Date(today);
+                                    futureDate.setDate(today.getDate() + 30);
+                                    if (item.project === orderData.project && (startDate <= futureDate)) {
+                                        return <tr key={item.name} >
+                                            <td className="border-b-2 px- py-1 text-sm text-center text-blue-600 cursor-pointer" onClick={() => handleMilestone(item.name)}>{item.milestone}</td>
+                                            <td className="border-b-2 px- py-1 text-sm text-center">{item.work_package}-({item.scope_of_work})</td>
+                                            <td className="border-b-2 px- py-1 text-sm text-center">{item?.status ? item?.status : "Pending"}</td>
+                                        </tr>
+                                    }
+                                })}
                             </tbody>
                         </table>
                     </div>}
@@ -219,13 +229,15 @@ export const ProjectManager = () => {
                                 </tr>
                             </thead>
                             <tbody className="w-full">
-                            {project_work_milestones_list?.map((item)=>{
-                                if(item.project === orderData.project){return <tr key={item.name} >
-                                <td className="border-b-2 px- py-1 text-sm text-center">{item.milestone}</td>
-                                <td className="border-b-2 px- py-1 text-sm text-center">{item.work_package}-({item.scope_of_work})</td>
-                                <td className="border-b-2 px- py-1 text-sm text-center">{item?.status ? item?.status : "Pending"}</td>
-                            </tr>}
-                            })}
+                                {project_work_milestones_list?.map((item) => {
+                                    if (item.project === orderData.project) {
+                                        return <tr key={item.name} >
+                                            <td className="border-b-2 px- py-1 text-sm text-center">{item.milestone}</td>
+                                            <td className="border-b-2 px- py-1 text-sm text-center">{item.work_package}-({item.scope_of_work})</td>
+                                            <td className="border-b-2 px- py-1 text-sm text-center">{item?.status ? item?.status : "Pending"}</td>
+                                        </tr>
+                                    }
+                                })}
                             </tbody>
                         </table>
                     </div>}
@@ -238,16 +250,16 @@ export const ProjectManager = () => {
                 </div>
                 <div className="gap-4 rounded-lg">
                     <div className="border-l border-green-400 pl-2 py-2 my-4">
-                            <div className="flex justify-between space-x-6">
-                                <div className="font-semibold text-sm">{curMilestone?.milestone}</div>
-                                <div className="text-xs whitespace-nowrap text-gray-400">{curMilestone?.start_date} to {curMilestone?.end_date}</div>
-                            </div>
-                            <div className="text-sm text-gray-600">Scope - {curMilestone?.scope_of_work}</div>
-                            <div className="text-sm text-gray-600">{curMilestone?.work_package}</div>
-                            <div className="font-semibold text-sm my-2">Common Area</div>
-                            <div className="flex justify-between border rounded-lg text-sm px-2 relative">
-                                <div className="flex-1 text-center py-2">
-                                <label  className="flex items-center justify-center">
+                        <div className="flex justify-between space-x-6">
+                            <div className="font-semibold text-sm">{curMilestone?.milestone}</div>
+                            <div className="text-xs whitespace-nowrap text-gray-400">{curMilestone?.start_date} to {curMilestone?.end_date}</div>
+                        </div>
+                        <div className="text-sm text-gray-600">Scope - {curMilestone?.scope_of_work}</div>
+                        <div className="text-sm text-gray-600">{curMilestone?.work_package}</div>
+                        <div className="font-semibold text-sm my-2">Common Area</div>
+                        <div className="flex justify-between border rounded-lg text-sm px-2 relative">
+                            <div className="flex-1 text-center py-2">
+                                <label className="flex items-center justify-center">
                                     <input
                                         type="radio"
                                         name="common area"
@@ -259,9 +271,9 @@ export const ProjectManager = () => {
                                     />
                                     WIP
                                 </label>
-                                </div>
-                                <div className="flex-1 text-center relative py-2">
-                                <label  className="flex items-center justify-center">
+                            </div>
+                            <div className="flex-1 text-center relative py-2">
+                                <label className="flex items-center justify-center">
                                     <input
                                         type="radio"
                                         name="common area"
@@ -273,10 +285,10 @@ export const ProjectManager = () => {
                                     />
                                     Completed
                                 </label>
-                                    <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
-                                </div>
-                                <div className="flex-1 text-center relative py-2">
-                                <label  className="flex items-center justify-center">
+                                <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
+                            </div>
+                            <div className="flex-1 text-center relative py-2">
+                                <label className="flex items-center justify-center">
                                     <input
                                         type="radio"
                                         name="common area"
@@ -288,10 +300,10 @@ export const ProjectManager = () => {
                                     />
                                     Halted
                                 </label>
-                                    <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
-                                </div>
+                                <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
                             </div>
-                            {/* <div className="font-semibold text-sm my-2">Area 1</div>
+                        </div>
+                        {/* <div className="font-semibold text-sm my-2">Area 1</div>
                             <div className="flex justify-between border rounded-lg text-sm px-2 relative">
                                 <div className="flex-1 text-center py-2">
                                 <label  className="flex items-center justify-center">
@@ -385,13 +397,13 @@ export const ProjectManager = () => {
                                     <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
                                 </div>
                             </div> */}
-                        </div>
+                    </div>
                 </div>
                 <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                        <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => setPage("milestonelist")}>
-                            Save
-                        </button>
-                    </div>
+                    <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => setPage("milestonelist")}>
+                        Save
+                    </button>
+                </div>
             </div>}
         </>
     )
