@@ -267,6 +267,14 @@ export const SentBackSelectVendor = () => {
                                                     </div>
                                                 </div>
                                             })}
+                                            <div className="flex-1">
+                                            <div className="bg-gray-200 p-2 font-semibold truncate">Last 3 months Lowest Price<div className='py-2 font-light text-sm text-gray-400 invisible'>Delivery Time:</div></div>
+                                                {orderData.item_list?.list.map((value) => {
+                                                    return <div className="py-2 text-sm px-2 font-semibold border-b">
+                                                        {"N/A"}
+                                                    </div>
+                                                })}
+                                            </div>
                                         </div>
                                     </CardHeader>
                                 </Card>

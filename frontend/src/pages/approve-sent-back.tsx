@@ -261,18 +261,20 @@ export const ApproveSentBack = () => {
                                         <SheetDescription>
                                             Add Comments and Send Back
                                             <div className="flex justify-between py-2">
-                                                <div className="text-sm w-1/2">Added Items</div>
+                                                <div className="text-sm w-[45%]">Added Items</div>
                                                 <div className="text-sm">Qty</div>
                                                 <div className="text-sm">UOM</div>
-                                                <div className="text-sm">Quote</div>
+                                                <div className="text-sm">Rate</div>
+                                                <div className="text-sm w-[20%]">Last 3 months Lowest Rate</div>
                                             </div>
                                             {orderData.item_list?.list.map((item) => {
-                                                    return <div className="flex justify-between py-2">
-                                                        <div className="text-sm w-1/2 text-black font-semibold">{item.item}</div>
-                                                        <div className="text-sm text-black font-semibold">{item.quantity}</div>
-                                                        <div className="text-sm text-black font-semibold">{item.unit}</div>
-                                                        <div className="text-sm text-black font-semibold">{item.quote}</div>
-                                                    </div>
+                                                return <div className="flex justify-between py-2">
+                                                    <div className="text-sm w-[45%] text-black font-semibold">{item.item}</div>
+                                                    <div className="text-sm text-black font-semibold">{item.quantity}</div>
+                                                    <div className="text-sm text-black font-semibold">{item.unit}</div>
+                                                    <div className="text-sm text-black font-semibold">{item.quote}</div>
+                                                    <div className="text-sm text-black font-semibold w-[20%]">{"N/A"}</div>
+                                                </div>
                                             })}
                                             
                                             <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>

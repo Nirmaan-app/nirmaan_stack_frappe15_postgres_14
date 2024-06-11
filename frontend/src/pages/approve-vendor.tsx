@@ -79,7 +79,10 @@ export const ApproveVendor = () => {
 
     const [selectedVendors, setSelectedVendors] = useState({})
     const [comment, setComment] = useState('')
-    const [editCategory, setEditCategory] = useState('')
+    const [selectedItem, setSelectedItem] = useState({
+        list:[]
+    })
+    const [selectAll, setSelectAll] = useState(false);
     const total_categories = procurement_request_list?.find(item => item.name === orderId)?.category_list.list.length;
 
     const getVendorName = (vendorName: string) => {
@@ -108,9 +111,32 @@ export const ApproveVendor = () => {
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+    const handleCheckboxChange = (id: string) => {
+        const isSelected = selectedItem.list.some(item => item.name === id);
+        const updatedSelectedList = isSelected
+        ? selectedItem.list.filter(item => item.name !== id)
+        : [...selectedItem.list, orderData.procurement_list?.list.find(item => item.name === id)];
+
+        setSelectedItem({ list: updatedSelectedList });
+      };
+    
+    const handleSelectAllChange = () => {
+    const newSelectAll = !selectAll;
+    setSelectAll(newSelectAll);
+
+    const updatedSelectedList = newSelectAll ? [...orderData.procurement_list?.list] : [];
+    setSelectedItem({ list: updatedSelectedList });
+    };
+
+    const handleTrigger = () => {
+        setSelectAll(false);
+        setSelectedItem({ list: [] });
+    }
+
+    console.log("selectedItem",selectedItem)
     const handleSendBack = (cat: string) => {
         const itemlist = [];
-        orderData.procurement_list.list.map((value) => {
+        selectedItem.list.map((value) => {
             if (value.category === cat) {
                 const price = getPrice(selectedVendors[cat], value.name);
                 itemlist.push({
@@ -143,26 +169,63 @@ export const ApproveVendor = () => {
             .catch(() => {
                 console.log("submit_error", submit_error);
             })
-        updateDoc('Procurement Requests', orderId, {
-            workflow_state: "Partially Approved"
-        })
-            .then(() => {
-                console.log("item", orderId)
-            }).catch(() => {
-                console.log("update_submit_error", update_submit_error)
-            })
-        setOrderData((prevState) => {
-            const newCategoryList = prevState.category_list.list.filter(
-                (category) => category.name !== cat
-            );
-            return {
-                ...prevState,
-                category_list: {
-                    ...prevState.category_list,
-                    list: newCategoryList
+        // updateDoc('Procurement Requests', orderId, {
+        //     workflow_state: "Partially Approved"
+        // })
+        //     .then(() => {
+        //         console.log("item", orderId)
+        //     }).catch(() => {
+        //         console.log("update_submit_error", update_submit_error)
+        //     })
+        // setOrderData((prevState) => {
+        //     const newCategoryList = prevState.category_list.list.filter(
+        //         (category) => category.name !== cat
+        //     );
+        //     return {
+        //         ...prevState,
+        //         category_list: {
+        //             ...prevState.category_list,
+        //             list: newCategoryList
+        //         }
+        //     };
+        // });
+
+        const order_list = {
+            list: []
+        };
+        quotation_request_list?.map((value) => {
+            const isSelected = selectedItem.list.some(item => item.name === value.item);
+            if (value.category === cat && !isSelected) {
+                const newItem = {
+                    name: value.item,
+                    item: getItem(value.item),
+                    unit: getUnit(value.item),
+                    quantity: value.quantity,
+                    quote: value.quote
                 }
-            };
-        });
+                order_list.list.push(newItem)
+            }
+        })
+        const newProcurementOrder = {
+            procurement_request: orderId,
+            project: orderData.project,
+            project_name: getProjectName(orderData.project),
+            project_address: getProjectAddress(orderData.project),
+            category: cat,
+            vendor: selectedVendors[cat],
+            vendor_name: getVendorName(selectedVendors[cat]),
+            vendor_address: getVendorAddress(selectedVendors[cat]),
+            vendor_gst: getVendorGST(selectedVendors[cat]),
+            order_list: order_list
+        }
+        createDoc('Procurement Orders', newProcurementOrder)
+            .then(() => {
+                console.log(newProcurementOrder);
+            })
+            .catch(() => {
+                console.log("submit_error", submit_error);
+            })
+
     }
 
 
@@ -435,8 +498,6 @@ export const ApproveVendor = () => {
         setSelectedCategories(updatedCategories);
     }, [quotation_request_list2,orderData]);
 
-    console.log(selectedCategories,quotation_request_list2)
-
     const getLowest = (cat: string) => {
         let price: number = 100000000;
         let vendor: string = '';
@@ -492,7 +553,7 @@ export const ApproveVendor = () => {
                         let total: number = 0;
                         let count: number = 0;
                         return <div className="grid grid-cols-2 gap-4 w-full">
-                            <div className="col-span-2 font-bold text-xl py-2">{cat.name} <button onClick={()=>setPage('editvendor')}>Edit</button></div>
+                            <div className="col-span-2 font-bold text-xl py-2">{cat.name} </div>
                             <Card className="flex w-full shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
@@ -571,7 +632,7 @@ export const ApproveVendor = () => {
                                     </div>
                             <div className="col-span-2 py-4 flex justify-between">
                                 <Sheet>
-                                    <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg">Add Comment and Send Back</SheetTrigger>
+                                    <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg" onClick={()=>handleTrigger()}>Add Comment and Send Back</SheetTrigger>
                                     <SheetContent>
                                         <SheetHeader>
                                             <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
@@ -579,20 +640,31 @@ export const ApproveVendor = () => {
                                                 <SheetDescription>
                                                     Add Comments and Send Back
                                                     <div className="flex justify-between py-2">
-                                                        <div className="text-sm w-1/2">Added Items</div>
+                                                        <div className="text-sm w-[45%]">Added Items</div>
                                                         <div className="text-sm">Qty</div>
                                                         <div className="text-sm">UOM</div>
-                                                        <div className="text-sm">Quote</div>
+                                                        <div className="text-sm">Rate</div>
+                                                        <div className="text-sm w-[15%]">3 months Lowest Rate</div>
                                                     </div>
+                                                    <label className="text-black">
+                                                        <input
+                                                        className="botton-0 mr-2 w-4 h-4" 
+                                                        type="checkbox"
+                                                        checked={selectAll}
+                                                        onChange={handleSelectAllChange}
+                                                        />
+                                                        Select All
+                                                    </label>
                                                     {orderData?.procurement_list.list.map((item) => {
                                                         if (item.category === curCategory) {
                                                             const price = getPrice(selectedVendors[curCategory], item.name);
                                                             total += price ? parseFloat(price) : 0;
                                                             return <div className="flex justify-between py-2">
-                                                                <div className="text-sm w-1/2 text-black font-semibold">{item.item}</div>
+                                                                <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)}/>{item.item}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.quantity}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.unit}</div>
                                                                 <div className="text-sm text-black font-semibold">{price}</div>
+                                                                <div className="text-sm text-black font-semibold w-[15%]">N/A</div>
                                                             </div>
                                                         }
                                                     })}

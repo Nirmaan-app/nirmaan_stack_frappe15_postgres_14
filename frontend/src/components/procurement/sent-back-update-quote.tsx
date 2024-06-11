@@ -224,7 +224,7 @@ export const SentBackUpdateQuote = () => {
                                         <SheetHeader>
                                             <SheetTitle>Enter Price</SheetTitle>
                                             <SheetDescription>
-                                                <SentBackQuotationForm cat={orderData.category} vendor_id={item} pr_id={orderData.procurement_request} />
+                                                <SentBackQuotationForm cat={orderData.category} vendor_id={item} pr_id={orderData.procurement_request} sb_id={id}/>
                                             </SheetDescription>
                                         </SheetHeader>
                                     </ScrollArea>
