@@ -79,6 +79,7 @@ export const ApproveVendor = () => {
 
     const [selectedVendors, setSelectedVendors] = useState({})
     const [comment, setComment] = useState('')
+    const [editCategory, setEditCategory] = useState('')
     const total_categories = procurement_request_list?.find(item => item.name === orderId)?.category_list.list.length;
 
     const getVendorName = (vendorName: string) => {
@@ -164,67 +165,6 @@ export const ApproveVendor = () => {
         });
     }
 
-    // const handleRejectAll = () => {
-    //     orderData.category_list.list.map((cat) => {
-    //         const itemlist = [];
-    //         const curCategory = cat.name;
-    //         orderData.procurement_list.list.map((value) => {
-    //             if (value.category === curCategory) {
-    //                 const price = getPrice(selectedVendors[curCategory], value.name);
-    //                 itemlist.push({
-    //                     name: value.name,
-    //                     item: value.item,
-    //                     quantity: value.quantity,
-    //                     quote: price,
-    //                     unit: value.unit
-    //                 })
-    //             }
-    //         })
-    //         const delivery_time = quotation_request_list?.find(item => item.category === curCategory)?.lead_time;
-    //         const newSendBack = {
-    //             procurement_request: orderId,
-    //             project_name: orderData.project,
-    //             category: curCategory,
-    //             vendor: selectedVendors[curCategory],
-    //             item_list: {
-    //                 list: itemlist
-    //             },
-    //             lead_time: delivery_time,
-    //             comments: comment,
-    //             procurement_executive: orderData.procurement_executive
-    //         }
-    //         createDoc('Sent Back Category', newSendBack)
-    //             .then(() => {
-    //                 console.log(newSendBack);
-    //                 setComment('')
-
-    //             })
-    //             .catch(() => {
-    //                 console.log("submit_error", submit_error);
-    //             })
-    //         setOrderData((prevState) => {
-    //             const newCategoryList = prevState.category_list.list.filter(
-    //                 (category) => category.name !== curCategory
-    //             );
-    //             return {
-    //                 ...prevState,
-    //                 category_list: {
-    //                     ...prevState.category_list,
-    //                     list: newCategoryList
-    //                 }
-    //             };
-    //         });
-    //     })
-    //     updateDoc('Procurement Requests', orderId, {
-    //         workflow_state: "Partially Approved"
-    //     })
-    //         .then(() => {
-    //             console.log("item", orderId)
-    //             navigate("/")
-    //         }).catch(() => {
-    //             console.log("update_submit_error", update_submit_error)
-    //         })
-    // }
 
     const handleRejectAll = () => {
         // Create an array to hold all the promises
@@ -307,54 +247,6 @@ export const ApproveVendor = () => {
     };
     
 
-    // const handleApproveAll = () => {
-    //     orderData.category_list.list.map((cat) => {
-    //         const order_list = {
-    //             list: []
-    //         };
-    //         quotation_request_list?.map((value) => {
-    //             if (value.category === cat.name) {
-    //                 const newItem = {
-    //                     name: value.item,
-    //                     item: getItem(value.item),
-    //                     unit: getUnit(value.item),
-    //                     quantity: value.quantity,
-    //                     quote: value.quote
-    //                 }
-    //                 order_list.list.push(newItem)
-    //             }
-    //         })
-    //         const newProcurementOrder = {
-    //             procurement_request: orderId,
-    //             project: orderData.project,
-    //             project_name: getProjectName(orderData.project),
-    //             project_address: getProjectAddress(orderData.project),
-    //             category: cat.name,
-    //             vendor: selectedVendors[cat.name],
-    //             vendor_name: getVendorName(selectedVendors[cat.name]),
-    //             vendor_address: getVendorAddress(selectedVendors[cat.name]),
-    //             vendor_gst: getVendorGST(selectedVendors[cat.name]),
-    //             order_list: order_list
-    //         }
-    //         createDoc('Procurement Orders', newProcurementOrder)
-    //             .then(() => {
-    //                 console.log(newProcurementOrder);
-    //                 navigate("/")
-    //             })
-    //             .catch(() => {
-    //                 console.log("submit_error", submit_error);
-    //             })
-    //         updateDoc('Procurement Requests', orderId, {
-    //             workflow_state: "Vendor Approved"
-    //         })
-    //             .then(() => {
-    //                 console.log("item", orderId)
-    //             }).catch(() => {
-    //                 console.log("update_submit_error", update_submit_error)
-    //             })
-
-    //     })
-    // }
     const handleApproveAll = () => {
         // Create an array to hold all the promises
         const createDocPromises = [];
@@ -563,10 +455,10 @@ export const ApproveVendor = () => {
         })
         if(price != 100000000) return {quote : price , vendor:vendor}
     }
-
+    
     return (
         <MainLayout>
-            <div className="flex" >
+            {page == 'approvequotation' && <div className="flex" >
                 <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                     <div className="flex items-center space-y-2">
                         {/* <ArrowLeft /> */}
@@ -600,7 +492,7 @@ export const ApproveVendor = () => {
                         let total: number = 0;
                         let count: number = 0;
                         return <div className="grid grid-cols-2 gap-4 w-full">
-                            <div className="col-span-2 font-bold text-xl py-2">{cat.name}</div>
+                            <div className="col-span-2 font-bold text-xl py-2">{cat.name} <button onClick={()=>setPage('editvendor')}>Edit</button></div>
                             <Card className="flex w-full shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
@@ -780,7 +672,7 @@ export const ApproveVendor = () => {
                         </div>
                     }
                 </div>
-            </div>
+            </div>}
         </MainLayout>
     )
 }

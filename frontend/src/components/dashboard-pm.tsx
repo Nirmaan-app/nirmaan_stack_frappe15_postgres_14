@@ -167,7 +167,7 @@ export const ProjectManager = () => {
                     <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                         <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg">
                             <Link to={`/new-pr/${orderData.project}`}>
-                            + Add
+                                Create New PR
                             </Link>
                         </button>
                     </div>

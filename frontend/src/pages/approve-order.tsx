@@ -16,6 +16,7 @@ import { ArrowLeft } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
 import { MainLayout } from "@/components/layout/main-layout";
 import ReactSelect from 'react-select';
+import { CirclePlus } from 'lucide-react';
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
@@ -124,7 +125,7 @@ export const ProjectLeadComponent = () => {
     }
 
     const handleAdd = () => {
-        if (curItem) {
+        if (curItem && Number(quantity)) {
             let itemIdToUpdate = null;
             item_list.forEach((item) => {
                 if (item.item_name === curItem) {
@@ -215,7 +216,7 @@ export const ProjectLeadComponent = () => {
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                         <div className="flex items-center space-y-2">
-                            <ArrowLeft />
+                            {/* <ArrowLeft /> */}
                             <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
@@ -238,7 +239,7 @@ export const ProjectLeadComponent = () => {
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center space-y-2">
-                            <ArrowLeft onClick={() => setPage('categorylist')} />
+                            <ArrowLeft onClick={() => navigate("/approve-order")} />
                             <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Add Items</h2>
                         </div>
                         <div className="flex justify-center md:justify-normal md:space-x-40">
@@ -251,9 +252,9 @@ export const ProjectLeadComponent = () => {
                                 <h3 className="pl-2 font-semibold text-sm md:text-lg">{orderData?.work_package}</h3>
                             </div>
                         </div>
-                        <button className="text-sm md:text-lg text-blue-400" onClick={() => setPage('categorylist')}>+ Add Category</button>
+                        <button className="text-sm md:text-lg text-blue-400 flex" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1"/> Select Category</button>
                         <h3 className="font-bold">{curCategory}</h3>
-                        {curCategory && <div className="flex space-x-2">
+                        {curCategory && <><div className="flex space-x-2">
                             <div className="w-1/2 md:w-2/3">
                                 <h5 className="text-xs text-gray-400">Items</h5>
                                 <ReactSelect options={item_options} onChange={handleChange} />
@@ -266,11 +267,13 @@ export const ProjectLeadComponent = () => {
                                 <h5 className="text-xs text-gray-400">Qty</h5>
                                 <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
                             </div>
-                        </div>}
+                        </div>
                         <div className="flex space-x-48 md:space-x-0 mt-2">
                             <div></div>
                             <button className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</button>
-                        </div>
+                        </div></>
+                        }
+                        
                         <div className="text-sm text-gray-700">Added Items</div>
                         {categories.list?.map((cat) => {
                             return <div key={cat.name} className="container mx-0 px-0">
@@ -278,8 +281,8 @@ export const ProjectLeadComponent = () => {
                                 <table className="table-auto md:w-full">
                                     <thead>
                                         <tr className="bg-gray-200">
-                                            <th className="px-4 py-1 text-xs">Item Name</th>
-                                            <th className="px-4 py-1 pl-16 text-xs">Unit</th>
+                                            <th className="w-[50%] text-left px-4 py-1 text-xs">Item Name</th>
+                                            <th className="px-4 py-1 text-xs">Unit</th>
                                             <th className="px-4 py-1 text-xs">Quantity</th>
                                             <th className="px-4 py-1 text-xs"></th>
                                         </tr>
@@ -288,8 +291,8 @@ export const ProjectLeadComponent = () => {
                                         {orderData.procurement_list.list?.map((item) => {
                                             if (item.category === cat.name) {
                                                 return <tr key={item.item} >
-                                                    <td className="border-b-2 px-4 py-1 text-sm text-center">{item.item}</td>
-                                                    <td className="border-b-2 px-4 py-1 pl-16 text-sm text-center">{item.unit}</td>
+                                                    <td className="w-[50%] text-left border-b-2 px-4 py-1 text-sm text-cent">{item.item}</td>
+                                                    <td className="border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
                                                     <td className="border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
                                                     <td className="border-b-2 px-4 py-1 text-sm text-right">
                                                         <Dialog className="border border-gray-200">
@@ -316,7 +319,6 @@ export const ProjectLeadComponent = () => {
                                                             </DialogContent>
                                                         </Dialog>
                                                     </td>
-
                                                 </tr>
                                             }
                                         })}

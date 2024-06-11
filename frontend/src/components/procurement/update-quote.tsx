@@ -142,10 +142,8 @@ export const UpdateQuote = () => {
                         {uniqueVendors.list.map((item) => {
                             return <div className="px-4 flex justify-between">
                                 <div className="px-6 py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
-                                {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
-                                <div className="flex space-x-2">
                                 <Sheet>
-                                    <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Print</SheetTrigger>
+                                    <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Download PDF</SheetTrigger>
                                     <SheetContent>
                                         <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
                                             <SheetHeader>
@@ -157,6 +155,9 @@ export const UpdateQuote = () => {
                                         </ScrollArea>
                                     </SheetContent>
                                 </Sheet>
+                                {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
+                                <div className="flex space-x-2">
+                                
                                 <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
                                     <SheetContent>

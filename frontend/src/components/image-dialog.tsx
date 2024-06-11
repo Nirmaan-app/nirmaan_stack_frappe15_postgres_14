@@ -64,19 +64,14 @@ export default function ImageCrop({ imageFile, onCroppedImage }) {
 
     return (
         <div>
-            <Dialog>
+            {/* <Dialog>
                 <DialogTrigger asChild>
                     <Button>Edit Image</Button>
                 </DialogTrigger>
-                {/* <DialogOverlay className="dialogOverlay" /> */}
+                <DialogOverlay className="dialogOverlay" />
                 <DialogContent className="dialogContent">
-                    <DialogClose asChild>
-                        <Button aria-label="Close" style={{ position: 'absolute', top: 10, right: 10 }}>
-                            X
-                        </Button>
-                    </DialogClose>
-                    <DialogHeader>
-                        <div class>
+                    <DialogHeader> */}
+                        <div className="relative w-full h-60 mt-4 overflow-hidden">
                             <Cropper
                                 image={imageSrc}
                                 crop={crop}
@@ -87,41 +82,30 @@ export default function ImageCrop({ imageFile, onCroppedImage }) {
                                 onRotationChange={setRotation}
                                 onCropComplete={onCropComplete}
                                 onZoomChange={setZoom}
+
                             />
                         </div>
                         <div >
-                            <div >
-                                {/* <Typography
-                                variant="overline"
-                                classes={{ root: classes.sliderLabel }}
-                            >
-                                Zoom
-                            </Typography> */}
-                                <Slider
-                                    value={[zoom]}
-                                    min={1}
-                                    max={3}
-                                    step={0.1}
-                                    aria-labelledby="Zoom"
-                                    onValueChange={([zoom]) => setZoom(zoom)}
-                                />
-                            </div>
-                            <div >
-                                {/* <Typography
-                                variant="overline"
-                                classes={{ root: classes.sliderLabel }}
-                            >
-                                Rotation
-                            </Typography> */}
-                                <Slider
-                                    value={[rotation]}
-                                    min={0}
-                                    max={360}
-                                    step={1}
-                                    aria-labelledby="Rotation"
-                                    onValueChange={([rotation]) => setRotation(rotation)}
-                                />
-                            </div>
+                                <div className="py-4">
+                                    <Slider
+                                        value={[zoom]}
+                                        min={1}
+                                        max={3}
+                                        step={0.1}
+                                        aria-labelledby="Zoom"
+                                        onValueChange={([zoom]) => setZoom(zoom)}
+                                    />
+                                </div>
+                                <div className="py-4">
+                                    <Slider
+                                        value={[rotation]}
+                                        min={0}
+                                        max={360}
+                                        step={1}
+                                        aria-labelledby="Rotation"
+                                        onValueChange={([rotation]) => setRotation(rotation)}
+                                    />
+                                </div>
                             <Button
                                 onClick={showCroppedImage}
                                 color="primary"
@@ -129,11 +113,10 @@ export default function ImageCrop({ imageFile, onCroppedImage }) {
                                 Show Result
                             </Button>
                         </div>
-                    </DialogHeader>
-
+                    {/* </DialogHeader> */}
                     {/* <ImgDialog img={croppedImage} onClose={onClose} /> */}
-                </DialogContent>
-            </Dialog>
+                {/* </DialogContent>
+            </Dialog> */}
         </div>
     )
 }
