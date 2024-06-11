@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import { useFrappeFileUpload, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { useState } from "react";
 import { Link } from "react-router-dom"
+import { Dialog, DialogClose, DialogContent, DialogOverlay, DialogTrigger } from '@/components/ui/dialog'
+import { DialogHeader } from '@/components/ui/dialog'
 
 export default function Debug() {
     const { upload: upload_img, loading: upload_loading, error: upload_error, reset: upload_reset } = useFrappeFileUpload()
@@ -34,6 +36,7 @@ export default function Debug() {
 
     const handleCroppedImage = (croppedImage) => {
         setCroppedImage(croppedImage)
+        console.log(croppedImage)
     }
 
     const handleReset = () => {
@@ -42,8 +45,9 @@ export default function Debug() {
     }
 
     function saveImage() {
+        let cropped_file = new File([croppedImage], "cropped.png", { type: "image/png" })
         upload_img(
-            croppedImage,
+            cropped_file,
             fileArgs,
             'frappe.handler.upload_file'
         )
@@ -71,7 +75,16 @@ export default function Debug() {
                     <div>
                         <input type="file" onChange={handleFileChange} accept="image/*" />
                         {selectedFile ? (
-                            <ImageCrop imageFile={selectedFile} onCroppedImage={handleCroppedImage} />
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button>Edit Image</Button>
+                                </DialogTrigger>
+                                <DialogContent className="dialogContent">
+                                    <DialogHeader>
+                                        <ImageCrop imageFile={selectedFile} onCroppedImage={handleCroppedImage} />
+                                    </DialogHeader>
+                                </DialogContent>
+                            </Dialog>
                         ) : <></>}
                     </div>
                 )}
@@ -97,5 +110,3 @@ export default function Debug() {
 //         </>
 //     )
 // }
-
-
