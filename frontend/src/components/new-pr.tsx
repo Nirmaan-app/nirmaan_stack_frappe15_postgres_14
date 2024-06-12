@@ -12,6 +12,7 @@ import ReactSelect from 'react-select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "./ui/dialog"
 import { Button } from "./ui/button"
 import { CirclePlus } from 'lucide-react';
+import { Pencil } from 'lucide-react';
 
 
 import imageUrl from "@/assets/user-icon.jpeg"
@@ -108,10 +109,8 @@ export const NewPR = () => {
             }
         });
         setCategories({ list: [] });
-
         addWorkPackage(wp);
         setPage(value);
-
     };
     const handleCategoryClick = (category: string, value: string) => {
         addCategory(category);
@@ -266,6 +265,36 @@ export const NewPR = () => {
         setPage('additem')
     }
 
+    const handleSave = (itemName: string, newQuantity: number) => {
+        let curRequest = orderData.procurement_list.list;
+        curRequest = curRequest.map((curValue) => {
+            if (curValue.item === itemName) {
+                return { ...curValue, quantity: newQuantity };
+            }
+            return curValue;
+        });
+        if(quantity){setOrderData((prevState) => ({
+            ...prevState,
+            procurement_list: {
+                list: curRequest,
+            },
+        }));}
+        setQuantity(0)
+        setCurItem('')
+    };
+    const handleDelete = (item: string) => {
+        let curRequest = orderData.procurement_list.list;
+        curRequest = curRequest.filter(curValue => curValue.item !== item);
+        setOrderData(prevState => ({
+            ...prevState,
+            procurement_list: {
+                list: curRequest
+            }
+        }));
+        setQuantity(0)
+        setCurItem('')
+    }
+
     return (
         <MainLayout>
             {page == 'wplist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
@@ -363,6 +392,7 @@ export const NewPR = () => {
                                     <th className="px-4 py-1 text-xs">Item Name</th>
                                     <th className="px-4 py-1 pl-10 text-xs">Unit</th>
                                     <th className="px-4 py-1 text-xs">Quantity</th>
+                                    <th className="px-4 py-1 text-xs">Edit</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -372,6 +402,45 @@ export const NewPR = () => {
                                             <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.item}</td>
                                             <td className="border-b-2 px-4 py-1 pl-10 text-xs text-gray-700 text-center">{item.unit}</td>
                                             <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.quantity}</td>
+                                            <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">
+                                                <Dialog className="border border-gray-200">
+                                                    <DialogTrigger><Pencil className="w-4 h-4"/></DialogTrigger>
+                                                    <DialogContent>
+                                                        <DialogHeader>
+                                                            <DialogTitle className="text-left py-2">Edit Item</DialogTitle>
+                                                            <DialogDescription className="flex flex-row">
+                                                            </DialogDescription>
+                                                            <DialogDescription className="flex flex-row">
+                                                            <div className="flex space-x-2">
+                                                                <div className="w-1/2 md:w-2/3">
+                                                                    <h5 className="text-xs text-gray-400 text-left">Items</h5>
+                                                                    <div className="h-[37px] w-full border rounded-lg px-1 pt-1 text-left">
+                                                                        {item.item}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="w-[30%]">
+                                                                    <h5 className="text-xs text-gray-400 text-left">UOM</h5>
+                                                                    <div className="h-[37px] w-full pt-1 text-left">
+                                                                        {item.unit}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="w-[25%]">
+                                                                    <h5 className="text-xs text-gray-400 text-left">Qty</h5>
+                                                                    <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
+                                                                </div>
+                                                            </div>
+                                                            </DialogDescription>
+                                                            <DialogDescription className="flex flex-row justify-between">
+                                                                <div></div>
+                                                                <div className="flex botton-4 right-4 gap-2">
+                                                                    <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
+                                                                    <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                </div>
+                                                            </DialogDescription>
+                                                        </DialogHeader>
+                                                    </DialogContent>
+                                                </Dialog>
+                                            </td>
                                         </tr>
                                     }
                                 })}
