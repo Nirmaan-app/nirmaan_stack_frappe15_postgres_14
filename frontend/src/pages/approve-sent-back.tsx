@@ -52,12 +52,16 @@ export const ApproveSentBack = () => {
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'owner'],
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'owner',],
             filters: [["workflow_state", "=", "Vendor Selected"]]
         });
 
 
     const [page, setPage] = useState<string>('approvequotation')
+    const [selectedItem, setSelectedItem] = useState({
+        list: []
+    })
+    const [selectAll, setSelectAll] = useState(false);
     const [orderData, setOrderData] = useState({
         project_name: '',
         category: ''
@@ -98,19 +102,78 @@ export const ApproveSentBack = () => {
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
 
+    const handleCheckboxChange = (id: string) => {
+        const isSelected = selectedItem.list.some(item => item.name === id);
+        const updatedSelectedList = isSelected
+            ? selectedItem.list.filter(item => item.name !== id)
+            : [...selectedItem.list, orderData.item_list?.list.find(item => item.name === id)];
+
+        setSelectedItem({ list: updatedSelectedList });
+    };
+
+    const handleSelectAllChange = () => {
+        const newSelectAll = !selectAll;
+        setSelectAll(newSelectAll);
+
+        const updatedSelectedList = newSelectAll ? [...orderData.item_list?.list] : [];
+        setSelectedItem({ list: updatedSelectedList });
+    };
+
+    const getPrice = (itemName: string) => {
+        return orderData?.item_list?.list.find(item => item.name === itemName).quote
+    }
+
     const handleSendBack = (cat: string) => {
         updateDoc('Sent Back Category', id, {
             comments: comment,
-            workflow_state: "Pending"
+            workflow_state: "Pending",
+            item_list: {
+                list: selectedItem.list
+            },
         })
             .then(() => {
                 console.log("item", id)
-                navigate("/")
             }).catch(() => {
                 console.log("update_submit_error", update_submit_error)
             })
+        
+        const order_list = {
+            list: []
+        };
+        orderData.item_list?.list.map((value) => {
+            const isSelected = selectedItem.list.some(item => item.name === value.name);
+                if(!isSelected){const newItem = {
+                    name: value.name,
+                    item: value.item,
+                    unit: value.unit,
+                    quantity: value.quantity,
+                    quote: value.quote
+                }
+                order_list.list.push(newItem)}
+        })
+        const newProcurementOrder = {
+            procurement_request: orderData.procurement_request,
+            project: orderData.project_name,
+            project_name: getProjectName(orderData.project_name),
+            project_address: getProjectAddress(orderData.project_name),
+            category: cat,
+            vendor: orderData.vendor,
+            vendor_name: getVendorName(orderData.vendor),
+            vendor_address: getVendorAddress(orderData.vendor),
+            vendor_gst: getVendorGST(orderData.vendor),
+            order_list: order_list
+        }
+        if(order_list.list.length > 0){createDoc('Procurement Orders', newProcurementOrder)
+            .then(() => {
+                console.log(newProcurementOrder);
+                navigate("/")
+            })
+            .catch(() => {
+                console.log("submit_error", submit_error);
+            })}
     }
     const curCategory = orderData.category
+    console.log("selectedItem",selectedItem)
 
     const handleApprove = (cat: string) => {
         const order_list = {
@@ -267,9 +330,18 @@ export const ApproveSentBack = () => {
                                                     <div className="text-sm">Rate</div>
                                                     <div className="text-sm w-[20%]">Last 3 months Lowest Rate</div>
                                                 </div>
+                                                <label className="text-black">
+                                                    <input
+                                                        className="botton-0 mr-2 w-4 h-4"
+                                                        type="checkbox"
+                                                        checked={selectAll}
+                                                        onChange={handleSelectAllChange}
+                                                    />
+                                                    Select All
+                                                </label>
                                                 {orderData.item_list?.list.map((item) => {
                                                     return <div className="flex justify-between py-2">
-                                                        <div className="text-sm w-[45%] text-black font-semibold">{item.item}</div>
+                                                        <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
                                                         <div className="text-sm text-black font-semibold">{item.quantity}</div>
                                                         <div className="text-sm text-black font-semibold">{item.unit}</div>
                                                         <div className="text-sm text-black font-semibold">{item.quote}</div>

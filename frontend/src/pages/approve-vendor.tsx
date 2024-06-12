@@ -160,34 +160,34 @@ export const ApproveVendor = () => {
             comments: comment,
             procurement_executive: orderData.procurement_executive
         }
-        createDoc('Sent Back Category', newSendBack)
+        if(itemlist.list.length > 0){createDoc('Sent Back Category', newSendBack)
             .then(() => {
                 console.log(newSendBack);
                 setComment('')
             })
             .catch(() => {
                 console.log("submit_error", submit_error);
-            })
-        updateDoc('Procurement Requests', orderId, {
-            workflow_state: "Partially Approved"
-        })
-            .then(() => {
-                console.log("item", orderId)
-            }).catch(() => {
-                console.log("update_submit_error", update_submit_error)
-            })
-        setOrderData((prevState) => {
-            const newCategoryList = prevState.category_list.list.filter(
-                (category) => category.name !== cat
-            );
-            return {
-                ...prevState,
-                category_list: {
-                    ...prevState.category_list,
-                    list: newCategoryList
-                }
-            };
-        });
+            })}
+        // updateDoc('Procurement Requests', orderId, {
+        //     workflow_state: "Partially Approved"
+        // })
+        //     .then(() => {
+        //         console.log("item", orderId)
+        //     }).catch(() => {
+        //         console.log("update_submit_error", update_submit_error)
+        //     })
+        // setOrderData((prevState) => {
+        //     const newCategoryList = prevState.category_list.list.filter(
+        //         (category) => category.name !== cat
+        //     );
+        //     return {
+        //         ...prevState,
+        //         category_list: {
+        //             ...prevState.category_list,
+        //             list: newCategoryList
+        //         }
+        //     };
+        // });
         const order_list = {
             list: []
         };
@@ -216,13 +216,13 @@ export const ApproveVendor = () => {
             vendor_gst: getVendorGST(selectedVendors[cat]),
             order_list: order_list
         }
-        createDoc('Procurement Orders', newProcurementOrder)
+        if(order_list.list.length > 0){createDoc('Procurement Orders', newProcurementOrder)
             .then(() => {
                 console.log(newProcurementOrder);
             })
             .catch(() => {
                 console.log("submit_error", submit_error);
-            })
+            })}
     }
 
 
@@ -629,7 +629,7 @@ export const ApproveVendor = () => {
                                     </div>
                                 </div>
                             </div>
-                            <div className="col-span-2 py-4 flex justify-between">
+                            <div className="col-span-2 py-4 flex space-x-2">
                                 <Sheet>
                                     <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg" onClick={() => handleTrigger()}>Add Comment and Send Back</SheetTrigger>
                                     <SheetContent>
@@ -663,6 +663,7 @@ export const ApproveVendor = () => {
                                                                 <div className="text-sm text-black font-semibold">{item.quantity}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.unit}</div>
                                                                 <div className="text-sm text-black font-semibold">{price}</div>
+                                                                <div className="text-sm text-black font-semibold w-[15%]">{"N/A"}</div>
                                                             </div>
                                                         }
                                                     })}

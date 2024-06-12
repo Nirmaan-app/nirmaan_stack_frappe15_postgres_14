@@ -117,7 +117,7 @@ export const SentBackSelectVendor = () => {
             const updatedItemList = prevState.item_list.list.map((item) => {
                 const newPrice = quotation_request_list.find(value =>
                     value.item === item.name && value.vendor === prevState.vendor && value.procurement_task === prevState.procurement_request
-                ).quote
+                )?.quote
                 console.log(newPrice)
                 return {
                     ...item,
