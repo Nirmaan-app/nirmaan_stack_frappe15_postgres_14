@@ -168,26 +168,26 @@ export const ApproveVendor = () => {
             .catch(() => {
                 console.log("submit_error", submit_error);
             })}
-        // updateDoc('Procurement Requests', orderId, {
-        //     workflow_state: "Partially Approved"
-        // })
-        //     .then(() => {
-        //         console.log("item", orderId)
-        //     }).catch(() => {
-        //         console.log("update_submit_error", update_submit_error)
-        //     })
-        // setOrderData((prevState) => {
-        //     const newCategoryList = prevState.category_list.list.filter(
-        //         (category) => category.name !== cat
-        //     );
-        //     return {
-        //         ...prevState,
-        //         category_list: {
-        //             ...prevState.category_list,
-        //             list: newCategoryList
-        //         }
-        //     };
-        // });
+        updateDoc('Procurement Requests', orderId, {
+            workflow_state: "Partially Approved"
+        })
+            .then(() => {
+                console.log("item", orderId)
+            }).catch(() => {
+                console.log("update_submit_error", update_submit_error)
+            })
+        setOrderData((prevState) => {
+            const newCategoryList = prevState.category_list.list.filter(
+                (category) => category.name !== cat
+            );
+            return {
+                ...prevState,
+                category_list: {
+                    ...prevState.category_list,
+                    list: newCategoryList
+                }
+            };
+        });
         const order_list = {
             list: []
         };
