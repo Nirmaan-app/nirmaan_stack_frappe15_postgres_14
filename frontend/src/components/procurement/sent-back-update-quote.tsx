@@ -14,6 +14,8 @@ import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { MainLayout } from '../layout/main-layout';
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Button } from "../ui/button";
+import SentBackVendorForm from "./sent-back-vendor-form";
 
 export const SentBackUpdateQuote = () => {
     const { id } = useParams<{ id: string }>()
@@ -39,11 +41,11 @@ export const SentBackUpdateQuote = () => {
         {
             fields: ['vendor', 'category']
         });
-    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
+    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address']
         });
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
+    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error, mutate: quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
             limit: 500
@@ -57,7 +59,7 @@ export const SentBackUpdateQuote = () => {
     const { updateDoc: updateDoc } = useFrappeUpdateDoc()
 
     const getVendorName = (vendorName: string) => {
-        return vendor_list?.find(vendor => vendor.name === vendorName).vendor_name;
+        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
     const getPackage = (name: string) => {
         return procurement_request_list?.find(item => item.name === name)?.work_package;
@@ -232,6 +234,19 @@ export const SentBackUpdateQuote = () => {
                                 </Sheet>
                             </div>
                         })}
+                        <Sheet>
+                            <SheetTrigger className="text-blue-500"> + Add Vendor</SheetTrigger>
+                            <SheetContent>
+                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                <SheetHeader>
+                                    <SheetTitle>Add Vendor for {orderData.category}</SheetTitle>
+                                    <SheetDescription>
+                                        <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} />
+                                    </SheetDescription>
+                                </SheetHeader>
+                                </ScrollArea>
+                            </SheetContent>
+                        </Sheet>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                             <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={handleUpdateQuote}>
                                 Update Quote
