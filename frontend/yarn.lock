@@ -1860,7 +1860,7 @@ clsx@^2.1.0:
 
 cmdk@^1.0.0:
   version "1.0.0"
-  resolved "https://registry.npmjs.org/cmdk/-/cmdk-1.0.0.tgz"
+  resolved "https://registry.yarnpkg.com/cmdk/-/cmdk-1.0.0.tgz#0a095fdafca3dfabed82d1db78a6262fb163ded9"
   integrity sha512-gDzVf0a09TvoJ5jnuPvygTB77+XdOSwEmJ88L6XPFPlv7T3RxbP9jgenfylrAMD0+Le1aO0nVjQUzl2g+vjz5Q==
   dependencies:
     "@radix-ui/react-dialog" "1.0.5"

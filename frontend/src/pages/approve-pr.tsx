@@ -7,6 +7,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
+import { Projects } from "@/types/NirmaanStack/Projects";
 
 type PRTable = {
     name: string
@@ -23,6 +24,14 @@ export const ApprovePR = () => {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'category_list', 'procurement_list', 'creation'],
             filters: [["project_lead", "=", userData.user_id], ["workflow_state", "=", "Pending"]]
         });
+
+
+    const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
+        fields: ["name", "project_name"],
+        filters: [["project_lead", "=", userData.user_id]]
+    })
+
+    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -66,12 +75,23 @@ export const ApprovePR = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const project = project_values.find(
+                        (project) => project.value === row.getValue("project")
+                    )
+                    if (!project) {
+                        return null;
+                    }
+
                     return (
                         <div className="font-medium">
-                            {row.getValue("project")}
+                            {project.label}
+                            {/* {row.getValue("project")} */}
                         </div>
                     )
-                }
+                },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.getValue(id))
+                },
             },
             {
                 accessorKey: "work_package",
@@ -97,8 +117,8 @@ export const ApprovePR = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div>
-                            {row.getValue("category_list").list.map((obj) => <Badge>{obj["name"]}</Badge>)}
+                        <div className="max-w-40 gap-0.5 grid grid-cols-2">
+                            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }
@@ -120,9 +140,11 @@ export const ApprovePR = () => {
             }
 
         ],
-        []
+        [project_values]
     )
 
+    if (projects_loading || procurement_request_list_loading) return <h1>Loading</h1>
+    if (procurement_request_list_error || projects_error) return <h1>Error</h1>
     return (
         <MainLayout>
             <div className="flex">
@@ -132,7 +154,10 @@ export const ApprovePR = () => {
                         <h2 className="text-lg font-bold tracking-tight">Approve PR</h2>
                     </div>
                     {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
-                    <DataTable columns={columns} data={procurement_request_list || []} />
+
+                    <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
+
+
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
