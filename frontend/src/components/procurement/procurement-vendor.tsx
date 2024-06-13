@@ -44,6 +44,7 @@ export const ProcurementOrder = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            filters: [["name","=",orderId]]
             limit: 100
         });
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error,mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",

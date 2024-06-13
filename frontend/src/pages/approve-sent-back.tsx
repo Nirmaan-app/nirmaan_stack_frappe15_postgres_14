@@ -312,7 +312,7 @@ export const ApproveSentBack = () => {
                                                 {orderData.item_list?.list.map((item) => {
                                                     const price = item.quote;
                                                     const quotesForItem = quote_data
-                                                    ?.filter(value => value.item === item.name)
+                                                    ?.filter(value => value.item === item.name && value.quote != null)
                                                     ?.map(value => value.quote);
                                                     let minQuote;
                                                     if(quotesForItem) minQuote = Math.min(...quotesForItem);
@@ -360,7 +360,7 @@ export const ApproveSentBack = () => {
                                                 </label>
                                                 {orderData.item_list?.list.map((item) => {
                                                     const quotesForItem = quote_data
-                                                    ?.filter(value => value.item === item.name)
+                                                    ?.filter(value => value.item === item.name && value.quote != null)
                                                     ?.map(value => value.quote);
                                                     let minQuote;
                                                     if(quotesForItem) minQuote = Math.min(...quotesForItem);

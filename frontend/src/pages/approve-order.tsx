@@ -38,7 +38,8 @@ export const ProjectLeadComponent = () => {
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation','category_list']
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation','category_list'],
+            filter:[["name","=",id]]
         });
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
@@ -90,25 +91,12 @@ export const ProjectLeadComponent = () => {
             procurement_request_list?.map(item => {
                 if (item.name === id) {
                     setOrderData(item);
-                    item.procurement_list.list.map((items) => {
-                        const isDuplicate = categories.list.some(category => category.name === items.category);
-                        if (!isDuplicate) {
-                            setCategories(prevState => ({
-                                ...prevState,
-                                list: [...prevState.list, { name: items.category }]
-                            }));
-                        }
-                    });
+                    setCategories(prevState => ({
+                        ...prevState,
+                        list: item.category_list.list
+                    }));
                 }
             });
-            setCategories(prevState => ({
-                ...prevState,
-                list: prevState.list.filter((category, index, self) =>
-                    index === self.findIndex((c) => (
-                        c.name === category.name
-                    ))
-                )
-            }));
         }
     }, [procurement_request_list]);
 
@@ -220,6 +208,22 @@ export const ProjectLeadComponent = () => {
                 console.log("submit_error", submit_error)
             })
     }
+
+    useEffect(() => {
+        const newCategories = [];
+        orderData.procurement_list?.list.map((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+        setOrderData((prevState) => ({
+            ...prevState,
+            category_list: {
+                list: newCategories
+            },
+        }));
+    }, [orderData.procurement_list]);
 
     return (
         <MainLayout>
@@ -402,7 +406,7 @@ export const ProjectLeadComponent = () => {
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {orderData.procurement_list?.list?.map(item => {
                                         const quotesForItem = quote_data
-                                        ?.filter(value => value.item === item.name)
+                                        ?.filter(value => value.item === item.name && value.quote != null)
                                         ?.map(value => value.quote);
                                         let minQuote;
                                         if(quotesForItem) minQuote = Math.min(...quotesForItem);

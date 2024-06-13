@@ -431,7 +431,7 @@ export const SentBackSelectVendor = () => {
                                                             const price = getPrice(selectedVendors[curCategory], item.name);
 
                                                             const quotesForItem = quote_data
-                                                            ?.filter(value => value.item === item.name)
+                                                            ?.filter(value => value.item === item.name && value.quote != null)
                                                             ?.map(value => value.quote);
                                                             let minQuote;
                                                             if(quotesForItem) minQuote = Math.min(...quotesForItem);

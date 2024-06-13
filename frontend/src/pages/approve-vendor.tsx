@@ -537,7 +537,7 @@ export const ApproveVendor = () => {
         let total: number = 0;
         orderData.procurement_list?.list.map((item)=>{
             if(item.category === cat){
-                const price = quote_data?.find(value => value.item === item.name)?.quote;
+                const price = quote_data?.find(value => value.item === item.name && value.quote != null)?.quote;
                 total += (price ? parseFloat(price) : 0)*item.quantity;
             }
         })
@@ -628,7 +628,7 @@ export const ApproveVendor = () => {
                                                             const lowest2 = getLowest2(item.name)
 
                                                             const quotesForItem = quote_data
-                                                            ?.filter(value => value.item === item.name)
+                                                            ?.filter(value => value.item === item.name && value.quote != null)
                                                             ?.map(value => value.quote);
                                                             let minQuote;
                                                             if(quotesForItem) minQuote = Math.min(...quotesForItem);
@@ -702,7 +702,7 @@ export const ApproveVendor = () => {
                                                             total += price ? parseFloat(price) : 0;
 
                                                             const quotesForItem = quote_data
-                                                            ?.filter(value => value.item === item.name)
+                                                            ?.filter(value => value.item === item.name && value.quote != null)
                                                             ?.map(value => value.quote);
                                                             let minQuote;
                                                             if(quotesForItem) minQuote = Math.min(...quotesForItem);

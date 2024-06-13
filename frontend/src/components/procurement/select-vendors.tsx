@@ -186,7 +186,7 @@ export const SelectVendors = () => {
         let total: number = 0;
         orderData.procurement_list?.list.map((item)=>{
             if(item.category === cat){
-                const price = quote_data?.find(value => value.item === item.name)?.quote;
+                const price = quote_data?.find(value => value.item === item.name && value.quote != null)?.quote;
                 total += (price ? parseFloat(price) : 0)*item.quantity;
             }
         })
@@ -286,7 +286,7 @@ export const SelectVendors = () => {
                                             <tbody className="bg-white divide-y divide-gray-200">
                                             {orderData?.procurement_list?.list.map((item) => {
                                                 const quotesForItem = quote_data
-                                                ?.filter(value => value.item === item.name)
+                                                ?.filter(value => value.item === item.name && value.quote != null)
                                                 ?.map(value => value.quote);
                                                 let minQuote;
                                                 if(quotesForItem) minQuote = Math.min(...quotesForItem);
@@ -468,7 +468,7 @@ export const SelectVendors = () => {
                                                             const lowest2 = getLowest2(item.name)
 
                                                             const quotesForItem = quote_data
-                                                            ?.filter(value => value.item === item.name)
+                                                            ?.filter(value => value.item === item.name && value.quote != null)
                                                             ?.map(value => value.quote);
                                                             let minQuote;
                                                             if(quotesForItem) minQuote = Math.min(...quotesForItem);
