@@ -21,7 +21,8 @@ export const PRList = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', "category_list", 'creation'],
-            filters: [["procurement_executive", "=", userData.user_id], ["workflow_state", "=", "Approved"]]
+            filters: [["procurement_executive", "=", userData.user_id], ["workflow_state", "=", "Approved"]],
+            limit: 100
         });
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
@@ -114,7 +115,7 @@ export const PRList = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="max-w-40 gap-0.5 grid grid-cols-2">
+                        <div className="max-w-fit gap-0.5 grid grid-cols-2">
                             {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
@@ -130,7 +131,7 @@ export const PRList = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            N/A
+                            {"N/A"}
                         </div>
                     )
                 }

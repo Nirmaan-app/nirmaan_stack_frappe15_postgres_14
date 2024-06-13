@@ -31,15 +31,18 @@ export const ApproveSentBack = () => {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
+            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            limit: 100
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
-            fields: ['name', 'item_name', 'unit_name']
+            fields: ['name', 'item_name', 'unit_name'],
+            limit: 1000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst']
+            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst'],
+            limit: 200
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
@@ -48,12 +51,20 @@ export const ApproveSentBack = () => {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time'],
-            filters: [["is_selected", "=", "True"]]
+            filters: [["is_selected", "=", "True"]],
+            limit: 1000
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'owner',],
-            filters: [["workflow_state", "=", "Vendor Selected"]]
+            filters: [["workflow_state", "=", "Vendor Selected"]],
+            limit: 100
+        });
+
+    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ['item', 'quote'],
+            limit: 1000
         });
 
 
@@ -286,25 +297,33 @@ export const ApproveSentBack = () => {
                                     <DialogTrigger asChild>
                                         <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                     </DialogTrigger>
-                                    <DialogContent className="sm:max-w-[425px]">
+                                    <DialogContent className="sm:max-w-[425px] md:max-w-[525px]">
                                         <DialogHeader>
                                             <DialogTitle>Items List</DialogTitle>
                                             <DialogDescription>
-                                                <div className="grid grid-cols-6 font-medium text-black justify-between py-2">
-                                                    <div className="text-sm col-span-2">Items</div>
-                                                    <div className="text-sm">Qty</div>
-                                                    <div className="text-sm">Unit</div>
-                                                    <div className="text-sm">Rate</div>
-                                                    <div className="text-sm">Amount</div>
-                                                </div>
+                                                <div className="grid grid-cols-8 gap-2 font-medium text-black justify-between py-2">
+                                                        <div className="text-sm col-span-2">Items</div>
+                                                        <div className="text-sm">Unit</div>
+                                                        <div className="text-sm">Qty</div>
+                                                        <div className="text-sm">Rate</div>
+                                                        <div className="text-sm">Amount</div>
+                                                        <div className="text-sm col-span-2">3 months Lowest Amount</div>
+                                                    </div>
                                                 {orderData.item_list?.list.map((item) => {
                                                     const price = item.quote;
-                                                    return <div className="grid grid-cols-6 py-2">
+                                                    const quotesForItem = quote_data
+                                                    ?.filter(value => value.item === item.name)
+                                                    ?.map(value => value.quote);
+                                                    let minQuote;
+                                                    if(quotesForItem) minQuote = Math.min(...quotesForItem);
+
+                                                    return <div className="grid grid-cols-8 gap-2 py-2">
                                                         <div className="text-sm col-span-2">{item.item}</div>
-                                                        <div className="text-sm">{item.quantity}</div>
                                                         <div className="text-sm">{item.unit}</div>
+                                                        <div className="text-sm">{item.quantity}</div>
                                                         <div className="text-sm">{price}</div>
                                                         <div className="text-sm">{price * item.quantity}</div>
+                                                        <div className="text-sm col-span-2">{minQuote ? minQuote*item.quantity : "N/A"}</div>
                                                     </div>
 
                                                 })}
@@ -340,12 +359,18 @@ export const ApproveSentBack = () => {
                                                     Select All
                                                 </label>
                                                 {orderData.item_list?.list.map((item) => {
+                                                    const quotesForItem = quote_data
+                                                    ?.filter(value => value.item === item.name)
+                                                    ?.map(value => value.quote);
+                                                    let minQuote;
+                                                    if(quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                    
                                                     return <div className="flex justify-between py-2">
                                                         <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
                                                         <div className="text-sm text-black font-semibold">{item.quantity}</div>
                                                         <div className="text-sm text-black font-semibold">{item.unit}</div>
                                                         <div className="text-sm text-black font-semibold">{item.quote}</div>
-                                                        <div className="text-sm text-black font-semibold w-[20%]">{"N/A"}</div>
+                                                        <div className="text-sm text-black font-semibold w-[20%]">{minQuote ? minQuote : "N/A"}</div>
                                                     </div>
                                                 })}
 

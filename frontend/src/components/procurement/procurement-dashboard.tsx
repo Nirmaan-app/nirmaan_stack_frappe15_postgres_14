@@ -10,26 +10,31 @@ export default function ProcurementDashboard() {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state'],
-            filters: [["workflow_state", "=", "Approved"],["procurement_executive","=",userData.user_id]]
+            filters: [["workflow_state", "=", "Approved"],["procurement_executive","=",userData.user_id]],
+            limit: 100
         });
     const { data: procurement_request_list2, isLoading: procurement_request_list2_loading, error: procurement_request_list2_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state'],
-            filters: [["workflow_state", "=", "RFQ Generated"],["procurement_executive","=",userData.user_id]]
+            filters: [["workflow_state", "=", "RFQ Generated"],["procurement_executive","=",userData.user_id]],
+            limit: 100
         });
     const { data: procurement_request_list3, isLoading: procurement_request_list3_loading, error: procurement_request_list3_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state'],
-            filters: [["workflow_state", "=", "Quote Updated"],["procurement_executive","=",userData.user_id]]
+            filters: [["workflow_state", "=", "Quote Updated"],["procurement_executive","=",userData.user_id]],
+            limit: 100
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name', 'workflow_state'],
-            filters: [["workflow_state", "=", "Pending"],["procurement_executive","=",userData.user_id]]
+            filters: [["workflow_state", "=", "Pending"],["procurement_executive","=",userData.user_id]],
+            limit: 100
         });
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error } = useFrappeGetDocList("Procurement Orders",
         {
-            fields: ['name']
+            fields: ['name'],
+            limit: 100
         });
 
     return (

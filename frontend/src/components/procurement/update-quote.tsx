@@ -27,7 +27,8 @@ export const UpdateQuote = () => {
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
-            fields: ['name', 'item_name', 'unit_name', 'category']
+            fields: ['name', 'item_name', 'unit_name', 'category'],
+            limit: 1000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
@@ -35,21 +36,24 @@ export const UpdateQuote = () => {
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
+            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            limit: 100
         });
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error } = useFrappeGetDocList("Vendor Category",
         {
-            fields: ['vendor', 'category']
+            fields: ['vendor', 'category'],
+            limit: 1000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address']
+            fields: ['name', 'vendor_name', 'vendor_address'],
+            limit: 1000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
             filters: [["procurement_task", "=", orderId]],
-            limit: 500
+            limit: 1000
         });
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc } = useFrappeUpdateDoc()
@@ -142,6 +146,7 @@ export const UpdateQuote = () => {
                         {uniqueVendors.list.map((item) => {
                             return <div className="px-4 flex justify-between">
                                 <div className="px-6 py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
+                                <div className="flex space-x-2">
                                 <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Download PDF</SheetTrigger>
                                     <SheetContent>
@@ -171,6 +176,7 @@ export const UpdateQuote = () => {
                                         </ScrollArea>
                                     </SheetContent>
                                 </Sheet>
+                                </div>
                                 </div>
                                 {/* <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>

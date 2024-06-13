@@ -20,11 +20,13 @@ export const SentBackRequest = () => {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name','item_list', 'workflow_state','procurement_request','category','project_name','vendor','creation'],
-            filters:[["workflow_state","=","Pending"],["procurement_executive","=",userData.user_id]]
+            filters:[["workflow_state","=","Pending"],["procurement_executive","=",userData.user_id]],
+            limit: 100
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'work_package']
+            fields: ['name', 'work_package'],
+            limit: 100
         });
     const getPackage = (name: string) => {
             return procurement_request_list?.find(item => item.name === name)?.work_package;

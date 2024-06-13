@@ -34,7 +34,8 @@ export const ProcurementOrder = () => {
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
-            fields: ['name', 'item_name', 'unit_name', 'category']
+            fields: ['name', 'item_name', 'unit_name', 'category'],
+            limit: 1000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
@@ -42,20 +43,29 @@ export const ProcurementOrder = () => {
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
+            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            limit: 100
         });
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error,mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
-            fields: ['vendor', 'category','vendor_name']
+            fields: ['vendor', 'category','vendor_name'],
+            limit: 1000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address']
+            fields: ['name', 'vendor_name', 'vendor_address'],
+            limit: 1000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
-            filters: [["procurement_task","=",orderId]]
+            filters: [["procurement_task","=",orderId]],
+            limit: 1000
+        });
+    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ['item', 'quote'],
+            limit: 1000
         });
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc,loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
@@ -250,19 +260,25 @@ console.log("selectedCategories",Object.keys(selectedCategories).length)
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {orderData?.procurement_list?.list.map(item => (
-                                        <tr key={item.item}>
-                                            <td className="px-6 py-4 whitespace-nowrap">{item.item}</td>
+                                    {orderData?.procurement_list?.list.map(item => {
+                                        const quotesForItem = quote_data
+                                        ?.filter(value => value.item === item.name)
+                                        ?.map(value => value.quote);
+                                        let minQuote;
+                                        if(quotesForItem) minQuote = Math.min(...quotesForItem);
+
+                                        return <tr key={item.item}>
+                                            <td className="px-6 py-4">{item.item}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 {item.category}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">{item.unit}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">{item.quantity}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                N/A
+                                                {minQuote ? minQuote*item.quantity : "N/A"}
                                             </td>
                                         </tr>
-                                    ))}
+                                    })}
                                 </tbody>
                             </table>
                         </div>

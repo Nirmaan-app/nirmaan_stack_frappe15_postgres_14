@@ -20,21 +20,29 @@ export const SentBackSelectVendor = () => {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
+            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            limit: 100
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address']
+            fields: ['name', 'vendor_name', 'vendor_address'],
+            limit: 1000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
-            limit: 500
+            limit: 1000
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'item_list'],
-            filters: [["workflow_state", "=", "Pending"]]
+            filters: [["workflow_state", "=", "Pending"]],
+            limit: 100
+        });
+    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ['item', 'quote'],
+            limit: 1000
         });
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
 
@@ -192,6 +200,17 @@ export const SentBackSelectVendor = () => {
         })
         return total
     }
+
+    const getTotal2 = (vendor: string, cat: string) => {
+        let total: number = 0;
+        orderData?.item_list?.list.map((item) => {
+            
+                const price = getPrice(vendor, item.name);
+                total += (price ? parseFloat(price) : 0)*item.quantity;
+            
+        })
+        return total
+    }
     let count: number = 0;
 
     return (
@@ -236,7 +255,61 @@ export const SentBackSelectVendor = () => {
                                             {getSelectedVendor(curCategory)}
                                         </CardTitle>
                                     </div>
-                                    <div className="flex">
+                                    <table className="w-full">
+                                            <thead className="w-full border-b border-black">
+                                                <tr>
+                                                    <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></th>
+                                                    {selectedCategories[curCategory]?.map((item)=>{
+                                                        const isSelected = selectedVendors[curCategory] === item;
+                                                        const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
+                                                        return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={curCategory} value={item} onChange={handleChangeWithParam(curCategory, item)} />{getVendorName(item)}</span>
+                                                                    <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory)} Days</div>
+                                                                </th>
+                                                    })}
+                                                    <th className="bg-gray-200 p-2 font-semibold truncate text-left">Last 3 months Lowest Quote<div className='py-2 font-light text-sm invisible'>3 Days</div></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                            {orderData?.item_list?.list.map((item) => {
+                                                const quotesForItem = quote_data
+                                                ?.filter(value => value.item === item.name)
+                                                ?.map(value => value.quote);
+                                                let minQuote;
+                                                if(quotesForItem) minQuote = Math.min(...quotesForItem);
+
+                                                console.log("item",item)
+                                                    return <tr>
+                                                    <td className="py-2 text-sm px-2 font-semibold border-b w-[40%]">
+                                                        {item.item}
+                                                    </td>
+                                                    {selectedCategories[curCategory]?.map((value)=>{
+                                                        const price = getPrice(value, item.name);
+                                                        // total += (price ? parseFloat(price) : 0)*item.quantity;
+                                                        const isSelected = selectedVendors[curCategory] === value;
+                                                        const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
+                                                        return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
+                                                                    {price*item.quantity}
+                                                                </td>
+                                                    })}
+                                                    <td  className="py-2 text-sm px-2 border-b">
+                                                        {minQuote ? minQuote*item.quantity : "N/A"}
+                                                    </td>
+                                                    </tr>
+                                            })}
+                                            <tr>
+                                                <td className="py-4 text-sm px-2 font-semibold">Total</td>
+                                                {selectedCategories[curCategory]?.map((value)=>{
+                                                    const isSelected = selectedVendors[curCategory] === value;
+                                                    const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
+                                                        return <td className={`py-2 text-sm px-2 text-left ${dynamicClass}`}>
+                                                                    {getTotal2(value,curCategory)}
+                                                                </td>
+                                                    })}
+                                                <td></td>
+                                            </tr>
+                                            </tbody>
+                                        </table>
+                                    {/* <div className="flex">
                                         <div className='flex-1'>
                                             <div className="bg-gray-200 p-2 font-semibold">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></div>
                                             {orderData.item_list?.list.map((value) => {
@@ -277,7 +350,7 @@ export const SentBackSelectVendor = () => {
                                                 </div>
                                             })}
                                         </div>
-                                    </div>
+                                    </div> */}
                                 </CardHeader>
                             </Card>
                         </div>
@@ -342,25 +415,34 @@ export const SentBackSelectVendor = () => {
                                             <DialogTrigger asChild>
                                                 <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                             </DialogTrigger>
-                                            <DialogContent className="sm:max-w-[425px]">
+                                            <DialogContent className="sm:max-w-[425px] md:max-w-[525px]">
                                                 <DialogHeader>
                                                     <DialogTitle>Items List</DialogTitle>
                                                     <DialogDescription>
-                                                        <div className="grid grid-cols-6 font-medium text-black justify-between py-2">
+                                                        <div className="grid grid-cols-8 gap-2 font-medium text-black justify-between py-2">
                                                             <div className="text-sm col-span-2">Items</div>
-                                                            <div className="text-sm">Qty</div>
                                                             <div className="text-sm">Unit</div>
+                                                            <div className="text-sm">Qty</div>
                                                             <div className="text-sm">Rate</div>
                                                             <div className="text-sm">Amount</div>
+                                                            <div className="text-sm col-span-2">3 months Lowest Amount</div>
                                                         </div>
                                                         {orderData.item_list?.list.map((item) => {
                                                             const price = getPrice(selectedVendors[curCategory], item.name);
-                                                            return <div className="grid grid-cols-6 py-2">
+
+                                                            const quotesForItem = quote_data
+                                                            ?.filter(value => value.item === item.name)
+                                                            ?.map(value => value.quote);
+                                                            let minQuote;
+                                                            if(quotesForItem) minQuote = Math.min(...quotesForItem);
+
+                                                            return <div className="grid grid-cols-8 gap-2 py-2">
                                                                 <div className="text-sm col-span-2">{item.item}</div>
                                                                 <div className="text-sm">{item.quantity}</div>
                                                                 <div className="text-sm">{item.unit}</div>
                                                                 <div className="text-sm">{price}</div>
                                                                 <div className="text-sm">{price * item.quantity}</div>
+                                                                <div className="text-sm col-span-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
                                                             </div>
                                                         })}
                                                     </DialogDescription>
