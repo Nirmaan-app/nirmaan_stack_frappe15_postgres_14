@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Badge } from "@/components/ui/badge";
 
 
 type PRTable = {
@@ -13,13 +14,14 @@ type PRTable = {
     project: string
     creation: string
     work_package: string
+    category_list: {}
 }
 
 export const ApproveSelectVendor = () => {
     const userData = useUserData();
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
             filters: [["project_lead", "=", userData.user_id], ["workflow_state", "=", "Vendor Selected"]],
             limit: 100
         });
@@ -103,6 +105,21 @@ export const ApproveSelectVendor = () => {
                     return (
                         <div className="font-medium">
                             {row.getValue("work_package")}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "category_list",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Categories" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="max-w-40 gap-0.5 grid grid-cols-2">
+                            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }

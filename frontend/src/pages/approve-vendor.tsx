@@ -170,14 +170,16 @@ export const ApproveVendor = () => {
             comments: comment,
             procurement_executive: orderData.procurement_executive
         }
-        if(itemlist.list.length > 0){createDoc('Sent Back Category', newSendBack)
-            .then(() => {
-                console.log(newSendBack);
-                setComment('')
-            })
-            .catch(() => {
-                console.log("submit_error", submit_error);
-            })}
+        if (itemlist.list.length > 0) {
+            createDoc('Sent Back Category', newSendBack)
+                .then(() => {
+                    console.log(newSendBack);
+                    setComment('')
+                })
+                .catch(() => {
+                    console.log("submit_error", submit_error);
+                })
+        }
         updateDoc('Procurement Requests', orderId, {
             workflow_state: "Partially Approved"
         })
@@ -226,13 +228,15 @@ export const ApproveVendor = () => {
             vendor_gst: getVendorGST(selectedVendors[cat]),
             order_list: order_list
         }
-        if(order_list.list.length > 0){createDoc('Procurement Orders', newProcurementOrder)
-            .then(() => {
-                console.log(newProcurementOrder);
-            })
-            .catch(() => {
-                console.log("submit_error", submit_error);
-            })}
+        if (order_list.list.length > 0) {
+            createDoc('Procurement Orders', newProcurementOrder)
+                .then(() => {
+                    console.log(newProcurementOrder);
+                })
+                .catch(() => {
+                    console.log("submit_error", submit_error);
+                })
+        }
     }
 
 
@@ -523,9 +527,9 @@ export const ApproveVendor = () => {
 
     const getLowest2 = (item: string) => {
         let total: number = 100000000;
-        quotation_request_list2?.map((value)=>{
-            if(value.item === item){
-                if(value.quote < total){
+        quotation_request_list2?.map((value) => {
+            if (value.item === item) {
+                if (value.quote < total) {
                     total = value.quote;
                 }
             }
@@ -535,10 +539,10 @@ export const ApproveVendor = () => {
 
     const getLowest3 = (cat: string) => {
         let total: number = 0;
-        orderData.procurement_list?.list.map((item)=>{
-            if(item.category === cat){
+        orderData.procurement_list?.list.map((item) => {
+            if (item.category === cat) {
                 const price = quote_data?.find(value => value.item === item.name && value.quote != null)?.quote;
-                total += (price ? parseFloat(price) : 0)*item.quantity;
+                total += (price ? parseFloat(price) : 0) * item.quantity;
             }
         })
         return total;
@@ -547,12 +551,12 @@ export const ApproveVendor = () => {
     return (
         <MainLayout>
             {page == 'approvequotation' && <div className="flex" >
-                <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
-                    <div className="flex items-center space-y-2">
-                        {/* <ArrowLeft /> */}
-                        <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Comparison</h2>
+                <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex items-center pt-1  pb-4">
+                        <ArrowLeft onClick={() => navigate("/approve-vendor")} />
+                        <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
                     </div>
-                    <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                    <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col items-center justify-center">
                             <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
@@ -573,7 +577,7 @@ export const ApproveVendor = () => {
                             <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                         </div>
-                    </div>
+                    </Card>
                     {orderData?.category_list?.list.map((cat) => {
                         const curCategory = cat.name
                         const lowest = getLowest(cat.name);
@@ -593,9 +597,12 @@ export const ApproveVendor = () => {
                                     {orderData?.procurement_list.list.map((item) => {
                                         const price = getPrice(selectedVendors[curCategory], item.name);
                                         total += (price ? parseFloat(price) : 0) * (parseFloat(item.quantity));
-                                        if (count === 2) { return }
-                                        count++;
+
                                         if (item.category === curCategory) {
+                                            if (count >= 2) {
+                                                return
+                                            }
+                                            count++;
                                             return <div className="flex justify-between py-2">
                                                 <div className="text-sm">{item.item}</div>
                                                 <div className="text-sm">{price * (item.quantity)}</div>
@@ -620,18 +627,18 @@ export const ApproveVendor = () => {
                                                         <div className="text-sm col-span-2">3 months Lowest Amount</div>
                                                     </div>
                                                     {orderData?.procurement_list.list.map((item) => {
-                                                        
+
                                                         if (item.category === curCategory) {
                                                             const price = getPrice(selectedVendors[curCategory], item.name);
                                                             total += (price ? parseFloat(price) : 0) * (item.quantity);
-                                                            
+
                                                             const lowest2 = getLowest2(item.name)
 
                                                             const quotesForItem = quote_data
-                                                            ?.filter(value => value.item === item.name && value.quote != null)
-                                                            ?.map(value => value.quote);
+                                                                ?.filter(value => value.item === item.name && value.quote != null)
+                                                                ?.map(value => value.quote);
                                                             let minQuote;
-                                                            if(quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                            if (quotesForItem) minQuote = Math.min(...quotesForItem);
 
                                                             return <div className="grid grid-cols-10 gap-2 py-2">
                                                                 <div className="text-sm col-span-2">{item.item}</div>
@@ -639,8 +646,8 @@ export const ApproveVendor = () => {
                                                                 <div className="text-sm">{item.quantity}</div>
                                                                 <div className="text-sm">{price}</div>
                                                                 <div className="text-sm">{price * item.quantity}</div>
-                                                                <div className="text-sm col-span-2">{lowest2 ? lowest2*item.quantity : "N/A"}</div>
-                                                                <div className="text-sm col-span-2">{minQuote ? minQuote*item.quantity : "N/A"}</div>
+                                                                <div className="text-sm col-span-2">{lowest2 ? lowest2 * item.quantity : "N/A"}</div>
+                                                                <div className="text-sm col-span-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
                                                             </div>
                                                         }
                                                     })}
@@ -664,10 +671,10 @@ export const ApproveVendor = () => {
                                 <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
                                     <div className="flex justify-between">
                                         <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}</div>
+                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
                                     </div>
                                     <div className="font-medium text-gray-700 text-sm">
-                                        Last 3 months Lowest Price
+                                        Last 3 months Lowest Amount
                                     </div>
                                 </div>
                             </div>
@@ -702,10 +709,10 @@ export const ApproveVendor = () => {
                                                             total += price ? parseFloat(price) : 0;
 
                                                             const quotesForItem = quote_data
-                                                            ?.filter(value => value.item === item.name && value.quote != null)
-                                                            ?.map(value => value.quote);
+                                                                ?.filter(value => value.item === item.name && value.quote != null)
+                                                                ?.map(value => value.quote);
                                                             let minQuote;
-                                                            if(quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                            if (quotesForItem) minQuote = Math.min(...quotesForItem);
 
                                                             return <div className="flex justify-between py-2">
                                                                 <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
