@@ -15,8 +15,9 @@ import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { MainLayout } from '../layout/main-layout';
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { PrintRFQ } from "./rfq-pdf"
+import { PrintRFQ } from "./rfq-pdf";
 import { Card } from "../ui/card";
+import { Button } from '@/components/ui/button';
 
 export const UpdateQuote = () => {
     const { orderId } = useParams<{ orderId: string }>()
@@ -148,38 +149,38 @@ export const UpdateQuote = () => {
                             return <div className="px-4 flex justify-between">
                                 <div className="px-6 py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
                                 <div className="flex space-x-2">
-                                <Sheet>
-                                    <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Download PDF</SheetTrigger>
-                                    <SheetContent>
-                                        <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                            <SheetHeader>
-                                                <SheetTitle>Print PDF</SheetTitle>
-                                                <SheetDescription>
-                                                    <PrintRFQ vendor_id={item} pr_id={orderData.name} />
-                                                </SheetDescription>
-                                            </SheetHeader>
-                                        </ScrollArea>
-                                    </SheetContent>
-                                </Sheet>
-                                {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
-                                <div className="flex space-x-2">
-
                                     <Sheet>
-                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
+                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Download PDF</SheetTrigger>
                                         <SheetContent>
-                                            <ScrollArea className="h-[90%] w-[600px] p-2">
+                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
                                                 <SheetHeader>
-                                                    <SheetTitle>Enter Price</SheetTitle>
+                                                    <SheetTitle>Print PDF</SheetTitle>
                                                     <SheetDescription>
-                                                        <Card className="p-5">
-                                                            <QuotationForm vendor_id={item} pr_id={orderData.name} />
-                                                        </Card>
+                                                        <PrintRFQ vendor_id={item} pr_id={orderData.name} />
                                                     </SheetDescription>
                                                 </SheetHeader>
                                             </ScrollArea>
                                         </SheetContent>
                                     </Sheet>
-                                </div>
+                                    {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
+                                    <div className="flex space-x-2">
+
+                                        <Sheet>
+                                            <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
+                                            <SheetContent>
+                                                <ScrollArea className="h-[90%] w-[600px] p-2">
+                                                    <SheetHeader>
+                                                        <SheetTitle>Enter Price</SheetTitle>
+                                                        <SheetDescription>
+                                                            <Card className="p-5">
+                                                                <QuotationForm vendor_id={item} pr_id={orderData.name} />
+                                                            </Card>
+                                                        </SheetDescription>
+                                                    </SheetHeader>
+                                                </ScrollArea>
+                                            </SheetContent>
+                                        </Sheet>
+                                    </div>
                                 </div>
                                 {/* <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
@@ -197,9 +198,9 @@ export const UpdateQuote = () => {
                             </div>
                         })}
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={handleUpdateQuote}>
+                            <Button onClick={handleUpdateQuote}>
                                 Update Quote
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>}

@@ -18,6 +18,7 @@ import { useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { MainLayout } from '../layout/main-layout';
+import { Button } from '@/components/ui/button'
 
 interface VendorItem {
     vendor: string;
@@ -284,9 +285,9 @@ export const ProcurementOrder = () => {
                             </table>
                         </div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => setPage('vendors')}>
+                            <Button onClick={() => setPage('vendors')}>
                                 Select Vendors
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>}
@@ -350,9 +351,9 @@ export const ProcurementOrder = () => {
                             </div>
                         })}
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            {(loading || update_loading) ? <div>loading...</div> : <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
+                            {(loading || update_loading) ? <div>loading...</div> : <Button onClick={() => handleSubmit()}>
                                 Send RFQ
-                            </button>}
+                            </Button>}
                         </div>
                     </div>
                 </div>}

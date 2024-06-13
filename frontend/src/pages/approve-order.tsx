@@ -401,13 +401,13 @@ export const ProjectLeadComponent = () => {
                 </div>}
             {page == 'approve' &&
                 <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
+                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
-                        <div className="flex items-center space-y-2">
+                        <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('itemlist')} />
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Orders</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight">Orders</h2>
                         </div>
-                        <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
@@ -428,7 +428,7 @@ export const ProjectLeadComponent = () => {
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div>
-                        </div>
+                        </Card>
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
                                 <thead className="border-b-2 border-black">
