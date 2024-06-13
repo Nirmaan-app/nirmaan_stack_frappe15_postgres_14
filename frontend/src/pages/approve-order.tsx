@@ -17,6 +17,7 @@ import imageUrl from "@/assets/user-icon.jpeg"
 import { MainLayout } from "@/components/layout/main-layout";
 import ReactSelect from 'react-select';
 import { CirclePlus } from 'lucide-react';
+import { Pencil } from 'lucide-react';
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
@@ -189,6 +190,8 @@ export const ProjectLeadComponent = () => {
                 list: curRequest,
             },
         }));
+        setQuantity(0)
+        setCurItem('')
     };
     const handleDelete = (item: string) => {
         let curRequest = orderData.procurement_list.list;
@@ -199,6 +202,8 @@ export const ProjectLeadComponent = () => {
                 list: curRequest
             }
         }));
+        setQuantity(0)
+        setCurItem('')
     }
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
     const handleSubmit = () => {
@@ -290,7 +295,7 @@ export const ProjectLeadComponent = () => {
                                             <th className="w-[50%] text-left px-4 py-1 text-xs">Item Name</th>
                                             <th className="px-4 py-1 text-xs">Unit</th>
                                             <th className="px-4 py-1 text-xs">Quantity</th>
-                                            <th className="px-4 py-1 text-xs"></th>
+                                            <th className="px-4 py-1 text-xs">Edit</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -300,27 +305,39 @@ export const ProjectLeadComponent = () => {
                                                     <td className="w-[50%] text-left border-b-2 px-4 py-1 text-sm text-cent">{item.item}</td>
                                                     <td className="border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
                                                     <td className="border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
-                                                    <td className="border-b-2 px-4 py-1 text-sm text-right">
+                                                    <td className="border-b-2 px-4 py-1 text-sm text-center">
                                                         <Dialog className="border border-gray-200">
-                                                            <DialogTrigger>Edit</DialogTrigger>
+                                                            <DialogTrigger><Pencil className="w-4 h-4"/></DialogTrigger>
                                                             <DialogContent>
                                                                 <DialogHeader>
-                                                                    <DialogTitle>Edit Item</DialogTitle>
-                                                                    <DialogDescription className="flex flex-row">
-                                                                        <h3>{item.item}</h3>
-                                                                    </DialogDescription>
-                                                                    <DialogDescription className="flex flex-row">
-                                                                        <label htmlFor="">Edit Quantity</label>
-                                                                    </DialogDescription>
-                                                                    <DialogDescription className="flex flex-row">
-                                                                        <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg border my-4 p-2" onChange={(e) => setQuantity(e.target.value)} />
-                                                                    </DialogDescription>
-                                                                    <DialogDescription className="flex flex-row">
-                                                                        <div className="flex botton-4 right-4 gap-2">
-                                                                            <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                            <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                    <DialogTitle className="text-left py-2">Edit Item</DialogTitle>
+                                                                    <DialogDescription className="">
+                                                                        <div className="flex space-x-2">
+                                                                            <div className="w-1/2 md:w-2/3">
+                                                                                <h5 className="text-xs text-gray-400 text-left">Items</h5>
+                                                                                <div className="h-[37px] w-full border rounded-lg px-1 pt-1 text-left">
+                                                                                    {item.item}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="w-[30%]">
+                                                                                <h5 className="text-xs text-gray-400 text-left">UOM</h5>
+                                                                                <div className="h-[37px] w-full pt-1 text-left">
+                                                                                    {item.unit}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="w-[25%]">
+                                                                                <h5 className="text-xs text-gray-400 text-left">Qty</h5>
+                                                                                <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
+                                                                            </div>
                                                                         </div>
-                                                                    </DialogDescription>
+                                                                        </DialogDescription>
+                                                                        <DialogDescription className="flex flex-row justify-between">
+                                                                            <div></div>
+                                                                            <div className="flex botton-4 right-4 gap-2">
+                                                                                <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
+                                                                                <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                            </div>
+                                                                        </DialogDescription>
                                                                 </DialogHeader>
                                                             </DialogContent>
                                                         </Dialog>
