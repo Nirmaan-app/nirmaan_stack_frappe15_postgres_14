@@ -15,7 +15,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task'],
-            filters: [["procurement_task", "=", pr_id],["vendor","=",vendor_id]],
+            filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
             limit: 1000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
@@ -120,7 +120,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
             </div>
             <div className="flex text-gray-500 space-x-2 pt-4 pb-2">
                 <div className="w-1/2 flex-shrink-0">
-                    <div>Item</div>
+                    <div>Added Item</div>
                 </div>
                 <div className="flex-1">
                     <div>UOM</div>
@@ -134,18 +134,18 @@ export default function QuotationForm({ vendor_id, pr_id }) {
             </div>
             {categories.list.map((cat) => {
                 return <div>
-                    <div>{cat.name}</div>
+                    <div className="p-2 text-xl font-bold">{cat.name}</div>
                     {quotation_request_list?.map((q) => {
                         if (q.category === cat.name && q.vendor === vendor_id) {
                             return <div className="flex space-x-2">
-                                <div className="w-1/2 font-semibold text-black flex-shrink-0">
+                                <div className="mt-2 pl-5 w-1/2 text-black flex-shrink-0">
                                     <div>{getItem(q.item)}</div>
                                 </div>
-                                <div className="flex-1">
-                                    <Input type="text" placeholder={getUnit(q.item)} />
+                                <div className="flex-1 p-1">
+                                    <Input type="text" disabled={true} placeholder={getUnit(q.item)} />
                                 </div>
                                 <div className="flex-1">
-                                    <Input type="text" placeholder={getQuantity(q.item)} />
+                                    <Input type="text" disabled={true} placeholder={getQuantity(q.item)} />
                                 </div>
                                 <div className="flex-1">
                                     <Input type="number" onChange={(e) => handlePriceChange(q.item, e.target.value)} />
