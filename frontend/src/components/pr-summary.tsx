@@ -9,7 +9,8 @@ export const PRSummary = () => {
 
     const { id } = useParams<{ id: string }>();
     const { data: procurement_request_list } = useFrappeGetDocList("Procurement Requests", {
-        fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'category_list']
+        fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'category_list'],
+        limit: 100
     });
 
     const [orderData, setOrderData] = useState<any>({

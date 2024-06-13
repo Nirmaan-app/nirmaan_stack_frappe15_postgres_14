@@ -20,7 +20,8 @@ export const ApproveSelectVendor = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
-            filters: [["project_lead", "=", userData.user_id], ["workflow_state", "=", "Vendor Selected"]]
+            filters: [["project_lead", "=", userData.user_id], ["workflow_state", "=", "Vendor Selected"]],
+            limit: 100
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {

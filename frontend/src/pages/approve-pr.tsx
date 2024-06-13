@@ -22,7 +22,8 @@ export const ApprovePR = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'category_list', 'procurement_list', 'creation'],
-            filters: [["project_lead", "=", userData.user_id], ["workflow_state", "=", "Pending"]]
+            filters: [["project_lead", "=", userData.user_id], ["workflow_state", "=", "Pending"]],
+            limit: 100
         });
 
 
@@ -30,6 +31,22 @@ export const ApprovePR = () => {
         fields: ["name", "project_name"],
         filters: [["project_lead", "=", userData.user_id]]
     })
+    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+    {
+        fields: ['item', 'quote'],
+        limit: 1000
+    });
+
+    const getTotal = (order_id: string) => {
+        let total:number = 0;
+        const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
+        console.log("orderData",orderData)
+        orderData?.list.map((item) => {
+            const price = quote_data?.find(value => value.item === item.name && value.quote != null)?.quote
+            total += (price ? parseFloat(price) : 0)*item.quantity;
+        })
+        return total;
+    }
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
@@ -117,14 +134,14 @@ export const ApprovePR = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="max-w-40 gap-0.5 grid grid-cols-2">
+                        <div className="max-w-fit gap-0.5 grid grid-cols-2">
                             {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }
             },
             {
-                accessorKey: "project_type",
+                accessorKey: "total",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Estimated Price" />
@@ -133,7 +150,7 @@ export const ApprovePR = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            N/A
+                            {getTotal(row.getValue("name"))}
                         </div>
                     )
                 }

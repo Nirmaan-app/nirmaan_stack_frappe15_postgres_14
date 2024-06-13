@@ -7,6 +7,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { Badge } from "../ui/badge";
 
 
 type PRTable = {
@@ -23,7 +24,8 @@ export const QuoteUpdateSelect = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
-            filters: [["workflow_state", "=", "RFQ Generated"], ["procurement_executive", "=", userData.user_id]]
+            filters: [["workflow_state", "=", "RFQ Generated"], ["procurement_executive", "=", userData.user_id]],
+            limit: 100
         });
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],

@@ -32,15 +32,18 @@ export const ApproveVendor = () => {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'procurement_executive']
+            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'procurement_executive'],
+            limit: 100
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
-            fields: ['name', 'item_name', 'unit_name']
+            fields: ['name', 'item_name', 'unit_name'],
+            limit: 1000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst']
+            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst'],
+            limit: 1000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
@@ -49,12 +52,19 @@ export const ApproveVendor = () => {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
-            filters: [["is_selected", "=", "True"], ["procurement_task", "=", orderId]]
+            filters: [["is_selected", "=", "True"], ["procurement_task", "=", orderId]],
+            limit: 1000
         });
     const { data: quotation_request_list2, isLoading: quotation_request_list2_loading, error: quotation_request_list2_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
-            filters: [["procurement_task", "=", orderId]]
+            filters: [["procurement_task", "=", orderId]],
+            limit: 1000
+        });
+    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ['item', 'quote'],
+            limit: 1000
         });
 
 
@@ -308,7 +318,6 @@ export const ApproveVendor = () => {
 
 
     const handleApproveAll = () => {
-        // Create an array to hold all the promises
         const createDocPromises = [];
 
         orderData.category_list.list.forEach((cat) => {
@@ -316,7 +325,7 @@ export const ApproveVendor = () => {
                 list: []
             };
 
-            // Populate the order_list with matching items
+
             quotation_request_list?.forEach((value) => {
                 if (value.category === cat.name) {
                     const newItem = {
@@ -330,7 +339,6 @@ export const ApproveVendor = () => {
                 }
             });
 
-            // Create a new procurement order object
             const newProcurementOrder = {
                 procurement_request: orderId,
                 project: orderData.project,
@@ -344,7 +352,6 @@ export const ApproveVendor = () => {
                 order_list: order_list
             };
 
-            // Add the createDoc promise to the array
             const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
                 .then(() => {
                     console.log(newProcurementOrder);
@@ -356,10 +363,8 @@ export const ApproveVendor = () => {
             createDocPromises.push(createDocPromise);
         });
 
-        // Wait for all createDoc promises to resolve
         Promise.all(createDocPromises)
             .then(() => {
-                // After all createDoc operations are complete, update the document
                 return updateDoc('Procurement Requests', orderId, {
                     workflow_state: "Vendor Approved"
                 });
@@ -516,6 +521,29 @@ export const ApproveVendor = () => {
         if (price != 100000000) return { quote: price, vendor: vendor }
     }
 
+    const getLowest2 = (item: string) => {
+        let total: number = 100000000;
+        quotation_request_list2?.map((value)=>{
+            if(value.item === item){
+                if(value.quote < total){
+                    total = value.quote;
+                }
+            }
+        })
+        return total;
+    }
+
+    const getLowest3 = (cat: string) => {
+        let total: number = 0;
+        orderData.procurement_list?.list.map((item)=>{
+            if(item.category === cat){
+                const price = quote_data?.find(value => value.item === item.name && value.quote != null)?.quote;
+                total += (price ? parseFloat(price) : 0)*item.quantity;
+            }
+        })
+        return total;
+    }
+
     return (
         <MainLayout>
             {page == 'approvequotation' && <div className="flex" >
@@ -578,27 +606,41 @@ export const ApproveVendor = () => {
                                         <DialogTrigger asChild>
                                             <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                         </DialogTrigger>
-                                        <DialogContent className="sm:max-w-[425px]">
+                                        <DialogContent className="sm:max-w-[425px] md:max-w-[625px]">
                                             <DialogHeader>
                                                 <DialogTitle>Items List</DialogTitle>
                                                 <DialogDescription>
-                                                    <div className="grid grid-cols-6 font-medium text-black py-2">
+                                                    <div className="grid grid-cols-10 gap-2 font-medium text-black justify-between py-2">
                                                         <div className="text-sm col-span-2">Items</div>
                                                         <div className="text-sm">Unit</div>
                                                         <div className="text-sm">Qty</div>
                                                         <div className="text-sm">Rate</div>
                                                         <div className="text-sm">Amount</div>
+                                                        <div className="text-sm col-span-2">Lowest Quoted Vendor</div>
+                                                        <div className="text-sm col-span-2">3 months Lowest Amount</div>
                                                     </div>
                                                     {orderData?.procurement_list.list.map((item) => {
-                                                        const price = getPrice(selectedVendors[curCategory], item.name);
-                                                        total += (price ? parseFloat(price) : 0) * (item.quantity);
+                                                        
                                                         if (item.category === curCategory) {
-                                                            return <div className="grid grid-cols-6 py-2">
+                                                            const price = getPrice(selectedVendors[curCategory], item.name);
+                                                            total += (price ? parseFloat(price) : 0) * (item.quantity);
+                                                            
+                                                            const lowest2 = getLowest2(item.name)
+
+                                                            const quotesForItem = quote_data
+                                                            ?.filter(value => value.item === item.name && value.quote != null)
+                                                            ?.map(value => value.quote);
+                                                            let minQuote;
+                                                            if(quotesForItem) minQuote = Math.min(...quotesForItem);
+
+                                                            return <div className="grid grid-cols-10 gap-2 py-2">
                                                                 <div className="text-sm col-span-2">{item.item}</div>
                                                                 <div className="text-sm">{item.unit}</div>
                                                                 <div className="text-sm">{item.quantity}</div>
                                                                 <div className="text-sm">{price}</div>
                                                                 <div className="text-sm">{price * item.quantity}</div>
+                                                                <div className="text-sm col-span-2">{lowest2 ? lowest2*item.quantity : "N/A"}</div>
+                                                                <div className="text-sm col-span-2">{minQuote ? minQuote*item.quantity : "N/A"}</div>
                                                             </div>
                                                         }
                                                     })}
@@ -622,7 +664,7 @@ export const ApproveVendor = () => {
                                 <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
                                     <div className="flex justify-between">
                                         <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
+                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}</div>
                                     </div>
                                     <div className="font-medium text-gray-700 text-sm">
                                         Last 3 months Lowest Price
@@ -658,12 +700,19 @@ export const ApproveVendor = () => {
                                                         if (item.category === curCategory) {
                                                             const price = getPrice(selectedVendors[curCategory], item.name);
                                                             total += price ? parseFloat(price) : 0;
+
+                                                            const quotesForItem = quote_data
+                                                            ?.filter(value => value.item === item.name && value.quote != null)
+                                                            ?.map(value => value.quote);
+                                                            let minQuote;
+                                                            if(quotesForItem) minQuote = Math.min(...quotesForItem);
+
                                                             return <div className="flex justify-between py-2">
                                                                 <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.quantity}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.unit}</div>
                                                                 <div className="text-sm text-black font-semibold">{price}</div>
-                                                                <div className="text-sm text-black font-semibold w-[15%]">{"N/A"}</div>
+                                                                <div className="text-sm text-black font-semibold w-[15%]">{minQuote ? minQuote : "N/A"}</div>
                                                             </div>
                                                         }
                                                     })}

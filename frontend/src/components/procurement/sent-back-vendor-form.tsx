@@ -86,7 +86,8 @@ export default function SentBackVendorForm({ sent_back_data, quotation_request_l
     })
     const { data: address, isLoading: address_isLoading, error: address_error, mutate: project_address_mutate } = useFrappeGetDocList('Address', {
         fields: ["name", "address_title"],
-        filters: [["address_type", "=", "Shop"]]
+        filters: [["address_type", "=", "Shop"]],
+        limit: 1000
     });
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {

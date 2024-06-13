@@ -37,7 +37,8 @@ export const NewPR = () => {
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
-            fields: ['name', 'item_name', 'unit_name', 'category']
+            fields: ['name', 'item_name', 'unit_name', 'category'],
+            limit: 1000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
@@ -45,7 +46,8 @@ export const NewPR = () => {
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'workflow_state']
+            fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'workflow_state'],
+            limit: 100
         });
 
     // console.log(category_list);
@@ -149,12 +151,6 @@ export const NewPR = () => {
                 setUnit(item.unit_name)
             }
         })
-        // setCurItem(selectedItem.value)
-        // item_list?.map((item) => {
-        //     if (item.item_name == selectedItem) {
-        //         setUnit(item.unit_name)
-        //     }
-        // })
     };
     const handleChange = (selectedItem) => {
         console.log('Selected item:', selectedItem);

@@ -14,7 +14,8 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'item_list'],
-            filters: [["name", "=", sb_id]]
+            filters: [["name", "=", sb_id]],
+            limit: 100
         });
     const [orderData, setOrderData] = useState({
         project_name: '',
@@ -31,19 +32,22 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
         {
             fields: ['name', 'lead_time', 'quote', 'project', 'item', 'category', 'vendor', 'procurement_task'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
-            limit: 500
+            limit: 1000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address']
+            fields: ['name', 'vendor_name', 'vendor_address'],
+            limit: 1000
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
-            fields: ['name', 'item_name', 'unit_name']
+            fields: ['name', 'item_name', 'unit_name'],
+            limit: 1000
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation']
+            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            limit: 100
         });
 
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });

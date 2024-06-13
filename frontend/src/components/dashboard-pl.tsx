@@ -10,12 +10,14 @@ export const ProjectLead = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state'],
-            filters: [["project_lead","=",userData.user_id]]
+            filters: [["project_lead","=",userData.user_id]],
+            limit: 100
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name','item_list', 'workflow_state','procurement_request','category','project_name','vendor','creation','owner'],
-            filters:[["workflow_state","=","Vendor Selected"],["owner","=",userData.user_id]]
+            filters:[["workflow_state","=","Vendor Selected"],["owner","=",userData.user_id]],
+            limit: 100
         });
 
     const procurement_request_lists: string[] = [];

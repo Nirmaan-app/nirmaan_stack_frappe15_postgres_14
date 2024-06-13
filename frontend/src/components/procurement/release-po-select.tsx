@@ -21,7 +21,8 @@ export const ReleasePOSelect = () => {
     const userData = useUserData();
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error } = useFrappeGetDocList("Procurement Orders",
         {
-            fields: ['name', 'procurement_request', 'owner', 'order_list', 'vendor_name', 'project', 'project_name', 'category', 'creation']
+            fields: ['name', 'procurement_request', 'owner', 'order_list', 'vendor_name', 'project', 'project_name', 'category', 'creation'],
+            limit: 100
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
