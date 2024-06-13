@@ -151,12 +151,6 @@ export const NewPR = () => {
                 setUnit(item.unit_name)
             }
         })
-        // setCurItem(selectedItem.value)
-        // item_list?.map((item) => {
-        //     if (item.item_name == selectedItem) {
-        //         setUnit(item.unit_name)
-        //     }
-        // })
     };
     const handleChange = (selectedItem) => {
         console.log('Selected item:', selectedItem);

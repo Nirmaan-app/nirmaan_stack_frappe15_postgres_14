@@ -41,11 +41,16 @@ export const ProjectLeadComponent = () => {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation','category_list'],
             filter:[["name","=",id]]
         });
+        
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['item', 'quote'],
             limit: 1000
         });
+    const { data: orderData, error: orderData_error, isValidating: orderData_loading } = useFrappeGetDoc(
+        'Procurement Requests',
+        `${id}`
+    );
 
 
     interface Category {
@@ -76,28 +81,11 @@ export const ProjectLeadComponent = () => {
         setPage(value);
     };
 
-    const [orderData, setOrderData] = useState({
-        project: '',
-        work_package: '',
-        procurement_list: {
-            list: []
-        },
-        category_list: {
-            list: []
-        }
-    })
     useEffect(() => {
-        if (!orderData.project) {
-            procurement_request_list?.map(item => {
-                if (item.name === id) {
-                    setOrderData(item);
-                    setCategories(prevState => ({
-                        ...prevState,
-                        list: item.category_list.list
-                    }));
-                }
-            });
-        }
+        setCategories(prevState => ({
+            ...prevState,
+            list: orderData?.category_list.list
+        }));
     }, [procurement_request_list]);
 
     const item_lists: string[] = [];
