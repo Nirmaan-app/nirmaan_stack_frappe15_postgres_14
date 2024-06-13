@@ -11,12 +11,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { useState,useEffect } from "react"
+import { useState, useEffect } from "react"
 import { ArrowLeft } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
 import { MainLayout } from "@/components/layout/main-layout";
 import ReactSelect from 'react-select';
 import { CirclePlus } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
@@ -36,7 +37,7 @@ export const ProjectLeadComponent = () => {
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation','category_list']
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'category_list']
         });
 
 
@@ -51,6 +52,10 @@ export const ProjectLeadComponent = () => {
     const [quantity, setQuantity] = useState<number>(0)
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
+
+    // const [dialogVisible, setDialogVisible] = useState(false)
+    const [dialogMessage, setDialogMessage] = useState("")
+
 
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
@@ -110,7 +115,7 @@ export const ProjectLeadComponent = () => {
 
     if (curCategory) {
         item_list?.map((item) => {
-            if (item.category === curCategory) item_options.push({value:item.item_name , label:item.item_name})
+            if (item.category === curCategory) item_options.push({ value: item.item_name, label: item.item_name })
         })
     }
 
@@ -143,7 +148,13 @@ export const ProjectLeadComponent = () => {
                     category: curCategory,
                 };
                 const isDuplicate = curRequest.some((item) => item.item === curItem);
-                if (!isDuplicate) {
+                if (isDuplicate) {
+                    // setDialogVisible(true)
+                    setDialogMessage(`${curItem} Already exists!!!`)
+                    var button = document.getElementById('alert');
+                    button.click();
+                }
+                else {
                     curRequest.push(curValue);
                 }
                 setOrderData((prevState) => ({
@@ -214,7 +225,7 @@ export const ProjectLeadComponent = () => {
         <MainLayout>
             {page == 'categorylist' &&
                 <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+                    <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-6 pt-6">
                         <div className="flex items-center space-y-2">
                             {/* <ArrowLeft /> */}
                             <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
@@ -222,12 +233,13 @@ export const ProjectLeadComponent = () => {
                         <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
                             {category_list?.map((item) => {
                                 if (item.work_package === orderData.work_package) {
-                                    return <Card className="flex shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick(item.category_name, 'itemlist')}>
-                                        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
-                                            <CardTitle className="text-sm font-medium">
-                                                <img className="h-32 md:h-36 w-32 md:w-36 p-2 rounded-lg p-0 text-sm" src={imageUrl} alt="Project" />
-                                                {item.category_name}
+                                    return <Card className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick(item.category_name, 'itemlist')}>
+                                        <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
+                                            <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
+                                                <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
+                                                <span>{item.category_name}</span>
                                             </CardTitle>
+                                            {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
                                         </CardHeader>
                                     </Card>
                                 }
@@ -236,101 +248,153 @@ export const ProjectLeadComponent = () => {
                     </div></div>}
             {page == 'itemlist' &&
                 <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
+                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
-                        <div className="flex items-center space-y-2">
+                        <div className="flex items-center pt-1  pb-4 ">
                             <ArrowLeft onClick={() => navigate("/approve-order")} />
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Add Items</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                         </div>
-                        <div className="flex justify-center md:justify-normal md:space-x-40">
-                            <div className="p-2">
-                                <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
-                                <h3 className="pl-2 font-semibold text-sm md:text-lg">{orderData?.project}</h3>
+                        <div className="flex justify-between md:justify-normal md:space-x-40 md:hidden">
+                            <div className="">
+                                <h5 className="text-gray-500 test-base">Project</h5>
+                                <h3 className=" font-semibold text-lg">{orderData?.project}</h3>
                             </div>
-                            <div className="p-2">
-                                <h5 className="text-gray-500 text-xs md:test-base">Package</h5>
-                                <h3 className="pl-2 font-semibold text-sm md:text-lg">{orderData?.work_package}</h3>
-                            </div>
-                        </div>
-                        <button className="text-sm md:text-lg text-blue-400 flex" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1"/> Select Category</button>
-                        <h3 className="font-bold">{curCategory}</h3>
-                        {curCategory && <><div className="flex space-x-2">
-                            <div className="w-1/2 md:w-2/3">
-                                <h5 className="text-xs text-gray-400">Items</h5>
-                                <ReactSelect options={item_options} onChange={handleChange} />
-                            </div>
-                            <div className="flex-1">
-                                <h5 className="text-xs text-gray-400">UOM</h5>
-                                <input className="h-[37px] w-full border rounded-lg" type="text" placeholder={unit} value={unit} />
-                            </div>
-                            <div className="flex-1">
-                                <h5 className="text-xs text-gray-400">Qty</h5>
-                                <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
+                            <div className="">
+                                <h5 className="text-gray-500 test-base">Package</h5>
+                                <h3 className=" font-semibold text-lg">{orderData.work_package}</h3>
                             </div>
                         </div>
-                        <div className="flex space-x-48 md:space-x-0 mt-2">
-                            <div></div>
-                            <button className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</button>
-                        </div></>
+
+                        <Card className="md:grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4 hidden ">
+                            <div className="border-0 flex flex-col items-center justify-center">
+                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                            </div>
+                            <div className="border-0 flex flex-col items-center justify-center">
+                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
+                            </div>
+                            <div className="border-0 flex flex-col items-center justify-center">
+                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
+                            </div>
+                            <div className="border-0 flex flex-col items-center justify-center">
+                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
+                            </div>
+                            <div className="border-0 flex flex-col items-center justify-center">
+                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
+                            </div>
+
+                        </Card>
+
+                        <button className="text-lg text-blue-400 flex p-2" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1" /> Add Missing Items</button>
+
+
+
+                        {curCategory && <Card className="p-5">
+                            <h3 className="font-bold pb-2">{curCategory}</h3>
+                            <div className="flex space-x-2">
+
+                                <div className="w-1/2 md:w-2/3">
+                                    <h5 className="text-xs text-gray-400">Items</h5>
+                                    <ReactSelect options={item_options} onChange={handleChange} />
+                                </div>
+                                <div className="flex-1">
+                                    <h5 className="text-xs text-gray-400">UOM</h5>
+                                    <input className="h-[37px] w-full" type="text" placeholder={unit || "Unit"} value={unit} />
+                                </div>
+                                <div className="flex-1">
+                                    <h5 className="text-xs text-gray-400">Qty</h5>
+                                    <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
+                                </div>
+                            </div>
+                            <div className="flex space-x-48 md:space-x-0 mt-2 ">
+                                {(curItem && quantity) ?
+                                    <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button>
+                                    :
+                                    <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8" >Add</Button>}
+                            </div>
+                        </Card>
                         }
-                        
-                        <div className="text-sm text-gray-700">Added Items</div>
-                        {categories.list?.map((cat) => {
-                            return <div key={cat.name} className="container mx-0 px-0">
-                                <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
-                                <table className="table-auto md:w-full">
-                                    <thead>
-                                        <tr className="bg-gray-200">
-                                            <th className="w-[50%] text-left px-4 py-1 text-xs">Item Name</th>
-                                            <th className="px-4 py-1 text-xs">Unit</th>
-                                            <th className="px-4 py-1 text-xs">Quantity</th>
-                                            <th className="px-4 py-1 text-xs"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {orderData.procurement_list.list?.map((item) => {
-                                            if (item.category === cat.name) {
-                                                return <tr key={item.item} >
-                                                    <td className="w-[50%] text-left border-b-2 px-4 py-1 text-sm text-cent">{item.item}</td>
-                                                    <td className="border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
-                                                    <td className="border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
-                                                    <td className="border-b-2 px-4 py-1 text-sm text-right">
-                                                        <Dialog className="border border-gray-200">
-                                                            <DialogTrigger>Edit</DialogTrigger>
-                                                            <DialogContent>
-                                                                <DialogHeader>
-                                                                    <DialogTitle>Edit Item</DialogTitle>
-                                                                    <DialogDescription className="flex flex-row">
-                                                                        <h3>{item.item}</h3>
-                                                                    </DialogDescription>
-                                                                    <DialogDescription className="flex flex-row">
-                                                                        <label htmlFor="">Edit Quantity</label>
-                                                                    </DialogDescription>
-                                                                    <DialogDescription className="flex flex-row">
-                                                                        <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg border my-4 p-2" onChange={(e) => setQuantity(e.target.value)} />
-                                                                    </DialogDescription>
-                                                                    <DialogDescription className="flex flex-row">
-                                                                        <div className="flex botton-4 right-4 gap-2">
-                                                                            <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                            <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
-                                                                        </div>
-                                                                    </DialogDescription>
-                                                                </DialogHeader>
-                                                            </DialogContent>
-                                                        </Dialog>
-                                                    </td>
-                                                </tr>
-                                            }
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        })}
+                        <AlertDialog>
+                            <AlertDialogTrigger>
+                                <button className="hidden" id="alert"></button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Oops</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        {dialogMessage}
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogAction >Continue</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                        <Card className="p-4">
+                            <div className="text-sm text-gray-700">Added Items</div>
+                            {categories.list?.map((cat) => {
+                                return <div key={cat.name} className="">
+                                    <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
+                                    <table className="table-auto md:w-full">
+                                        <thead>
+                                            <tr className="bg-gray-200">
+                                                <th className="w-[60%] text-left px-4 py-1 text-xs">Item Name</th>
+                                                <th className="w-[20%] px-4 py-1 text-xs">Unit</th>
+                                                <th className="w-[10%] px-4 py-1 text-xs">Quantity</th>
+                                                <th className="w-[10%] px-4 py-1 text-xs"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {orderData.procurement_list.list?.map((item) => {
+                                                if (item.category === cat.name) {
+                                                    return <tr key={item.item} >
+                                                        <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm text-cent">{item.item}</td>
+                                                        <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
+                                                        <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
+                                                        <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-right">
+                                                            <Dialog className="border border-gray-200">
+                                                                <DialogTrigger>Edit</DialogTrigger>
+                                                                <DialogContent>
+                                                                    <DialogHeader>
+                                                                        <DialogTitle>Edit Item</DialogTitle>
+                                                                        <DialogDescription className="flex flex-row">
+                                                                            <h3>{item.item}</h3>
+                                                                        </DialogDescription>
+                                                                        <DialogDescription className="flex flex-row">
+                                                                            <label htmlFor="">Edit Quantity</label>
+                                                                        </DialogDescription>
+                                                                        <DialogDescription className="flex flex-row">
+                                                                            <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg border my-4 p-2" onChange={(e) => setQuantity(e.target.value)} />
+                                                                        </DialogDescription>
+                                                                        <DialogDescription className="flex flex-row">
+                                                                            <div className="flex botton-4 right-4 gap-2">
+                                                                                <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
+                                                                                <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                            </div>
+                                                                        </DialogDescription>
+                                                                    </DialogHeader>
+                                                                </DialogContent>
+                                                            </Dialog>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            })}
+                        </Card>
+                        <div className="pt-10"></div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                             <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => setPage('approve')}>
                                 Next
                             </button>
                         </div>
+
 
                         {/* <button className="bottom-0 h-8 w-full bg-red-700 rounded-md text-sm text-white" onClick={()=>handleSubmit()}>Next</button> */}
                     </div>
@@ -394,22 +458,22 @@ export const ProjectLeadComponent = () => {
                             </table>
                         </div>
                         <div className="flex flex-col h-full justify-end items-end fixed bottom-4 right-4">
-                        <Dialog>
-                            <DialogTrigger asChild>
-                                <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg">
-                                    Approve
-                                </button>
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-[425px]">
-                                <DialogHeader>
-                                    <DialogTitle>Are you Sure</DialogTitle>
-                                    <DialogDescription>
-                                        Click on Confirm to Approve.
-                                    </DialogDescription>
-                                </DialogHeader>
-                                <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
-                            </DialogContent>
-                        </Dialog>
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg">
+                                        Approve
+                                    </button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle>Are you Sure</DialogTitle>
+                                        <DialogDescription>
+                                            Click on Confirm to Approve.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                </DialogContent>
+                            </Dialog>
                         </div>
                     </div>
                 </div>}
