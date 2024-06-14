@@ -18,6 +18,7 @@ import { MainLayout } from "@/components/layout/main-layout";
 import ReactSelect from 'react-select';
 import { CirclePlus } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Pencil } from 'lucide-react';
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
@@ -29,7 +30,8 @@ export const ProjectLeadComponent = () => {
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
-            fields: ['name', 'item_name', 'unit_name', 'category']
+            fields: ['name', 'item_name', 'unit_name', 'category'],
+            limit: 1000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
@@ -37,7 +39,14 @@ export const ProjectLeadComponent = () => {
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'category_list']
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'category_list'],
+            limit: 100
+        });
+
+    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ['item', 'quote'],
+            limit: 1000
         });
 
 
@@ -119,6 +128,22 @@ export const ProjectLeadComponent = () => {
         })
     }
 
+    useEffect(() => {
+        const newCategories = [];
+        orderData.procurement_list.list.map((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+        setOrderData((prevState) => ({
+            ...prevState,
+            category_list: {
+                list: newCategories
+            },
+        }));
+    }, [orderData.procurement_list]);
+
     const handleChange = (selectedItem) => {
         console.log('Selected item:', selectedItem);
         setCurItem(selectedItem.value)
@@ -194,6 +219,8 @@ export const ProjectLeadComponent = () => {
                 list: curRequest,
             },
         }));
+        setQuantity(0)
+        setCurItem('')
     };
     const handleDelete = (item: string) => {
         let curRequest = orderData.procurement_list.list;
@@ -204,6 +231,8 @@ export const ProjectLeadComponent = () => {
                 list: curRequest
             }
         }));
+        setQuantity(0)
+        setCurItem('')
     }
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
     const handleSubmit = () => {
@@ -291,8 +320,6 @@ export const ProjectLeadComponent = () => {
 
                         <button className="text-lg text-blue-400 flex p-2" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1" /> Add Missing Items</button>
 
-
-
                         {curCategory && <Card className="p-5">
                             <h3 className="font-bold pb-2">{curCategory}</h3>
                             <div className="flex space-x-2">
@@ -345,7 +372,7 @@ export const ProjectLeadComponent = () => {
                                                 <th className="w-[60%] text-left px-4 py-1 text-xs">Item Name</th>
                                                 <th className="w-[20%] px-4 py-1 text-xs">Unit</th>
                                                 <th className="w-[10%] px-4 py-1 text-xs">Quantity</th>
-                                                <th className="w-[10%] px-4 py-1 text-xs"></th>
+                                                <th className="w-[10%] px-4 py-1 text-xs">Edit</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -355,27 +382,39 @@ export const ProjectLeadComponent = () => {
                                                         <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm text-cent">{item.item}</td>
                                                         <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
                                                         <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
-                                                        <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-right">
+                                                        <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
                                                             <Dialog className="border border-gray-200">
-                                                                <DialogTrigger>Edit</DialogTrigger>
+                                                                <DialogTrigger><Pencil className="w-4 h-4"/></DialogTrigger>
                                                                 <DialogContent>
                                                                     <DialogHeader>
                                                                         <DialogTitle>Edit Item</DialogTitle>
                                                                         <DialogDescription className="flex flex-row">
-                                                                            <h3>{item.item}</h3>
-                                                                        </DialogDescription>
-                                                                        <DialogDescription className="flex flex-row">
-                                                                            <label htmlFor="">Edit Quantity</label>
-                                                                        </DialogDescription>
-                                                                        <DialogDescription className="flex flex-row">
-                                                                            <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg border my-4 p-2" onChange={(e) => setQuantity(e.target.value)} />
-                                                                        </DialogDescription>
-                                                                        <DialogDescription className="flex flex-row">
-                                                                            <div className="flex botton-4 right-4 gap-2">
-                                                                                <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                                <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                            <div className="flex space-x-2">
+                                                                                <div className="w-1/2 md:w-2/3">
+                                                                                    <h5 className="text-xs text-gray-400 text-left">Items</h5>
+                                                                                    <div className=" w-full border rounded-lg px-1 pt-1 text-left">
+                                                                                        {item.item}
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="w-[30%]">
+                                                                                    <h5 className="text-xs text-gray-400 text-left">UOM</h5>
+                                                                                    <div className="h-[37px] w-full pt-1 text-left">
+                                                                                        {item.unit}
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="w-[25%]">
+                                                                                    <h5 className="text-xs text-gray-400 text-left">Qty</h5>
+                                                                                    <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
+                                                                                </div>
                                                                             </div>
-                                                                        </DialogDescription>
+                                                                            </DialogDescription>
+                                                                            <DialogDescription className="flex flex-row justify-between">
+                                                                                <div></div>
+                                                                                <div className="flex botton-4 right-4 gap-2">
+                                                                                    <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
+                                                                                    <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                                </div>
+                                                                            </DialogDescription>
                                                                     </DialogHeader>
                                                                 </DialogContent>
                                                             </Dialog>
@@ -441,8 +480,13 @@ export const ProjectLeadComponent = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {orderData.procurement_list?.list?.map(item => (
-                                        <tr key={item.item}>
+                                    {orderData.procurement_list?.list?.map(item => {
+                                        const quotesForItem = quote_data
+                                        ?.filter(value => value.item === item.name && value.quote != null)
+                                        ?.map(value => value.quote);
+                                        let minQuote;
+                                        if (quotesForItem) minQuote = Math.min(...quotesForItem);
+                                        return <tr key={item.item}>
                                             <td className="px-6 py-4 whitespace-nowrap">{item.item}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 {item.category}
@@ -450,10 +494,10 @@ export const ProjectLeadComponent = () => {
                                             <td className="px-6 py-4 whitespace-nowrap">{item.unit}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">{item.quantity}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                N/A
+                                                {minQuote ? minQuote*item.quantity : "N/A"}
                                             </td>
                                         </tr>
-                                    ))}
+                                    })}
                                 </tbody>
                             </table>
                         </div>

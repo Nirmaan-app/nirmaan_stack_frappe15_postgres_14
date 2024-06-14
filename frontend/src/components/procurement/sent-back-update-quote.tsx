@@ -161,7 +161,7 @@ export const SentBackUpdateQuote = () => {
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {orderData.item_list?.list.map(item => (
                                         <tr key={item.name}>
-                                            <td className="px-6 py-4 whitespace-nowrap pr-32 border-b-0">{item.item}</td>
+                                            <td className="px-6 py-4 pr-32 border-b-0">{item.item}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">{item.unit}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">{item.quantity}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
