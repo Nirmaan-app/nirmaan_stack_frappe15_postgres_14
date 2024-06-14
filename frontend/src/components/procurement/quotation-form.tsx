@@ -4,6 +4,7 @@ import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import {
     SheetClose
 } from "@/components/ui/sheet"
+import { Button } from "../ui/button";
 
 
 interface Category {
@@ -114,7 +115,10 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                     <Input />
                 </div>
                 <div className="w-[48%]">
-                    <div className="text-gray-500 text-sm">Delivery Time</div>
+                    <div className="flex justify-between">
+                        <div className="text-gray-500 text-sm">Delivery Time (Days)</div>
+                        <div className="pt-1 text-gray-500 text-xs">*Required</div>
+                    </div>
                     <Input type="number" value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)} />
                 </div>
             </div>
@@ -155,12 +159,17 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                     })}
                 </div>
             })}
-            <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                <SheetClose>
-                    <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
+            <div className="flex flex-col justify-end items-end bottom-4 right-4 pt-10">
+                {deliveryTime ?
+                    <SheetClose>
+                        <Button onClick={() => handleSubmit()}>
+                            Save
+                        </Button>
+                    </SheetClose>
+                    :
+                    <Button disabled={true}>
                         Save
-                    </button>
-                </SheetClose>
+                    </Button>}
             </div>
         </div>
     )

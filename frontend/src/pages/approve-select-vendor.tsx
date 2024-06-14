@@ -118,7 +118,7 @@ export const ApproveSelectVendor = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="max-w-40 gap-0.5 grid grid-cols-2">
+                        <div className="max-w-fit gap-0.5 grid grid-cols-2">
                             {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )

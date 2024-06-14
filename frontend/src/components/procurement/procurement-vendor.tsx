@@ -267,7 +267,7 @@ export const ProcurementOrder = () => {
                                             ?.filter(value => value.item === item.name)
                                             ?.map(value => value.quote);
                                         let minQuote;
-                                        if (quotesForItem) minQuote = Math.min(...quotesForItem);
+                                        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
                                         return <tr key={item.item}>
                                             <td className="px-6 py-4">{item.item}</td>

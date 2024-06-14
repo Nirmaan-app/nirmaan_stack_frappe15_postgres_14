@@ -541,8 +541,12 @@ export const ApproveVendor = () => {
         let total: number = 0;
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat) {
-                const price = quote_data?.find(value => value.item === item.name && value.quote != null)?.quote;
-                total += (price ? parseFloat(price) : 0) * item.quantity;
+                const quotesForItem = quote_data
+                    ?.filter(value => value.item === item.name && value.quote != null)
+                    ?.map(value => value.quote);
+                let minQuote;
+                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
             }
         })
         return total;
@@ -578,6 +582,7 @@ export const ApproveVendor = () => {
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                         </div>
                     </Card>
+                    {orderData.category_list?.list.length === 0 && <div className="text-red-500 text-center text-2xl font-bold">All Done !!!</div>}
                     {orderData?.category_list?.list.map((cat) => {
                         const curCategory = cat.name
                         const lowest = getLowest(cat.name);
@@ -731,8 +736,13 @@ export const ApproveVendor = () => {
                                                         placeholder="Type your comments here"
                                                         onChange={(e) => setComment(e.target.value)}
                                                     />
-                                                    <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                                                        <SheetClose><Button onClick={() => handleSendBack(curCategory)}>Submit</Button></SheetClose>
+                                                    <div className="flex flex-col justify-end items-end bottom-4 right-4 pt-10">
+                                                        {comment ?
+                                                            <SheetClose><Button onClick={() => handleSendBack(curCategory)}>Submit</Button></SheetClose>
+                                                            :
+                                                            <Button disabled={true} >Submit</Button>
+                                                        }
+
                                                     </div>
                                                 </SheetDescription>
                                             </ScrollArea>
@@ -792,11 +802,11 @@ export const ApproveVendor = () => {
                             </DialogContent>
                         </Dialog>
                     </div> :
-                        <div className="flex space-x-2 justify-end items-end fixed bottom-4 right-4">
+                        (orderData.category_list.list.length === 0 && <div className="flex space-x-2 justify-center items-center bottom-4 right-4">
                             <Button onClick={() => handleDone()}>
                                 Done
                             </Button>
-                        </div>
+                        </div>)
                     }
                 </div>
             </div>}

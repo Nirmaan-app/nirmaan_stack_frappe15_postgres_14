@@ -384,7 +384,7 @@ export const ProjectLeadComponent = () => {
                                                         <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
                                                         <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
                                                             <Dialog className="border border-gray-200">
-                                                                <DialogTrigger><Pencil className="w-4 h-4"/></DialogTrigger>
+                                                                <DialogTrigger><Pencil className="w-4 h-4" /></DialogTrigger>
                                                                 <DialogContent>
                                                                     <DialogHeader>
                                                                         <DialogTitle>Edit Item</DialogTitle>
@@ -407,14 +407,14 @@ export const ProjectLeadComponent = () => {
                                                                                     <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
                                                                                 </div>
                                                                             </div>
-                                                                            </DialogDescription>
-                                                                            <DialogDescription className="flex flex-row justify-between">
-                                                                                <div></div>
-                                                                                <div className="flex botton-4 right-4 gap-2">
-                                                                                    <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                                    <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
-                                                                                </div>
-                                                                            </DialogDescription>
+                                                                        </DialogDescription>
+                                                                        <DialogDescription className="flex flex-row justify-between">
+                                                                            <div></div>
+                                                                            <div className="flex botton-4 right-4 gap-2">
+                                                                                <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
+                                                                                <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                            </div>
+                                                                        </DialogDescription>
                                                                     </DialogHeader>
                                                                 </DialogContent>
                                                             </Dialog>
@@ -482,10 +482,10 @@ export const ProjectLeadComponent = () => {
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {orderData.procurement_list?.list?.map(item => {
                                         const quotesForItem = quote_data
-                                        ?.filter(value => value.item === item.name && value.quote != null)
-                                        ?.map(value => value.quote);
+                                            ?.filter(value => value.item === item.name && value.quote != null)
+                                            ?.map(value => value.quote);
                                         let minQuote;
-                                        if (quotesForItem) minQuote = Math.min(...quotesForItem);
+                                        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
                                         return <tr key={item.item}>
                                             <td className="px-6 py-4 whitespace-nowrap">{item.item}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">
@@ -494,19 +494,19 @@ export const ProjectLeadComponent = () => {
                                             <td className="px-6 py-4 whitespace-nowrap">{item.unit}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">{item.quantity}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                {minQuote ? minQuote*item.quantity : "N/A"}
+                                                {minQuote ? minQuote * item.quantity : "N/A"}
                                             </td>
                                         </tr>
                                     })}
                                 </tbody>
                             </table>
                         </div>
-                        <div className="flex flex-col h-full justify-end items-end fixed bottom-4 right-4">
+                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                             <Dialog>
                                 <DialogTrigger asChild>
-                                    <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg">
+                                    <Button>
                                         Approve
-                                    </button>
+                                    </Button>
                                 </DialogTrigger>
                                 <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>

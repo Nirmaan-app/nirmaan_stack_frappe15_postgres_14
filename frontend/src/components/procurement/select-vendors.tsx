@@ -27,7 +27,7 @@ export const SelectVendors = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
-            limit: 100
+            filters: [['name', '=', orderId]]
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
@@ -186,8 +186,12 @@ export const SelectVendors = () => {
         let total: number = 0;
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat) {
-                const price = quote_data?.find(value => value.item === item.name && value.quote != null)?.quote;
-                total += (price ? parseFloat(price) : 0) * item.quantity;
+                const quotesForItem = quote_data
+                    ?.filter(value => value.item === item.name && value.quote != null)
+                    ?.map(value => value.quote);
+                let minQuote;
+                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
             }
         })
         return total;
@@ -276,11 +280,11 @@ export const SelectVendors = () => {
                                                     {selectedCategories[curCategory]?.map((item) => {
                                                         const isSelected = selectedVendors[curCategory] === item;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={cat.name} value={item} onChange={handleChangeWithParam(cat.name, item)} />{getVendorName(item)}</span>
+                                                        return <th className="bg-gray-200 font-semibold p-2 text-left "><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={cat.name} value={item} onChange={handleChangeWithParam(cat.name, item)} />{getVendorName(item).length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
                                                             <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, cat.name)} Days</div>
                                                         </th>
                                                     })}
-                                                    <th className="bg-gray-200 p-2 font-semibold truncate text-left">Last 3 months Lowest Quote<div className='py-2 font-light text-sm invisible'>3 Days</div></th>
+                                                    <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
@@ -293,7 +297,7 @@ export const SelectVendors = () => {
 
                                                     if (item.category === cat.name) {
                                                         return <tr>
-                                                            <td className="py-2 text-sm px-2 font-semibold border-b w-[40%]">
+                                                            <td className="py-2 text-sm px-2 font-slim border-b w-[40%]">
                                                                 {item.item}
                                                             </td>
                                                             {selectedCategories[curCategory]?.map((value) => {
@@ -316,7 +320,7 @@ export const SelectVendors = () => {
                                                     {selectedCategories[curCategory]?.map((value) => {
                                                         const isSelected = selectedVendors[curCategory] === value;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <td className={`py-2 text-sm px-2 text-left ${dynamicClass}`}>
+                                                        return <td className={`py-2 text-sm px-2 text-left font-bold ${dynamicClass}`}>
                                                             {getTotal2(value, curCategory)}
                                                         </td>
                                                     })}
@@ -376,10 +380,16 @@ export const SelectVendors = () => {
                                 </Card>
                             </div>
                         })}
+                        <div className='pt-12'></div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => setPage('approvequotation')}>
-                                Confirm
-                            </button>
+                            {Object.keys(selectedVendors).length === orderData.category_list.list.length ?
+                                <Button onClick={() => setPage('approvequotation')}>
+                                    Confirm
+                                </Button>
+                                :
+                                <Button disabled={true}>
+                                    Confirm
+                                </Button>}
                         </div>
                     </div>
                 </div>}
@@ -451,14 +461,14 @@ export const SelectVendors = () => {
                                                     <DialogHeader>
                                                         <DialogTitle>Items List</DialogTitle>
                                                         <DialogDescription>
-                                                            <div className="grid grid-cols-10 gap-2 font-medium text-black justify-between py-2">
-                                                                <div className="text-sm col-span-2">Items</div>
-                                                                <div className="text-sm">Unit</div>
-                                                                <div className="text-sm">Qty</div>
-                                                                <div className="text-sm">Rate</div>
-                                                                <div className="text-sm">Amount</div>
-                                                                <div className="text-sm col-span-2">Lowest Quoted Vendor</div>
-                                                                <div className="text-sm col-span-2">3 months Lowest Amount</div>
+                                                            <div className="grid grid-cols-10 font-medium text-black justify-between">
+                                                                <div className="text-sm col-span-2 border p-2">Items</div>
+                                                                <div className="text-sm border p-2">Unit</div>
+                                                                <div className="text-sm border p-2">Qty</div>
+                                                                <div className="text-sm border p-2">Rate</div>
+                                                                <div className="text-sm border p-2">Amount</div>
+                                                                <div className="text-sm col-span-2 border p-2">Lowest Quoted Vendor</div>
+                                                                <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
                                                             </div>
                                                             {orderData?.procurement_list?.list.map((item) => {
                                                                 if (item.category === curCategory) {
@@ -473,14 +483,14 @@ export const SelectVendors = () => {
                                                                     let minQuote;
                                                                     if (quotesForItem) minQuote = Math.min(...quotesForItem);
 
-                                                                    return <div className="grid grid-cols-10 gap-2 py-2">
-                                                                        <div className="text-sm col-span-2">{item.item}</div>
-                                                                        <div className="text-sm">{item.unit}</div>
-                                                                        <div className="text-sm">{item.quantity}</div>
-                                                                        <div className="text-sm">{price}</div>
-                                                                        <div className="text-sm">{price * item.quantity}</div>
-                                                                        <div className="text-sm col-span-2">{lowest2 ? lowest2 * item.quantity : "N/A"}</div>
-                                                                        <div className="text-sm col-span-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
+                                                                    return <div className="grid grid-cols-10">
+                                                                        <div className="text-sm col-span-2 border p-2">{item.item}</div>
+                                                                        <div className="text-sm border p-2">{item.unit}</div>
+                                                                        <div className="text-sm border p-2">{item.quantity}</div>
+                                                                        <div className="text-sm border p-2">{price}</div>
+                                                                        <div className="text-sm border p-2">{price * item.quantity}</div>
+                                                                        <div className="text-sm col-span-2 border p-2">{lowest2 ? lowest2 * item.quantity : "N/A"}</div>
+                                                                        <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
                                                                     </div>
                                                                 }
                                                             })}
@@ -507,7 +517,7 @@ export const SelectVendors = () => {
                                     <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
                                         <div className="flex justify-between">
                                             <div className="text-sm font-medium text-gray-400">Last 3 months Metric</div>
-                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest.quote}</div>
+                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}</div>
                                         </div>
                                         <div className="font-medium text-gray-700 text-sm">
                                             Last 3 months Lowest Amount
