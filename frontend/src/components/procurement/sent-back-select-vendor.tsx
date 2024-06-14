@@ -256,20 +256,20 @@ export const SentBackSelectVendor = () => {
                                         </CardTitle>
                                     </div>
                                     <table className="w-full">
-                                            <thead className="w-full border-b border-black">
-                                                <tr>
-                                                    <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></th>
-                                                    {selectedCategories[curCategory]?.map((item)=>{
-                                                        const isSelected = selectedVendors[curCategory] === item;
-                                                        const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={curCategory} value={item} onChange={handleChangeWithParam(curCategory, item)} />{getVendorName(item).length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
-                                                                    <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory)} Days</div>
-                                                                </th>
-                                                    })}
-                                                    <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="bg-white divide-y divide-gray-200">
+                                        <thead className="w-full border-b border-black">
+                                            <tr>
+                                                <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></th>
+                                                {selectedCategories[curCategory]?.map((item) => {
+                                                    const isSelected = selectedVendors[curCategory] === item;
+                                                    const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
+                                                    return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={curCategory} value={item} onChange={handleChangeWithParam(curCategory, item)} />{getVendorName(item).length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
+                                                        <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory)} Days</div>
+                                                    </th>
+                                                })}
+                                                <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
 
                                             {orderData?.item_list?.list.map((item) => {
                                                 const quotesForItem = quote_data
@@ -302,14 +302,14 @@ export const SentBackSelectVendor = () => {
                                                 {selectedCategories[curCategory]?.map((value) => {
                                                     const isSelected = selectedVendors[curCategory] === value;
                                                     const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                    return <td className={`py-2 text-sm px-2 text-left ${dynamicClass}`}>
+                                                    return <td className={`py-2 text-sm px-2 text-left font-bold ${dynamicClass}`}>
                                                         {getTotal2(value, curCategory)}
                                                     </td>
                                                 })}
                                                 <td></td>
                                             </tr>
-                                            </tbody>
-                                        </table>
+                                        </tbody>
+                                    </table>
                                 </CardHeader>
                             </Card>
                         </div>
@@ -380,7 +380,7 @@ export const SentBackSelectVendor = () => {
                                             <DialogTrigger asChild>
                                                 <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                             </DialogTrigger>
-                                            <DialogContent className="sm:max-w-[425px] md:max-w-[525px]">
+                                            <DialogContent className="sm:max-w-[425px] md:max-w-[575px]">
                                                 <DialogHeader>
                                                     <DialogTitle>Items List</DialogTitle>
                                                     <DialogDescription>

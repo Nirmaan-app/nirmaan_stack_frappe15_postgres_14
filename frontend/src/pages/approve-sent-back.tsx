@@ -144,6 +144,7 @@ export const ApproveSentBack = () => {
         })
             .then(() => {
                 console.log("item", id)
+                navigate("/")
             }).catch(() => {
                 console.log("update_submit_error", update_submit_error)
             })
@@ -301,25 +302,25 @@ export const ApproveSentBack = () => {
                                     <DialogTrigger asChild>
                                         <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                     </DialogTrigger>
-                                    <DialogContent className="sm:max-w-[425px] md:max-w-[525px]">
+                                    <DialogContent className="sm:max-w-[425px] md:max-w-[575px]">
                                         <DialogHeader>
                                             <DialogTitle>Items List</DialogTitle>
                                             <DialogDescription>
                                                 <div className="grid grid-cols-8 font-medium text-black justify-between">
-                                                        <div className="text-sm col-span-2 border p-2">Items</div>
-                                                        <div className="text-sm border p-2">Unit</div>
-                                                        <div className="text-sm border p-2">Qty</div>
-                                                        <div className="text-sm border p-2">Rate</div>
-                                                        <div className="text-sm border p-2">Amount</div>
-                                                        <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
-                                                    </div>
+                                                    <div className="text-sm col-span-2 border p-2">Items</div>
+                                                    <div className="text-sm border p-2">Unit</div>
+                                                    <div className="text-sm border p-2">Qty</div>
+                                                    <div className="text-sm border p-2">Rate</div>
+                                                    <div className="text-sm border p-2">Amount</div>
+                                                    <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
+                                                </div>
                                                 {orderData.item_list?.list.map((item) => {
                                                     const price = item.quote;
                                                     const quotesForItem = quote_data
                                                         ?.filter(value => value.item === item.name && value.quote != null)
                                                         ?.map(value => value.quote);
                                                     let minQuote;
-                                                    if(quotesForItem && quotesForItem.length>0) minQuote = Math.min(...quotesForItem);
+                                                    if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
                                                     return <div className="grid grid-cols-8">
                                                         <div className="text-sm col-span-2 border p-2">{item.item}</div>
@@ -327,7 +328,7 @@ export const ApproveSentBack = () => {
                                                         <div className="text-sm border p-2">{item.quantity}</div>
                                                         <div className="text-sm border p-2">{price}</div>
                                                         <div className="text-sm border p-2">{price * item.quantity}</div>
-                                                        <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote*item.quantity : "N/A"}</div>
+                                                        <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
 
                                                     </div>
 
@@ -368,8 +369,8 @@ export const ApproveSentBack = () => {
                                                         ?.filter(value => value.item === item.name && value.quote != null)
                                                         ?.map(value => value.quote);
                                                     let minQuote;
-                                                    if(quotesForItem && quotesForItem.length>0) minQuote = Math.min(...quotesForItem);
-                                                    
+                                                    if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+
                                                     return <div className="flex justify-between py-2">
                                                         <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
                                                         <div className="text-sm text-black font-semibold">{item.quantity}</div>
@@ -387,7 +388,7 @@ export const ApproveSentBack = () => {
                                                     placeholder="Type your comments here"
                                                     onChange={(e) => setComment(e.target.value)}
                                                 />
-                                                <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                                                <div className="flex flex-col justify-end items-end pt-10 bottom-4 right-4">
                                                     <SheetClose><Button onClick={() => handleSendBack(curCategory)}>Submit</Button></SheetClose>
                                                 </div>
                                             </SheetDescription>
