@@ -165,7 +165,7 @@ export const ReleasePOSelect = () => {
                 accessorKey: "total",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Estimated Price" />
+                        <DataTableColumnHeader column={column} title="Amount" />
                     )
                 },
                 cell: ({ row }) => {

@@ -7,6 +7,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
+import { Projects } from "@/types/NirmaanStack/Projects";
 
 
 type PRTable = {
@@ -28,6 +29,27 @@ export const PRList = () => {
         fields: ["name", "project_name"],
         filters: [["project_lead", "=", userData.user_id]]
     })
+
+    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ['item', 'quote'],
+            limit: 1000
+        });
+
+    const getTotal = (order_id: string) => {
+        let total: number = 0;
+        const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
+        console.log("orderData", orderData)
+        orderData?.list.map((item) => {
+            const quotesForItem = quote_data
+                ?.filter(value => value.item === item.name && value.quote != null)
+                ?.map(value => value.quote);
+            let minQuote;
+            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+            total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+        })
+        return total;
+    }
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
@@ -131,7 +153,7 @@ export const PRList = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {"N/A"}
+                            {getTotal(row.getValue("name"))}
                         </div>
                     )
                 }

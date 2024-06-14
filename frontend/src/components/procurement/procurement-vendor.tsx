@@ -264,7 +264,7 @@ export const ProcurementOrder = () => {
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {orderData?.procurement_list?.list.map(item => {
                                         const quotesForItem = quote_data
-                                            ?.filter(value => value.item === item.name)
+                                            ?.filter(value => value.item === item.name && value.quote != null)
                                             ?.map(value => value.quote);
                                         let minQuote;
                                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);

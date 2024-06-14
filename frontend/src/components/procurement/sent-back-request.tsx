@@ -19,25 +19,29 @@ export const SentBackRequest = () => {
     const userData = useUserData();
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name','item_list', 'workflow_state','procurement_request','category','project_name','vendor','creation'],
-            filters:[["workflow_state","=","Pending"],["procurement_executive","=",userData.user_id]],
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation'],
+            filters: [["workflow_state", "=", "Pending"], ["procurement_executive", "=", userData.user_id]],
             limit: 100
         });
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
-        {
-            fields: ['name', 'work_package'],
-            limit: 100
-        });
-    const getPackage = (name: string) => {
-            return procurement_request_list?.find(item => item.name === name)?.work_package;
-        }
-        
+    // const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    //     {
+    //         fields: ['name', 'work_package'],
+    //         limit: 100
+    //     });
+
+    const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
+        fields: ["name", "project_name"],
+        filters: [["project_lead", "=", userData.user_id]]
+    })
+
+    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+
     const getTotal = (order_id: string) => {
-        let total:number = 0;
+        let total: number = 0;
         const orderData = sent_back_list?.find(item => item.name === order_id)?.item_list;
         orderData?.list.map((item) => {
             const price = item.quote;
-            total += (price ? parseFloat(price) : 0)*item.quantity;
+            total += (price ? parseFloat(price) : 0) * item.quantity;
         })
         return total;
     }
@@ -99,12 +103,23 @@ export const SentBackRequest = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const project = project_values.find(
+                        (project) => project.value === row.getValue("project_name")
+                    )
+                    if (!project) {
+                        return null;
+                    }
+
                     return (
                         <div className="font-medium">
-                            {row.getValue("project_name")}
+                            {project.label}
+                            {/* {row.getValue("project")} */}
                         </div>
                     )
-                }
+                },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.getValue(id))
+                },
             },
             {
                 accessorKey: "category",
@@ -125,7 +140,7 @@ export const SentBackRequest = () => {
                 accessorKey: "total",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Estimated Price" />
+                        <DataTableColumnHeader column={column} title="Amount" />
                     )
                 },
                 cell: ({ row }) => {
@@ -137,9 +152,9 @@ export const SentBackRequest = () => {
                 }
             }
         ],
-        []
+        [project_values, sent_back_list]
     )
-    
+
     return (
         <MainLayout>
             <div className="flex">
