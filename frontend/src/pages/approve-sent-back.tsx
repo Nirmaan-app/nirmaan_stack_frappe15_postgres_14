@@ -2,7 +2,7 @@ import { ArrowLeft } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Navigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { MainLayout } from '@/components/layout/main-layout';
 import {
@@ -147,20 +147,22 @@ export const ApproveSentBack = () => {
             }).catch(() => {
                 console.log("update_submit_error", update_submit_error)
             })
-        
+
         const order_list = {
             list: []
         };
         orderData.item_list?.list.map((value) => {
             const isSelected = selectedItem.list.some(item => item.name === value.name);
-                if(!isSelected){const newItem = {
+            if (!isSelected) {
+                const newItem = {
                     name: value.name,
                     item: value.item,
                     unit: value.unit,
                     quantity: value.quantity,
                     quote: value.quote
                 }
-                order_list.list.push(newItem)}
+                order_list.list.push(newItem)
+            }
         })
         const newProcurementOrder = {
             procurement_request: orderData.procurement_request,
@@ -174,17 +176,19 @@ export const ApproveSentBack = () => {
             vendor_gst: getVendorGST(orderData.vendor),
             order_list: order_list
         }
-        if(order_list.list.length > 0){createDoc('Procurement Orders', newProcurementOrder)
-            .then(() => {
-                console.log(newProcurementOrder);
-                navigate("/")
-            })
-            .catch(() => {
-                console.log("submit_error", submit_error);
-            })}
+        if (order_list.list.length > 0) {
+            createDoc('Procurement Orders', newProcurementOrder)
+                .then(() => {
+                    console.log(newProcurementOrder);
+                    navigate("/")
+                })
+                .catch(() => {
+                    console.log("submit_error", submit_error);
+                })
+        }
     }
     const curCategory = orderData.category
-    console.log("selectedItem",selectedItem)
+    console.log("selectedItem", selectedItem)
 
     const handleApprove = (cat: string) => {
         const order_list = {
@@ -245,12 +249,12 @@ export const ApproveSentBack = () => {
     return (
         <MainLayout>
             <div className="flex" >
-                <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
-                    <div className="flex items-center space-y-2">
-                        {/* <ArrowLeft /> */}
-                        <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Approve</h2>
+                <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex items-center pt-1 pb-4">
+                        <ArrowLeft onClick={() => { navigate('/approve-sent-back') }} />
+                        <h2 className="text-base pl-2 font-bold tracking-tight">Approve</h2>
                     </div>
-                    <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                    <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col items-center justify-center">
                             <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
@@ -271,7 +275,7 @@ export const ApproveSentBack = () => {
                             <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                         </div>
-                    </div>
+                    </Card>
                     <div className="w-full">
                         <div className="font-bold text-xl py-2">{orderData?.category}</div>
                         <Card className="flex w-1/2 shadow-none border border-grey-500" >
@@ -302,20 +306,20 @@ export const ApproveSentBack = () => {
                                             <DialogTitle>Items List</DialogTitle>
                                             <DialogDescription>
                                                 <div className="grid grid-cols-8 gap-2 font-medium text-black justify-between py-2">
-                                                        <div className="text-sm col-span-2">Items</div>
-                                                        <div className="text-sm">Unit</div>
-                                                        <div className="text-sm">Qty</div>
-                                                        <div className="text-sm">Rate</div>
-                                                        <div className="text-sm">Amount</div>
-                                                        <div className="text-sm col-span-2">3 months Lowest Amount</div>
-                                                    </div>
+                                                    <div className="text-sm col-span-2">Items</div>
+                                                    <div className="text-sm">Unit</div>
+                                                    <div className="text-sm">Qty</div>
+                                                    <div className="text-sm">Rate</div>
+                                                    <div className="text-sm">Amount</div>
+                                                    <div className="text-sm col-span-2">3 months Lowest Amount</div>
+                                                </div>
                                                 {orderData.item_list?.list.map((item) => {
                                                     const price = item.quote;
                                                     const quotesForItem = quote_data
-                                                    ?.filter(value => value.item === item.name && value.quote != null)
-                                                    ?.map(value => value.quote);
+                                                        ?.filter(value => value.item === item.name && value.quote != null)
+                                                        ?.map(value => value.quote);
                                                     let minQuote;
-                                                    if(quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                    if (quotesForItem) minQuote = Math.min(...quotesForItem);
 
                                                     return <div className="grid grid-cols-8 gap-2 py-2">
                                                         <div className="text-sm col-span-2">{item.item}</div>
@@ -323,7 +327,7 @@ export const ApproveSentBack = () => {
                                                         <div className="text-sm">{item.quantity}</div>
                                                         <div className="text-sm">{price}</div>
                                                         <div className="text-sm">{price * item.quantity}</div>
-                                                        <div className="text-sm col-span-2">{minQuote ? minQuote*item.quantity : "N/A"}</div>
+                                                        <div className="text-sm col-span-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
                                                     </div>
 
                                                 })}
@@ -360,11 +364,11 @@ export const ApproveSentBack = () => {
                                                 </label>
                                                 {orderData.item_list?.list.map((item) => {
                                                     const quotesForItem = quote_data
-                                                    ?.filter(value => value.item === item.name && value.quote != null)
-                                                    ?.map(value => value.quote);
+                                                        ?.filter(value => value.item === item.name && value.quote != null)
+                                                        ?.map(value => value.quote);
                                                     let minQuote;
-                                                    if(quotesForItem) minQuote = Math.min(...quotesForItem);
-                                                    
+                                                    if (quotesForItem) minQuote = Math.min(...quotesForItem);
+
                                                     return <div className="flex justify-between py-2">
                                                         <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
                                                         <div className="text-sm text-black font-semibold">{item.quantity}</div>

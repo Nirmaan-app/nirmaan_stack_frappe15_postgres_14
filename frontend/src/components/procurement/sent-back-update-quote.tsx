@@ -6,7 +6,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CirclePlus } from 'lucide-react';
 import SentBackQuotationForm from "./sent-back-quotation-form"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -16,20 +16,12 @@ import { MainLayout } from '../layout/main-layout';
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "../ui/button";
 import SentBackVendorForm from "./sent-back-vendor-form";
+import { Card } from '@/components/ui/card';
 
 export const SentBackUpdateQuote = () => {
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate();
 
-    const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
-        {
-            fields: ['category_name', 'work_package']
-        });
-    const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
-        {
-            fields: ['name', 'item_name', 'unit_name', 'category'],
-            limit: 1000
-        });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
             fields: ['name', 'project_name', 'project_address']
@@ -38,11 +30,6 @@ export const SentBackUpdateQuote = () => {
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
             limit: 100
-        });
-    const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error } = useFrappeGetDocList("Vendor Category",
-        {
-            fields: ['vendor', 'category'],
-            limit: 1000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
@@ -60,8 +47,7 @@ export const SentBackUpdateQuote = () => {
             filters: [["workflow_state", "=", "Pending"]],
             limit: 100
         });
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    const { updateDoc: updateDoc } = useFrappeUpdateDoc()
+
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
@@ -115,12 +101,12 @@ export const SentBackUpdateQuote = () => {
         <MainLayout>
             {page == 'summary' &&
                 <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
-                        <div className="flex items-center space-y-2">
-                            {/* <ArrowLeft /> */}
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Summary</h2>
+                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                        <div className="flex items-center pt-1 pb-4">
+                            <ArrowLeft onClick={() => navigate('/sent-back-request')} />
+                            <h2 className="text-base pl-2 font-bold tracking-tight">Select Vendor</h2>
                         </div>
-                        <div className="grid grid-cols-6 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="grid grid-cols-6 gap-4 border border-gray-100 rounded-lg p-4">
 
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Sent Back ID</p>
@@ -146,7 +132,7 @@ export const SentBackUpdateQuote = () => {
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Category</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.category}</p>
                             </div>
-                        </div>
+                        </Card>
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
                                 <thead className="border-b-2 border-black">
@@ -182,20 +168,21 @@ export const SentBackUpdateQuote = () => {
                             {orderData.comments}
                         </div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => setPage('quotation')}>
+                            <Button onClick={() => setPage('quotation')}>
                                 Next
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>}
-            {page == 'quotation' &&
+            {
+                page == 'quotation' &&
                 <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
-                        <div className="flex items-center space-y-2">
+                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                        <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft onClick={() => setPage('summary')} />
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Update Quote</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight">Update Quote</h2>
                         </div>
-                        <div className="grid grid-cols-6 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="grid grid-cols-6 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Sent Back ID</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name}</p>
@@ -220,10 +207,10 @@ export const SentBackUpdateQuote = () => {
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Category</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.category}</p>
                             </div>
-                        </div>
+                        </Card>
                         {uniqueVendors.list.map((item) => {
                             return <div className="px-4 flex justify-between">
-                                <div className="px-6 py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
+                                <div className="py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
                                 <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
                                     <SheetContent>
@@ -240,25 +227,26 @@ export const SentBackUpdateQuote = () => {
                             </div>
                         })}
                         <Sheet>
-                            <SheetTrigger className="text-blue-500"> + Add Vendor</SheetTrigger>
+                            <SheetTrigger className="text-blue-500"><div className="flex pl-5"><CirclePlus className="w-4 mr-2" />Add New Vendor</div></SheetTrigger>
                             <SheetContent>
-                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                <SheetHeader>
-                                    <SheetTitle>Add Vendor for {orderData.category}</SheetTitle>
-                                    <SheetDescription>
-                                        <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} />
-                                    </SheetDescription>
-                                </SheetHeader>
+                                <ScrollArea className="h-[90%] w-[600px] p-4">
+                                    <SheetHeader>
+                                        <SheetTitle>Add New Vendor for {orderData.category}</SheetTitle>
+                                        <SheetDescription>
+                                            <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} />
+                                        </SheetDescription>
+                                    </SheetHeader>
                                 </ScrollArea>
                             </SheetContent>
                         </Sheet>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={handleUpdateQuote}>
+                            <Button className="font-normal py-2 px-6" onClick={handleUpdateQuote}>
                                 Update Quote
-                            </button>
+                            </Button>
                         </div>
                     </div>
-                </div>}
-        </MainLayout>
+                </div>
+            }
+        </MainLayout >
     )
 }
