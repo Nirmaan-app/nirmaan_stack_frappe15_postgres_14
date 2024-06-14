@@ -204,10 +204,10 @@ export const SentBackSelectVendor = () => {
     const getTotal2 = (vendor: string, cat: string) => {
         let total: number = 0;
         orderData?.item_list?.list.map((item) => {
-            
-                const price = getPrice(vendor, item.name);
-                total += (price ? parseFloat(price) : 0)*item.quantity;
-            
+
+            const price = getPrice(vendor, item.name);
+            total += (price ? parseFloat(price) : 0) * item.quantity;
+
         })
         return total
     }
@@ -217,12 +217,12 @@ export const SentBackSelectVendor = () => {
         <MainLayout>
             {page == 'updatequotation' &&
                 <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
-                        <div className="flex items-center space-y-2">
-                            {/* <ArrowLeft /> */}
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Vendor</h2>
+                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                        <div className="flex items-center pt-1 pb-4">
+                            {/* <ArrowLeft onClick={() => navigate('/sent-back-request')} /> */}
+                            <h2 className="text-base pl-2 font-bold tracking-tight">Select Vendor</h2>
                         </div>
-                        <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
@@ -243,7 +243,7 @@ export const SentBackSelectVendor = () => {
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                             </div>
-                        </div>
+                        </Card>
                         <div>
                             <Card className="flex w-full shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
@@ -270,41 +270,42 @@ export const SentBackSelectVendor = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
+
                                             {orderData?.item_list?.list.map((item) => {
                                                 const quotesForItem = quote_data
-                                                ?.filter(value => value.item === item.name)
-                                                ?.map(value => value.quote);
+                                                    ?.filter(value => value.item === item.name && value.quote != null)
+                                                    ?.map(value => value.quote);
                                                 let minQuote;
-                                                if(quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
-                                                console.log("item",item)
-                                                    return <tr>
+                                                console.log("item", item)
+                                                return <tr>
                                                     <td className="py-2 text-sm px-2 font-semibold border-b w-[40%]">
                                                         {item.item}
                                                     </td>
-                                                    {selectedCategories[curCategory]?.map((value)=>{
+                                                    {selectedCategories[curCategory]?.map((value) => {
                                                         const price = getPrice(value, item.name);
                                                         // total += (price ? parseFloat(price) : 0)*item.quantity;
                                                         const isSelected = selectedVendors[curCategory] === value;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                         return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
-                                                                    {price*item.quantity}
-                                                                </td>
+                                                            {price * item.quantity}
+                                                        </td>
                                                     })}
-                                                    <td  className="py-2 text-sm px-2 border-b">
-                                                        {minQuote ? minQuote*item.quantity : "N/A"}
+                                                    <td className="py-2 text-sm px-2 border-b">
+                                                        {minQuote ? minQuote * item.quantity : "N/A"}
                                                     </td>
-                                                    </tr>
+                                                </tr>
                                             })}
                                             <tr>
                                                 <td className="py-4 text-sm px-2 font-semibold">Total</td>
-                                                {selectedCategories[curCategory]?.map((value)=>{
+                                                {selectedCategories[curCategory]?.map((value) => {
                                                     const isSelected = selectedVendors[curCategory] === value;
                                                     const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <td className={`py-2 text-sm px-2 text-left ${dynamicClass}`}>
-                                                                    {getTotal2(value,curCategory)}
-                                                                </td>
-                                                    })}
+                                                    return <td className={`py-2 text-sm px-2 text-left ${dynamicClass}`}>
+                                                        {getTotal2(value, curCategory)}
+                                                    </td>
+                                                })}
                                                 <td></td>
                                             </tr>
                                             </tbody>
@@ -327,12 +328,12 @@ export const SentBackSelectVendor = () => {
                 </div>}
             {page == 'approvequotation' &&
                 <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
-                        <div className="flex items-center space-y-2">
+                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                        <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('updatequotation')} />
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Comparison</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
                         </div>
-                        <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
@@ -353,7 +354,7 @@ export const SentBackSelectVendor = () => {
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                             </div>
-                        </div>
+                        </Card>
                         <div className="w-full">
                             <div className="font-bold text-xl py-2">{curCategory}</div>
                             <Card className="flex w-1/2 shadow-none border border-grey-500" >
@@ -395,10 +396,10 @@ export const SentBackSelectVendor = () => {
                                                             const price = getPrice(selectedVendors[curCategory], item.name);
 
                                                             const quotesForItem = quote_data
-                                                            ?.filter(value => value.item === item.name && value.quote != null)
-                                                            ?.map(value => value.quote);
+                                                                ?.filter(value => value.item === item.name && value.quote != null)
+                                                                ?.map(value => value.quote);
                                                             let minQuote;
-                                                            if(quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                            if (quotesForItem) minQuote = Math.min(...quotesForItem);
 
                                                             return <div className="grid grid-cols-8">
                                                                 <div className="text-sm col-span-2 border p-2">{item.item}</div>
@@ -421,9 +422,9 @@ export const SentBackSelectVendor = () => {
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                             <Dialog>
                                 <DialogTrigger asChild>
-                                    <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg">
+                                    <Button className="font-normal py-2 px-6">
                                         Send for Approval
-                                    </button>
+                                    </Button>
                                 </DialogTrigger>
                                 <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>

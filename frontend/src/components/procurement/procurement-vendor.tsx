@@ -332,7 +332,7 @@ export const ProcurementOrder = () => {
                                         <SheetTrigger className="text-blue-500">
                                             <div className="flex">
                                                 <div className="text-base text-blue-400 flex" >
-                                                    <CirclePlus className="w-5 h-5 pr-1" />Add Vendor</div>
+                                                    <CirclePlus className="w-5 h-5 mr-2" />Add Vendor</div>
                                             </div>
                                         </SheetTrigger>
                                         <SheetContent>

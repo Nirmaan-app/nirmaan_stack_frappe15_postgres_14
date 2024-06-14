@@ -4,6 +4,7 @@ import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import {
     SheetClose
 } from "@/components/ui/sheet"
+import { Button } from "../ui/button";
 
 
 interface Category {
@@ -131,7 +132,10 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
                     <Input />
                 </div>
                 <div className="w-[48%]">
-                    <div className="text-gray-500 text-sm">Delivery Time</div>
+                    <div className="flex justify-between">
+                        <div className="text-gray-500 text-sm">Delivery Time (Days)</div>
+                        <div className="pt-1 text-gray-500 text-xs">*Required</div>
+                    </div>
                     <Input type="number" placeholder={delivery_time} value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)} />
                 </div>
             </div>
@@ -159,10 +163,10 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
                                 <div>{getItem(q.item)}</div>
                             </div>
                             <div className="flex-1">
-                                <Input type="text" placeholder={getUnit(q.item)} />
+                                <Input type="text" disabled={true} placeholder={getUnit(q.item)} />
                             </div>
                             <div className="flex-1">
-                                <Input type="text" placeholder={getQuantity(q.item)} />
+                                <Input type="text" disabled={true} placeholder={getQuantity(q.item)} />
                             </div>
                             <div className="flex-1">
                                 <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
@@ -171,12 +175,17 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
                     }
                 })}
             </div>
-            <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                <SheetClose>
-                    <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleSubmit()}>
+            <div className="flex flex-col justify-end items-end bottom-4 right-4 pt-10">
+                {deliveryTime ?
+                    <SheetClose>
+                        <Button onClick={() => handleSubmit()}>
+                            Save
+                        </Button>
+                    </SheetClose>
+                    :
+                    <Button disabled={true}>
                         Save
-                    </button>
-                </SheetClose>
+                    </Button>}
             </div>
         </div>
     )
