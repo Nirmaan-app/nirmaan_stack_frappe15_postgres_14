@@ -447,7 +447,7 @@ export const SelectVendors = () => {
                                                 <DialogTrigger asChild>
                                                     <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                                 </DialogTrigger>
-                                                <DialogContent className="sm:max-w-[425px] md:max-w-[625px]">
+                                                <DialogContent className="sm:max-w-[425px] md:max-w-[675px]">
                                                     <DialogHeader>
                                                         <DialogTitle>Items List</DialogTitle>
                                                         <DialogDescription>

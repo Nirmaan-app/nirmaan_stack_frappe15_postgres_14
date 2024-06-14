@@ -82,7 +82,7 @@ export const ApproveVendor = () => {
 
     useEffect(() => {
         const foundItem = procurement_request_list?.find(item => item.name === orderId);
-        if (foundItem) {
+        if (foundItem && !orderData.project) {
             setOrderData(foundItem)
         }
     }, [procurement_request_list]);
@@ -170,7 +170,7 @@ export const ApproveVendor = () => {
             comments: comment,
             procurement_executive: orderData.procurement_executive
         }
-        if (itemlist.list.length > 0) {
+        if (itemlist.length > 0) {
             createDoc('Sent Back Category', newSendBack)
                 .then(() => {
                     console.log(newSendBack);
@@ -185,21 +185,21 @@ export const ApproveVendor = () => {
         })
             .then(() => {
                 console.log("item", orderId)
+                setOrderData((prevState) => {
+                    const newCategoryList = prevState.category_list.list.filter(
+                        (category) => category.name !== cat
+                    );
+                    return {
+                        ...prevState,
+                        category_list: {
+                            ...prevState.category_list,
+                            list: newCategoryList
+                        }
+                    };
+                });
             }).catch(() => {
                 console.log("update_submit_error", update_submit_error)
             })
-        setOrderData((prevState) => {
-            const newCategoryList = prevState.category_list.list.filter(
-                (category) => category.name !== cat
-            );
-            return {
-                ...prevState,
-                category_list: {
-                    ...prevState.category_list,
-                    list: newCategoryList
-                }
-            };
-        });
         const order_list = {
             list: []
         };
@@ -613,7 +613,7 @@ export const ApproveVendor = () => {
                                         <DialogTrigger asChild>
                                             <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                         </DialogTrigger>
-                                        <DialogContent className="sm:max-w-[425px] md:max-w-[625px]">
+                                        <DialogContent className="sm:max-w-[425px] md:max-w-[675px]">
                                             <DialogHeader>
                                                 <DialogTitle>Items List</DialogTitle>
                                                 <DialogDescription>
@@ -671,7 +671,7 @@ export const ApproveVendor = () => {
                                 <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
                                     <div className="flex justify-between">
                                         <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
+                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}</div>
                                     </div>
                                     <div className="font-medium text-gray-700 text-sm">
                                         Last 3 months Lowest Amount

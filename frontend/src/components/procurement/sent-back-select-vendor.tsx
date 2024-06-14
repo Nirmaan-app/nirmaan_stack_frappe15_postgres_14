@@ -421,8 +421,8 @@ export const SentBackSelectVendor = () => {
                                                     <DialogDescription>
                                                         <div className="grid grid-cols-8 gap-2 font-medium text-black justify-between py-2">
                                                             <div className="text-sm col-span-2">Items</div>
-                                                            <div className="text-sm">Unit</div>
                                                             <div className="text-sm">Qty</div>
+                                                            <div className="text-sm">Unit</div>
                                                             <div className="text-sm">Rate</div>
                                                             <div className="text-sm">Amount</div>
                                                             <div className="text-sm col-span-2">3 months Lowest Amount</div>
