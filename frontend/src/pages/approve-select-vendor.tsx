@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Badge } from "@/components/ui/badge";
 
 
 type PRTable = {
@@ -13,19 +14,25 @@ type PRTable = {
     project: string
     creation: string
     work_package: string
+    category_list: {}
 }
 
 export const ApproveSelectVendor = () => {
     const userData = useUserData();
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
-            filters: [["project_lead","=",userData.user_id]]
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
+            filters: [["project_lead", "=", userData.user_id], ["workflow_state", "=", "Vendor Selected"]],
+            limit: 100
         });
-    const procurement_request_lists = [];
-    procurement_request_list?.map((item) => {
-        if (item.workflow_state === "Vendor Selected") procurement_request_lists.push(item)
+
+    const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
+        fields: ["name", "project_name"],
+        filters: [["project_lead", "=", userData.user_id]]
     })
+
+    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -69,12 +76,23 @@ export const ApproveSelectVendor = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const project = project_values.find(
+                        (project) => project.value === row.getValue("project")
+                    )
+                    if (!project) {
+                        return null;
+                    }
+
                     return (
                         <div className="font-medium">
-                            {row.getValue("project")}
+                            {project.label}
+                            {/* {row.getValue("project")} */}
                         </div>
                     )
-                }
+                },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.getValue(id))
+                },
             },
             {
                 accessorKey: "work_package",
@@ -87,6 +105,21 @@ export const ApproveSelectVendor = () => {
                     return (
                         <div className="font-medium">
                             {row.getValue("work_package")}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "category_list",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Categories" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="max-w-fit gap-0.5 grid grid-cols-2">
+                            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }
@@ -106,11 +139,12 @@ export const ApproveSelectVendor = () => {
                     )
                 }
             }
-            
-        ],
-        []
-    )
 
+        ],
+        [project_values]
+    )
+    if (projects_loading || procurement_request_list_loading) return <h1>Loading</h1>
+    if (procurement_request_list_error || projects_error) return <h1>Error</h1>
     return (
         <MainLayout>
             <div className="flex">
@@ -118,7 +152,7 @@ export const ApproveSelectVendor = () => {
                     <div className="flex items-center justify-between space-y-2">
                         <h2 className="text-lg font-bold tracking-tight">Approve Vendors</h2>
                     </div>
-                    <DataTable columns={columns} data={procurement_request_lists || []} />
+                    <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
 
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">

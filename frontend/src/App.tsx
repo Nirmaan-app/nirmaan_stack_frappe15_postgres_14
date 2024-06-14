@@ -3,7 +3,7 @@ import { FrappeProvider } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
 import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
-import Login from './pages/login'
+// import Login from './pages/login'
 import Projects from './pages/projects'
 import Customers from './pages/customers'
 import WorkPackages from './pages/work-packages'
@@ -39,6 +39,7 @@ import { ApproveSelectVendor } from './pages/approve-select-vendor'
 import { ApproveVendor } from './pages/approve-vendor'
 import { NewPR } from './components/new-pr'
 import { PRSummary } from './components/pr-summary'
+// import { NewMilestone } from './components/new-milestone'
 
 
 const router = createBrowserRouter(
@@ -53,6 +54,7 @@ const router = createBrowserRouter(
 				<Route path="pdf" element={<PDF />} />
 				<Route path="/new-pr/:id" element={<NewPR />} />
 				<Route path="/pr-summary/:id" element={<PRSummary />} />
+				{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
 				<Route path="approve-order" element={<ApprovePR />} />
 				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
 				<Route path="approve-vendor" element={<ApproveSelectVendor />} />
@@ -70,7 +72,7 @@ const router = createBrowserRouter(
 				<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
 				<Route path="release-po" element={<ReleasePOSelect />} />
 				<Route path="/release-po/:id" element={<ReleasePO />} />
-				
+
 				<Route path="projects">
 					<Route index element={<Projects />} />
 					<Route path="edit" element={<EditProject />} />

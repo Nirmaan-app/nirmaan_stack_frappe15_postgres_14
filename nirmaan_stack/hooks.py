@@ -133,6 +133,9 @@ doc_events = {
     "Projects": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm"
     },
+    "Vendors": {
+        "after_insert": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.generate_vendor_category"
+    }
     # "Procurement Requests": {
     #     "on_submit": "nirmaan_stack.nirmaan_stack.doctype.pr_category.pr_category.generate_pr_category"
     # }

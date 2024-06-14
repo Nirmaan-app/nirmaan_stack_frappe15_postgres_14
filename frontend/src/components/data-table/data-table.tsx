@@ -5,6 +5,8 @@ import {
     VisibilityState,
     flexRender,
     getCoreRowModel,
+    getFacetedRowModel,
+    getFacetedUniqueValues,
     getFilteredRowModel,
     getPaginationRowModel,
     getSortedRowModel,
@@ -21,23 +23,24 @@ import {
 } from "@/components/ui/table"
 import * as React from "react"
 import { DataTablePagination } from "./data-table-pagination"
-import { DataTableViewOptions } from "./data-table-view-options"
+import { DataTableToolbar } from "./data-table-toolbar";
 import { fuzzyFilter } from "./data-table-models"
 import DebouncedInput from "./debounced-input"
+
+type ProjectOptions = {
+    label: string,
+    value: string
+}
 
 interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
     data: TData[]
+    project_values?: ProjectOptions[]
 }
 
-export function DataTable<TData, TValue>({
-    columns,
-    data,
-}: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({ columns, data, project_values }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([]);
-    const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
-        []
-    );
+    const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
     const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
 
     const [rowSelection, setRowSelection] = React.useState({})
@@ -47,12 +50,15 @@ export function DataTable<TData, TValue>({
     const table = useReactTable({
         data,
         columns,
+        enableRowSelection: true,
         getCoreRowModel: getCoreRowModel(),
         getPaginationRowModel: getPaginationRowModel(),
         onSortingChange: setSorting,
         getSortedRowModel: getSortedRowModel(),
         onColumnFiltersChange: setColumnFilters,
-        getFilteredRowModel: getFilteredRowModel(),
+        getFilteredRowModel: getFilteredRowModel(), // client-side faceting
+        getFacetedRowModel: getFacetedRowModel(), // client-side faceting
+        getFacetedUniqueValues: getFacetedUniqueValues(), // generate unique values for select filter/autocomplete
         onColumnVisibilityChange: setColumnVisibility,
         onRowSelectionChange: setRowSelection,
         onGlobalFilterChange: setGlobalFilter,
@@ -78,9 +84,10 @@ export function DataTable<TData, TValue>({
     return (
         <div className="space-y-4">
             {/* Look for data-table-toolbar in tasks example */}
-            <div className="flex items-center py-4">
+
+            <div className="flex items-center py-4 pr-2">
                 <DebouncedInput
-                    placeholder="Filter..."
+                    placeholder="Search..."
                     //value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
                     value={globalFilter ?? ''}
                     // onChange={(event) =>
@@ -89,8 +96,10 @@ export function DataTable<TData, TValue>({
                     onChange={value => setGlobalFilter(String(value))}
                     className="max-w-sm"
                 />
-                <DataTableViewOptions table={table} />
+                <DataTableToolbar table={table} project_values={project_values} />
+                {/* <DataTableViewOptions table={table} /> */}
             </div>
+
             <div className="rounded-md border">
                 <Table>
                     <TableHeader>
@@ -98,13 +107,10 @@ export function DataTable<TData, TValue>({
                             <TableRow key={headerGroup.id}>
                                 {headerGroup.headers.map((header) => {
                                     return (
-                                        <TableHead key={header.id}>
+                                        <TableHead key={header.id} colSpan={header.colSpan}>
                                             {header.isPlaceholder
                                                 ? null
-                                                : flexRender(
-                                                    header.column.columnDef.header,
-                                                    header.getContext()
-                                                )}
+                                                : flexRender(header.column.columnDef.header, header.getContext())}
                                         </TableHead>
                                     )
                                 })}

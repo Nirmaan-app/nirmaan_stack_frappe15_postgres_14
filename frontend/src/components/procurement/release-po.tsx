@@ -10,7 +10,8 @@ export const ReleasePO = () => {
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error } = useFrappeGetDocList("Procurement Orders",
         {
-            fields: ['name','project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list','creation']
+            fields: ['name','project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list','creation'],
+            limit: 100
         });
 
     const [orderData, setOrderData] = useState({

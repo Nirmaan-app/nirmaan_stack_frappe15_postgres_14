@@ -74,7 +74,7 @@ interface SelectOption {
 
 type VendorFormValues = z.infer<typeof VendorFormSchema>
 
-export default function VendorForm({ vendor_category_mutate, vendor_list_mutate, work_package }) {
+export default function SentBackVendorForm({ sent_back_data, quotation_request_list_mutate, vendor_list_mutate }) {
     // 1.b Define your form.
     // Has handleSubmit, control functions
     const form = useForm<VendorFormValues>({
@@ -99,7 +99,8 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
     function onSubmit(values: z.infer<typeof VendorFormSchema>) {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
-        let category_json = Object.values(categories).map((object) => { return object["value"] })
+        // let category_json = Object.values(categories).map((object) => { return object["value"] })
+        let category_json = [`${sent_back_data.category}`]
         console.log(category_json)
         createDoc('Vendors', { ...values, vendor_category: { "categories": category_json } })
             // .then((doc) => {
@@ -122,9 +123,34 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
             //             })
             //     })
             // })
+            .then((doc)=>{
+                sent_back_data.item_list?.list.map((value) => {
+                    const newItem = {
+                        procurement_task: sent_back_data.procurement_request,
+                        project: sent_back_data.project_name,
+                        category: sent_back_data.category,
+                        item: value.name,
+                        vendor: doc.name,
+                        quantity: value.quantity
+                    }
+                    createDoc("Quotation Requests", newItem)
+                    .then(()=>{
+                        quotation_request_list_mutate()
+                        vendor_list_mutate()
+                        console.log(newItem)
+                    })
+                    .catch(()=>{
+                        console.log(submit_error)
+                    })
+
+                })
+            })
             .catch(() => {
                 console.log(submit_error)
             })
+
+            
+
 
     }
     const options: SelectOption[] = address?.map(item => ({
@@ -132,9 +158,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
         value: item.name
     })) || [];
 
-    const category_options: SelectOption[] = category_list
-        ?.filter(item => item.work_package === work_package)
-        .map(item => ({
+    const category_options: SelectOption[] = category_list?.map(item => ({
             label: item.category_name,
             value: item.category_name
         })) || [];
@@ -142,13 +166,6 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
     const handleChange = (selectedOptions) => {
         setCategories(selectedOptions)
         console.log(categories)
-    }
-
-    function closewindow() {
-        var button = document.getElementById('dialogClose');
-        vendor_category_mutate();
-        vendor_list_mutate();
-        button.click();
     }
 
     return (
@@ -291,17 +308,16 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
 
                     )}
                 />
-                <div>
+                {/* <div>
                     <label>Add Category</label>
                     <ReactSelect options={category_options} onChange={handleChange} isMulti />
-                </div>
+                </div> */}
                 {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
                 <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose>
                 <div>
                     {submit_complete &&
                         <div>
                             <div className="font-semibold text-green-500">New Vendor added</div>
-                            {closewindow()}
                         </div>
 
                     }
