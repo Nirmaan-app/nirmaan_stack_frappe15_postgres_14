@@ -25,7 +25,11 @@ jobs:
           {
             "url": "https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git",
             "branch": "develop"
-          }
+          },
+          {
+            "url": "https://github.com/Nirmaan-app/Frappe-attachments-s3.git",
+            "branch": "master"
+          },
         ]'
         echo "APPS_JSON_BASE64=$(echo ${APPS_JSON} | base64 -w 0)" >> $GITHUB_ENV
     - name: Set env
