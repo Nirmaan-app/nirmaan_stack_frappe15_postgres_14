@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, TrendingUp } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
@@ -14,6 +14,7 @@ import {
     DialogTrigger
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { TrendingDown,CheckCheck } from 'lucide-react';
 
 interface VendorItem {
     vendor: string;
@@ -228,6 +229,15 @@ export const SelectVendors = () => {
         return total
     }
 
+    const getPercentdiff = (a: number, b: number) => {
+        if (a === 0 && b === 0) {
+            return 0;
+          }
+          const difference: number = Math.abs(a - b);
+          const percentDiff: number = (difference / a) * 100;
+        
+          return percentDiff.toFixed(2);
+    }
 
     return (
         <MainLayout>
@@ -507,17 +517,35 @@ export const SelectVendors = () => {
                                     <div className="h-[50%] p-5 rounded-lg border border-grey-500">
                                         <div className="flex justify-between">
                                             <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest.quote}</div>
+                                            <div className="font-bold text-2xl text-gray-500 border-gray-200 py-0">{lowest.quote}
+                                                <div className='flex'>
+                                                {
+                                                (lowest?.quote < getTotal(curCategory)) ?  
+                                                <TrendingDown className="text-red-500"/> : <CheckCheck className="text-blue-500"/>
+                                                }
+                                                <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote,getTotal(curCategory))}%</span>
+                                                </div>
+                                                
+                                            </div>
                                         </div>
-                                        <div className="font-medium text-gray-700 text-sm">
+                                        <div className="flex justify-between font-medium text-gray-700 text-sm">
                                             {getVendorName(lowest.vendor)}
+                                            <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div>
                                         </div>
-                                        <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div>
+                                        
                                     </div>
                                     <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
                                         <div className="flex justify-between">
                                             <div className="text-sm font-medium text-gray-400">Last 3 months Metric</div>
-                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}</div>
+                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}
+                                            <div className='flex'>
+                                                {
+                                                (getLowest3(curCategory) > getTotal(curCategory)) ?  
+                                                <TrendingUp className="text-green-500"/> : ((getLowest3(curCategory) < getTotal(curCategory)) ? <TrendingDown className="text-red-500"/> :<CheckCheck className="text-blue-500"/>)
+                                                }
+                                                <span className={`pl-2 text-base font-medium ${(getLowest3(curCategory) < getTotal(curCategory)) ? "text-red-500" : ((getLowest3(curCategory) > getTotal(curCategory)) ? "text-green-500" : "text-blue-500")}`}>{getPercentdiff(getTotal(curCategory),getLowest3(curCategory))}%</span>
+                                                </div>
+                                            </div>
                                         </div>
                                         <div className="font-medium text-gray-700 text-sm">
                                             Last 3 months Lowest Amount

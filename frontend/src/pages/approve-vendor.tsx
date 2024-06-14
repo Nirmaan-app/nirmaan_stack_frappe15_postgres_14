@@ -24,6 +24,7 @@ import {
     DialogTrigger,
     DialogClose
 } from "@/components/ui/dialog"
+import { TrendingDown,CheckCheck,TrendingUp } from 'lucide-react';
 
 
 export const ApproveVendor = () => {
@@ -552,6 +553,16 @@ export const ApproveVendor = () => {
         return total;
     }
 
+    const getPercentdiff = (a: number, b: number) => {
+        if (a === 0 && b === 0) {
+            return 0;
+          }
+          const difference: number = Math.abs(a - b);
+          const percentDiff: number = (difference / a) * 100;
+        
+          return percentDiff.toFixed(2);
+    }
+
     return (
         <MainLayout>
             {page == 'approvequotation' && <div className="flex" >
@@ -582,7 +593,7 @@ export const ApproveVendor = () => {
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                         </div>
                     </Card>
-                    {orderData.category_list?.list.length === 0 && <div className="text-red-500 text-center text-2xl font-bold">All Done !!!</div>}
+                    {(orderData.project && orderData.category_list?.list.length === 0) && <div className="text-red-500 text-center text-2xl font-bold">All Done !!!</div>}
                     {orderData?.category_list?.list.map((cat) => {
                         const curCategory = cat.name
                         const lowest = getLowest(cat.name);
@@ -666,17 +677,33 @@ export const ApproveVendor = () => {
                                 <div className="h-[50%] p-5 rounded-lg border border-grey-500">
                                     <div className="flex justify-between">
                                         <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}</div>
+                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}
+                                        <div className='flex'>
+                                        {
+                                        (lowest?.quote < getTotal(curCategory)) ?  
+                                        <TrendingDown className="text-red-500"/> : <CheckCheck className="text-blue-500"/>
+                                        }
+                                        <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote,getTotal(curCategory))}%</span>
+                                        </div>
+                                        </div>
                                     </div>
                                     <div className="font-medium text-gray-700 text-sm">
                                         {getVendorName(lowest?.vendor)}
                                     </div>
                                     {/* <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div> */}
                                 </div>
-                                <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
+                                <div className="mt-2 h-[50%] p-5 rounded-lg border border-grey-500">
                                     <div className="flex justify-between">
                                         <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}</div>
+                                        <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}
+                                        <div className='flex'>
+                                                {
+                                                (getLowest3(curCategory) > getTotal(curCategory)) ?  
+                                                <TrendingUp className="text-green-500"/> : ((getLowest3(curCategory) < getTotal(curCategory)) ? <TrendingDown className="text-red-500"/> :<CheckCheck className="text-blue-500"/>)
+                                                }
+                                                <span className={`pl-2 text-base font-medium ${(getLowest3(curCategory) < getTotal(curCategory)) ? "text-red-500" : ((getLowest3(curCategory) > getTotal(curCategory)) ? "text-green-500" : "text-blue-500")}`}>{getPercentdiff(getTotal(curCategory),getLowest3(curCategory))}%</span>
+                                                </div>
+                                        </div>
                                     </div>
                                     <div className="font-medium text-gray-700 text-sm">
                                         Last 3 months Lowest Amount
@@ -802,7 +829,7 @@ export const ApproveVendor = () => {
                             </DialogContent>
                         </Dialog>
                     </div> :
-                        (orderData.category_list.list.length === 0 && <div className="flex space-x-2 justify-center items-center bottom-4 right-4">
+                        ((orderData.project && orderData.category_list.list.length === 0) && <div className="flex space-x-2 justify-center items-center bottom-4 right-4">
                             <Button onClick={() => handleDone()}>
                                 Done
                             </Button>
