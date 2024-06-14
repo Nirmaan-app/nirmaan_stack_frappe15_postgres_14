@@ -262,11 +262,11 @@ export const SentBackSelectVendor = () => {
                                                     {selectedCategories[curCategory]?.map((item)=>{
                                                         const isSelected = selectedVendors[curCategory] === item;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={curCategory} value={item} onChange={handleChangeWithParam(curCategory, item)} />{getVendorName(item)}</span>
+                                                        return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={curCategory} value={item} onChange={handleChangeWithParam(curCategory, item)} />{getVendorName(item).length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
                                                                     <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory)} Days</div>
                                                                 </th>
                                                     })}
-                                                    <th className="bg-gray-200 p-2 font-semibold truncate text-left">Last 3 months Lowest Quote<div className='py-2 font-light text-sm invisible'>3 Days</div></th>
+                                                    <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
@@ -309,56 +309,20 @@ export const SentBackSelectVendor = () => {
                                             </tr>
                                             </tbody>
                                         </table>
-                                    {/* <div className="flex">
-                                        <div className='flex-1'>
-                                            <div className="bg-gray-200 p-2 font-semibold">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></div>
-                                            {orderData.item_list?.list.map((value) => {
-                                                return <div className="py-2 text-sm px-2 font-semibold border-b">
-                                                    {value.item}
-                                                </div>
-                                            })}
-                                            <div className="py-4 text-sm px-2 font-semibold">
-                                                Total
-                                            </div>
-                                        </div>
-                                        {selectedCategories[curCategory]?.map((item) => {
-                                            let total: number = 0;
-                                            const isSelected = selectedVendors[curCategory] === item;
-                                            const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                            return <div className={dynamicClass}>
-                                                <div className="truncate bg-gray-200 font-semibold p-2"><input className="mr-2" type="radio" id={item} name={curCategory} value={item} onChange={handleChangeWithParam(curCategory, item)} />{getVendorName(item)}
-                                                    <div className='py-2 font-light text-sm text-opacity-20'>{getLeadTime(item, curCategory)} Days</div>
-                                                </div>
-                                                {orderData.item_list?.list.map((value) => {
-                                                    const price = getPrice(item, value.name);
-                                                    total += (price ? parseFloat(price) : 0) * value.quantity;
-                                                    return <div className="py-2 text-sm px-2 text-opacity-10 border-b">
-                                                        {price * value.quantity}
-                                                    </div>
-
-                                                })}
-                                                <div className="py-4 font-semibold text-sm px-2">
-                                                    {total}
-                                                </div>
-                                            </div>
-                                        })}
-                                        <div className="flex-1">
-                                            <div className="bg-gray-200 p-2 font-semibold truncate">Last 3 months Lowest Price<div className='py-2 font-light text-sm text-gray-400 invisible'>Delivery Time:</div></div>
-                                            {orderData.item_list?.list.map((value) => {
-                                                return <div className="py-2 text-sm px-2 font-semibold border-b">
-                                                    {"N/A"}
-                                                </div>
-                                            })}
-                                        </div>
-                                    </div> */}
                                 </CardHeader>
                             </Card>
                         </div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => handleUpdateOrderData()}>
-                                Confirm
-                            </button>
+                            {Object.keys(selectedVendors).length > 0 ?
+                                <Button onClick={() => handleUpdateOrderData()}>
+                                    Confirm
+                                </Button>
+                                :
+                                <Button disabled={true}>
+                                    Confirm
+                                </Button>}
                         </div>
+
                     </div>
                 </div>}
             {page == 'approvequotation' &&
@@ -419,13 +383,13 @@ export const SentBackSelectVendor = () => {
                                                 <DialogHeader>
                                                     <DialogTitle>Items List</DialogTitle>
                                                     <DialogDescription>
-                                                        <div className="grid grid-cols-8 gap-2 font-medium text-black justify-between py-2">
-                                                            <div className="text-sm col-span-2">Items</div>
-                                                            <div className="text-sm">Qty</div>
-                                                            <div className="text-sm">Unit</div>
-                                                            <div className="text-sm">Rate</div>
-                                                            <div className="text-sm">Amount</div>
-                                                            <div className="text-sm col-span-2">3 months Lowest Amount</div>
+                                                        <div className="grid grid-cols-8 font-medium text-black justify-between">
+                                                            <div className="text-sm col-span-2 border p-2">Items</div>
+                                                            <div className="text-sm border p-2">Qty</div>
+                                                            <div className="text-sm border p-2">Unit</div>
+                                                            <div className="text-sm border p-2">Rate</div>
+                                                            <div className="text-sm border p-2">Amount</div>
+                                                            <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
                                                         </div>
                                                         {orderData.item_list?.list.map((item) => {
                                                             const price = getPrice(selectedVendors[curCategory], item.name);
@@ -436,13 +400,13 @@ export const SentBackSelectVendor = () => {
                                                             let minQuote;
                                                             if(quotesForItem) minQuote = Math.min(...quotesForItem);
 
-                                                            return <div className="grid grid-cols-8 gap-2 py-2">
-                                                                <div className="text-sm col-span-2">{item.item}</div>
-                                                                <div className="text-sm">{item.quantity}</div>
-                                                                <div className="text-sm">{item.unit}</div>
-                                                                <div className="text-sm">{price}</div>
-                                                                <div className="text-sm">{price * item.quantity}</div>
-                                                                <div className="text-sm col-span-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
+                                                            return <div className="grid grid-cols-8">
+                                                                <div className="text-sm col-span-2 border p-2">{item.item}</div>
+                                                                <div className="text-sm border p-2">{item.quantity}</div>
+                                                                <div className="text-sm border p-2">{item.unit}</div>
+                                                                <div className="text-sm border p-2">{price}</div>
+                                                                <div className="text-sm border p-2">{price * item.quantity}</div>
+                                                                <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
                                                             </div>
                                                         })}
                                                     </DialogDescription>

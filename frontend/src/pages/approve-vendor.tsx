@@ -622,14 +622,14 @@ export const ApproveVendor = () => {
                                             <DialogHeader>
                                                 <DialogTitle>Items List</DialogTitle>
                                                 <DialogDescription>
-                                                    <div className="grid grid-cols-10 gap-2 font-medium text-black justify-between py-2">
-                                                        <div className="text-sm col-span-2">Items</div>
-                                                        <div className="text-sm">Unit</div>
-                                                        <div className="text-sm">Qty</div>
-                                                        <div className="text-sm">Rate</div>
-                                                        <div className="text-sm">Amount</div>
-                                                        <div className="text-sm col-span-2">Lowest Quoted Vendor</div>
-                                                        <div className="text-sm col-span-2">3 months Lowest Amount</div>
+                                                    <div className="grid grid-cols-10 font-medium text-black justify-between">
+                                                        <div className="text-sm col-span-2 border p-2">Items</div>
+                                                        <div className="text-sm border p-2">Unit</div>
+                                                        <div className="text-sm border p-2">Qty</div>
+                                                        <div className="text-sm border p-2">Rate</div>
+                                                        <div className="text-sm border p-2">Amount</div>
+                                                        <div className="text-sm col-span-2 border p-2">Lowest Quoted Vendor</div>
+                                                        <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
                                                     </div>
                                                     {orderData?.procurement_list.list.map((item) => {
 
@@ -645,14 +645,14 @@ export const ApproveVendor = () => {
                                                             let minQuote;
                                                             if (quotesForItem) minQuote = Math.min(...quotesForItem);
 
-                                                            return <div className="grid grid-cols-10 gap-2 py-2">
-                                                                <div className="text-sm col-span-2">{item.item}</div>
-                                                                <div className="text-sm">{item.unit}</div>
-                                                                <div className="text-sm">{item.quantity}</div>
-                                                                <div className="text-sm">{price}</div>
-                                                                <div className="text-sm">{price * item.quantity}</div>
-                                                                <div className="text-sm col-span-2">{lowest2 ? lowest2 * item.quantity : "N/A"}</div>
-                                                                <div className="text-sm col-span-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
+                                                            return <div className="grid grid-cols-10">
+                                                                <div className="text-sm col-span-2 border p-2">{item.item}</div>
+                                                                <div className="text-sm border p-2">{item.unit}</div>
+                                                                <div className="text-sm border p-2">{item.quantity}</div>
+                                                                <div className="text-sm border p-2">{price}</div>
+                                                                <div className="text-sm border p-2">{price * item.quantity}</div>
+                                                                <div className="text-sm col-span-2 border p-2">{lowest2 ? lowest2 * item.quantity : "N/A"}</div>
+                                                                <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
                                                             </div>
                                                         }
                                                     })}

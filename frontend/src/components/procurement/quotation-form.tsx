@@ -62,8 +62,8 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         return item_unit
     }
     const getQuantity = (item: string) => {
-        const procurement_list = procurement_request_list?.find(value => value.name === pr_id).procurement_list;
-        const quantity = procurement_list?.list.find(value => value.name === item).quantity
+        const procurement_list = procurement_request_list?.find(value => value.name === pr_id)?.procurement_list;
+        const quantity = procurement_list?.list.find(value => value.name === item)?.quantity
         return quantity
     }
     const handlePriceChange = (item: string, value: number) => {

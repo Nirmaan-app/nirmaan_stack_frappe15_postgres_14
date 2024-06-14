@@ -293,7 +293,7 @@ export const SelectVendors = () => {
                                                         ?.filter(value => value.item === item.name && value.quote != null)
                                                         ?.map(value => value.quote);
                                                     let minQuote;
-                                                    if (quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                    if (quotesForItem && quotesForItem.length>0) minQuote = Math.min(...quotesForItem);
 
                                                     if (item.category === cat.name) {
                                                         return <tr>
@@ -481,7 +481,7 @@ export const SelectVendors = () => {
                                                                         ?.filter(value => value.item === item.name && value.quote != null)
                                                                         ?.map(value => value.quote);
                                                                     let minQuote;
-                                                                    if (quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                                    if (quotesForItem && quotesForItem.length>0) minQuote = Math.min(...quotesForItem);
 
                                                                     return <div className="grid grid-cols-10">
                                                                         <div className="text-sm col-span-2 border p-2">{item.item}</div>

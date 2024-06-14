@@ -301,13 +301,13 @@ export const ApproveSentBack = () => {
                                         <DialogHeader>
                                             <DialogTitle>Items List</DialogTitle>
                                             <DialogDescription>
-                                                <div className="grid grid-cols-8 gap-2 font-medium text-black justify-between py-2">
-                                                        <div className="text-sm col-span-2">Items</div>
-                                                        <div className="text-sm">Unit</div>
-                                                        <div className="text-sm">Qty</div>
-                                                        <div className="text-sm">Rate</div>
-                                                        <div className="text-sm">Amount</div>
-                                                        <div className="text-sm col-span-2">3 months Lowest Amount</div>
+                                                <div className="grid grid-cols-8 font-medium text-black justify-between">
+                                                        <div className="text-sm col-span-2 border p-2">Items</div>
+                                                        <div className="text-sm border p-2">Unit</div>
+                                                        <div className="text-sm border p-2">Qty</div>
+                                                        <div className="text-sm border p-2">Rate</div>
+                                                        <div className="text-sm border p-2">Amount</div>
+                                                        <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
                                                     </div>
                                                 {orderData.item_list?.list.map((item) => {
                                                     const price = item.quote;
@@ -315,15 +315,15 @@ export const ApproveSentBack = () => {
                                                     ?.filter(value => value.item === item.name && value.quote != null)
                                                     ?.map(value => value.quote);
                                                     let minQuote;
-                                                    if(quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                    if(quotesForItem && quotesForItem.length>0) minQuote = Math.min(...quotesForItem);
 
-                                                    return <div className="grid grid-cols-8 gap-2 py-2">
-                                                        <div className="text-sm col-span-2">{item.item}</div>
-                                                        <div className="text-sm">{item.unit}</div>
-                                                        <div className="text-sm">{item.quantity}</div>
-                                                        <div className="text-sm">{price}</div>
-                                                        <div className="text-sm">{price * item.quantity}</div>
-                                                        <div className="text-sm col-span-2">{minQuote ? minQuote*item.quantity : "N/A"}</div>
+                                                    return <div className="grid grid-cols-8">
+                                                        <div className="text-sm col-span-2 border p-2">{item.item}</div>
+                                                        <div className="text-sm border p-2">{item.unit}</div>
+                                                        <div className="text-sm border p-2">{item.quantity}</div>
+                                                        <div className="text-sm border p-2">{price}</div>
+                                                        <div className="text-sm border p-2">{price * item.quantity}</div>
+                                                        <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote*item.quantity : "N/A"}</div>
                                                     </div>
 
                                                 })}
@@ -363,7 +363,7 @@ export const ApproveSentBack = () => {
                                                     ?.filter(value => value.item === item.name && value.quote != null)
                                                     ?.map(value => value.quote);
                                                     let minQuote;
-                                                    if(quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                    if(quotesForItem && quotesForItem.length>0) minQuote = Math.min(...quotesForItem);
                                                     
                                                     return <div className="flex justify-between py-2">
                                                         <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
