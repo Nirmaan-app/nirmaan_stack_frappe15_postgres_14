@@ -518,7 +518,7 @@ export const ApproveVendor = () => {
                     total += (price ? parseFloat(price) : 0) * item.quantity;
                 }
             })
-            if (total < price) {
+            if (total && total < price) {
                 price = total;
                 vendor = ven;
             }
@@ -527,16 +527,14 @@ export const ApproveVendor = () => {
     }
 
     const getLowest2 = (item: string) => {
-        let total: number = 100000000;
-        quotation_request_list2?.map((value) => {
-            if (value.item === item) {
-                if (value.quote < total) {
-                    total = value.quote;
-                }
-            }
-        })
-        return total;
+        const quotesForItem = quotation_request_list2
+            ?.filter(value => value.item === item && value.quote != null)
+            ?.map(value => value.quote);
+        let minQuote;
+        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+        return minQuote;
     }
+    console.log(quotation_request_list2)
 
     const getLowest3 = (cat: string) => {
         let total: number = 0;
@@ -654,7 +652,7 @@ export const ApproveVendor = () => {
                                                                 ?.filter(value => value.item === item.name && value.quote != null)
                                                                 ?.map(value => value.quote);
                                                             let minQuote;
-                                                            if (quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
                                                             return <div className="grid grid-cols-10">
                                                                 <div className="text-sm col-span-2 border p-2">{item.item}</div>
@@ -674,7 +672,7 @@ export const ApproveVendor = () => {
                                 </CardHeader>
                             </Card>
                             <div>
-                                <div className="h-[50%] p-5 rounded-lg border border-grey-500">
+                                <div className="h-[45%] p-5 rounded-lg border border-grey-500">
                                     <div className="flex justify-between">
                                         <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
                                         <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}
@@ -744,7 +742,7 @@ export const ApproveVendor = () => {
                                                                 ?.filter(value => value.item === item.name && value.quote != null)
                                                                 ?.map(value => value.quote);
                                                             let minQuote;
-                                                            if (quotesForItem) minQuote = Math.min(...quotesForItem);
+                                                            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
                                                             return <div className="flex justify-between py-2">
                                                                 <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>

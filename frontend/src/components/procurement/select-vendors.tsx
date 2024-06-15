@@ -163,7 +163,7 @@ export const SelectVendors = () => {
                     total += (price ? parseFloat(price) : 0) * item.quantity;
                 }
             })
-            if (total < price) {
+            if (total && total < price) {
                 price = total;
                 vendor = ven;
             }
@@ -172,15 +172,12 @@ export const SelectVendors = () => {
     }
 
     const getLowest2 = (item: string) => {
-        let total: number = 100000000;
-        quotation_request_list?.map((value) => {
-            if (value.item === item) {
-                if (value.quote < total) {
-                    total = value.quote;
-                }
-            }
-        })
-        return total;
+        const quotesForItem = quotation_request_list
+            ?.filter(value => value.item === item && value.quote != null)
+            ?.map(value => value.quote);
+        let minQuote;
+        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+        return minQuote;
     }
 
     const getLowest3 = (cat: string) => {
@@ -227,6 +224,18 @@ export const SelectVendors = () => {
             }
         })
         return total
+    }
+
+    const handleEditPrice = () => {
+        updateDoc('Procurement Requests', orderId, {
+            workflow_state: "RFQ Generated",
+        })
+            .then(() => {
+                console.log("orderId", orderId)
+                navigate(`/procure-request/quote-update/${orderId}`)
+            }).catch(() => {
+                console.log(submit_error)
+            })
     }
 
     const getPercentdiff = (a: number, b: number) => {
@@ -290,7 +299,7 @@ export const SelectVendors = () => {
                                                     {selectedCategories[curCategory]?.map((item) => {
                                                         const isSelected = selectedVendors[curCategory] === item;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <th className="bg-gray-200 font-semibold p-2 text-left "><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={cat.name} value={item} onChange={handleChangeWithParam(cat.name, item)} />{getVendorName(item).length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
+                                                        return <th className="bg-gray-200 font-semibold p-2 text-left "><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={cat.name} value={item} onChange={handleChangeWithParam(cat.name, item)} />{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
                                                             <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, cat.name)} Days</div>
                                                         </th>
                                                     })}
@@ -338,61 +347,16 @@ export const SelectVendors = () => {
                                                 </tr>
                                             </tbody>
                                         </table>
-                                        {/* <div className="flex">
-                                            <div className='flex-1'>
-                                                <div className="bg-gray-200 p-2 font-semibold">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></div>
-
-                                                {orderData?.procurement_list?.list.map((item) => {
-                                                    if (item.category === cat.name) {
-                                                        return <div className="py-2 text-sm px-2 font-semibold border-b text-ellipsis overflow-hidden">
-                                                            {item.item}
-                                                        </div>
-                                                    }
-                                                })}
-                                                <div className="py-4 text-sm px-2 font-semibold">
-                                                    Total
-                                                </div>
-                                            </div>
-                                            {selectedCategories[curCategory]?.map((item) => {
-                                                let total: number = 0;
-                                                const isSelected = selectedVendors[curCategory] === item;
-                                                const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                return <div className={dynamicClass}>
-                                                    <div className="bg-gray-200 font-semibold p-2"><span className="truncate"><input className="mr-2" type="radio" id={item} name={cat.name} value={item} onChange={handleChangeWithParam(cat.name, item)} />{getVendorName(item)}</span>
-                                                        <div className='py-2 font-light text-sm text-opacity-20'>{getLeadTime(item, cat.name)} Days</div>
-                                                    </div>
-                                                    {orderData?.procurement_list.list.map((value) => {
-                                                        if (value.category === cat.name) {
-                                                            const price = getPrice(item, value.name);
-                                                            total += (price ? parseFloat(price) : 0) * value.quantity;
-                                                            return <div className="py-2 text-sm px-2 text-opacity-10 border-b">
-                                                                {price * value.quantity}
-                                                            </div>
-                                                        }
-                                                    })}
-                                                    <div className="py-4 font-semibold text-sm px-2">
-                                                        {total}
-                                                    </div>
-                                                </div>
-                                            })}
-                                            <div className='flex-1'>
-                                                <div className="bg-gray-200 p-2 font-semibold truncate">Last 3 months Lowest Quote<div className='py-2 font-light text-sm'>3 Days</div></div>
-                                                {orderData?.procurement_list?.list.map((item) => {
-                                                    if (item.category === cat.name) {
-                                                        return <div className="py-2 text-sm px-2 border-b">
-                                                            Price
-                                                        </div>
-                                                    }
-                                                })}
-                                            </div>
-                                        </div> */}
                                     </CardHeader>
                                 </Card>
                             </div>
                         })}
-                        <div className='pt-12'></div>
+                        <div className='pt-12 fixed bottom-4'>
+                            <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => handleEditPrice()}>
+                                    Edit Price
+                                </Button></div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            {Object.keys(selectedVendors).length === orderData.category_list.list.length ?
+                            {Object.keys(selectedVendors)?.length === orderData.category_list?.list.length ?
                                 <Button onClick={() => setPage('approvequotation')}>
                                     Confirm
                                 </Button>
@@ -525,7 +489,6 @@ export const SelectVendors = () => {
                                                 }
                                                 <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote,getTotal(curCategory))}%</span>
                                                 </div>
-                                                
                                             </div>
                                         </div>
                                         <div className="flex justify-between font-medium text-gray-700 text-sm">

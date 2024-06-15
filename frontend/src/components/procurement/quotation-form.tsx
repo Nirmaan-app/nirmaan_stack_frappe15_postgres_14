@@ -15,7 +15,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task'],
+            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task','quote','lead_time'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
             limit: 1000
         });
@@ -51,6 +51,12 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         setCategories({
             list: cats
         })
+    }, [quotation_request_list]);
+
+    useEffect(() => {
+        if(quotation_request_list){
+            setDeliveryTime(quotation_request_list[0].lead_time)
+        } 
     }, [quotation_request_list]);
 
     const getItem = (item: string) => {
@@ -152,7 +158,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                                     <Input type="text" disabled={true} placeholder={getQuantity(q.item)} />
                                 </div>
                                 <div className="flex-1">
-                                    <Input type="number" onChange={(e) => handlePriceChange(q.item, e.target.value)} />
+                                    <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
                                 </div>
                             </div>
                         }
