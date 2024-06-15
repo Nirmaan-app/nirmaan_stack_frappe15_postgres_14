@@ -219,7 +219,7 @@ export const SentBackSelectVendor = () => {
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
-                            {/* <ArrowLeft onClick={() => navigate('/sent-back-request')} /> */}
+                            <ArrowLeft onClick={() => navigate(`/sent-back-request/${id}`)} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Select Vendor</h2>
                         </div>
                         <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
@@ -312,6 +312,12 @@ export const SentBackSelectVendor = () => {
                                     </table>
                                 </CardHeader>
                             </Card>
+                        </div>
+                        <div className="pt-10"></div>
+                        <div className='pt-12 fixed bottom-4'>
+                            <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => navigate(`/sent-back-request/${id}`)}>
+                                    Edit Price
+                            </Button>
                         </div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                             {Object.keys(selectedVendors).length > 0 ?
