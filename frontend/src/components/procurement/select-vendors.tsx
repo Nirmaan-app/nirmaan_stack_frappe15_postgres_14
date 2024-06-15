@@ -489,6 +489,7 @@ export const SelectVendors = () => {
                                                 }
                                                 <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote,getTotal(curCategory))}%</span>
                                                 </div>
+
                                             </div>
                                         </div>
                                         <div className="flex justify-between font-medium text-gray-700 text-sm">
