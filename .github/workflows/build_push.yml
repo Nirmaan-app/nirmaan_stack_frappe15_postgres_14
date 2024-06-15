@@ -15,6 +15,8 @@ jobs:
       with:
         repository: Nirmaan-app/frappe_docker
         token: ${{ secrets.NIRMAAN_ADMIN_PAT }}
+    - name: Set env
+      run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
     - name: Create Apps.json
       run: |
         export APPS_JSON='[
@@ -24,7 +26,7 @@ jobs:
           },
           {
             "url": "https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git",
-            "branch": "develop"
+            "branch": ${{ env.RELEASE_VERSION }}
           },
           {
             "url": "https://github.com/Nirmaan-app/Frappe-attachments-s3.git",
@@ -32,8 +34,6 @@ jobs:
           },
         ]'
         echo "APPS_JSON_BASE64=$(echo ${APPS_JSON} | base64 -w 0)" >> $GITHUB_ENV
-    - name: Set env
-      run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
       
