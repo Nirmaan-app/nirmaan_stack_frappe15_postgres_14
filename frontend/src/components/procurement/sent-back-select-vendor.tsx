@@ -30,7 +30,7 @@ export const SentBackSelectVendor = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
+            fields: ['name', 'lead_time', 'project', 'item', 'category', 'procurement_task', 'quote'],
             limit: 1000
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
@@ -83,26 +83,26 @@ export const SentBackSelectVendor = () => {
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
-    const handleRadioChange = (cat, vendor) => {
+    const handleRadioChange = (item, vendor) => {
         setSelectedVendors(prevState => {
-            if (prevState.hasOwnProperty(cat)) {
-                return { ...prevState, [cat]: vendor };
+            if (prevState.hasOwnProperty(item)) {
+                return { ...prevState, [item]: vendor };
             } else {
-                return { ...prevState, [cat]: vendor };
+                return { ...prevState, [item]: vendor };
             }
         });
 
     };
 
-    const handleChangeWithParam = (cat, vendor) => {
-        return () => handleRadioChange(cat, vendor);
+    const handleChangeWithParam = (item, vendor) => {
+        return () => handleRadioChange(item, vendor);
     };
 
     const handleSubmit = () => {
         updateDoc('Sent Back Category', id, {
             workflow_state: "Vendor Selected",
             item_list: orderData.item_list,
-            vendor: orderData.vendor
+            // vendor: orderData.vendor
         })
             .then(() => {
                 console.log("item", id)
@@ -151,7 +151,6 @@ export const SentBackSelectVendor = () => {
         const key = generateVendorItemKey(vendor, item);
         return priceMap.get(key) ? priceMap.get(key) : "-";
     };
-    console.log(priceMap)
     useEffect(() => {
         const newPriceMap = new Map<string, string>();
         quotation_request_list?.forEach((item) => {
@@ -162,24 +161,7 @@ export const SentBackSelectVendor = () => {
         });
         setPriceMap(newPriceMap);
     }, [quotation_request_list, orderData]);
-    // const getLowest = (cat: string) => {
-    //     let price: number = 100000000;
-    //     let vendor: string = '';
-    //     selectedCategories[cat]?.map((ven) => {
-    //         let total: number = 0;
-    //         quotation_request_list?.map((item) => {
-    //             if (item.vendor === ven && item.category === cat) {
-    //                 const price = getPrice(ven, cat);
-    //                 total += price ? parseFloat(price) : 0;
-    //             }
-    //         })
-    //         if (total < price) {
-    //             price = total;
-    //             vendor = ven;
-    //         }
-    //     })
-    //     return { quote: price, vendor_id: vendor }
-    // }
+
     const getPackage = (name: string) => {
         return procurement_request_list?.find(item => item.name === name)?.work_package;
     }
@@ -262,7 +244,7 @@ export const SentBackSelectVendor = () => {
                                                 {selectedCategories[curCategory]?.map((item) => {
                                                     const isSelected = selectedVendors[curCategory] === item;
                                                     const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                    return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={curCategory} value={item} onChange={handleChangeWithParam(curCategory, item)} />{getVendorName(item).length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
+                                                    return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}>{getVendorName(item).length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
                                                         <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory)} Days</div>
                                                     </th>
                                                 })}
@@ -278,7 +260,6 @@ export const SentBackSelectVendor = () => {
                                                 let minQuote;
                                                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
-                                                console.log("item", item)
                                                 return <tr>
                                                     <td className="py-2 text-sm px-2 font-semibold border-b w-[40%]">
                                                         {item.item}
@@ -286,9 +267,10 @@ export const SentBackSelectVendor = () => {
                                                     {selectedCategories[curCategory]?.map((value) => {
                                                         const price = getPrice(value, item.name);
                                                         // total += (price ? parseFloat(price) : 0)*item.quantity;
-                                                        const isSelected = selectedVendors[curCategory] === value;
+                                                        const isSelected = selectedVendors[item.name] === value;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                         return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
+                                                            <input className="mr-2" type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
                                                             {price * item.quantity}
                                                         </td>
                                                     })}
@@ -320,14 +302,9 @@ export const SentBackSelectVendor = () => {
                             </Button>
                         </div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            {Object.keys(selectedVendors).length > 0 ?
-                                <Button onClick={() => handleUpdateOrderData()}>
-                                    Confirm
-                                </Button>
-                                :
-                                <Button disabled={true}>
-                                    Confirm
-                                </Button>}
+                            <Button onClick={() => handleUpdateOrderData()}>
+                                Confirm
+                            </Button>
                         </div>
 
                     </div>

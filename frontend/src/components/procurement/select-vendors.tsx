@@ -1,7 +1,7 @@
 import { ArrowLeft, TrendingUp } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { MainLayout } from '../layout/main-layout';
@@ -27,7 +27,7 @@ export const SelectVendors = () => {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'procurement_executive'],
             filters: [['name', '=', orderId]]
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
@@ -46,7 +46,8 @@ export const SelectVendors = () => {
             fields: ['item', 'quote'],
             limit: 1000
         });
-    const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+        const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+        const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
 
     const [page, setPage] = useState<string>('updatequotation')
     const [orderData, setOrderData] = useState({
@@ -68,7 +69,6 @@ export const SelectVendors = () => {
     }
     const [selectedVendors, setSelectedVendors] = useState({})
     const [selectedCategories, setSelectedCategories] = useState({})
-    const [totals, setTotals] = useState()
 
     useEffect(() => {
         const updatedCategories = { ...selectedCategories };
@@ -92,33 +92,65 @@ export const SelectVendors = () => {
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
-    const handleRadioChange = (cat, vendor) => {
+    const handleRadioChange = (item, vendor) => {
         setSelectedVendors(prevState => {
-            if (prevState.hasOwnProperty(cat)) {
-                return { ...prevState, [cat]: vendor };
+            if (prevState.hasOwnProperty(item)) {
+                return { ...prevState, [item]: vendor };
             } else {
-                return { ...prevState, [cat]: vendor };
+                return { ...prevState, [item]: vendor };
             }
         });
     };
 
-    const handleChangeWithParam = (cat, vendor) => {
-        return () => handleRadioChange(cat, vendor);
+    const handleChangeWithParam = (item, vendor) => {
+        return () => handleRadioChange(item, vendor);
     };
 
     const handleSubmit = () => {
         quotation_request_list?.map((item) => {
-            const cat = item.category;
-            if (selectedVendors[cat] === item.vendor) {
+            if (selectedVendors[item.item] === item.vendor) {
                 console.log(item)
                 updateDoc('Quotation Requests', item.name, {
-                    is_selected: "True",
+                    status: "Selected",
                 })
                     .then(() => {
                         console.log("item", item.name)
-                        setPage('updatequotation')
                     }).catch(() => {
-                        console.log(submit_error)
+                        console.log(update_submit_error)
+                    })
+            }
+        })
+
+        orderData.category_list?.list.map((item)=>{
+            const itemlist = [];
+            orderData.procurement_list?.list.map((value) => {
+                if (!selectedVendors[value.name] && value.category === item.name) {
+                    itemlist.push({
+                        name: value.name,
+                        item: value.item,
+                        quantity: value.quantity,
+                        quote: 0,
+                        unit: value.unit
+                    })
+                }
+            })
+            const newSendBack = {
+                procurement_request: orderId,
+                project_name: orderData.project,
+                category: item.name,
+                item_list: {
+                    list: itemlist
+                },
+                procurement_executive: orderData.procurement_executive,
+                type: "Delayed"
+            }
+            if (itemlist.length > 0) {
+                createDoc('Sent Back Category', newSendBack)
+                    .then(() => {
+                        console.log(newSendBack);
+                    })
+                    .catch(() => {
+                        console.log("submit_error", submit_error);
                     })
             }
         })
@@ -130,7 +162,7 @@ export const SelectVendors = () => {
                 console.log(orderId)
                 navigate("/")
             }).catch(() => {
-                console.log(submit_error)
+                console.log(update_submit_error)
             })
 
     }
@@ -195,9 +227,6 @@ export const SelectVendors = () => {
         return total;
     }
 
-
-
-
     const getLeadTime = (vendor: string, category: string) => {
         return quotation_request_list?.find(item => item.vendor === vendor && item.category === category)?.lead_time;
     }
@@ -209,8 +238,8 @@ export const SelectVendors = () => {
         let total: number = 0;
         orderData?.procurement_list.list.map((item) => {
             if (item.category === cat) {
-                const price = getPrice(selectedVendors[cat], item.name);
-                total += (price ? parseFloat(price) : 0) * item.quantity;
+                const price = getPrice(selectedVendors[item.name], item.name);
+                if(selectedVendors[item.name]) total += (price ? parseFloat(price) : 0) * item.quantity;
             }
         })
         return total
@@ -299,7 +328,7 @@ export const SelectVendors = () => {
                                                     {selectedCategories[curCategory]?.map((item) => {
                                                         const isSelected = selectedVendors[curCategory] === item;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <th className="bg-gray-200 font-semibold p-2 text-left "><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={cat.name} value={item} onChange={handleChangeWithParam(cat.name, item)} />{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
+                                                        return <th className="bg-gray-200 font-semibold p-2 text-left "><span className={dynamicClass}>{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
                                                             <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, cat.name)} Days</div>
                                                         </th>
                                                     })}
@@ -322,9 +351,10 @@ export const SelectVendors = () => {
                                                             {selectedCategories[curCategory]?.map((value) => {
                                                                 const price = getPrice(value, item.name);
                                                                 // total += (price ? parseFloat(price) : 0)*item.quantity;
-                                                                const isSelected = selectedVendors[curCategory] === value;
+                                                                const isSelected = selectedVendors[item.name] === value;
                                                                 const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                                 return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
+                                                                    <input className="mr-2" type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
                                                                     {price * item.quantity}
                                                                 </td>
                                                             })}
@@ -356,14 +386,9 @@ export const SelectVendors = () => {
                                     Edit Price
                                 </Button></div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            {Object.keys(selectedVendors)?.length === orderData.category_list?.list.length ?
-                                <Button onClick={() => setPage('approvequotation')}>
-                                    Confirm
-                                </Button>
-                                :
-                                <Button disabled={true}>
-                                    Confirm
-                                </Button>}
+                            <Button onClick={() => setPage('approvequotation')}>
+                                Confirm
+                            </Button>
                         </div>
                     </div>
                 </div>}
@@ -401,16 +426,16 @@ export const SelectVendors = () => {
                             let total: number = 0;
                             const lowest = getLowest(cat.name);
                             let count: number = 0;
-                            // console.log("lowest")
+                            
                             return <div className="grid grid-cols-2 gap-4 w-full">
-                                {/* <div className="w-1/2"> */}
+                                
                                 <div className="col-span-2 font-bold text-xl py-2">{cat.name}</div>
                                 <Card className="flex w-full shadow-none border border-grey-500" >
                                     <CardHeader className="w-full">
                                         <CardTitle>
-                                            <div className="text-sm text-gray-400">Selected Vendor</div>
+                                            {/* <div className="text-sm text-gray-400">Selected Vendor</div> */}
                                             <div className="flex justify-between border-b">
-                                                <div className="font-bold text-lg py-2 border-gray-200">{getVendorName(selectedVendors[curCategory])}</div>
+                                                <div className="font-bold text-lg py-2 border-gray-200">Total</div>
                                                 <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
                                             </div>
                                         </CardTitle>
@@ -418,11 +443,11 @@ export const SelectVendors = () => {
                                             if (count === 2) { return }
                                             if (item.category === curCategory) {
                                                 count++;
-                                                const price = getPrice(selectedVendors[curCategory], item.name);
+                                                const price = getPrice(selectedVendors[item.name], item.name);
                                                 total += price ? parseFloat(price) : 0;
                                                 return <div className="flex justify-between py-2">
                                                     <div className="text-sm">{item.item}</div>
-                                                    <div className="text-sm">{price * item.quantity}</div>
+                                                    <div className="text-sm">{selectedVendors[item.name] ? price * item.quantity : "Delayed"}</div>
                                                 </div>
                                             }
                                         })}
@@ -431,22 +456,23 @@ export const SelectVendors = () => {
                                                 <DialogTrigger asChild>
                                                     <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                                 </DialogTrigger>
-                                                <DialogContent className="sm:max-w-[425px] md:max-w-[675px]">
+                                                <DialogContent className="md:min-w-[825px]">
                                                     <DialogHeader>
                                                         <DialogTitle>Items List</DialogTitle>
                                                         <DialogDescription>
-                                                            <div className="grid grid-cols-10 font-medium text-black justify-between">
+                                                            <div className="grid grid-cols-12 font-medium text-black justify-between">
                                                                 <div className="text-sm col-span-2 border p-2">Items</div>
                                                                 <div className="text-sm border p-2">Unit</div>
                                                                 <div className="text-sm border p-2">Qty</div>
                                                                 <div className="text-sm border p-2">Rate</div>
                                                                 <div className="text-sm border p-2">Amount</div>
+                                                                <div className="text-sm col-span-2 border p-2">Selected Vendor</div>
                                                                 <div className="text-sm col-span-2 border p-2">Lowest Quoted Vendor</div>
                                                                 <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
                                                             </div>
                                                             {orderData?.procurement_list?.list.map((item) => {
                                                                 if (item.category === curCategory) {
-                                                                    const price = getPrice(selectedVendors[curCategory], item.name);
+                                                                    const price = getPrice(selectedVendors[item.name], item.name);
                                                                     total += price ? parseFloat(price) : 0;
 
                                                                     const lowest2 = getLowest2(item.name)
@@ -457,12 +483,13 @@ export const SelectVendors = () => {
                                                                     let minQuote;
                                                                     if (quotesForItem && quotesForItem.length>0) minQuote = Math.min(...quotesForItem);
 
-                                                                    return <div className="grid grid-cols-10">
+                                                                    return <div className="grid grid-cols-12">
                                                                         <div className="text-sm col-span-2 border p-2">{item.item}</div>
                                                                         <div className="text-sm border p-2">{item.unit}</div>
                                                                         <div className="text-sm border p-2">{item.quantity}</div>
-                                                                        <div className="text-sm border p-2">{price}</div>
-                                                                        <div className="text-sm border p-2">{price * item.quantity}</div>
+                                                                        <div className="text-sm border p-2">{selectedVendors[item.name] ? price : "Delayed"}</div>
+                                                                        <div className="text-sm border p-2">{selectedVendors[item.name] ? price * item.quantity : "Delayed"}</div>
+                                                                        <div className="text-sm col-span-2 border p-2">{selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed"}</div>
                                                                         <div className="text-sm col-span-2 border p-2">{lowest2 ? lowest2 * item.quantity : "N/A"}</div>
                                                                         <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
                                                                     </div>
@@ -472,11 +499,11 @@ export const SelectVendors = () => {
                                                     </DialogHeader>
                                                 </DialogContent>
                                             </Dialog>
-                                            <div className="text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div>
+                                            {/* <div className="text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div> */}
                                         </div>
                                     </CardHeader>
                                 </Card>
-                                {/* </div> */}
+                            
                                 <div>
                                     <div className="h-[50%] p-5 rounded-lg border border-grey-500">
                                         <div className="flex justify-between">

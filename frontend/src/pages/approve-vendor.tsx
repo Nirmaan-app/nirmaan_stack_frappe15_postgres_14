@@ -53,14 +53,14 @@ export const ApproveVendor = () => {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
-            filters: [["is_selected", "=", "True"], ["procurement_task", "=", orderId]],
+            filters: [["status", "=", "Selected"], ["procurement_task", "=", orderId]],
             limit: 1000
         });
     const { data: quotation_request_list2, isLoading: quotation_request_list2_loading, error: quotation_request_list2_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["procurement_task", "=", orderId]],
-            limit: 1000
+            limit: 1000 
         });
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
@@ -135,20 +135,24 @@ export const ApproveVendor = () => {
         const newSelectAll = !selectAll;
         setSelectAll(newSelectAll);
 
-        const updatedSelectedList = newSelectAll ? [...orderData.procurement_list?.list] : [];
+        const updatedSelectedList = newSelectAll 
+        ? orderData.procurement_list?.list.filter(item => selectedVendors[item.name])
+        : [];
         setSelectedItem({ list: updatedSelectedList });
+        console.log("selectedItem",updatedSelectedList)
     };
 
     const handleTrigger = () => {
         setSelectAll(false);
         setSelectedItem({ list: [] });
+        setComment('');
     }
 
     const handleSendBack = (cat: string) => {
         const itemlist = [];
         selectedItem.list.map((value) => {
             if (value.category === cat) {
-                const price = getPrice(selectedVendors[cat], value.name);
+                const price = getPrice(selectedVendors[value.name], value.name);
                 itemlist.push({
                     name: value.name,
                     item: value.item,
@@ -163,13 +167,13 @@ export const ApproveVendor = () => {
             procurement_request: orderId,
             project_name: orderData.project,
             category: cat,
-            vendor: selectedVendors[cat],
             item_list: {
                 list: itemlist
             },
             lead_time: delivery_time,
             comments: comment,
-            procurement_executive: orderData.procurement_executive
+            procurement_executive: orderData.procurement_executive,
+            type: "Rejected"
         }
         if (itemlist.length > 0) {
             createDoc('Sent Back Category', newSendBack)
@@ -201,43 +205,43 @@ export const ApproveVendor = () => {
             }).catch(() => {
                 console.log("update_submit_error", update_submit_error)
             })
-        const order_list = {
-            list: []
-        };
-        quotation_request_list?.map((value) => {
-            const isSelected = selectedItem.list.some(item => item.name === value.item);
-            if (value.category === cat && !isSelected) {
-                const newItem = {
-                    name: value.item,
-                    item: getItem(value.item),
-                    unit: getUnit(value.item),
-                    quantity: value.quantity,
-                    quote: value.quote
-                }
-                order_list.list.push(newItem)
-            }
-        })
-        const newProcurementOrder = {
-            procurement_request: orderId,
-            project: orderData.project,
-            project_name: getProjectName(orderData.project),
-            project_address: getProjectAddress(orderData.project),
-            category: cat,
-            vendor: selectedVendors[cat],
-            vendor_name: getVendorName(selectedVendors[cat]),
-            vendor_address: getVendorAddress(selectedVendors[cat]),
-            vendor_gst: getVendorGST(selectedVendors[cat]),
-            order_list: order_list
-        }
-        if (order_list.list.length > 0) {
-            createDoc('Procurement Orders', newProcurementOrder)
-                .then(() => {
-                    console.log(newProcurementOrder);
-                })
-                .catch(() => {
-                    console.log("submit_error", submit_error);
-                })
-        }
+        // const order_list = {
+        //     list: []
+        // };
+        // quotation_request_list?.map((value) => {
+        //     const isSelected = selectedItem.list.some(item => item.name === value.item);
+        //     if (value.category === cat && !isSelected) {
+        //         const newItem = {
+        //             name: value.item,
+        //             item: getItem(value.item),
+        //             unit: getUnit(value.item),
+        //             quantity: value.quantity,
+        //             quote: value.quote
+        //         }
+        //         order_list.list.push(newItem)
+        //     }
+        // })
+        // const newProcurementOrder = {
+        //     procurement_request: orderId,
+        //     project: orderData.project,
+        //     project_name: getProjectName(orderData.project),
+        //     project_address: getProjectAddress(orderData.project),
+        //     category: cat,
+        //     vendor: selectedVendors[cat],
+        //     vendor_name: getVendorName(selectedVendors[cat]),
+        //     vendor_address: getVendorAddress(selectedVendors[cat]),
+        //     vendor_gst: getVendorGST(selectedVendors[cat]),
+        //     order_list: order_list
+        // }
+        // if (order_list.list.length > 0) {
+        //     createDoc('Procurement Orders', newProcurementOrder)
+        //         .then(() => {
+        //             console.log(newProcurementOrder);
+        //         })
+        //         .catch(() => {
+        //             console.log("submit_error", submit_error);
+        //         })
+        // }
     }
 
 
@@ -461,9 +465,8 @@ export const ApproveVendor = () => {
     useEffect(() => {
         let updatedVendors = { ...selectedVendors };
         quotation_request_list?.forEach((item) => {
-            const curCategory = item.category;
             const curVendor = item.vendor;
-            updatedVendors[curCategory] = curVendor;
+            updatedVendors[item.item] = curVendor;
         });
         setSelectedVendors(updatedVendors);
     }, [quotation_request_list]);
@@ -471,7 +474,7 @@ export const ApproveVendor = () => {
         let total: number = 0;
         orderData?.procurement_list.list.map((item) => {
             if (item.category === cat) {
-                const price = getPrice(selectedVendors[cat], item.name);
+                const price = getPrice(selectedVendors[item.name], item.name);
                 total += (price ? parseFloat(price) : 0) * item.quantity;
             }
         })
@@ -505,8 +508,6 @@ export const ApproveVendor = () => {
         setSelectedCategories(updatedCategories);
     }, [quotation_request_list2, orderData]);
 
-    console.log(selectedCategories, quotation_request_list2)
-
     const getLowest = (cat: string) => {
         let price: number = 100000000;
         let vendor: string = '';
@@ -534,7 +535,6 @@ export const ApproveVendor = () => {
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
         return minQuote;
     }
-    console.log(quotation_request_list2)
 
     const getLowest3 = (cat: string) => {
         let total: number = 0;
@@ -602,14 +602,14 @@ export const ApproveVendor = () => {
                             <Card className="flex w-full shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
-                                        <div className="text-sm text-gray-400">Selected Vendor</div>
+                                        {/* <div className="text-sm text-gray-400">Selected Vendor</div> */}
                                         <div className="flex justify-between border-b">
-                                            <div className="font-bold text-lg py-2 border-gray-200">{getVendorName(selectedVendors[curCategory])}</div>
+                                            <div className="font-bold text-lg py-2 border-gray-200">Total</div>
                                             <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
                                         </div>
                                     </CardTitle>
                                     {orderData?.procurement_list.list.map((item) => {
-                                        const price = getPrice(selectedVendors[curCategory], item.name);
+                                        const price = getPrice(selectedVendors[item.name], item.name);
                                         total += (price ? parseFloat(price) : 0) * (parseFloat(item.quantity));
 
                                         if (item.category === curCategory) {
@@ -619,7 +619,7 @@ export const ApproveVendor = () => {
                                             count++;
                                             return <div className="flex justify-between py-2">
                                                 <div className="text-sm">{item.item}</div>
-                                                <div className="text-sm">{price * (item.quantity)}</div>
+                                                <div className="text-sm">{price ? price * (item.quantity) : "Delayed"}</div>
                                             </div>
                                         }
                                     })}
@@ -627,23 +627,24 @@ export const ApproveVendor = () => {
                                         <DialogTrigger asChild>
                                             <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                         </DialogTrigger>
-                                        <DialogContent className="sm:max-w-[425px] md:max-w-[675px]">
+                                        <DialogContent className="sm:max-w-[425px] md:max-w-[825px]">
                                             <DialogHeader>
                                                 <DialogTitle>Items List</DialogTitle>
                                                 <DialogDescription>
-                                                    <div className="grid grid-cols-10 font-medium text-black justify-between">
+                                                    <div className="grid grid-cols-12 font-medium text-black justify-between">
                                                         <div className="text-sm col-span-2 border p-2">Items</div>
                                                         <div className="text-sm border p-2">Unit</div>
                                                         <div className="text-sm border p-2">Qty</div>
                                                         <div className="text-sm border p-2">Rate</div>
                                                         <div className="text-sm border p-2">Amount</div>
+                                                        <div className="text-sm col-span-2 border p-2">Selected Vendor</div>
                                                         <div className="text-sm col-span-2 border p-2">Lowest Quoted Vendor</div>
                                                         <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
                                                     </div>
                                                     {orderData?.procurement_list.list.map((item) => {
 
                                                         if (item.category === curCategory) {
-                                                            const price = getPrice(selectedVendors[curCategory], item.name);
+                                                            const price = getPrice(selectedVendors[item.name], item.name);
                                                             total += (price ? parseFloat(price) : 0) * (item.quantity);
 
                                                             const lowest2 = getLowest2(item.name)
@@ -654,12 +655,13 @@ export const ApproveVendor = () => {
                                                             let minQuote;
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
-                                                            return <div className="grid grid-cols-10">
+                                                            return <div className="grid grid-cols-12">
                                                                 <div className="text-sm col-span-2 border p-2">{item.item}</div>
                                                                 <div className="text-sm border p-2">{item.unit}</div>
                                                                 <div className="text-sm border p-2">{item.quantity}</div>
-                                                                <div className="text-sm border p-2">{price}</div>
-                                                                <div className="text-sm border p-2">{price * item.quantity}</div>
+                                                                <div className="text-sm border p-2">{price ? price : "Delayed"}</div>
+                                                                <div className="text-sm border p-2">{price ? price * item.quantity : "Delayed"}</div>
+                                                                <div className="text-sm col-span-2 border p-2">{selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed"}</div>
                                                                 <div className="text-sm col-span-2 border p-2">{lowest2 ? lowest2 * item.quantity : "N/A"}</div>
                                                                 <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
                                                             </div>
@@ -735,7 +737,7 @@ export const ApproveVendor = () => {
                                                     </label>
                                                     {orderData?.procurement_list.list.map((item) => {
                                                         if (item.category === curCategory) {
-                                                            const price = getPrice(selectedVendors[curCategory], item.name);
+                                                            const price = getPrice(selectedVendors[item.name], item.name);
                                                             total += price ? parseFloat(price) : 0;
 
                                                             const quotesForItem = quote_data
@@ -745,10 +747,10 @@ export const ApproveVendor = () => {
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
                                                             return <div className="flex justify-between py-2">
-                                                                <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
+                                                                <div className="text-sm w-[45%] text-black font-semibold">{1 ? <input disabled={!selectedVendors[item.name] ? true : false}   className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} /> : " "}{item.item}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.quantity}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.unit}</div>
-                                                                <div className="text-sm text-black font-semibold">{price}</div>
+                                                                <div className="text-sm text-black font-semibold">{price ? price : "Delayed"}</div>
                                                                 <div className="text-sm text-black font-semibold w-[15%]">{minQuote ? minQuote : "N/A"}</div>
                                                             </div>
                                                         }

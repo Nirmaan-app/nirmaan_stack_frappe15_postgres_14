@@ -19,15 +19,10 @@ export const SentBackRequest = () => {
     const userData = useUserData();
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation'],
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation','type'],
             filters: [["workflow_state", "=", "Pending"], ["procurement_executive", "=", userData.user_id]],
             limit: 100
         });
-    // const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
-    //     {
-    //         fields: ['name', 'work_package'],
-    //         limit: 100
-    //     });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
@@ -76,6 +71,21 @@ export const SentBackRequest = () => {
                     return (
                         <div className="font-medium">
                             {row.getValue("procurement_request")?.slice(-4)}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "type",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Type" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("type") ? row.getValue("type") : "Rejected"}
                         </div>
                     )
                 }
