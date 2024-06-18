@@ -14,7 +14,7 @@ interface Category {
 export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'item_list'],
+            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'item_list'],
             filters: [["name", "=", sb_id]],
             limit: 100
         });
