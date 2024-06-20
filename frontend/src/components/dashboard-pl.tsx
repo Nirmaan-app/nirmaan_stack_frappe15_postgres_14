@@ -15,8 +15,8 @@ export const ProjectLead = () => {
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name','item_list', 'workflow_state','procurement_request','category','project_name','vendor','creation','owner'],
-            filters:[["workflow_state","=","Vendor Selected"],["owner","=",userData.user_id]],
+            fields: ['name','item_list', 'workflow_state','procurement_request','category','project_name','creation','owner'],
+            filters:[["workflow_state","=","Vendor Selected"]],
             limit: 100
         });
 
