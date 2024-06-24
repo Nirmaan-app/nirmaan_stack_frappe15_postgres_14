@@ -24,6 +24,10 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
         {
             fields: ['name', 'project_name', 'project_address']
         });
+    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+        {
+            fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
+        });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address','vendor_city'],
@@ -44,7 +48,9 @@ export const PrintRFQ = ({pr_id,vendor_id}) => {
         return item_name
     }
     const getProjectAddress = (item: string) => {
-        const address = project_list?.find(value => value.name === item)?.project_address;
+        const id = project_list?.find(value => value.name === item)?.project_address;
+        const doc = address_list?.find(item => item.name === id);
+        const address = `${doc?.address_title}, ${doc?.address_line1}, ${doc?.city}, ${doc?.state}, PIN-${doc?.pincode}`
         return address
     }
     const getVendorName = (item: string) => {

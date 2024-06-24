@@ -13,15 +13,33 @@ export const ReleasePO = () => {
             fields: ['name','project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list','creation'],
             limit: 100
         });
+    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+        {
+            fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
+        });
 
     const [orderData, setOrderData] = useState({
         name:''
     });
+    const [projectAddress,setProjectAddress] = useState()
+    const [vendorAddress,setVendorAddress] = useState()
 
     useEffect(() => {
         const curOrder = procurement_order_list?.find(item => item.name === id);
         setOrderData(curOrder)
     }, [procurement_order_list]);
+
+    useEffect(() => {
+        if(orderData?.project_address){
+            const doc = address_list?.find(item => item.name == orderData?.project_address);
+            const address = `${doc?.address_title}, ${doc?.address_line1}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+            setProjectAddress(address)
+            const doc2 = address_list?.find(item => item.name == orderData?.vendor_address);
+            const address2 = `${doc2?.address_title}, ${doc2?.address_line1}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
+            setVendorAddress(address2)
+        }
+        
+    }, [orderData]);
 
 
     const [isPrinting, setIsPrinting] = useState(false);
@@ -56,12 +74,12 @@ export const ReleasePO = () => {
             </div>
             <div className="text-gray-500 text-sm py-2">Vendor Address</div>
             <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{orderData?.vendor_name}</div>
-            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{orderData?.vendor_address}</div>
+            <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{vendorAddress}</div>
             <div className="text-sm font-medium text-gray-900">GSTIN: {orderData?.vendor_gst}</div>
             <div className="flex justify-between">
                 <div>
                     <h3 className="text-gray-500 text-sm py-2">Delivery Location</h3>
-                    <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{orderData?.project_address}</div>
+                    <div className="text-sm font-medium text-gray-900 break-words max-w-[280px]">{projectAddress}</div>
                 </div>
                 <div className="pt-4">
                     <div className="text-sm font-medium text-gray-900"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;{orderData?.creation?.split(" ")[0]}</div>

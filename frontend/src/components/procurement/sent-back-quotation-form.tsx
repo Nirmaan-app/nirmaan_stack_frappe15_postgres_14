@@ -50,6 +50,10 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
             limit: 100
         });
+    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+        {
+            fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
+        });
 
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [quotationData, setQuotationData] = useState({
@@ -120,12 +124,14 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
 
     const vendor_name = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_name;
     const vendor_address = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_address;
-    const delivery_time = quotation_request_list?.find(item => item.vendor === vendor_id).lead_time
+    const doc = address_list?.find(item => item.name == vendor_address);
+    const address = `${doc?.address_title}, ${doc?.address_line1}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+    const delivery_time = quotation_request_list?.find(item => item.vendor === vendor_id)?.lead_time
 
     return (
         <div>
             <div className="font-bold text-black text-lg">{vendor_name}</div>
-            <div className="text-gray-500 text-sm">{vendor_address}</div>
+            <div className="text-gray-500 text-sm">{address}</div>
             <div className="flex justify-between py-4">
                 <div className="w-[48%]">
                     <div className="text-gray-500 text-sm">Attach File</div>
