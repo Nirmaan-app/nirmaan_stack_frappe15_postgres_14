@@ -487,7 +487,7 @@ export const ProjectLeadComponent = () => {
                                         let minQuote;
                                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
                                         return <tr key={item.item}>
-                                            <td className="px-6 py-4 whitespace-nowrap">{item.item}</td>
+                                            <td className="px-6 py-4">{item.item}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 {item.category}
                                             </td>
@@ -515,7 +515,9 @@ export const ProjectLeadComponent = () => {
                                             Click on Confirm to Approve.
                                         </DialogDescription>
                                     </DialogHeader>
+                                    <DialogClose>
                                     <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                    </DialogClose>
                                 </DialogContent>
                             </Dialog>
                         </div>

@@ -39,6 +39,7 @@ import { ApproveSelectVendor } from './pages/approve-select-vendor'
 import { ApproveVendor } from './pages/approve-vendor'
 import { NewPR } from './components/new-pr'
 import { PRSummary } from './components/pr-summary'
+import { UserForm } from './pages/user-form'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -50,7 +51,7 @@ const router = createBrowserRouter(
 			<Route path='/forgot-password' lazy={() => import('@/pages/auth/forgot-password')} />
 			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
-				<Route path="user-profile" element={<Profile />} />
+				<Route path="users/:id" element={<Profile />} />
 				<Route path="pdf" element={<PDF />} />
 				<Route path="/new-pr/:id" element={<NewPR />} />
 				<Route path="/pr-summary/:id" element={<PRSummary />} />
@@ -89,6 +90,8 @@ const router = createBrowserRouter(
 				<Route path="users">
 					<Route index element={<Users />} />
 				</Route>
+				<Route path="/users/edit" element={<UserForm/>} />
+
 				<Route path="roles">
 					<Route index element={<Roles />} />
 				</Route>

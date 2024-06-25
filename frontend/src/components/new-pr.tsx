@@ -379,7 +379,7 @@ export const NewPR = () => {
                     {/* <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button> */}
                 </div>
                 <div className="text-xs font-thin text-rose-700">Added Items</div>
-                {categories.list?.map((cat) => {
+                {orderData.category_list?.list?.map((cat) => {
                     return <div className="container mx-0 px-0">
                         <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
                         <table className="table-auto w-[95%]">
@@ -410,7 +410,7 @@ export const NewPR = () => {
                                                             <div className="flex space-x-2">
                                                                 <div className="w-1/2 md:w-2/3">
                                                                     <h5 className="text-xs text-gray-400 text-left">Items</h5>
-                                                                    <div className="h-[37px] w-full border rounded-lg px-1 pt-1 text-left">
+                                                                    <div className=" w-full border rounded-lg px-1 py-2 text-left">
                                                                         {item.item}
                                                                     </div>
                                                                 </div>
@@ -458,7 +458,9 @@ export const NewPR = () => {
                                 Click on Confirm to create new PR.
                             </DialogDescription>
                         </DialogHeader>
+                        <DialogClose>
                         <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                        </DialogClose>
                     </DialogContent>
                 </Dialog>
             </div>}

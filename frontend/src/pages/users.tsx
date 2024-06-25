@@ -52,7 +52,7 @@ export default function Users() {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to="/users">
+                            <Link className="underline hover:underline-offset-2" to={`/users/${row.getValue("name")}`}>
                                 {row.getValue("name")}
                             </Link>
                         </div>
