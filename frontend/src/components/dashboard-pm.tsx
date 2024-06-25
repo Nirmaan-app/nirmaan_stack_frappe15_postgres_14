@@ -19,24 +19,23 @@ export const ProjectManager = () => {
     const navigate = useNavigate();
     const userData = useUserData();
 
-    const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
-    const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
-        {
-            fields: ['work_package_name']
-        });
-    const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
-        {
-            fields: ['category_name', 'work_package']
-        });
-    const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
-        {
-            fields: ['name', 'item_name', 'unit_name', 'category'],
-            limit: 1000
-        });
+    // const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
+    // const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
+    //     {
+    //         fields: ['work_package_name']
+    //     });
+    // const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
+    //     {
+    //         fields: ['category_name', 'work_package']
+    //     });
+    // const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
+    //     {
+    //         fields: ['name', 'item_name', 'unit_name', 'category'],
+    //         limit: 1000
+    //     });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
             fields: ['name', 'project_name', 'project_address', "project_manager"],
-            filters: [["project_manager", "=", userData.user_id]]
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
@@ -64,14 +63,14 @@ export const ProjectManager = () => {
     }
 
     const [page, setPage] = useState<string>('dashboard')
-    const [curItem, setCurItem] = useState<string>('')
-    const [curCategory, setCurCategory] = useState<string>('')
-    const [unit, setUnit] = useState<string>('')
-    const [quantity, setQuantity] = useState<number>()
-    const [item_id, setItem_id] = useState<string>('');
-    const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
+    // const [curItem, setCurItem] = useState<string>('')
+    // const [curCategory, setCurCategory] = useState<string>('')
+    // const [unit, setUnit] = useState<string>('')
+    // const [quantity, setQuantity] = useState<number>()
+    // const [item_id, setItem_id] = useState<string>('');
+    // const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [curMilestone, setCurMilestone] = useState<string>('')
-    const [selectedOption, setSelectedOption] = useState('');
+    // const [selectedOption, setSelectedOption] = useState('');
 
     const handleClick = (value: string) => {
         setPage(value);

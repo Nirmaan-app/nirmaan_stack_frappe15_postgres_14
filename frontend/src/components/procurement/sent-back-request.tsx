@@ -1,7 +1,6 @@
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { MainLayout } from "../layout/main-layout";
-import { useUserData } from "@/hooks/useUserData";
 import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
@@ -16,17 +15,15 @@ type PRTable = {
 }
 
 export const SentBackRequest = () => {
-    const userData = useUserData();
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation','type'],
-            filters: [["workflow_state", "=", "Pending"], ["procurement_executive", "=", userData.user_id]],
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'type'],
+            filters: [["workflow_state", "=", "Pending"]],
             limit: 100
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
-        filters: [["project_lead", "=", userData.user_id]]
     })
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
