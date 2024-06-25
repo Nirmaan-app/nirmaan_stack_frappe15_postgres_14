@@ -1,10 +1,9 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
-import { useEffect } from "react"
 import * as z from "zod"
 
 import { Button } from "@/components/ui/button"
-import {DialogClose} from "@/components/ui/dialog"
+import { DialogClose } from "@/components/ui/dialog"
 import {
     Form,
     FormControl,
@@ -64,10 +63,11 @@ const addressFormSchema = z.object({
 type EmoloyeeFormValues = z.infer<typeof addressFormSchema>
 
 interface AddressFormProps {
-    type: string
+    type: string,
+    project_address_mutate: any
 }
 
-export const AddressForm: React.FC<AddressFormProps> = ({ type , project_address_mutate}) => {
+export const AddressForm: React.FC<AddressFormProps> = ({ type, project_address_mutate }) => {
     // 1.b Define your form.
     // Has handleSubmit, control functions
     const form = useForm<EmoloyeeFormValues>({
@@ -91,8 +91,8 @@ export const AddressForm: React.FC<AddressFormProps> = ({ type , project_address
                 console.log(submit_error)
             })
     }
-    function closewindow(){
-        var button = document.getElementById('dialogClose');
+    function closewindow() {
+        var button: any | null = document.getElementById('dialogClose');
         project_address_mutate()
         button.click();
     }
@@ -239,16 +239,16 @@ export const AddressForm: React.FC<AddressFormProps> = ({ type , project_address
                     )}
                 />
 
-            {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
+                {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
                 <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose>
                 <div>
-                    {submit_complete && 
-                    <div>
-                    <div className="font-semibold text-green-500"> Customer added</div>
-                    {closewindow()}
-                    </div>
+                    {submit_complete &&
+                        <div>
+                            <div className="font-semibold text-green-500"> Customer added</div>
+                            {closewindow()}
+                        </div>
                     }
-                    {submit_error && <div>{submit_error}</div>}
+                    {submit_error && <div>{submit_error.message}</div>}
                 </div>
             </form>
         </Form>
