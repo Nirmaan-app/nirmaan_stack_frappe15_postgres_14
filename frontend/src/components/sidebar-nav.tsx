@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import {
     Building2,
     LayoutGrid,
@@ -12,7 +12,11 @@ import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 
-export function Sidebar({ className }) {
+interface SidebarProps {
+    className: string
+}
+
+export function Sidebar({ className }: SidebarProps) {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const location = useLocation()
     const userData = useUserData()
@@ -21,7 +25,7 @@ export function Sidebar({ className }) {
         setIsSidebarOpen(!isSidebarOpen);
     };
 
-    const isActive = (path) => location.pathname === path;
+    const isActive = (path: string) => location.pathname === path;
 
     return (
         <>
@@ -53,7 +57,7 @@ export function Sidebar({ className }) {
                                 Dashboard
                             </Button>
                         </Link>
-                        <Accordion type="multiple" >
+                        <Accordion type="multiple" defaultValue={["admin-actions", "pl-actions", "pe-actions"]} >
                             {userData.user_id == "Administrator" && <AccordionItem value="admin-actions">
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
@@ -104,7 +108,7 @@ export function Sidebar({ className }) {
                                     </Link>
                                 </AccordionContent>
                             </AccordionItem>}
-                            {(userData.role == 'Nirmaan Procurement Executive Profile' || userData.user_id == "Administrator") && <AccordionItem value="item-2">
+                            {(userData.role == 'Nirmaan Procurement Executive Profile' || userData.user_id == "Administrator") && <AccordionItem value="pe-actions">
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
                                         <Building2 className="mr-2 h-4 w-4" />
@@ -123,14 +127,14 @@ export function Sidebar({ className }) {
                                         </Button>
                                     </Link>
                                     <Link to="/select-vendor-list">
-                                    <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/select-vendor-list") })}>
-                                        Select Vendor
-                                    </Button>
+                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/select-vendor-list") })}>
+                                            Select Vendor
+                                        </Button>
                                     </Link>
                                     <Link to="/release-po">
-                                    <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/release-po") })}>
-                                        Release PO
-                                    </Button>
+                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/release-po") })}>
+                                            Release PO
+                                        </Button>
                                     </Link>
                                     <Button variant="ghost" size="sm" className="w-full justify-start">
                                         Advance Payment
