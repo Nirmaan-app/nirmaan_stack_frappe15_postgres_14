@@ -149,91 +149,141 @@ export const ApproveSentBack = () => {
                 console.log("update_submit_error", update_submit_error)
             })}
 
-        // const order_list = {
-        //     list: []
-        // };
-        // orderData.item_list?.list.map((value) => {
-        //     const isSelected = selectedItem.list.some(item => item.name === value.name);
-        //     if (!isSelected) {
-        //         const newItem = {
-        //             name: value.name,
-        //             item: value.item,
-        //             unit: value.unit,
-        //             quantity: value.quantity,
-        //             quote: value.quote
-        //         }
-        //         order_list.list.push(newItem)
-        //     }
-        // })
-        // const newProcurementOrder = {
-        //     procurement_request: orderData.procurement_request,
-        //     project: orderData.project_name,
-        //     project_name: getProjectName(orderData.project_name),
-        //     project_address: getProjectAddress(orderData.project_name),
-        //     category: cat,
-        //     vendor: orderData.vendor,
-        //     vendor_name: getVendorName(orderData.vendor),
-        //     vendor_address: getVendorAddress(orderData.vendor),
-        //     vendor_gst: getVendorGST(orderData.vendor),
-        //     order_list: order_list
-        // }
-        // if (order_list.list.length > 0) {
-        //     createDoc('Procurement Orders', newProcurementOrder)
-        //         .then(() => {
-        //             console.log(newProcurementOrder);
-        //             navigate("/")
-        //         })
-        //         .catch(() => {
-        //             console.log("submit_error", submit_error);
-        //         })
-        // }
+        const order_list = {
+            list: []
+        };
+        orderData.item_list?.list.map((value) => {
+            const isSelected = selectedItem.list.some(item => item.name === value.name);
+            if (!isSelected) {
+                const newItem = {
+                    name: value.name,
+                    item: value.item,
+                    unit: value.unit,
+                    quantity: value.quantity,
+                    quote: value.quote
+                }
+                order_list.list.push(newItem)
+            }
+        })
+
+        const vendorItems = {};
+        order_list.list.map((item)=>{
+            if (!vendorItems[item.vendor]) {
+                vendorItems[item.vendor] = [];
+            }
+            
+            vendorItems[item.vendor].push({
+                name: item.name,
+                quote: Number(item.quote),
+                quantity: item.quantity,
+                unit: item.unit,
+                item: item.item
+            });
+        })
+
+        const createDocPromises = [];
+
+        Object.entries(vendorItems).forEach(([key, value]) => {
+            
+            const newProcurementOrder = {
+                procurement_request: orderData.procurement_request,
+                project: orderData.project_name,
+                project_name: getProjectName(orderData.project_name),
+                project_address: getProjectAddress(orderData.project_name),
+                vendor: key,
+                vendor_name: getVendorName(key),
+                vendor_address: getVendorAddress(key),
+                vendor_gst: getVendorGST(key),
+                order_list: {
+                    list: value
+                }
+            };
+
+            if(order_list.length > 0){
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                .then(() => {
+                    console.log(newProcurementOrder);
+                })
+                .catch((error) => {
+                    console.log("submit_error", error);
+                });
+
+            createDocPromises.push(createDocPromise);
+            }
+        });
+
+         Promise.all(createDocPromises)
+            .then(() => {
+                navigate("/");
+            })
+            .catch((error) => {
+                console.log("update_submit_error", error);
+            });
     }
     const curCategory = orderData.category
 
     const handleApprove = (cat: string) => {
-        // const order_list = {
-        //     list: []
-        // };
-        // orderData.item_list?.list.map((value) => {
-        //     const newItem = {
-        //         name: value.name,
-        //         item: getItem(value.name),
-        //         unit: getUnit(value.name),
-        //         quantity: value.quantity,
-        //         quote: value.quote
-        //     }
-        //     order_list.list.push(newItem)
-        // })
-        // const newProcurementOrder = {
-        //     procurement_request: orderData.procurement_request,
-        //     project: orderData.project_name,
-        //     project_name: getProjectName(orderData.project_name),
-        //     project_address: getProjectAddress(orderData.project_name),
-        //     category: curCategory,
-        //     vendor: orderData.vendor,
-        //     vendor_name: getVendorName(orderData.vendor),
-        //     vendor_address: getVendorAddress(orderData.vendor),
-        //     vendor_gst: getVendorGST(orderData.vendor),
-        //     order_list: order_list
-        // }
-        // createDoc('Procurement Orders', newProcurementOrder)
-        //     .then(() => {
-        //         console.log(newProcurementOrder);
-        //         navigate("/")
-        //     })
-        //     .catch(() => {
-        //         console.log("submit_error", submit_error);
-        //     })
-        // updateDoc('Sent Back Category', id, {
-        //     workflow_state: "Approved"
-        // })
-        //     .then(() => {
-        //         console.log("item", id)
-        //         navigate("/")
-        //     }).catch(() => {
-        //         console.log("update_submit_error", update_submit_error)
-        //     })
+        const vendorItems = {};
+        orderData.item_list?.list.map((item)=>{
+            if (!vendorItems[item.vendor]) {
+                vendorItems[item.vendor] = [];
+            }
+            
+            vendorItems[item.vendor].push({
+                name: item.name,
+                quote: Number(item.quote),
+                quantity: item.quantity,
+                unit: item.unit,
+                item: item.item
+            });
+        })
 
+        const createDocPromises = [];
+
+        Object.entries(vendorItems).forEach(([key, value]) => {
+            
+            const newProcurementOrder = {
+                procurement_request: orderData.procurement_request,
+                project: orderData.project_name,
+                project_name: getProjectName(orderData.project_name),
+                project_address: getProjectAddress(orderData.project_name),
+                vendor: key,
+                vendor_name: getVendorName(key),
+                vendor_address: getVendorAddress(key),
+                vendor_gst: getVendorGST(key),
+                order_list: {
+                    list: value
+                }
+            };
+
+            if(value.length > 0){
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                .then(() => {
+                    console.log(newProcurementOrder);
+                })
+                .catch((error) => {
+                    console.log("submit_error", error);
+                });
+
+            createDocPromises.push(createDocPromise);
+            }
+        });
+
+         Promise.all(createDocPromises)
+            .then(() => {
+                updateDoc('Sent Back Category', id, {
+                    workflow_state: "Approved"
+                })
+                    .then(() => {
+                        console.log("item", id)
+                        navigate("/")
+                    }).catch(() => {
+                        console.log("update_submit_error", update_submit_error)
+                    })
+            })
+            .catch((error) => {
+                console.log("update_submit_error", error);
+            });
     }
 
     const getTotal = (cat: string) => {

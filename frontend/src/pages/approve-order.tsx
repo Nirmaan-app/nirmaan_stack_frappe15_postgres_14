@@ -286,7 +286,7 @@ export const ProjectLeadComponent = () => {
                         <div className="flex justify-between md:justify-normal md:space-x-40 md:hidden">
                             <div className="">
                                 <h5 className="text-gray-500 test-base">Project</h5>
-                                <h3 className=" font-semibold text-lg">{orderData?.project}</h3>
+                                <h3 className=" font-semibold text-lg">{project_list?.find(item => item.name === orderData?.project)?.project_name}</h3>
                             </div>
                             <div className="">
                                 <h5 className="text-gray-500 test-base">Package</h5>
@@ -301,7 +301,7 @@ export const ProjectLeadComponent = () => {
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{project_list?.find(item => item.name === orderData?.project)?.project_name}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
@@ -453,7 +453,7 @@ export const ProjectLeadComponent = () => {
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{project_list?.find(item => item.name === orderData?.project)?.project_name}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
@@ -487,7 +487,7 @@ export const ProjectLeadComponent = () => {
                                         let minQuote;
                                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
                                         return <tr key={item.item}>
-                                            <td className="px-6 py-4 whitespace-nowrap">{item.item}</td>
+                                            <td className="px-6 py-4">{item.item}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 {item.category}
                                             </td>
@@ -515,7 +515,9 @@ export const ProjectLeadComponent = () => {
                                             Click on Confirm to Approve.
                                         </DialogDescription>
                                     </DialogHeader>
+                                    <DialogClose>
                                     <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                    </DialogClose>
                                 </DialogContent>
                             </Dialog>
                         </div>

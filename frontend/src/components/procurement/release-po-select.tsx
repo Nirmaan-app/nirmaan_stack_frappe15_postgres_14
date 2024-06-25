@@ -21,7 +21,7 @@ export const ReleasePOSelect = () => {
     const userData = useUserData();
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error } = useFrappeGetDocList("Procurement Orders",
         {
-            fields: ['name', 'procurement_request', 'owner', 'order_list', 'vendor_name', 'project', 'project_name', 'category', 'creation'],
+            fields: ['name', 'procurement_request', 'owner', 'order_list', 'vendor_name', 'project', 'project_name', 'creation'],
             limit: 100
         });
 
@@ -142,21 +142,6 @@ export const ReleasePOSelect = () => {
                     return (
                         <div className="font-medium">
                             {row.getValue("vendor_name")}
-                        </div>
-                    )
-                }
-            },
-            {
-                accessorKey: "category",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Category" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("category")}
                         </div>
                     )
                 }
