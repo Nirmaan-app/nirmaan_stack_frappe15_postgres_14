@@ -24,7 +24,7 @@ import {
     DialogTrigger,
     DialogClose
 } from "@/components/ui/dialog"
-import { TrendingDown,CheckCheck,TrendingUp } from 'lucide-react';
+import { TrendingDown, CheckCheck, TrendingUp } from 'lucide-react';
 
 
 export const ApproveVendor = () => {
@@ -52,15 +52,15 @@ export const ApproveVendor = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
+            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["status", "=", "Selected"], ["procurement_task", "=", orderId]],
             limit: 1000
         });
     const { data: quotation_request_list2, isLoading: quotation_request_list2_loading, error: quotation_request_list2_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
+            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["procurement_task", "=", orderId]],
-            limit: 1000 
+            limit: 1000
         });
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
@@ -135,11 +135,11 @@ export const ApproveVendor = () => {
         const newSelectAll = !selectAll;
         setSelectAll(newSelectAll);
 
-        const updatedSelectedList = newSelectAll 
-        ? orderData.procurement_list?.list.filter(item => selectedVendors[item.name])
-        : [];
+        const updatedSelectedList = newSelectAll
+            ? orderData.procurement_list?.list.filter(item => selectedVendors[item.name])
+            : [];
         setSelectedItem({ list: updatedSelectedList });
-        console.log("selectedItem",updatedSelectedList)
+        console.log("selectedItem", updatedSelectedList)
     };
 
     const handleTrigger = () => {
@@ -147,7 +147,7 @@ export const ApproveVendor = () => {
         setSelectedItem({ list: [] });
         setComment('');
     }
-    const [approvedItems,setApprovedItems] = useState({
+    const [approvedItems, setApprovedItems] = useState({
         list: []
     })
 
@@ -210,11 +210,11 @@ export const ApproveVendor = () => {
             })
 
         const newItems = approvedItems.list;
-        orderData.procurement_list?.list.map((item)=>{
-            if(item.category === cat){
+        orderData.procurement_list?.list.map((item) => {
+            if (item.category === cat) {
                 const isPresent = selectedItem.list.find(value => value.name === item.name)
-                if(!isPresent && selectedVendors[item.name]){
-                    
+                if (!isPresent && selectedVendors[item.name]) {
+
                     const price = getPrice(selectedVendors[item.name], item.name);
                     newItems.push({
                         item: item.item,
@@ -348,12 +348,12 @@ export const ApproveVendor = () => {
     const handleApproveAll = () => {
 
         const vendorItems = {};
-        orderData.procurement_list?.list.map((item)=>{
-            if(selectedVendors[item.name]){
+        orderData.procurement_list?.list.map((item) => {
+            if (selectedVendors[item.name]) {
                 if (!vendorItems[selectedVendors[item.name]]) {
                     vendorItems[selectedVendors[item.name]] = [];
                 }
-                const price = Number(getPrice(selectedVendors[item.name],item.name))
+                const price = Number(getPrice(selectedVendors[item.name], item.name))
                 vendorItems[selectedVendors[item.name]].push({
                     name: item.name,
                     quote: price,
@@ -362,13 +362,13 @@ export const ApproveVendor = () => {
                     item: item.item
                 });
             }
-            
+
         })
 
         const createDocPromises = [];
 
         Object.entries(vendorItems).forEach(([key, value]) => {
-            
+
             const newProcurementOrder = {
                 procurement_request: orderId,
                 project: orderData.project,
@@ -383,18 +383,20 @@ export const ApproveVendor = () => {
                 }
             };
 
-            if(value.length > 0){const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
-                .then(() => {
-                    console.log(newProcurementOrder);
-                })
-                .catch((error) => {
-                    console.log("submit_error", error);
-                });
+            if (value.length > 0) {
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
 
-            createDocPromises.push(createDocPromise);}
+                createDocPromises.push(createDocPromise);
+            }
         });
 
-         Promise.all(createDocPromises)
+        Promise.all(createDocPromises)
             .then(() => {
                 return updateDoc('Procurement Requests', orderId, {
                     workflow_state: "Vendor Approved"
@@ -412,9 +414,9 @@ export const ApproveVendor = () => {
 
     const handleApprove = (cat: string) => {
         const newItems = approvedItems.list;
-        orderData.procurement_list?.list.map((item)=>{
-            if(item.category === cat){
-                if(selectedVendors[item.name]){
+        orderData.procurement_list?.list.map((item) => {
+            if (item.category === cat) {
+                if (selectedVendors[item.name]) {
                     const price = getPrice(selectedVendors[item.name], item.name);
                     newItems.push({
                         item: item.item,
@@ -488,12 +490,12 @@ export const ApproveVendor = () => {
 
     const handleDone = () => {
         const vendorItems = {};
-        approvedItems.list.map((item)=>{
-            if(selectedVendors[item.name]){
+        approvedItems.list.map((item) => {
+            if (selectedVendors[item.name]) {
                 if (!vendorItems[selectedVendors[item.name]]) {
                     vendorItems[selectedVendors[item.name]] = [];
                 }
-                const price = Number(getPrice(selectedVendors[item.name],item.name))
+                const price = Number(getPrice(selectedVendors[item.name], item.name))
                 vendorItems[selectedVendors[item.name]].push({
                     name: item.name,
                     quote: price,
@@ -502,13 +504,13 @@ export const ApproveVendor = () => {
                     item: item.item
                 });
             }
-            
+
         })
 
         const createDocPromises = [];
 
         Object.entries(vendorItems).forEach(([key, value]) => {
-            
+
             const newProcurementOrder = {
                 procurement_request: orderId,
                 project: orderData.project,
@@ -523,18 +525,20 @@ export const ApproveVendor = () => {
                 }
             };
 
-            if(value.length > 0){const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
-                .then(() => {
-                    console.log(newProcurementOrder);
-                })
-                .catch((error) => {
-                    console.log("submit_error", error);
-                });
+            if (value.length > 0) {
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
 
-            createDocPromises.push(createDocPromise);}
+                createDocPromises.push(createDocPromise);
+            }
         });
 
-         Promise.all(createDocPromises)
+        Promise.all(createDocPromises)
             .then(() => {
                 return updateDoc('Procurement Requests', orderId, {
                     workflow_state: "Partially Approved"
@@ -652,11 +656,11 @@ export const ApproveVendor = () => {
     const getPercentdiff = (a: number, b: number) => {
         if (a === 0 && b === 0) {
             return 0;
-          }
-          const difference: number = Math.abs(a - b);
-          const percentDiff: number = (difference / a) * 100;
-        
-          return percentDiff.toFixed(2);
+        }
+        const difference: number = Math.abs(a - b);
+        const percentDiff: number = (difference / a) * 100;
+
+        return percentDiff.toFixed(2);
     }
 
     return (
@@ -776,13 +780,13 @@ export const ApproveVendor = () => {
                                     <div className="flex justify-between">
                                         <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
                                         <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}
-                                        <div className='flex'>
-                                        {
-                                        (lowest?.quote < getTotal(curCategory)) ?  
-                                        <TrendingDown className="text-red-500"/> : <CheckCheck className="text-blue-500"/>
-                                        }
-                                        <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote,getTotal(curCategory))}%</span>
-                                        </div>
+                                            <div className='flex'>
+                                                {
+                                                    (lowest?.quote < getTotal(curCategory)) ?
+                                                        <TrendingDown className="text-red-500" /> : <CheckCheck className="text-blue-500" />
+                                                }
+                                                <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote, getTotal(curCategory))}%</span>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="font-medium text-gray-700 text-sm">
@@ -794,13 +798,13 @@ export const ApproveVendor = () => {
                                     <div className="flex justify-between">
                                         <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
                                         <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}
-                                        <div className='flex'>
+                                            <div className='flex'>
                                                 {
-                                                (getLowest3(curCategory) > getTotal(curCategory)) ?  
-                                                <TrendingUp className="text-green-500"/> : ((getLowest3(curCategory) < getTotal(curCategory)) ? <TrendingDown className="text-red-500"/> :<CheckCheck className="text-blue-500"/>)
+                                                    (getLowest3(curCategory) > getTotal(curCategory)) ?
+                                                        <TrendingUp className="text-green-500" /> : ((getLowest3(curCategory) < getTotal(curCategory)) ? <TrendingDown className="text-red-500" /> : <CheckCheck className="text-blue-500" />)
                                                 }
-                                                <span className={`pl-2 text-base font-medium ${(getLowest3(curCategory) < getTotal(curCategory)) ? "text-red-500" : ((getLowest3(curCategory) > getTotal(curCategory)) ? "text-green-500" : "text-blue-500")}`}>{getPercentdiff(getTotal(curCategory),getLowest3(curCategory))}%</span>
-                                                </div>
+                                                <span className={`pl-2 text-base font-medium ${(getLowest3(curCategory) < getTotal(curCategory)) ? "text-red-500" : ((getLowest3(curCategory) > getTotal(curCategory)) ? "text-green-500" : "text-blue-500")}`}>{getPercentdiff(getTotal(curCategory), getLowest3(curCategory))}%</span>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="font-medium text-gray-700 text-sm">
@@ -845,7 +849,7 @@ export const ApproveVendor = () => {
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
                                                             return <div className="flex justify-between py-2">
-                                                                <div className="text-sm w-[45%] text-black font-semibold">{1 ? <input disabled={!selectedVendors[item.name] ? true : false}   className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} /> : " "}{item.item}</div>
+                                                                <div className="text-sm w-[45%] text-black font-semibold">{1 ? <input disabled={!selectedVendors[item.name] ? true : false} className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} /> : " "}{item.item}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.quantity}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.unit}</div>
                                                                 <div className="text-sm text-black font-semibold">{price ? price : "Delayed"}</div>

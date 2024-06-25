@@ -48,15 +48,9 @@ export const ApproveSentBack = () => {
         {
             fields: ['name', 'project_name', 'project_address']
         });
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
-        {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time'],
-            filters: [["is_selected", "=", "True"]],
-            limit: 1000
-        });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name','creation', 'owner',],
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'owner',],
             filters: [["workflow_state", "=", "Vendor Selected"]],
             limit: 100
         });
@@ -135,19 +129,21 @@ export const ApproveSentBack = () => {
     }
 
     const handleSendBack = (cat: string) => {
-        if(selectedItem.list?.length > 0){updateDoc('Sent Back Category', id, {
-            comments: comment,
-            workflow_state: "Pending",
-            item_list: {
-                list: selectedItem.list
-            },
-        })
+        if (selectedItem.list?.length > 0) {
+            updateDoc('Sent Back Category', id, {
+                comments: comment,
+                workflow_state: "Pending",
+                item_list: {
+                    list: selectedItem.list
+                },
+            })
             .then(() => {
                 console.log("item", id)
                 navigate("/")
             }).catch(() => {
                 console.log("update_submit_error", update_submit_error)
-            })}
+            })
+        }
 
         const order_list = {
             list: []
@@ -167,11 +163,11 @@ export const ApproveSentBack = () => {
         })
 
         const vendorItems = {};
-        order_list.list.map((item)=>{
+        order_list.list.map((item) => {
             if (!vendorItems[item.vendor]) {
                 vendorItems[item.vendor] = [];
             }
-            
+
             vendorItems[item.vendor].push({
                 name: item.name,
                 quote: Number(item.quote),
@@ -184,7 +180,7 @@ export const ApproveSentBack = () => {
         const createDocPromises = [];
 
         Object.entries(vendorItems).forEach(([key, value]) => {
-            
+
             const newProcurementOrder = {
                 procurement_request: orderData.procurement_request,
                 project: orderData.project_name,
@@ -199,20 +195,20 @@ export const ApproveSentBack = () => {
                 }
             };
 
-            if(order_list.length > 0){
+            if (order_list.length > 0) {
                 const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
-                .then(() => {
-                    console.log(newProcurementOrder);
-                })
-                .catch((error) => {
-                    console.log("submit_error", error);
-                });
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
 
-            createDocPromises.push(createDocPromise);
+                createDocPromises.push(createDocPromise);
             }
         });
 
-         Promise.all(createDocPromises)
+        Promise.all(createDocPromises)
             .then(() => {
                 navigate("/");
             })
@@ -224,11 +220,11 @@ export const ApproveSentBack = () => {
 
     const handleApprove = (cat: string) => {
         const vendorItems = {};
-        orderData.item_list?.list.map((item)=>{
+        orderData.item_list?.list.map((item) => {
             if (!vendorItems[item.vendor]) {
                 vendorItems[item.vendor] = [];
             }
-            
+
             vendorItems[item.vendor].push({
                 name: item.name,
                 quote: Number(item.quote),
@@ -241,7 +237,7 @@ export const ApproveSentBack = () => {
         const createDocPromises = [];
 
         Object.entries(vendorItems).forEach(([key, value]) => {
-            
+
             const newProcurementOrder = {
                 procurement_request: orderData.procurement_request,
                 project: orderData.project_name,
@@ -256,20 +252,20 @@ export const ApproveSentBack = () => {
                 }
             };
 
-            if(value.length > 0){
+            if (value.length > 0) {
                 const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
-                .then(() => {
-                    console.log(newProcurementOrder);
-                })
-                .catch((error) => {
-                    console.log("submit_error", error);
-                });
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
 
-            createDocPromises.push(createDocPromise);
+                createDocPromises.push(createDocPromise);
             }
         });
 
-         Promise.all(createDocPromises)
+        Promise.all(createDocPromises)
             .then(() => {
                 updateDoc('Sent Back Category', id, {
                     workflow_state: "Approved"

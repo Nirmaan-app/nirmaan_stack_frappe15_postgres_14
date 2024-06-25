@@ -15,7 +15,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task','quote','lead_time'],
+            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
             limit: 1000
         });
@@ -58,9 +58,9 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     }, [quotation_request_list]);
 
     useEffect(() => {
-        if(quotation_request_list){
+        if (quotation_request_list) {
             setDeliveryTime(quotation_request_list[0].lead_time)
-        } 
+        }
     }, [quotation_request_list]);
 
     const getItem = (item: string) => {

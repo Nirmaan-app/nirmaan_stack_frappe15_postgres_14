@@ -30,7 +30,7 @@ export const SentBackSelectVendor = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'project', 'item','vendor', 'category', 'procurement_task', 'quote'],
+            fields: ['name', 'lead_time', 'item', 'vendor', 'category', 'procurement_task', 'quote'],
             limit: 1000
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
@@ -299,7 +299,7 @@ export const SentBackSelectVendor = () => {
                         <div className="pt-10"></div>
                         <div className='pt-12 fixed bottom-4'>
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => navigate(`/sent-back-request/${id}`)}>
-                                    Edit Price
+                                Edit Price
                             </Button>
                         </div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">

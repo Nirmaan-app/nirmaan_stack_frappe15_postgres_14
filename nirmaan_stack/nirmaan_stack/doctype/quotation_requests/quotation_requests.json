@@ -8,7 +8,6 @@
  "field_order": [
   "rfq_links_section",
   "procurement_task",
-  "project",
   "category",
   "item",
   "vendor",
@@ -34,12 +33,6 @@
    "fieldtype": "Link",
    "label": "Procurement Task",
    "options": "Procurement Requests"
-  },
-  {
-   "fieldname": "project",
-   "fieldtype": "Link",
-   "label": "Project",
-   "options": "Projects"
   },
   {
    "fieldname": "category",
@@ -113,7 +106,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-06-18 11:31:14.446466",
+ "modified": "2024-06-25 21:35:26.487653",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Quotation Requests",

@@ -31,7 +31,7 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
     }
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'quote', 'project', 'item', 'category', 'vendor', 'procurement_task'],
+            fields: ['name', 'lead_time', 'quote', 'item', 'category', 'vendor', 'procurement_task'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
             limit: 1000
         });

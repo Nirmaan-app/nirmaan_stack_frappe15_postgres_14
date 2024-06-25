@@ -14,7 +14,7 @@ import {
     DialogTrigger
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { TrendingDown,CheckCheck } from 'lucide-react';
+import { TrendingDown, CheckCheck } from 'lucide-react';
 
 interface VendorItem {
     vendor: string;
@@ -37,7 +37,7 @@ export const SelectVendors = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'quantity'],
+            fields: ['name', 'lead_time', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'quantity'],
             filters: [["procurement_task", "=", orderId]],
             limit: 1000
         });
@@ -46,8 +46,8 @@ export const SelectVendors = () => {
             fields: ['item', 'quote'],
             limit: 1000
         });
-        const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-        const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
 
     const [page, setPage] = useState<string>('updatequotation')
     const [orderData, setOrderData] = useState({
@@ -121,7 +121,7 @@ export const SelectVendors = () => {
             }
         })
 
-        orderData.category_list?.list.map((item)=>{
+        orderData.category_list?.list.map((item) => {
             const itemlist = [];
             orderData.procurement_list?.list.map((value) => {
                 if (!selectedVendors[value.name] && value.category === item.name) {
@@ -239,7 +239,7 @@ export const SelectVendors = () => {
         orderData?.procurement_list.list.map((item) => {
             if (item.category === cat) {
                 const price = getPrice(selectedVendors[item.name], item.name);
-                if(selectedVendors[item.name]) total += (price ? parseFloat(price) : 0) * item.quantity;
+                if (selectedVendors[item.name]) total += (price ? parseFloat(price) : 0) * item.quantity;
             }
         })
         return total
@@ -270,11 +270,11 @@ export const SelectVendors = () => {
     const getPercentdiff = (a: number, b: number) => {
         if (a === 0 && b === 0) {
             return 0;
-          }
-          const difference: number = Math.abs(a - b);
-          const percentDiff: number = (difference / a) * 100;
-        
-          return percentDiff.toFixed(2);
+        }
+        const difference: number = Math.abs(a - b);
+        const percentDiff: number = (difference / a) * 100;
+
+        return percentDiff.toFixed(2);
     }
 
     return (
@@ -341,7 +341,7 @@ export const SelectVendors = () => {
                                                         ?.filter(value => value.item === item.name && value.quote != null)
                                                         ?.map(value => value.quote);
                                                     let minQuote;
-                                                    if (quotesForItem && quotesForItem.length>0) minQuote = Math.min(...quotesForItem);
+                                                    if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
                                                     if (item.category === cat.name) {
                                                         return <tr>
@@ -383,8 +383,8 @@ export const SelectVendors = () => {
                         })}
                         <div className='pt-12 fixed bottom-4'>
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => handleEditPrice()}>
-                                    Edit Price
-                                </Button></div>
+                                Edit Price
+                            </Button></div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                             <Button onClick={() => setPage('approvequotation')}>
                                 Confirm
@@ -426,9 +426,9 @@ export const SelectVendors = () => {
                             let total: number = 0;
                             const lowest = getLowest(cat.name);
                             let count: number = 0;
-                            
+
                             return <div className="grid grid-cols-2 gap-4 w-full">
-                                
+
                                 <div className="col-span-2 font-bold text-xl py-2">{cat.name}</div>
                                 <Card className="flex w-full shadow-none border border-grey-500" >
                                     <CardHeader className="w-full">
@@ -481,7 +481,7 @@ export const SelectVendors = () => {
                                                                         ?.filter(value => value.item === item.name && value.quote != null)
                                                                         ?.map(value => value.quote);
                                                                     let minQuote;
-                                                                    if (quotesForItem && quotesForItem.length>0) minQuote = Math.min(...quotesForItem);
+                                                                    if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
                                                                     return <div className="grid grid-cols-12">
                                                                         <div className="text-sm col-span-2 border p-2">{item.item}</div>
@@ -503,18 +503,18 @@ export const SelectVendors = () => {
                                         </div>
                                     </CardHeader>
                                 </Card>
-                            
+
                                 <div>
                                     <div className="h-[50%] p-5 rounded-lg border border-grey-500">
                                         <div className="flex justify-between">
                                             <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
                                             <div className="font-bold text-2xl text-gray-500 border-gray-200 py-0">{lowest.quote}
                                                 <div className='flex'>
-                                                {
-                                                (lowest?.quote < getTotal(curCategory)) ?  
-                                                <TrendingDown className="text-red-500"/> : <CheckCheck className="text-blue-500"/>
-                                                }
-                                                <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote,getTotal(curCategory))}%</span>
+                                                    {
+                                                        (lowest?.quote < getTotal(curCategory)) ?
+                                                            <TrendingDown className="text-red-500" /> : <CheckCheck className="text-blue-500" />
+                                                    }
+                                                    <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote, getTotal(curCategory))}%</span>
                                                 </div>
 
                                             </div>
@@ -523,18 +523,18 @@ export const SelectVendors = () => {
                                             {getVendorName(lowest.vendor)}
                                             <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div>
                                         </div>
-                                        
+
                                     </div>
                                     <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
                                         <div className="flex justify-between">
                                             <div className="text-sm font-medium text-gray-400">Last 3 months Metric</div>
                                             <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}
-                                            <div className='flex'>
-                                                {
-                                                (getLowest3(curCategory) > getTotal(curCategory)) ?  
-                                                <TrendingUp className="text-green-500"/> : ((getLowest3(curCategory) < getTotal(curCategory)) ? <TrendingDown className="text-red-500"/> :<CheckCheck className="text-blue-500"/>)
-                                                }
-                                                <span className={`pl-2 text-base font-medium ${(getLowest3(curCategory) < getTotal(curCategory)) ? "text-red-500" : ((getLowest3(curCategory) > getTotal(curCategory)) ? "text-green-500" : "text-blue-500")}`}>{getPercentdiff(getTotal(curCategory),getLowest3(curCategory))}%</span>
+                                                <div className='flex'>
+                                                    {
+                                                        (getLowest3(curCategory) > getTotal(curCategory)) ?
+                                                            <TrendingUp className="text-green-500" /> : ((getLowest3(curCategory) < getTotal(curCategory)) ? <TrendingDown className="text-red-500" /> : <CheckCheck className="text-blue-500" />)
+                                                    }
+                                                    <span className={`pl-2 text-base font-medium ${(getLowest3(curCategory) < getTotal(curCategory)) ? "text-red-500" : ((getLowest3(curCategory) > getTotal(curCategory)) ? "text-green-500" : "text-blue-500")}`}>{getPercentdiff(getTotal(curCategory), getLowest3(curCategory))}%</span>
                                                 </div>
                                             </div>
                                         </div>
