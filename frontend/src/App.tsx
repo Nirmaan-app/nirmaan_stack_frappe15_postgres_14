@@ -3,7 +3,7 @@ import { FrappeProvider } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
 import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
-// import Login from './pages/login'
+import Login from './pages/auth/old-login'
 import Projects from './pages/projects'
 import Customers from './pages/customers'
 import WorkPackages from './pages/work-packages'
@@ -50,8 +50,8 @@ import Vendors from './pages/vendors'
 const router = createBrowserRouter(
 	createRoutesFromElements(
 		<>
-			<Route path='/login' lazy={() => import('@/pages/auth/Login')} />
-			{/* <Route path='/login' element={<Login />} /> */}
+			{/* <Route path='/login' lazy={() => import('@/pages/auth/Login')} /> */}
+			<Route path='/login' element={<Login />} />
 			<Route path='/forgot-password' lazy={() => import('@/pages/auth/forgot-password')} />
 			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
@@ -77,9 +77,9 @@ const router = createBrowserRouter(
 				<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
 				<Route path="release-po" element={<ReleasePOSelect />} />
 				<Route path="/release-po/:id" element={<ReleasePO />} />
-				<Route path="/items" element={<Items/>} />
+				<Route path="/items" element={<Items />} />
 
-				<Route path="/vendors" element={<Vendors/>} />
+				<Route path="/vendors" element={<Vendors />} />
 
 
 				<Route path="projects">
@@ -98,7 +98,7 @@ const router = createBrowserRouter(
 				<Route path="users">
 					<Route index element={<Users />} />
 				</Route>
-				<Route path="/users/edit" element={<UserForm/>} />
+				<Route path="/users/edit" element={<UserForm />} />
 
 				<Route path="roles">
 					<Route index element={<Roles />} />
