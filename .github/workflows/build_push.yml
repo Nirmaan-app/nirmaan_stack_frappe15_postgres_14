@@ -26,7 +26,7 @@ jobs:
           },
           {
             "url": "https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git",
-            "branch": "${{ env.RELEASE_VERSION }}"
+            "branch": "main"
           },
           {
             "url": "https://github.com/Nirmaan-app/Frappe-attachments-s3.git",
