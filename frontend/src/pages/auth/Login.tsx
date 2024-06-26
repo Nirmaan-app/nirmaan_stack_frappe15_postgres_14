@@ -1,7 +1,7 @@
 import { useContext, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Eye, EyeOff } from "lucide-react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 //import { FullPageLoader } from "@/components/layout/Loaders";
 import { Box, Flex, IconButton, Link as LinkButton } from "@radix-ui/themes";
 
@@ -26,6 +26,8 @@ export const Component = () => {
     const { login } = useFrappeAuth()
     const { currentUser } = useContext(UserContext)
 
+    const navigate = useNavigate()
+
     const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginInputs>()
     const [isPasswordOpen, setIsPasswordOpen] = useState<boolean>(false)
 
@@ -33,12 +35,16 @@ export const Component = () => {
         setIsPasswordOpen(!isPasswordOpen)
     }
 
+
+
     async function onSubmit(values: LoginInputs) {
         setError(null)
         return login({ username: values.email, password: values.password }).then(() => {
             //Reload the page so that the boot info is fetched again
-            const URL = import.meta.env.VITE_BASE_NAME ? `/${import.meta.env.VITE_BASE_NAME}` : ``
-            window.location.replace(`${URL}/`)
+            //const URL = import.meta.env.VITE_BASE_NAME ? `/${import.meta.env.VITE_BASE_NAME}` : ``
+            //window.location.replace(`${URL}/`)
+            window.location.reload()
+
         }).catch((error) => { setError(error) })
     }
 

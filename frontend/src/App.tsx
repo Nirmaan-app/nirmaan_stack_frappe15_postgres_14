@@ -41,6 +41,9 @@ import { NewPR } from './components/new-pr'
 import { PRSummary } from './components/pr-summary'
 import { UserForm } from './pages/user-form'
 import Items from './pages/items'
+
+import Vendors from './pages/vendors'
+
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -75,6 +78,9 @@ const router = createBrowserRouter(
 				<Route path="release-po" element={<ReleasePOSelect />} />
 				<Route path="/release-po/:id" element={<ReleasePO />} />
 				<Route path="/items" element={<Items/>} />
+
+				<Route path="/vendors" element={<Vendors/>} />
+
 
 				<Route path="projects">
 					<Route index element={<Projects />} />
