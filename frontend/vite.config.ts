@@ -9,9 +9,6 @@ export default defineConfig({
 	server: {
 		port: 8080,
 		proxy: proxyOptions,
-		watch: {
-			usePolling: true
-		}
 	},
 	resolve: {
 		alias: {

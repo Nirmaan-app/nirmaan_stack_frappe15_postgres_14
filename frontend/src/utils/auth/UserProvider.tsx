@@ -49,9 +49,10 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
             password
         })
             .then(() => {
-                //Reload the page so that the boot info is fetched again
-                const URL = import.meta.env.VITE_BASE_NAME ? `/${import.meta.env.VITE_BASE_NAME}` : ``
-                window.location.replace(`${URL}/`)
+                // //Reload the page so that the boot info is fetched again
+                // const URL = import.meta.env.VITE_BASE_NAME ? `/${import.meta.env.VITE_BASE_NAME}` : ``
+                // window.location.replace(`${URL}/`)
+                window.location.reload()
             })
     }
     return (
