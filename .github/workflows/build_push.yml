@@ -13,8 +13,8 @@ jobs:
     - name: Check out my other private repo
       uses: actions/checkout@v4
       with:
-        repository: Nirmaan-app/frappe_docker
-        token: ${{ secrets.NIRMAAN_ADMIN_PAT }}
+        repository: frappe/frappe_docker
+        # token: ${{ secrets.NIRMAAN_ADMIN_PAT }}
     - name: Set env
       run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
     - name: Create Apps.json
@@ -26,7 +26,7 @@ jobs:
           },
           {
             "url": "https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14.git",
-            "branch": "main"
+            "branch": "${{ env.RELEASE_VERSION }}"
           },
           {
             "url": "https://github.com/Nirmaan-app/Frappe-attachments-s3.git",
