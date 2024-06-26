@@ -16,3 +16,28 @@ class Projects(Document):
 			"city":address.city,
 			"state":address.state
 		  }
+	
+def generateUserPermissions(project, method=None):
+	doc = frappe.new_doc("User Permission")
+	doc.user = project.project_lead
+	doc.allow = "Projects"
+	doc.for_value = project.name
+	doc.insert(ignore_permissions=True)
+	
+	doc = frappe.new_doc("User Permission")
+	doc.user = project.procurement_lead
+	doc.allow = "Projects"
+	doc.for_value = project.name
+	doc.insert(ignore_permissions=True)
+
+	doc = frappe.new_doc("User Permission")
+	doc.user = project.design_lead
+	doc.allow = "Projects"
+	doc.for_value = project.name
+	doc.insert(ignore_permissions=True)
+
+	doc = frappe.new_doc("User Permission")
+	doc.user = project.project_manager
+	doc.allow = "Projects"
+	doc.for_value = project.name
+	doc.insert(ignore_permissions=True)

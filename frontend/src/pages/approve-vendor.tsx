@@ -24,7 +24,7 @@ import {
     DialogTrigger,
     DialogClose
 } from "@/components/ui/dialog"
-import { TrendingDown,CheckCheck,TrendingUp } from 'lucide-react';
+import { TrendingDown, CheckCheck, TrendingUp } from 'lucide-react';
 
 
 export const ApproveVendor = () => {
@@ -52,13 +52,13 @@ export const ApproveVendor = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
-            filters: [["is_selected", "=", "True"], ["procurement_task", "=", orderId]],
+            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
+            filters: [["status", "=", "Selected"], ["procurement_task", "=", orderId]],
             limit: 1000
         });
     const { data: quotation_request_list2, isLoading: quotation_request_list2_loading, error: quotation_request_list2_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
+            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["procurement_task", "=", orderId]],
             limit: 1000
         });
@@ -135,20 +135,27 @@ export const ApproveVendor = () => {
         const newSelectAll = !selectAll;
         setSelectAll(newSelectAll);
 
-        const updatedSelectedList = newSelectAll ? [...orderData.procurement_list?.list] : [];
+        const updatedSelectedList = newSelectAll
+            ? orderData.procurement_list?.list.filter(item => selectedVendors[item.name])
+            : [];
         setSelectedItem({ list: updatedSelectedList });
+        console.log("selectedItem", updatedSelectedList)
     };
 
     const handleTrigger = () => {
         setSelectAll(false);
         setSelectedItem({ list: [] });
+        setComment('');
     }
+    const [approvedItems, setApprovedItems] = useState({
+        list: []
+    })
 
     const handleSendBack = (cat: string) => {
         const itemlist = [];
         selectedItem.list.map((value) => {
             if (value.category === cat) {
-                const price = getPrice(selectedVendors[cat], value.name);
+                const price = getPrice(selectedVendors[value.name], value.name);
                 itemlist.push({
                     name: value.name,
                     item: value.item,
@@ -163,13 +170,13 @@ export const ApproveVendor = () => {
             procurement_request: orderId,
             project_name: orderData.project,
             category: cat,
-            vendor: selectedVendors[cat],
             item_list: {
                 list: itemlist
             },
             lead_time: delivery_time,
             comments: comment,
-            procurement_executive: orderData.procurement_executive
+            procurement_executive: orderData.procurement_executive,
+            type: "Rejected"
         }
         if (itemlist.length > 0) {
             createDoc('Sent Back Category', newSendBack)
@@ -201,57 +208,77 @@ export const ApproveVendor = () => {
             }).catch(() => {
                 console.log("update_submit_error", update_submit_error)
             })
-        const order_list = {
-            list: []
-        };
-        quotation_request_list?.map((value) => {
-            const isSelected = selectedItem.list.some(item => item.name === value.item);
-            if (value.category === cat && !isSelected) {
-                const newItem = {
-                    name: value.item,
-                    item: getItem(value.item),
-                    unit: getUnit(value.item),
-                    quantity: value.quantity,
-                    quote: value.quote
+
+        const newItems = approvedItems.list;
+        orderData.procurement_list?.list.map((item) => {
+            if (item.category === cat) {
+                const isPresent = selectedItem.list.find(value => value.name === item.name)
+                if (!isPresent && selectedVendors[item.name]) {
+
+                    const price = getPrice(selectedVendors[item.name], item.name);
+                    newItems.push({
+                        item: item.item,
+                        name: item.name,
+                        quote: price,
+                        quantity: item.quantity,
+                        unit: item.unit
+                    })
                 }
-                order_list.list.push(newItem)
             }
         })
-        const newProcurementOrder = {
-            procurement_request: orderId,
-            project: orderData.project,
-            project_name: getProjectName(orderData.project),
-            project_address: getProjectAddress(orderData.project),
-            category: cat,
-            vendor: selectedVendors[cat],
-            vendor_name: getVendorName(selectedVendors[cat]),
-            vendor_address: getVendorAddress(selectedVendors[cat]),
-            vendor_gst: getVendorGST(selectedVendors[cat]),
-            order_list: order_list
-        }
-        if (order_list.list.length > 0) {
-            createDoc('Procurement Orders', newProcurementOrder)
-                .then(() => {
-                    console.log(newProcurementOrder);
-                })
-                .catch(() => {
-                    console.log("submit_error", submit_error);
-                })
-        }
+        setApprovedItems({
+            list: newItems
+        })
+
+        // const order_list = {
+        //     list: []
+        // };
+        // quotation_request_list?.map((value) => {
+        //     const isSelected = selectedItem.list.some(item => item.name === value.item);
+        //     if (value.category === cat && !isSelected) {
+        //         const newItem = {
+        //             name: value.item,
+        //             item: getItem(value.item),
+        //             unit: getUnit(value.item),
+        //             quantity: value.quantity,
+        //             quote: value.quote
+        //         }
+        //         order_list.list.push(newItem)
+        //     }
+        // })
+        // const newProcurementOrder = {
+        //     procurement_request: orderId,
+        //     project: orderData.project,
+        //     project_name: getProjectName(orderData.project),
+        //     project_address: getProjectAddress(orderData.project),
+        //     category: cat,
+        //     vendor: selectedVendors[cat],
+        //     vendor_name: getVendorName(selectedVendors[cat]),
+        //     vendor_address: getVendorAddress(selectedVendors[cat]),
+        //     vendor_gst: getVendorGST(selectedVendors[cat]),
+        //     order_list: order_list
+        // }
+        // if (order_list.list.length > 0) {
+        //     createDoc('Procurement Orders', newProcurementOrder)
+        //         .then(() => {
+        //             console.log(newProcurementOrder);
+        //         })
+        //         .catch(() => {
+        //             console.log("submit_error", submit_error);
+        //         })
+        // }
     }
 
 
     const handleRejectAll = () => {
-        // Create an array to hold all the promises
         const createDocPromises = [];
 
         orderData.category_list.list.forEach((cat) => {
             const itemlist = [];
             const curCategory = cat.name;
 
-            // Populate the itemlist with matching items
             orderData.procurement_list.list.forEach((value) => {
-                if (value.category === curCategory) {
+                if (value.category === curCategory && selectedVendors[value.name]) {
                     const price = getPrice(selectedVendors[curCategory], value.name);
                     itemlist.push({
                         name: value.name,
@@ -277,7 +304,6 @@ export const ApproveVendor = () => {
                 procurement_executive: orderData.procurement_executive
             };
 
-            // Add the createDoc promise to the array
             const createDocPromise = createDoc('Sent Back Category', newSendBack)
                 .then(() => {
                     console.log(newSendBack);
@@ -289,7 +315,6 @@ export const ApproveVendor = () => {
 
             createDocPromises.push(createDocPromise);
 
-            // Update the state for the order data
             setOrderData((prevState) => {
                 const newCategoryList = prevState.category_list.list.filter(
                     (category) => category.name !== curCategory
@@ -304,10 +329,8 @@ export const ApproveVendor = () => {
             });
         });
 
-        // Wait for all createDoc promises to resolve
         Promise.all(createDocPromises)
             .then(() => {
-                // After all createDoc operations are complete, update the document
                 return updateDoc('Procurement Requests', orderId, {
                     workflow_state: "Partially Approved"
                 });
@@ -323,49 +346,54 @@ export const ApproveVendor = () => {
 
 
     const handleApproveAll = () => {
+
+        const vendorItems = {};
+        orderData.procurement_list?.list.map((item) => {
+            if (selectedVendors[item.name]) {
+                if (!vendorItems[selectedVendors[item.name]]) {
+                    vendorItems[selectedVendors[item.name]] = [];
+                }
+                const price = Number(getPrice(selectedVendors[item.name], item.name))
+                vendorItems[selectedVendors[item.name]].push({
+                    name: item.name,
+                    quote: price,
+                    quantity: item.quantity,
+                    unit: item.unit,
+                    item: item.item
+                });
+            }
+
+        })
+
         const createDocPromises = [];
 
-        orderData.category_list.list.forEach((cat) => {
-            const order_list = {
-                list: []
-            };
-
-
-            quotation_request_list?.forEach((value) => {
-                if (value.category === cat.name) {
-                    const newItem = {
-                        name: value.item,
-                        item: getItem(value.item),
-                        unit: getUnit(value.item),
-                        quantity: value.quantity,
-                        quote: value.quote
-                    };
-                    order_list.list.push(newItem);
-                }
-            });
+        Object.entries(vendorItems).forEach(([key, value]) => {
 
             const newProcurementOrder = {
                 procurement_request: orderId,
                 project: orderData.project,
                 project_name: getProjectName(orderData.project),
                 project_address: getProjectAddress(orderData.project),
-                category: cat.name,
-                vendor: selectedVendors[cat.name],
-                vendor_name: getVendorName(selectedVendors[cat.name]),
-                vendor_address: getVendorAddress(selectedVendors[cat.name]),
-                vendor_gst: getVendorGST(selectedVendors[cat.name]),
-                order_list: order_list
+                vendor: key,
+                vendor_name: getVendorName(key),
+                vendor_address: getVendorAddress(key),
+                vendor_gst: getVendorGST(key),
+                order_list: {
+                    list: value
+                }
             };
 
-            const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
-                .then(() => {
-                    console.log(newProcurementOrder);
-                })
-                .catch((error) => {
-                    console.log("submit_error", error);
-                });
+            if (value.length > 0) {
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
 
-            createDocPromises.push(createDocPromise);
+                createDocPromises.push(createDocPromise);
+            }
         });
 
         Promise.all(createDocPromises)
@@ -385,48 +413,67 @@ export const ApproveVendor = () => {
 
 
     const handleApprove = (cat: string) => {
-        const order_list = {
-            list: []
-        };
-        quotation_request_list?.map((value) => {
-            if (value.category === cat) {
-                const newItem = {
-                    name: value.item,
-                    item: getItem(value.item),
-                    unit: getUnit(value.item),
-                    quantity: value.quantity,
-                    quote: value.quote
+        const newItems = approvedItems.list;
+        orderData.procurement_list?.list.map((item) => {
+            if (item.category === cat) {
+                if (selectedVendors[item.name]) {
+                    const price = getPrice(selectedVendors[item.name], item.name);
+                    newItems.push({
+                        item: item.item,
+                        name: item.name,
+                        quote: price,
+                        quantity: item.quantity,
+                        unit: item.unit
+                    })
                 }
-                order_list.list.push(newItem)
             }
         })
-        const newProcurementOrder = {
-            procurement_request: orderId,
-            project: orderData.project,
-            project_name: getProjectName(orderData.project),
-            project_address: getProjectAddress(orderData.project),
-            category: cat,
-            vendor: selectedVendors[cat],
-            vendor_name: getVendorName(selectedVendors[cat]),
-            vendor_address: getVendorAddress(selectedVendors[cat]),
-            vendor_gst: getVendorGST(selectedVendors[cat]),
-            order_list: order_list
-        }
-        createDoc('Procurement Orders', newProcurementOrder)
-            .then(() => {
-                console.log(newProcurementOrder);
-            })
-            .catch(() => {
-                console.log("submit_error", submit_error);
-            })
-        updateDoc('Procurement Requests', orderId, {
-            workflow_state: "Partially Approved"
+        setApprovedItems({
+            list: newItems
         })
-            .then(() => {
-                console.log("item", orderId)
-            }).catch(() => {
-                console.log("update_submit_error", update_submit_error)
-            })
+
+        // const order_list = {
+        //     list: []
+        // };
+        // quotation_request_list?.map((value) => {
+        //     if (value.category === cat) {
+        //         const newItem = {
+        //             name: value.item,
+        //             item: getItem(value.item),
+        //             unit: getUnit(value.item),
+        //             quantity: value.quantity,
+        //             quote: value.quote
+        //         }
+        //         order_list.list.push(newItem)
+        //     }
+        // })
+        // const newProcurementOrder = {
+        //     procurement_request: orderId,
+        //     project: orderData.project,
+        //     project_name: getProjectName(orderData.project),
+        //     project_address: getProjectAddress(orderData.project),
+        //     category: cat,
+        //     vendor: selectedVendors[cat],
+        //     vendor_name: getVendorName(selectedVendors[cat]),
+        //     vendor_address: getVendorAddress(selectedVendors[cat]),
+        //     vendor_gst: getVendorGST(selectedVendors[cat]),
+        //     order_list: order_list
+        // }
+        // createDoc('Procurement Orders', newProcurementOrder)
+        //     .then(() => {
+        //         console.log(newProcurementOrder);
+        //     })
+        //     .catch(() => {
+        //         console.log("submit_error", submit_error);
+        //     })
+        // updateDoc('Procurement Requests', orderId, {
+        //     workflow_state: "Partially Approved"
+        // })
+        //     .then(() => {
+        //         console.log("item", orderId)
+        //     }).catch(() => {
+        //         console.log("update_submit_error", update_submit_error)
+        //     })
         setOrderData((prevState) => {
             const newCategoryList = prevState.category_list.list.filter(
                 (category) => category.name !== cat
@@ -439,6 +486,71 @@ export const ApproveVendor = () => {
                 }
             };
         });
+    }
+
+    const handleDone = () => {
+        const vendorItems = {};
+        approvedItems.list.map((item) => {
+            if (selectedVendors[item.name]) {
+                if (!vendorItems[selectedVendors[item.name]]) {
+                    vendorItems[selectedVendors[item.name]] = [];
+                }
+                const price = Number(getPrice(selectedVendors[item.name], item.name))
+                vendorItems[selectedVendors[item.name]].push({
+                    name: item.name,
+                    quote: price,
+                    quantity: item.quantity,
+                    unit: item.unit,
+                    item: item.item
+                });
+            }
+
+        })
+
+        const createDocPromises = [];
+
+        Object.entries(vendorItems).forEach(([key, value]) => {
+
+            const newProcurementOrder = {
+                procurement_request: orderId,
+                project: orderData.project,
+                project_name: getProjectName(orderData.project),
+                project_address: getProjectAddress(orderData.project),
+                vendor: key,
+                vendor_name: getVendorName(key),
+                vendor_address: getVendorAddress(key),
+                vendor_gst: getVendorGST(key),
+                order_list: {
+                    list: value
+                }
+            };
+
+            if (value.length > 0) {
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
+
+                createDocPromises.push(createDocPromise);
+            }
+        });
+
+        Promise.all(createDocPromises)
+            .then(() => {
+                return updateDoc('Procurement Requests', orderId, {
+                    workflow_state: "Partially Approved"
+                });
+            })
+            .then(() => {
+                console.log("item", orderId);
+                navigate("/");
+            })
+            .catch((error) => {
+                console.log("update_submit_error", error);
+            });
     }
 
     const generateVendorItemKey = (vendor: string, item: string): string => {
@@ -461,9 +573,8 @@ export const ApproveVendor = () => {
     useEffect(() => {
         let updatedVendors = { ...selectedVendors };
         quotation_request_list?.forEach((item) => {
-            const curCategory = item.category;
             const curVendor = item.vendor;
-            updatedVendors[curCategory] = curVendor;
+            updatedVendors[item.item] = curVendor;
         });
         setSelectedVendors(updatedVendors);
     }, [quotation_request_list]);
@@ -471,17 +582,11 @@ export const ApproveVendor = () => {
         let total: number = 0;
         orderData?.procurement_list.list.map((item) => {
             if (item.category === cat) {
-                const price = getPrice(selectedVendors[cat], item.name);
+                const price = getPrice(selectedVendors[item.name], item.name);
                 total += (price ? parseFloat(price) : 0) * item.quantity;
             }
         })
         return total
-    }
-    const handleDone = () => {
-        console.log(orderData.category_list?.list.length)
-        if (orderData.category_list?.list.length === 0) {
-            navigate("/")
-        }
     }
 
     const [selectedCategories, setSelectedCategories] = useState({})
@@ -504,8 +609,6 @@ export const ApproveVendor = () => {
         })
         setSelectedCategories(updatedCategories);
     }, [quotation_request_list2, orderData]);
-
-    console.log(selectedCategories, quotation_request_list2)
 
     const getLowest = (cat: string) => {
         let price: number = 100000000;
@@ -534,7 +637,6 @@ export const ApproveVendor = () => {
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
         return minQuote;
     }
-    console.log(quotation_request_list2)
 
     const getLowest3 = (cat: string) => {
         let total: number = 0;
@@ -554,11 +656,11 @@ export const ApproveVendor = () => {
     const getPercentdiff = (a: number, b: number) => {
         if (a === 0 && b === 0) {
             return 0;
-          }
-          const difference: number = Math.abs(a - b);
-          const percentDiff: number = (difference / a) * 100;
-        
-          return percentDiff.toFixed(2);
+        }
+        const difference: number = Math.abs(a - b);
+        const percentDiff: number = (difference / a) * 100;
+
+        return percentDiff.toFixed(2);
     }
 
     return (
@@ -602,14 +704,14 @@ export const ApproveVendor = () => {
                             <Card className="flex w-full shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
-                                        <div className="text-sm text-gray-400">Selected Vendor</div>
+                                        {/* <div className="text-sm text-gray-400">Selected Vendor</div> */}
                                         <div className="flex justify-between border-b">
-                                            <div className="font-bold text-lg py-2 border-gray-200">{getVendorName(selectedVendors[curCategory])}</div>
+                                            <div className="font-bold text-lg py-2 border-gray-200">Total</div>
                                             <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
                                         </div>
                                     </CardTitle>
                                     {orderData?.procurement_list.list.map((item) => {
-                                        const price = getPrice(selectedVendors[curCategory], item.name);
+                                        const price = getPrice(selectedVendors[item.name], item.name);
                                         total += (price ? parseFloat(price) : 0) * (parseFloat(item.quantity));
 
                                         if (item.category === curCategory) {
@@ -619,7 +721,7 @@ export const ApproveVendor = () => {
                                             count++;
                                             return <div className="flex justify-between py-2">
                                                 <div className="text-sm">{item.item}</div>
-                                                <div className="text-sm">{price * (item.quantity)}</div>
+                                                <div className="text-sm">{price ? price * (item.quantity) : "Delayed"}</div>
                                             </div>
                                         }
                                     })}
@@ -627,23 +729,24 @@ export const ApproveVendor = () => {
                                         <DialogTrigger asChild>
                                             <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                         </DialogTrigger>
-                                        <DialogContent className="sm:max-w-[425px] md:max-w-[675px]">
+                                        <DialogContent className="sm:max-w-[425px] md:max-w-[825px]">
                                             <DialogHeader>
                                                 <DialogTitle>Items List</DialogTitle>
                                                 <DialogDescription>
-                                                    <div className="grid grid-cols-10 font-medium text-black justify-between">
+                                                    <div className="grid grid-cols-12 font-medium text-black justify-between">
                                                         <div className="text-sm col-span-2 border p-2">Items</div>
                                                         <div className="text-sm border p-2">Unit</div>
                                                         <div className="text-sm border p-2">Qty</div>
                                                         <div className="text-sm border p-2">Rate</div>
                                                         <div className="text-sm border p-2">Amount</div>
+                                                        <div className="text-sm col-span-2 border p-2">Selected Vendor</div>
                                                         <div className="text-sm col-span-2 border p-2">Lowest Quoted Vendor</div>
                                                         <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
                                                     </div>
                                                     {orderData?.procurement_list.list.map((item) => {
 
                                                         if (item.category === curCategory) {
-                                                            const price = getPrice(selectedVendors[curCategory], item.name);
+                                                            const price = getPrice(selectedVendors[item.name], item.name);
                                                             total += (price ? parseFloat(price) : 0) * (item.quantity);
 
                                                             const lowest2 = getLowest2(item.name)
@@ -654,12 +757,13 @@ export const ApproveVendor = () => {
                                                             let minQuote;
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
-                                                            return <div className="grid grid-cols-10">
+                                                            return <div className="grid grid-cols-12">
                                                                 <div className="text-sm col-span-2 border p-2">{item.item}</div>
                                                                 <div className="text-sm border p-2">{item.unit}</div>
                                                                 <div className="text-sm border p-2">{item.quantity}</div>
-                                                                <div className="text-sm border p-2">{price}</div>
-                                                                <div className="text-sm border p-2">{price * item.quantity}</div>
+                                                                <div className="text-sm border p-2">{price ? price : "Delayed"}</div>
+                                                                <div className="text-sm border p-2">{price ? price * item.quantity : "Delayed"}</div>
+                                                                <div className="text-sm col-span-2 border p-2">{selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed"}</div>
                                                                 <div className="text-sm col-span-2 border p-2">{lowest2 ? lowest2 * item.quantity : "N/A"}</div>
                                                                 <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
                                                             </div>
@@ -676,13 +780,13 @@ export const ApproveVendor = () => {
                                     <div className="flex justify-between">
                                         <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
                                         <div className="font-bold text-2xl text-gray-500 border-gray-200">{lowest?.quote}
-                                        <div className='flex'>
-                                        {
-                                        (lowest?.quote < getTotal(curCategory)) ?  
-                                        <TrendingDown className="text-red-500"/> : <CheckCheck className="text-blue-500"/>
-                                        }
-                                        <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote,getTotal(curCategory))}%</span>
-                                        </div>
+                                            <div className='flex'>
+                                                {
+                                                    (lowest?.quote < getTotal(curCategory)) ?
+                                                        <TrendingDown className="text-red-500" /> : <CheckCheck className="text-blue-500" />
+                                                }
+                                                <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote, getTotal(curCategory))}%</span>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="font-medium text-gray-700 text-sm">
@@ -694,13 +798,13 @@ export const ApproveVendor = () => {
                                     <div className="flex justify-between">
                                         <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
                                         <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}
-                                        <div className='flex'>
+                                            <div className='flex'>
                                                 {
-                                                (getLowest3(curCategory) > getTotal(curCategory)) ?  
-                                                <TrendingUp className="text-green-500"/> : ((getLowest3(curCategory) < getTotal(curCategory)) ? <TrendingDown className="text-red-500"/> :<CheckCheck className="text-blue-500"/>)
+                                                    (getLowest3(curCategory) > getTotal(curCategory)) ?
+                                                        <TrendingUp className="text-green-500" /> : ((getLowest3(curCategory) < getTotal(curCategory)) ? <TrendingDown className="text-red-500" /> : <CheckCheck className="text-blue-500" />)
                                                 }
-                                                <span className={`pl-2 text-base font-medium ${(getLowest3(curCategory) < getTotal(curCategory)) ? "text-red-500" : ((getLowest3(curCategory) > getTotal(curCategory)) ? "text-green-500" : "text-blue-500")}`}>{getPercentdiff(getTotal(curCategory),getLowest3(curCategory))}%</span>
-                                                </div>
+                                                <span className={`pl-2 text-base font-medium ${(getLowest3(curCategory) < getTotal(curCategory)) ? "text-red-500" : ((getLowest3(curCategory) > getTotal(curCategory)) ? "text-green-500" : "text-blue-500")}`}>{getPercentdiff(getTotal(curCategory), getLowest3(curCategory))}%</span>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="font-medium text-gray-700 text-sm">
@@ -735,7 +839,7 @@ export const ApproveVendor = () => {
                                                     </label>
                                                     {orderData?.procurement_list.list.map((item) => {
                                                         if (item.category === curCategory) {
-                                                            const price = getPrice(selectedVendors[curCategory], item.name);
+                                                            const price = getPrice(selectedVendors[item.name], item.name);
                                                             total += price ? parseFloat(price) : 0;
 
                                                             const quotesForItem = quote_data
@@ -745,10 +849,10 @@ export const ApproveVendor = () => {
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
                                                             return <div className="flex justify-between py-2">
-                                                                <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
+                                                                <div className="text-sm w-[45%] text-black font-semibold">{1 ? <input disabled={!selectedVendors[item.name] ? true : false} className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} /> : " "}{item.item}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.quantity}</div>
                                                                 <div className="text-sm text-black font-semibold">{item.unit}</div>
-                                                                <div className="text-sm text-black font-semibold">{price}</div>
+                                                                <div className="text-sm text-black font-semibold">{price ? price : "Delayed"}</div>
                                                                 <div className="text-sm text-black font-semibold w-[15%]">{minQuote ? minQuote : "N/A"}</div>
                                                             </div>
                                                         }
@@ -828,9 +932,9 @@ export const ApproveVendor = () => {
                         </Dialog>
                     </div> :
                         ((orderData.project && orderData.category_list.list.length === 0) && <div className="flex space-x-2 justify-center items-center bottom-4 right-4">
-                            <Button onClick={() => handleDone()}>
+                            {(update_loading || loading) ? <div>Loading...</div> : <Button onClick={() => handleDone()}>
                                 Done
-                            </Button>
+                            </Button>}
                         </div>)
                     }
                 </div>

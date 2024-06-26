@@ -1,9 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
-import { redirect } from "react-router-dom";
-import { useEffect } from "react"
-// import React from "react"
 import * as z from "zod"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "./ui/form"
 import { Input } from "./ui/input"
@@ -16,13 +13,11 @@ import CustomerForm from "./customer-form"
 import { Separator } from "./ui/separator"
 import { AddressForm } from "./address-form"
 import { ScrollArea } from "./ui/scroll-area"
-import { Link, useNavigate } from "react-router-dom"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 import { cn } from "@/lib/utils"
 import { CalendarIcon } from "lucide-react"
 import { Calendar } from "./ui/calendar"
 import { format } from "date-fns"
-// import EmployeeForm from "./employee-form"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
 import { Checkbox } from "./ui/checkbox"
 
@@ -165,7 +160,7 @@ export const ProjectForm = () => {
             },
         },
     })
-    const { data: company, isLoading: company_isLoading, error: company_error,mutate: company_mutate } = useFrappeGetDocList('Customers', {
+    const { data: company, isLoading: company_isLoading, error: company_error, mutate: company_mutate } = useFrappeGetDocList('Customers', {
         fields: ["name", "company_name"]
     });
 
@@ -217,6 +212,7 @@ export const ProjectForm = () => {
 
     const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
         fields: ["name", "full_name"],
+        filters: [["name", "!=", "Administrator"]]
     });
 
     // const { data: project_lead, isLoading: project_lead_isLoading, error: project_lead_error } = useFrappeGetDocList('Empployees', {
@@ -342,7 +338,13 @@ export const ProjectForm = () => {
         work_package: item.work_package
     })) || [];
     console.log(wp_list, sow_list)
-    
+
+    if (wp_list_loading || sow_list_loading) return <div>Loading...</div>
+    if (wp_list_error || sow_list_error) {
+        let error = wp_list_error ? wp_list_error : sow_list_error;
+        return <div>{error?.message}</div>;
+    }
+
     return (
         <Form {...form}>
             <form onSubmit={(event) => {
@@ -420,14 +422,14 @@ export const ProjectForm = () => {
                                             </DialogTrigger>
                                             <DialogContent className="max-w-[300px] md:max-w-[425px] ">
                                                 <ScrollArea className="max-h-[400px] md:max-h-[500px] ">
-                                                <DialogHeader>
-                                                    <DialogTitle>Add New Customer</DialogTitle>
-                                                    <DialogDescription>
-                                                        Add new Customers here.
-                                                    </DialogDescription>
-                                                </DialogHeader>
-                                                <CustomerForm company_mutate={company_mutate}/> 
-                                                {/* Dialog close and company_mutate is inside the customer form function */}
+                                                    <DialogHeader>
+                                                        <DialogTitle>Add New Customer</DialogTitle>
+                                                        <DialogDescription>
+                                                            Add new Customers here.
+                                                        </DialogDescription>
+                                                    </DialogHeader>
+                                                    <CustomerForm company_mutate={company_mutate} />
+                                                    {/* Dialog close and company_mutate is inside the customer form function */}
 
                                                 </ScrollArea>
                                             </DialogContent>
@@ -484,7 +486,7 @@ export const ProjectForm = () => {
                                                             Add new project types here.
                                                         </DialogDescription>
                                                     </DialogHeader>
-                                                    <ProjectTypeForm project_types_mutate={project_types_mutate}/>
+                                                    <ProjectTypeForm project_types_mutate={project_types_mutate} />
                                                 </DialogContent>
                                             </Dialog>
                                         </div>
@@ -541,7 +543,7 @@ export const ProjectForm = () => {
                                                         </DialogDescription>
                                                     </DialogHeader>
                                                     <Separator className="my-6" />
-                                                    <AddressForm type={"Shipping"} project_address_mutate={project_address_mutate}/>
+                                                    <AddressForm type={"Shipping"} project_address_mutate={project_address_mutate} />
                                                 </ScrollArea>
                                             </DialogContent>
                                         </Dialog>
@@ -1064,10 +1066,10 @@ export const ProjectForm = () => {
                         {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
                     </div>
                     <div>
-                        {submit_complete && 
-                        <div>
-                            <div className="font-semibold text-green-500"> Submitted successfully</div>
-                        </div>
+                        {submit_complete &&
+                            <div>
+                                <div className="font-semibold text-green-500"> Submitted successfully</div>
+                            </div>
                         }
                     </div>
                 </div>

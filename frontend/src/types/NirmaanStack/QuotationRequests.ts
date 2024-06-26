@@ -12,8 +12,6 @@ export interface QuotationRequests{
 	idx?: number
 	/**	Procurement Task : Link - Procurement Requests	*/
 	procurement_task?: string
-	/**	Project : Link - Projects	*/
-	project?: string
 	/**	Category : Link - Category	*/
 	category?: string
 	/**	Item : Link - Items	*/
@@ -34,4 +32,6 @@ export interface QuotationRequests{
 	comments?: string
 	/**	Attachment : Data	*/
 	attachment?: string
+	/**	Status : Data	*/
+	status?: string
 }

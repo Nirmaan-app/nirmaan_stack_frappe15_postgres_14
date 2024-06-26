@@ -48,15 +48,9 @@ export const ApproveSentBack = () => {
         {
             fields: ['name', 'project_name', 'project_address']
         });
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
-        {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time'],
-            filters: [["is_selected", "=", "True"]],
-            limit: 1000
-        });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'owner',],
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'owner',],
             filters: [["workflow_state", "=", "Vendor Selected"]],
             limit: 100
         });
@@ -135,19 +129,21 @@ export const ApproveSentBack = () => {
     }
 
     const handleSendBack = (cat: string) => {
-        updateDoc('Sent Back Category', id, {
-            comments: comment,
-            workflow_state: "Pending",
-            item_list: {
-                list: selectedItem.list
-            },
-        })
+        if (selectedItem.list?.length > 0) {
+            updateDoc('Sent Back Category', id, {
+                comments: comment,
+                workflow_state: "Pending",
+                item_list: {
+                    list: selectedItem.list
+                },
+            })
             .then(() => {
                 console.log("item", id)
                 navigate("/")
             }).catch(() => {
                 console.log("update_submit_error", update_submit_error)
             })
+        }
 
         const order_list = {
             list: []
@@ -165,76 +161,125 @@ export const ApproveSentBack = () => {
                 order_list.list.push(newItem)
             }
         })
-        const newProcurementOrder = {
-            procurement_request: orderData.procurement_request,
-            project: orderData.project_name,
-            project_name: getProjectName(orderData.project_name),
-            project_address: getProjectAddress(orderData.project_name),
-            category: cat,
-            vendor: orderData.vendor,
-            vendor_name: getVendorName(orderData.vendor),
-            vendor_address: getVendorAddress(orderData.vendor),
-            vendor_gst: getVendorGST(orderData.vendor),
-            order_list: order_list
-        }
-        if (order_list.list.length > 0) {
-            createDoc('Procurement Orders', newProcurementOrder)
-                .then(() => {
-                    console.log(newProcurementOrder);
-                    navigate("/")
-                })
-                .catch(() => {
-                    console.log("submit_error", submit_error);
-                })
-        }
+
+        const vendorItems = {};
+        order_list.list.map((item) => {
+            if (!vendorItems[item.vendor]) {
+                vendorItems[item.vendor] = [];
+            }
+
+            vendorItems[item.vendor].push({
+                name: item.name,
+                quote: Number(item.quote),
+                quantity: item.quantity,
+                unit: item.unit,
+                item: item.item
+            });
+        })
+
+        const createDocPromises = [];
+
+        Object.entries(vendorItems).forEach(([key, value]) => {
+
+            const newProcurementOrder = {
+                procurement_request: orderData.procurement_request,
+                project: orderData.project_name,
+                project_name: getProjectName(orderData.project_name),
+                project_address: getProjectAddress(orderData.project_name),
+                vendor: key,
+                vendor_name: getVendorName(key),
+                vendor_address: getVendorAddress(key),
+                vendor_gst: getVendorGST(key),
+                order_list: {
+                    list: value
+                }
+            };
+
+            if (order_list.length > 0) {
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
+
+                createDocPromises.push(createDocPromise);
+            }
+        });
+
+        Promise.all(createDocPromises)
+            .then(() => {
+                navigate("/");
+            })
+            .catch((error) => {
+                console.log("update_submit_error", error);
+            });
     }
     const curCategory = orderData.category
-    console.log("selectedItem", selectedItem)
 
     const handleApprove = (cat: string) => {
-        const order_list = {
-            list: []
-        };
-        orderData.item_list?.list.map((value) => {
-            const newItem = {
-                name: value.name,
-                item: getItem(value.name),
-                unit: getUnit(value.name),
-                quantity: value.quantity,
-                quote: value.quote
+        const vendorItems = {};
+        orderData.item_list?.list.map((item) => {
+            if (!vendorItems[item.vendor]) {
+                vendorItems[item.vendor] = [];
             }
-            order_list.list.push(newItem)
-        })
-        const newProcurementOrder = {
-            procurement_request: orderData.procurement_request,
-            project: orderData.project_name,
-            project_name: getProjectName(orderData.project_name),
-            project_address: getProjectAddress(orderData.project_name),
-            category: curCategory,
-            vendor: orderData.vendor,
-            vendor_name: getVendorName(orderData.vendor),
-            vendor_address: getVendorAddress(orderData.vendor),
-            vendor_gst: getVendorGST(orderData.vendor),
-            order_list: order_list
-        }
-        createDoc('Procurement Orders', newProcurementOrder)
-            .then(() => {
-                console.log(newProcurementOrder);
-                navigate("/")
-            })
-            .catch(() => {
-                console.log("submit_error", submit_error);
-            })
-        updateDoc('Sent Back Category', id, {
-            workflow_state: "Approved"
-        })
-            .then(() => {
-                console.log("item", id)
-                navigate("/")
-            }).catch(() => {
-                console.log("update_submit_error", update_submit_error)
-            })
 
+            vendorItems[item.vendor].push({
+                name: item.name,
+                quote: Number(item.quote),
+                quantity: item.quantity,
+                unit: item.unit,
+                item: item.item
+            });
+        })
+
+        const createDocPromises = [];
+
+        Object.entries(vendorItems).forEach(([key, value]) => {
+
+            const newProcurementOrder = {
+                procurement_request: orderData.procurement_request,
+                project: orderData.project_name,
+                project_name: getProjectName(orderData.project_name),
+                project_address: getProjectAddress(orderData.project_name),
+                vendor: key,
+                vendor_name: getVendorName(key),
+                vendor_address: getVendorAddress(key),
+                vendor_gst: getVendorGST(key),
+                order_list: {
+                    list: value
+                }
+            };
+
+            if (value.length > 0) {
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
+
+                createDocPromises.push(createDocPromise);
+            }
+        });
+
+        Promise.all(createDocPromises)
+            .then(() => {
+                updateDoc('Sent Back Category', id, {
+                    workflow_state: "Approved"
+                })
+                    .then(() => {
+                        console.log("item", id)
+                        navigate("/")
+                    }).catch(() => {
+                        console.log("update_submit_error", update_submit_error)
+                    })
+            })
+            .catch((error) => {
+                console.log("update_submit_error", error);
+            });
     }
 
     const getTotal = (cat: string) => {
@@ -282,9 +327,9 @@ export const ApproveSentBack = () => {
                         <Card className="flex w-1/2 shadow-none border border-grey-500" >
                             <CardHeader className="w-full">
                                 <CardTitle>
-                                    <div className="text-sm text-gray-400">Selected Vendor</div>
+                                    {/* <div className="text-sm text-gray-400">Selected Vendor</div> */}
                                     <div className="flex justify-between border-b">
-                                        <div className="font-bold text-lg py-2 border-gray-200">{getVendorName(orderData?.vendor)}</div>
+                                        <div className="font-bold text-lg py-2 border-gray-200">Total</div>
                                         <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
                                     </div>
                                 </CardTitle>
@@ -302,16 +347,17 @@ export const ApproveSentBack = () => {
                                     <DialogTrigger asChild>
                                         <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                     </DialogTrigger>
-                                    <DialogContent className="sm:max-w-[425px] md:max-w-[575px]">
+                                    <DialogContent className="sm:max-w-[425px] md:max-w-[725px]">
                                         <DialogHeader>
                                             <DialogTitle>Items List</DialogTitle>
                                             <DialogDescription>
-                                                <div className="grid grid-cols-8 font-medium text-black justify-between">
+                                                <div className="grid grid-cols-10 font-medium text-black justify-between">
                                                     <div className="text-sm col-span-2 border p-2">Items</div>
                                                     <div className="text-sm border p-2">Unit</div>
                                                     <div className="text-sm border p-2">Qty</div>
                                                     <div className="text-sm border p-2">Rate</div>
                                                     <div className="text-sm border p-2">Amount</div>
+                                                    <div className="text-sm col-span-2 border p-2">Selected Vendor</div>
                                                     <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
                                                 </div>
                                                 {orderData.item_list?.list.map((item) => {
@@ -322,14 +368,14 @@ export const ApproveSentBack = () => {
                                                     let minQuote;
                                                     if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
-                                                    return <div className="grid grid-cols-8">
+                                                    return <div className="grid grid-cols-10">
                                                         <div className="text-sm col-span-2 border p-2">{item.item}</div>
                                                         <div className="text-sm border p-2">{item.unit}</div>
                                                         <div className="text-sm border p-2">{item.quantity}</div>
                                                         <div className="text-sm border p-2">{price}</div>
                                                         <div className="text-sm border p-2">{price * item.quantity}</div>
+                                                        <div className="text-sm col-span-2 border p-2">{getVendorName(item.vendor)}</div>
                                                         <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
-
                                                     </div>
 
                                                 })}

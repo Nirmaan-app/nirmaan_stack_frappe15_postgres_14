@@ -30,12 +30,12 @@ export const SentBackSelectVendor = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
+            fields: ['name', 'lead_time', 'item', 'vendor', 'category', 'procurement_task', 'quote'],
             limit: 1000
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'item_list'],
+            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'item_list'],
             filters: [["workflow_state", "=", "Pending"]],
             limit: 100
         });
@@ -83,26 +83,25 @@ export const SentBackSelectVendor = () => {
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
-    const handleRadioChange = (cat, vendor) => {
+    const handleRadioChange = (item, vendor) => {
         setSelectedVendors(prevState => {
-            if (prevState.hasOwnProperty(cat)) {
-                return { ...prevState, [cat]: vendor };
+            if (prevState.hasOwnProperty(item)) {
+                return { ...prevState, [item]: vendor };
             } else {
-                return { ...prevState, [cat]: vendor };
+                return { ...prevState, [item]: vendor };
             }
         });
 
     };
 
-    const handleChangeWithParam = (cat, vendor) => {
-        return () => handleRadioChange(cat, vendor);
+    const handleChangeWithParam = (item, vendor) => {
+        return () => handleRadioChange(item, vendor);
     };
 
     const handleSubmit = () => {
         updateDoc('Sent Back Category', id, {
             workflow_state: "Vendor Selected",
             item_list: orderData.item_list,
-            vendor: orderData.vendor
         })
             .then(() => {
                 console.log("item", id)
@@ -111,25 +110,27 @@ export const SentBackSelectVendor = () => {
                 console.log("submit_error", submit_error)
             })
     }
+    console.log(orderData)
 
-    useEffect(() => {
-        setOrderData(prevState => ({
-            ...prevState,
-            vendor: selectedVendors[curCategory]
-        }));
-    }, [selectedVendors]);
+    // useEffect(() => {
+    //     setOrderData(prevState => ({
+    //         ...prevState,
+    //         vendor: selectedVendors[curCategory]
+    //     }));
+    // }, [selectedVendors]);
 
     const handleUpdateOrderData = () => {
         setPage('approvequotation')
         setOrderData(prevState => {
             const updatedItemList = prevState.item_list.list.map((item) => {
                 const newPrice = quotation_request_list.find(value =>
-                    value.item === item.name && value.vendor === prevState.vendor && value.procurement_task === prevState.procurement_request
+                    value.item === item.name && value.vendor === selectedVendors[item.name] && value.procurement_task === prevState.procurement_request
                 )?.quote
                 console.log(newPrice)
                 return {
                     ...item,
-                    quote: newPrice
+                    quote: newPrice,
+                    vendor: selectedVendors[item.name]
                 };
             });
             return {
@@ -151,7 +152,6 @@ export const SentBackSelectVendor = () => {
         const key = generateVendorItemKey(vendor, item);
         return priceMap.get(key) ? priceMap.get(key) : "-";
     };
-    console.log(priceMap)
     useEffect(() => {
         const newPriceMap = new Map<string, string>();
         quotation_request_list?.forEach((item) => {
@@ -162,24 +162,7 @@ export const SentBackSelectVendor = () => {
         });
         setPriceMap(newPriceMap);
     }, [quotation_request_list, orderData]);
-    // const getLowest = (cat: string) => {
-    //     let price: number = 100000000;
-    //     let vendor: string = '';
-    //     selectedCategories[cat]?.map((ven) => {
-    //         let total: number = 0;
-    //         quotation_request_list?.map((item) => {
-    //             if (item.vendor === ven && item.category === cat) {
-    //                 const price = getPrice(ven, cat);
-    //                 total += price ? parseFloat(price) : 0;
-    //             }
-    //         })
-    //         if (total < price) {
-    //             price = total;
-    //             vendor = ven;
-    //         }
-    //     })
-    //     return { quote: price, vendor_id: vendor }
-    // }
+
     const getPackage = (name: string) => {
         return procurement_request_list?.find(item => item.name === name)?.work_package;
     }
@@ -188,14 +171,14 @@ export const SentBackSelectVendor = () => {
         const item = quotation_request_list?.find(item => item.vendor === vendor && item.category === category && item.procurement_task === orderData?.procurement_request)
         return item?.lead_time;
     }
-    const getSelectedVendor = (cat: string) => {
-        return selectedVendors[cat] ? getVendorName(selectedVendors[cat]) : ""
+    const getSelectedVendor = (item: string) => {
+        return selectedVendors[item] ? getVendorName(selectedVendors[item]) : ""
     }
 
     const getTotal = (cat: string) => {
         let total: number = 0;
         orderData.item_list?.list.map((item) => {
-            const price = getPrice(selectedVendors[cat], item.name);
+            const price = getPrice(selectedVendors[item.name], item.name);
             total += (price ? parseFloat(price) : 0) * item.quantity;
         })
         return total
@@ -219,7 +202,7 @@ export const SentBackSelectVendor = () => {
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
-                            {/* <ArrowLeft onClick={() => navigate('/sent-back-request')} /> */}
+                            <ArrowLeft onClick={() => navigate(`/sent-back-request/${id}`)} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Select Vendor</h2>
                         </div>
                         <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
@@ -262,7 +245,7 @@ export const SentBackSelectVendor = () => {
                                                 {selectedCategories[curCategory]?.map((item) => {
                                                     const isSelected = selectedVendors[curCategory] === item;
                                                     const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                    return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}><input className="mr-2" type="radio" id={item} name={curCategory} value={item} onChange={handleChangeWithParam(curCategory, item)} />{getVendorName(item).length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
+                                                    return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}>{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
                                                         <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory)} Days</div>
                                                     </th>
                                                 })}
@@ -278,7 +261,6 @@ export const SentBackSelectVendor = () => {
                                                 let minQuote;
                                                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
-                                                console.log("item", item)
                                                 return <tr>
                                                     <td className="py-2 text-sm px-2 font-semibold border-b w-[40%]">
                                                         {item.item}
@@ -286,9 +268,10 @@ export const SentBackSelectVendor = () => {
                                                     {selectedCategories[curCategory]?.map((value) => {
                                                         const price = getPrice(value, item.name);
                                                         // total += (price ? parseFloat(price) : 0)*item.quantity;
-                                                        const isSelected = selectedVendors[curCategory] === value;
+                                                        const isSelected = selectedVendors[item.name] === value;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                         return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
+                                                            <input className="mr-2" type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
                                                             {price * item.quantity}
                                                         </td>
                                                     })}
@@ -313,15 +296,16 @@ export const SentBackSelectVendor = () => {
                                 </CardHeader>
                             </Card>
                         </div>
+                        <div className="pt-10"></div>
+                        <div className='pt-12 fixed bottom-4'>
+                            <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => navigate(`/sent-back-request/${id}`)}>
+                                Edit Price
+                            </Button>
+                        </div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            {Object.keys(selectedVendors).length > 0 ?
-                                <Button onClick={() => handleUpdateOrderData()}>
-                                    Confirm
-                                </Button>
-                                :
-                                <Button disabled={true}>
-                                    Confirm
-                                </Button>}
+                            <Button onClick={() => handleUpdateOrderData()}>
+                                Confirm
+                            </Button>
                         </div>
 
                     </div>
@@ -360,16 +344,16 @@ export const SentBackSelectVendor = () => {
                             <Card className="flex w-1/2 shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
-                                        <div className="text-sm text-gray-400">Selected Vendor</div>
+                                        {/* <div className="text-sm text-gray-400">Selected Vendor</div> */}
                                         <div className="flex justify-between border-b">
-                                            <div className="font-bold text-lg py-2 border-gray-200">{getVendorName(selectedVendors[curCategory])}</div>
+                                            <div className="font-bold text-lg py-2 border-gray-200">Total</div>
                                             <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
                                         </div>
                                     </CardTitle>
                                     {orderData.item_list?.list.map((item) => {
                                         if (count === 2) { return }
                                         count++;
-                                        const price = getPrice(selectedVendors[curCategory], item.name);
+                                        const price = getPrice(selectedVendors[item.name], item.name);
                                         return <div className="flex justify-between py-2">
                                             <div className="text-sm">{item.item}</div>
                                             <div className="text-sm">{price * item.quantity}</div>
@@ -380,20 +364,21 @@ export const SentBackSelectVendor = () => {
                                             <DialogTrigger asChild>
                                                 <div className="text-sm text-blue-500 cursor-pointer">View All</div>
                                             </DialogTrigger>
-                                            <DialogContent className="sm:max-w-[425px] md:max-w-[575px]">
+                                            <DialogContent className="sm:max-w-[425px] md:max-w-[675px]">
                                                 <DialogHeader>
                                                     <DialogTitle>Items List</DialogTitle>
                                                     <DialogDescription>
-                                                        <div className="grid grid-cols-8 font-medium text-black justify-between">
+                                                        <div className="grid grid-cols-10 font-medium text-black justify-between">
                                                             <div className="text-sm col-span-2 border p-2">Items</div>
                                                             <div className="text-sm border p-2">Qty</div>
                                                             <div className="text-sm border p-2">Unit</div>
                                                             <div className="text-sm border p-2">Rate</div>
                                                             <div className="text-sm border p-2">Amount</div>
+                                                            <div className="text-sm col-span-2 border p-2">Selected Vendor</div>
                                                             <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
                                                         </div>
                                                         {orderData.item_list?.list.map((item) => {
-                                                            const price = getPrice(selectedVendors[curCategory], item.name);
+                                                            const price = getPrice(selectedVendors[item.name], item.name);
 
                                                             const quotesForItem = quote_data
                                                                 ?.filter(value => value.item === item.name && value.quote != null)
@@ -401,12 +386,13 @@ export const SentBackSelectVendor = () => {
                                                             let minQuote;
                                                             if (quotesForItem) minQuote = Math.min(...quotesForItem);
 
-                                                            return <div className="grid grid-cols-8">
+                                                            return <div className="grid grid-cols-10">
                                                                 <div className="text-sm col-span-2 border p-2">{item.item}</div>
                                                                 <div className="text-sm border p-2">{item.quantity}</div>
                                                                 <div className="text-sm border p-2">{item.unit}</div>
                                                                 <div className="text-sm border p-2">{price}</div>
                                                                 <div className="text-sm border p-2">{price * item.quantity}</div>
+                                                                <div className="text-sm col-span-2 border p-2">{getVendorName(selectedVendors[item.name])}</div>
                                                                 <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
                                                             </div>
                                                         })}

@@ -14,7 +14,7 @@ interface Category {
 export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'vendor', 'creation', 'item_list'],
+            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'item_list'],
             filters: [["name", "=", sb_id]],
             limit: 100
         });
@@ -31,7 +31,7 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
     }
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'quote', 'project', 'item', 'category', 'vendor', 'procurement_task'],
+            fields: ['name', 'lead_time', 'quote', 'item', 'category', 'vendor', 'procurement_task'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
             limit: 1000
         });
@@ -49,6 +49,10 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
             limit: 100
+        });
+    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+        {
+            fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
         });
 
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
@@ -120,12 +124,14 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
 
     const vendor_name = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_name;
     const vendor_address = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_address;
-    const delivery_time = quotation_request_list?.find(item => item.vendor === vendor_id).lead_time
+    const doc = address_list?.find(item => item.name == vendor_address);
+    const address = `${doc?.address_title}, ${doc?.address_line1}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+    const delivery_time = quotation_request_list?.find(item => item.vendor === vendor_id)?.lead_time
 
     return (
         <div>
             <div className="font-bold text-black text-lg">{vendor_name}</div>
-            <div className="text-gray-500 text-sm">{vendor_address}</div>
+            <div className="text-gray-500 text-sm">{address}</div>
             <div className="flex justify-between py-4">
                 <div className="w-[48%]">
                     <div className="text-gray-500 text-sm">Attach File</div>

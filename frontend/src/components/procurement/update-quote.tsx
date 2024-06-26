@@ -53,7 +53,7 @@ export const UpdateQuote = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'project', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
+            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
             filters: [["procurement_task", "=", orderId]],
             limit: 1000
         });

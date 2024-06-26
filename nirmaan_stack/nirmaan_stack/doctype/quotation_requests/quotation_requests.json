@@ -8,7 +8,6 @@
  "field_order": [
   "rfq_links_section",
   "procurement_task",
-  "project",
   "category",
   "item",
   "vendor",
@@ -21,7 +20,7 @@
   "quote",
   "comments",
   "attachment",
-  "is_selected"
+  "status"
  ],
  "fields": [
   {
@@ -34,12 +33,6 @@
    "fieldtype": "Link",
    "label": "Procurement Task",
    "options": "Procurement Requests"
-  },
-  {
-   "fieldname": "project",
-   "fieldtype": "Link",
-   "label": "Project",
-   "options": "Projects"
   },
   {
    "fieldname": "category",
@@ -105,15 +98,15 @@
    "label": "Attachment"
   },
   {
-   "default": "False",
-   "fieldname": "is_selected",
+   "default": "Pending",
+   "fieldname": "status",
    "fieldtype": "Data",
-   "label": "Is Selected"
+   "label": "Status"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-06-07 17:50:01.089563",
+ "modified": "2024-06-25 21:35:26.487653",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Quotation Requests",

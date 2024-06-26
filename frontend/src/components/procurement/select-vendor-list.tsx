@@ -1,7 +1,6 @@
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { MainLayout } from "../layout/main-layout";
-import { useUserData } from "@/hooks/useUserData";
 import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
@@ -20,17 +19,15 @@ type PRTable = {
 
 
 export const SelectVendorList = () => {
-    const userData = useUserData();
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
-            filters: [["workflow_state", "=", "Quote Updated"], ["procurement_executive", "=", userData.user_id]],
+            filters: [["workflow_state", "=", "Quote Updated"]],
             limit: 100
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
-        filters: [["project_lead", "=", userData.user_id]]
     })
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []

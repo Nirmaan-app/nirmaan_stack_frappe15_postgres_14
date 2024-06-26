@@ -123,25 +123,24 @@ export default function SentBackVendorForm({ sent_back_data, quotation_request_l
             //             })
             //     })
             // })
-            .then((doc)=>{
+            .then((doc) => {
                 sent_back_data.item_list?.list.map((value) => {
                     const newItem = {
                         procurement_task: sent_back_data.procurement_request,
-                        project: sent_back_data.project_name,
                         category: sent_back_data.category,
                         item: value.name,
                         vendor: doc.name,
                         quantity: value.quantity
                     }
                     createDoc("Quotation Requests", newItem)
-                    .then(()=>{
-                        quotation_request_list_mutate()
-                        vendor_list_mutate()
-                        console.log(newItem)
-                    })
-                    .catch(()=>{
-                        console.log(submit_error)
-                    })
+                        .then(() => {
+                            quotation_request_list_mutate()
+                            vendor_list_mutate()
+                            console.log(newItem)
+                        })
+                        .catch(() => {
+                            console.log(submit_error)
+                        })
 
                 })
             })
@@ -149,7 +148,7 @@ export default function SentBackVendorForm({ sent_back_data, quotation_request_l
                 console.log(submit_error)
             })
 
-            
+
 
 
     }
@@ -159,9 +158,9 @@ export default function SentBackVendorForm({ sent_back_data, quotation_request_l
     })) || [];
 
     const category_options: SelectOption[] = category_list?.map(item => ({
-            label: item.category_name,
-            value: item.category_name
-        })) || [];
+        label: item.category_name,
+        value: item.category_name
+    })) || [];
     const [categories, setCategories] = useState()
     const handleChange = (selectedOptions) => {
         setCategories(selectedOptions)
