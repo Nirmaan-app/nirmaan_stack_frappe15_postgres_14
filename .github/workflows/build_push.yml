@@ -31,7 +31,7 @@ jobs:
           {
             "url": "https://github.com/Nirmaan-app/Frappe-attachments-s3.git",
             "branch": "master"
-          },
+          }
         ]'
         echo "APPS_JSON_BASE64=$(echo ${APPS_JSON} | base64 -w 0)" >> $GITHUB_ENV
     - name: Set up QEMU
