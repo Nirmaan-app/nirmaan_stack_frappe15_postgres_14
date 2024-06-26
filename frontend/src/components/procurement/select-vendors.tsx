@@ -7,6 +7,7 @@ import { useState, useEffect } from "react"
 import { MainLayout } from '../layout/main-layout';
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogDescription,
     DialogHeader,
@@ -205,7 +206,7 @@ export const SelectVendors = () => {
 
     const getLowest2 = (item: string) => {
         const quotesForItem = quotation_request_list
-            ?.filter(value => value.item === item && value.quote != null)
+            ?.filter(value => value.item === item && value.quote)
             ?.map(value => value.quote);
         let minQuote;
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -217,7 +218,7 @@ export const SelectVendors = () => {
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat) {
                 const quotesForItem = quote_data
-                    ?.filter(value => value.item === item.name && value.quote != null)
+                    ?.filter(value => value.item === item.name && value.quote)
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -338,7 +339,7 @@ export const SelectVendors = () => {
                                             <tbody className="bg-white divide-y divide-gray-200">
                                                 {orderData?.procurement_list?.list.map((item) => {
                                                     const quotesForItem = quote_data
-                                                        ?.filter(value => value.item === item.name && value.quote != null)
+                                                        ?.filter(value => value.item === item.name && value.quote)
                                                         ?.map(value => value.quote);
                                                     let minQuote;
                                                     if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -478,7 +479,7 @@ export const SelectVendors = () => {
                                                                     const lowest2 = getLowest2(item.name)
 
                                                                     const quotesForItem = quote_data
-                                                                        ?.filter(value => value.item === item.name && value.quote != null)
+                                                                        ?.filter(value => value.item === item.name && value.quote)
                                                                         ?.map(value => value.quote);
                                                                     let minQuote;
                                                                     if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -560,7 +561,9 @@ export const SelectVendors = () => {
                                             Click on Confirm to Approve.
                                         </DialogDescription>
                                     </DialogHeader>
+                                    <DialogClose>
                                     <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                    </DialogClose>
                                 </DialogContent>
                             </Dialog>
                         </div>

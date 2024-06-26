@@ -50,10 +50,6 @@ export const NewPR = () => {
             limit: 100
         });
 
-    // console.log(category_list);
-    // console.log(item_list);
-    // console.log(procurement_request_list?.length);
-
     interface Category {
         name: string;
     }
@@ -211,19 +207,6 @@ export const NewPR = () => {
             },
         }));
     }, [orderData.procurement_list]);
-
-    useEffect(() => {
-        const curProject = project_list?.find(proj => proj.name === id);
-
-        if (curProject) {
-            setOrderData(prevData => ({
-                ...prevData,
-                project_lead: curProject.project_lead,
-                procurement_executive: curProject.procurement_lead
-            }));
-        }
-    }, [project_list, orderData]);
-
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const handleSubmit = () => {

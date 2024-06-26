@@ -40,6 +40,7 @@ import { ApproveVendor } from './pages/approve-vendor'
 import { NewPR } from './components/new-pr'
 import { PRSummary } from './components/pr-summary'
 import { UserForm } from './pages/user-form'
+import Items from './pages/items'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -73,6 +74,7 @@ const router = createBrowserRouter(
 				<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
 				<Route path="release-po" element={<ReleasePOSelect />} />
 				<Route path="/release-po/:id" element={<ReleasePO />} />
+				<Route path="/items" element={<Items/>} />
 
 				<Route path="projects">
 					<Route index element={<Projects />} />

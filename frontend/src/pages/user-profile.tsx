@@ -14,7 +14,6 @@ import {
 import imageUrl from "@/assets/user-icon.jpeg"
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { map } from "zod";
 import { useState } from "react";
 import { DialogClose } from "@radix-ui/react-dialog";
 
