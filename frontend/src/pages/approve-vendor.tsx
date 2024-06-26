@@ -33,7 +33,7 @@ export const ApproveVendor = () => {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'procurement_executive'],
+            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
             limit: 100
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
@@ -175,7 +175,6 @@ export const ApproveVendor = () => {
             },
             lead_time: delivery_time,
             comments: comment,
-            procurement_executive: orderData.procurement_executive,
             type: "Rejected"
         }
         if (itemlist.length > 0) {
@@ -229,44 +228,6 @@ export const ApproveVendor = () => {
         setApprovedItems({
             list: newItems
         })
-
-        // const order_list = {
-        //     list: []
-        // };
-        // quotation_request_list?.map((value) => {
-        //     const isSelected = selectedItem.list.some(item => item.name === value.item);
-        //     if (value.category === cat && !isSelected) {
-        //         const newItem = {
-        //             name: value.item,
-        //             item: getItem(value.item),
-        //             unit: getUnit(value.item),
-        //             quantity: value.quantity,
-        //             quote: value.quote
-        //         }
-        //         order_list.list.push(newItem)
-        //     }
-        // })
-        // const newProcurementOrder = {
-        //     procurement_request: orderId,
-        //     project: orderData.project,
-        //     project_name: getProjectName(orderData.project),
-        //     project_address: getProjectAddress(orderData.project),
-        //     category: cat,
-        //     vendor: selectedVendors[cat],
-        //     vendor_name: getVendorName(selectedVendors[cat]),
-        //     vendor_address: getVendorAddress(selectedVendors[cat]),
-        //     vendor_gst: getVendorGST(selectedVendors[cat]),
-        //     order_list: order_list
-        // }
-        // if (order_list.list.length > 0) {
-        //     createDoc('Procurement Orders', newProcurementOrder)
-        //         .then(() => {
-        //             console.log(newProcurementOrder);
-        //         })
-        //         .catch(() => {
-        //             console.log("submit_error", submit_error);
-        //         })
-        // }
     }
 
 
@@ -300,8 +261,7 @@ export const ApproveVendor = () => {
                     list: itemlist
                 },
                 lead_time: delivery_time,
-                comments: comment,
-                procurement_executive: orderData.procurement_executive
+                comments: comment
             };
 
             const createDocPromise = createDoc('Sent Back Category', newSendBack)
@@ -628,12 +588,14 @@ export const ApproveVendor = () => {
         })
         if (price != 100000000) return { quote: price, vendor: vendor }
     }
+    // console.log(quotation_request_list2)
 
     const getLowest2 = (item: string) => {
         const quotesForItem = quotation_request_list2
-            ?.filter(value => value.item === item && value.quote != null)
+            ?.filter(value => value.item === item && value.quote)
             ?.map(value => value.quote);
         let minQuote;
+        console.log(item,quotesForItem)
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
         return minQuote;
     }
@@ -643,7 +605,7 @@ export const ApproveVendor = () => {
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat) {
                 const quotesForItem = quote_data
-                    ?.filter(value => value.item === item.name && value.quote != null)
+                    ?.filter(value => value.item === item.name && value.quote)
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -752,7 +714,7 @@ export const ApproveVendor = () => {
                                                             const lowest2 = getLowest2(item.name)
 
                                                             const quotesForItem = quote_data
-                                                                ?.filter(value => value.item === item.name && value.quote != null)
+                                                                ?.filter(value => value.item === item.name && value.quote)
                                                                 ?.map(value => value.quote);
                                                             let minQuote;
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -843,7 +805,7 @@ export const ApproveVendor = () => {
                                                             total += price ? parseFloat(price) : 0;
 
                                                             const quotesForItem = quote_data
-                                                                ?.filter(value => value.item === item.name && value.quote != null)
+                                                                ?.filter(value => value.item === item.name && value.quote)
                                                                 ?.map(value => value.quote);
                                                             let minQuote;
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
