@@ -1,7 +1,7 @@
 // import { useState } from 'react'
 import { FrappeProvider } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
-import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
+import { Route, RouterProvider, createBrowserRouter, createHashRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
 import Login from './pages/auth/old-login'
 import Projects from './pages/projects'
@@ -84,7 +84,7 @@ const router = createBrowserRouter(
 
 				<Route path="projects">
 					<Route index element={<Projects />} />
-					<Route path="edit" element={<EditProject />} />
+					<Route path="new" element={<EditProject />} />
 					<Route
 						path=":projectId"
 						// loader={(({ params }) => {
@@ -93,7 +93,7 @@ const router = createBrowserRouter(
 						// action={(({ params }) => {})}
 						lazy={() => import('@/pages/project')}
 					/>
-					<Route path="edit-one/:projectId" element={<EditProjectForm />} />
+					<Route path=":projectId/edit" element={<EditProjectForm />} />
 				</Route>
 				<Route path="users">
 					<Route index element={<Users />} />

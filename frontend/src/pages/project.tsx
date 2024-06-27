@@ -1,19 +1,19 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumb"
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
-import { NavBar } from "@/components/nav/nav-bar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Projects } from "@/types/NirmaanStack/Projects"
 import { ColumnDef } from "@tanstack/react-table"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
-import { HardHat } from "lucide-react"
+import { ArrowLeft, HardHat } from "lucide-react"
 import { useMemo } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 import React from 'react';
+import { MainLayout } from "@/components/layout/main-layout"
 
 interface WPN {
     name: string
@@ -38,6 +38,8 @@ const Project = () => {
 export const Component = Project
 
 const ProjectView = ({ projectId }: { projectId: string }) => {
+
+    const navigate = useNavigate();
 
     const columns: ColumnDef<ScopesMilestones>[] = useMemo(
         () => [
@@ -135,28 +137,27 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
         documentTitle: `${formattedDate}_${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
-    }); 
+    });
     const componentRef2 = React.useRef();
     const handlePrint2 = useReactToPrint({
         content: () => componentRef2.current,
         documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
-    }); 
+    });
 
 
     const { data: mile_data, isLoading: mile_isloading, error: mile_error } = useFrappeGetDocList("Project Work Milestones", {
-        fields: ["work_package", "scope_of_work", "milestone","start_date","end_date"],
+        fields: ["work_package", "scope_of_work", "milestone", "start_date", "end_date"],
         filters: [["project", "=", `${data?.name}`]],
         limit: 1000
     })
 
-    
+
     if (isValidating || mile_isloading) return <h1>Loading...</h1>
     if (error || mile_error) return <h1>Error</h1>
     return (
-        <>
-            <NavBar />
-            <div className="flex-1 space-y-4 p-8 pt-6">
-                <div className="flex items-center justify-between space-y-2">
+        <MainLayout>
+            <div className="flex-1 space-y-4 p-8 pt-4">
+                {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
                             <Link to="/" className="md:text-base text-sm">Dashboard</Link>
@@ -170,22 +171,25 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                             </Link>
                         </BreadcrumbItem>
                     </Breadcrumb>
-                </div>
+                </div> */}
                 {(isValidating) && (<p>Loading</p>)}
                 {error && <p>Error</p>}
                 {data &&
                     <>
                         <div className="flex items-center justify-between space-y-2">
-                            <h2 className="text-3xl font-bold tracking-tight">{data.project_name}</h2>
+                            <div className="flex">
+                                <ArrowLeft className="mt-1.5" onClick={() => navigate("/projects")} />
+                                <h2 className="pl-1 text-2xl font-bold tracking-tight">{data.project_name}</h2>
+                            </div>
                             <div className="flex space-x-2">
                                 <Button onClick={handlePrint}>
-                                     Report
+                                    Report
                                 </Button>
                                 <Button onClick={handlePrint2}>
-                                     Schedule
+                                    Schedule
                                 </Button>
                                 <Button asChild>
-                                    <Link to={`/projects/edit-one/${projectId}`}> Edit Project</Link>
+                                    <Link to={`/projects/${projectId}/edit`}> Edit Project</Link>
                                 </Button>
                             </div>
                         </div>
@@ -296,29 +300,29 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                         </div>
                     </>
                 }
-                 <div className="hidden">
+                <div className="hidden">
                     <div ref={componentRef} className="px-4 pb-1">
-                    <div className="overflow-x-auto">
+                        <div className="overflow-x-auto">
                             <table className="w-full my-4">
                                 <thead className="w-full">
                                     <tr>
                                         <th colSpan="6" className="p-0">
-                                        <div className="mt-1 flex justify-between">
-                                            <div>
-                                                <img className="w-44" src={redlogo} alt="Nirmaan" />
-                                                <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                                            <div className="mt-1 flex justify-between">
+                                                <div>
+                                                    <img className="w-44" src={redlogo} alt="Nirmaan" />
+                                                    <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                                                </div>
                                             </div>
-                                        </div>
                                         </th>
                                     </tr>
                                     <tr>
                                         <th colSpan="6" className="p-0">
-                                        <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
-                                            <div className="flex justify-between">
-                                                <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
-                                                <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                            <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
+                                                <div className="flex justify-between">
+                                                    <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                                                    <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                                </div>
                                             </div>
-                                        </div>
                                         </th>
                                     </tr>
                                     <tr>
@@ -350,8 +354,8 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                        {mile_data?.map((item)=>
-                                            {return <tr className="">
+                                    {mile_data?.map((item) => {
+                                        return <tr className="">
                                             <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
                                             <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
                                                 {item.scope_of_work}
@@ -360,33 +364,34 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                                             <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.start_date}</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.end_date}</td>
                                             <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">Pending</td>
-                                        </tr>})}
+                                        </tr>
+                                    })}
                                 </tbody>
                             </table>
                         </div>
                     </div>
                     <div ref={componentRef2} className="px-4 pb-1">
-                    <div className="overflow-x-auto">
+                        <div className="overflow-x-auto">
                             <table className="w-full">
                                 <thead className="w-full">
                                     <tr>
                                         <th colSpan="5" className="p-0">
-                                        <div className="mt-1 flex justify-between">
-                                            <div>
-                                                <img className="w-44" src={redlogo} alt="Nirmaan" />
-                                                <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                                            <div className="mt-1 flex justify-between">
+                                                <div>
+                                                    <img className="w-44" src={redlogo} alt="Nirmaan" />
+                                                    <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                                                </div>
                                             </div>
-                                        </div>
                                         </th>
                                     </tr>
                                     <tr>
                                         <th colSpan="5" className="p-0">
-                                        <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
-                                            <div className="flex justify-between">
-                                                <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
-                                                <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                            <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
+                                                <div className="flex justify-between">
+                                                    <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                                                    <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                                </div>
                                             </div>
-                                        </div>
                                         </th>
                                     </tr>
                                     <tr>
@@ -416,8 +421,8 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                        {mile_data?.map((item)=>
-                                            {return <tr className="">
+                                    {mile_data?.map((item) => {
+                                        return <tr className="">
                                             <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
                                             <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
                                                 {item.scope_of_work}
@@ -425,16 +430,17 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                                             <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.start_date}</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.end_date}</td>
-                                        </tr>})}
+                                        </tr>
+                                    })}
                                 </tbody>
                             </table>
                         </div>
                     </div>
                 </div>
-                <div className="container mx-auto py-10">
+                <div className="mx-auto py-10">
                     <DataTable columns={columns} data={mile_data || []} />
                 </div>
             </div >
-        </>
+        </MainLayout>
     )
 }
