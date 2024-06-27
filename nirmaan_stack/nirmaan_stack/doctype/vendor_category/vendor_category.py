@@ -16,3 +16,8 @@ def generate_vendor_category(vendor, method=None):
 		doc.category=category
 		doc.vendor_name=vendor.vendor_name
 		doc.insert(ignore_permissions=True)
+
+def delete_vendor_category(vendor, method=None):
+	frappe.db.delete("Vendor Category", {
+		"vendor": vendor.name
+	})
