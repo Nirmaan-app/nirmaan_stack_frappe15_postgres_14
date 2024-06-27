@@ -15,7 +15,7 @@ export function MainNav({
                 to="/"
                 className="text-sm font-medium transition-colors hover:text-primary"
             >
-                <img className="col-span-2 max-h-8 md:max-h-12 w-36 md:w-full object-contain lg:col-span-1 ml-9 md:ml-0" src={logo} alt="" width="158" height="48" />
+                <img className="col-span-2 max-h-8 md:max-h-12 w-36 md:w-full object-contain lg:col-span-1 ml-0 md:ml-0" src={logo} alt="" width="158" height="48" />
             </Link>
 
         </nav>

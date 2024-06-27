@@ -29,7 +29,7 @@ export function Sidebar({ className }: SidebarProps) {
 
     return (
         <>
-            <Button
+            {/* <Button
                 variant="secondary"
                 size="sm"
                 className="md:hidden p-2 fixed top-4 left-4 z-50"
@@ -37,7 +37,7 @@ export function Sidebar({ className }: SidebarProps) {
                 aria-label="Toggle Menu"
             >
                 {isSidebarOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-            </Button>
+            </Button> */}
 
             <div
                 className={cn(
