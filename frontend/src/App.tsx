@@ -44,6 +44,7 @@ import Items from './pages/items'
 
 import Vendors from './pages/vendors'
 
+import { NewVendor } from './pages/new-vendor'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -98,7 +99,9 @@ const router = createBrowserRouter(
 				<Route path="users">
 					<Route index element={<Users />} />
 				</Route>
-				<Route path="/users/edit" element={<UserForm />} />
+				<Route path="/users/edit" element={<UserForm/>} />
+				<Route path="/vendors/edit" element={<NewVendor/>} />
+
 
 				<Route path="roles">
 					<Route index element={<Roles />} />

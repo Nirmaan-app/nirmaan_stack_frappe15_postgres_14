@@ -1,31 +1,21 @@
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
-import { useState } from "react"
-
 import * as z from "zod"
-
-import { Button } from "@/components/ui/button"
-import {
-    Form,
-    FormControl,
-    FormField,
-    FormItem,
-    FormLabel,
-    FormMessage,
-} from "@/components/ui/form"
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { MainLayout } from "@/components/layout/main-layout"
+import { Separator } from "@/components/ui/separator"
+import { Button } from "@/components/ui/button"
+import { ButtonLoading } from "@/components/button-loading"
 import ReactSelect from 'react-select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { AddressForm } from "../components/address-form"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { DialogClose } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk"
-import { ButtonLoading } from "../button-loading"
-import { AddressForm } from "../address-form"
-import { Separator } from "@radix-ui/react-dropdown-menu"
+import { useState } from "react"
+import { Navigate, useNavigate } from "react-router-dom"
 
-
-// 1.a Create Form Schema accordingly
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z
         .string({
@@ -67,16 +57,15 @@ const VendorFormSchema = z.object({
     //     .array(z.string())
 })
 
+type VendorFormValues = z.infer<typeof VendorFormSchema>
+
 interface SelectOption {
     label: string;
     value: string;
 }
 
-type VendorFormValues = z.infer<typeof VendorFormSchema>
-
-export default function VendorForm({ vendor_category_mutate, vendor_list_mutate, work_package }) {
-    // 1.b Define your form.
-    // Has handleSubmit, control functions
+export const NewVendor = () => {
+    const navigate = useNavigate()
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
         defaultValues: {
@@ -95,46 +84,29 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
         });
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    // 2. Define a submit handler.
+
     function onSubmit(values: z.infer<typeof VendorFormSchema>) {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
         let category_json = Object.values(categories).map((object) => { return object["value"] })
         console.log(category_json)
         createDoc('Vendors', { ...values, vendor_category: { "categories": category_json } })
-            // .then((doc) => {
-            //     console.log("values", values)
-            //     console.log("doc", doc)
-            //     categories.map((cat) => {
-            //         const vendor_category = {
-            //             vendor: doc.name,
-            //             category: cat.value,
-            //             vendor_name: doc.vendor_name
-            //         }
-            //         createDoc('Vendor Category', vendor_category)
-            //             .then(() => {
-            //                 console.log(vendor_category)
-            //                 vendor_category_mutate()
-            //                 vendor_list_mutate()
-            //             })
-            //             .catch(() => {
-            //                 console.log(submit_error)
-            //             })
-            //     })
-            // })
+            .then((doc) => {
+                navigate("/vendors")
+            })
             .catch(() => {
                 console.log(submit_error)
             })
 
     }
+
     const options: SelectOption[] = address?.map(item => ({
         label: item.name,
         value: item.name
     })) || [];
 
     const category_options: SelectOption[] = category_list
-        ?.filter(item => item.work_package === work_package)
-        .map(item => ({
+        ?.map(item => ({
             label: item.category_name,
             value: item.category_name
         })) || [];
@@ -143,16 +115,17 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
         setCategories(selectedOptions)
         console.log(categories)
     }
-
-    function closewindow() {
-        var button = document.getElementById('dialogClose');
-        vendor_category_mutate();
-        vendor_list_mutate();
-        button.click();
-    }
-
+    
     return (
-        // <ScrollArea className="h-[450px] w-[600px] rounded-md border p-4">
+        <MainLayout>
+        <div className="p-4">
+        <div className="space-y-0.5">
+            <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
+            <p className="text-muted-foreground">
+                Fill out this to create a new Vendor
+            </p>
+        </div>
+        <Separator className="my-6" />
         <Form {...form}>
             <form onSubmit={(event) => {
                 event.stopPropagation();
@@ -172,20 +145,6 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
 
                     )}
                 />
-                {/* <FormField
-                    control={form.control}
-                    name="vendor_address"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Vendor Address</FormLabel>
-                            <FormControl>
-                                <Input placeholder="Company Address" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-
-                    )}
-                /> */}
                 <FormField
                     control={form.control}
                     name="vendor_address"
@@ -296,12 +255,11 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     <ReactSelect options={category_options} onChange={handleChange} isMulti />
                 </div>
                 {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
-                <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose>
+                
                 <div>
                     {submit_complete &&
                         <div>
                             <div className="font-semibold text-green-500">New Vendor added</div>
-                            {closewindow()}
                         </div>
 
                     }
@@ -309,6 +267,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                 </div>
             </form>
         </Form>
-        // </ScrollArea>
+        </div>
+        </MainLayout>
     )
 }
