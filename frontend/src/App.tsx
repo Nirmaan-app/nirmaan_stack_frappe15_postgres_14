@@ -1,9 +1,9 @@
 // import { useState } from 'react'
 import { FrappeProvider } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
-import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
+import { Route, RouterProvider, createBrowserRouter, createHashRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
-// import Login from './pages/login'
+import Login from './pages/auth/old-login'
 import Projects from './pages/projects'
 import Customers from './pages/customers'
 import WorkPackages from './pages/work-packages'
@@ -41,7 +41,9 @@ import { NewPR } from './components/new-pr'
 import { PRSummary } from './components/pr-summary'
 import { UserForm } from './pages/user-form'
 import Items from './pages/items'
+
 import Vendors from './pages/vendors'
+
 import { NewVendor } from './pages/new-vendor'
 // import { NewMilestone } from './components/new-milestone'
 
@@ -49,8 +51,8 @@ import { NewVendor } from './pages/new-vendor'
 const router = createBrowserRouter(
 	createRoutesFromElements(
 		<>
-			<Route path='/login' lazy={() => import('@/pages/auth/Login')} />
-			{/* <Route path='/login' element={<Login />} /> */}
+			{/* <Route path='/login' lazy={() => import('@/pages/auth/Login')} /> */}
+			<Route path='/login' element={<Login />} />
 			<Route path='/forgot-password' lazy={() => import('@/pages/auth/forgot-password')} />
 			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
@@ -76,12 +78,14 @@ const router = createBrowserRouter(
 				<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
 				<Route path="release-po" element={<ReleasePOSelect />} />
 				<Route path="/release-po/:id" element={<ReleasePO />} />
-				<Route path="/items" element={<Items/>} />
-				<Route path="/vendors" element={<Vendors/>} />
+				<Route path="/items" element={<Items />} />
+
+				<Route path="/vendors" element={<Vendors />} />
+
 
 				<Route path="projects">
 					<Route index element={<Projects />} />
-					<Route path="edit" element={<EditProject />} />
+					<Route path="new" element={<EditProject />} />
 					<Route
 						path=":projectId"
 						// loader={(({ params }) => {
@@ -90,13 +94,14 @@ const router = createBrowserRouter(
 						// action={(({ params }) => {})}
 						lazy={() => import('@/pages/project')}
 					/>
-					<Route path="edit-one/:projectId" element={<EditProjectForm />} />
+					<Route path=":projectId/edit" element={<EditProjectForm />} />
 				</Route>
 				<Route path="users">
 					<Route index element={<Users />} />
 				</Route>
 				<Route path="/users/edit" element={<UserForm/>} />
 				<Route path="/vendors/edit" element={<NewVendor/>} />
+
 
 				<Route path="roles">
 					<Route index element={<Roles />} />
