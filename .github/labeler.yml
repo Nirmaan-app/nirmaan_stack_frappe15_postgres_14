@@ -4,4 +4,4 @@
 
 # Add 'backend' label to all PRs that touch json / py files in the 'raven' directory.
 "backend":
-  - "raven/**/*.{json,py}"
+  - "nirmaan_stack/**/*.{json,py}"
