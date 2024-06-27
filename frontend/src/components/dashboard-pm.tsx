@@ -171,7 +171,7 @@ export const ProjectManager = () => {
 
                     </div>}
                     <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                        <Button className="font-normal py-2 px-6">
+                        {orderData.project && <Button className="font-normal py-2 px-6">
                             <Link to={`/new-pr/${orderData.project}`}>
                                 <div className="flex">
                                     <CirclePlus className="w-5 h-5 mt- pr-1" />
@@ -179,7 +179,7 @@ export const ProjectManager = () => {
                                 </div>
 
                             </Link>
-                        </Button>
+                        </Button>}
                     </div>
                 </div>
                 <div className="pt-10"></div>

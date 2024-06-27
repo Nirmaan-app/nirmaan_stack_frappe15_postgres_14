@@ -14,4 +14,6 @@ export interface Category{
 	category_name: string
 	/**	Work Package : Link - Work Packages	*/
 	work_package: string
+	/**	Image Url : Attach Image	*/
+	image_url?: string
 }
