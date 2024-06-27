@@ -99,9 +99,9 @@ const router = createBrowserRouter(
 				<Route path="users">
 					<Route index element={<Users />} />
 				</Route>
+
 				<Route path="/users/edit" element={<UserForm/>} />
 				<Route path="/vendors/edit" element={<NewVendor/>} />
-
 
 				<Route path="roles">
 					<Route index element={<Roles />} />
