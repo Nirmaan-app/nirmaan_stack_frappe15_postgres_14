@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { MainLayout } from '@/components/layout/main-layout';
 import {
     Sheet,
@@ -25,6 +25,68 @@ import {
     DialogClose
 } from "@/components/ui/dialog"
 import { TrendingDown, CheckCheck, TrendingUp } from 'lucide-react';
+import { Space, Switch, Table } from 'antd';
+import type { TableColumnsType, TableProps } from 'antd';
+
+type TableRowSelection<T> = TableProps<T>['rowSelection'];
+
+interface DataType {
+  key: React.ReactNode;
+  item: string;
+  unit: string;
+  quantity: number;
+  children?: DataType[];
+}
+
+const columns: TableColumnsType<DataType> = [
+    {
+      title: 'Items',
+      dataIndex: 'item',
+      key: 'item'
+    },
+    {
+      title: 'Unit',
+      dataIndex: 'unit',
+      key: 'unit',
+      width: '7%',
+    },
+    {
+      title: 'Quantity',
+      dataIndex: 'quantity',
+      width: '7%',
+      key: 'quantity',
+    },
+    {
+        title: 'Rate',
+        dataIndex: 'quote',
+        width: '7%',
+        key: 'quote',
+      },
+    {
+        title: 'Selected Vendor',
+        dataIndex: 'selectedVendor',
+        width: '15%',
+        key: 'quantity',
+      },
+      {
+        title: 'Amount',
+        dataIndex: 'Amount',
+        width: '10%',
+        key: 'Amount',
+      },
+      {
+        title: 'Lowest Quoted Vendor',
+        dataIndex: 'lowest2',
+        width: '10%',
+        key: 'lowest2',
+      },
+      {
+        title: '3 months Lowest Vendor',
+        dataIndex: 'lowest3',
+        width: '10%',
+        key: 'lowest3',
+      },
+  ];
 
 
 export const ApproveVendor = () => {
@@ -67,7 +129,7 @@ export const ApproveVendor = () => {
             fields: ['item', 'quote'],
             limit: 1000
         });
-
+    console.log("quotation_request_list",quotation_request_list)
 
     const [page, setPage] = useState<string>('approvequotation')
     const [orderData, setOrderData] = useState({
@@ -80,6 +142,53 @@ export const ApproveVendor = () => {
             list: []
         }
     })
+
+    const [data,setData] = useState<DataType>([]) 
+    const [checkStrictly, setCheckStrictly] = useState(false);
+    useEffect(() => {
+        if (orderData.project) {
+            const newData: DataType[] = [];
+            orderData.category_list?.list.forEach((cat) => {
+                const items: DataType[] = [];
+    
+                orderData.procurement_list?.list.forEach((item) => {
+                    if (item.category === cat.name) {
+                        items.push({
+                            item: item.item,
+                            key: item.name,
+                            unit: item.unit,
+                            quantity: item.quantity,
+                        });
+                    }
+                });
+    
+                const node: DataType = {
+                    item: cat.name,
+                    key: cat.name,
+                    unit: null,
+                    quantity: null,
+                    children: items,
+                };
+                console.log("cat.name", node);
+                newData.push(node);
+            });
+            console.log(newData)
+            setData(newData)
+        }
+    }, [orderData]);
+
+    const rowSelection: TableRowSelection<DataType> = {
+        onChange: (selectedRowKeys, selectedRows) => {
+            console.log("onChange")
+          console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+        },
+        onSelect: (record, selected, selectedRows) => {
+          console.log(record, selected, selectedRows);
+        },
+        onSelectAll: (selected, selectedRows, changeRows) => {
+          console.log(selected, selectedRows, changeRows);
+        },
+      };
 
     useEffect(() => {
         const foundItem = procurement_request_list?.find(item => item.name === orderId);
@@ -384,7 +493,7 @@ export const ApproveVendor = () => {
                         quote: price,
                         quantity: item.quantity,
                         unit: item.unit
-                    })
+                    })  
                 }
             }
         })
@@ -595,7 +704,6 @@ export const ApproveVendor = () => {
             ?.filter(value => value.item === item && value.quote)
             ?.map(value => value.quote);
         let minQuote;
-        console.log(item,quotesForItem)
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
         return minQuote;
     }
@@ -901,6 +1009,14 @@ export const ApproveVendor = () => {
                     }
                 </div>
             </div>}
+            <Space className="hidden" align="center" style={{ marginBottom: 16 }}>
+                CheckStrictly: <Switch checked={checkStrictly} onChange={setCheckStrictly} />
+            </Space>
+            <Table
+                columns={columns}
+                rowSelection={{ ...rowSelection,checkStrictly}}
+                dataSource={data}
+            />
         </MainLayout>
     )
 }
