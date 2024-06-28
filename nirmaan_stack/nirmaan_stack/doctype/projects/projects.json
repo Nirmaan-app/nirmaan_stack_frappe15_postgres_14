@@ -1,7 +1,6 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "format:{project_city}-PROJ-{####}",
  "creation": "2024-02-21 16:23:23.319390",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -13,7 +12,6 @@
   "project_timeline_section",
   "project_start_date",
   "project_end_date",
-  "project_duration",
   "project_address_details_section",
   "project_address",
   "project_city",
@@ -68,11 +66,6 @@
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Project End Date"
-  },
-  {
-   "fieldname": "project_duration",
-   "fieldtype": "Int",
-   "label": "Project Duration"
   },
   {
    "fieldname": "project_address_details_section",
@@ -147,11 +140,10 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-06-27 12:51:52.733649",
+ "modified": "2024-06-28 16:45:18.806527",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
- "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {

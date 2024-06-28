@@ -26,7 +26,7 @@ export const ProjectLeadComponent = () => {
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package']
+            fields: ['category_name', 'work_package', 'image_url']
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
@@ -265,7 +265,7 @@ export const ProjectLeadComponent = () => {
                                     return <Card className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick(item.category_name, 'itemlist')}>
                                         <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
                                             <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
-                                                <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
+                                                <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.image_url === null ? imageUrl : item.image_url} alt="Category" />
                                                 <span>{item.category_name}</span>
                                             </CardTitle>
                                             {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
@@ -516,7 +516,7 @@ export const ProjectLeadComponent = () => {
                                         </DialogDescription>
                                     </DialogHeader>
                                     <DialogClose>
-                                    <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                        <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
                                     </DialogClose>
                                 </DialogContent>
                             </Dialog>

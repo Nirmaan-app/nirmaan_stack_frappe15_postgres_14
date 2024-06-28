@@ -11,15 +11,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import ProjectTypeForm from "./project-type-form"
 import CustomerForm from "./customer-form"
 import { Separator } from "./ui/separator"
-import { AddressForm } from "./address-form"
 import { ScrollArea } from "./ui/scroll-area"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 import { cn } from "@/lib/utils"
-import { CalendarIcon } from "lucide-react"
+import { CalendarIcon, CirclePlus } from "lucide-react"
 import { Calendar } from "./ui/calendar"
 import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
 import { Checkbox } from "./ui/checkbox"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet"
 
 
 // 1.a Create Form Schema accordingly
@@ -40,10 +40,37 @@ const projectFormSchema = z.object({
         .string({
             //required_error: "Please select Project Type"
         }),
-    project_address: z
+    address_line_1: z
         .string({
-            //required_error: "Please select Project Address"
+            required_error: "Address Required"
         }),
+    address_line_2: z
+        .string(),
+    project_city: z
+        .string({
+            required_error: "Must provide city"
+        }),
+    project_state: z
+        .string({
+            required_error: "Must provide state"
+        }),
+    pin: z
+        .number({
+            required_error: "Must provide pincode"
+        })
+        .positive()
+        .gte(100000)
+        .lte(999999),
+    email: z
+        .string()
+        .email(),
+    phone: z
+        .number({
+            required_error: "Must provide contact"
+        })
+        .positive()
+        .gte(1000000000)
+        .lte(9999999999),
     project_start_date: z
         .date({
             //required_error: "A start date is required.",
@@ -205,10 +232,10 @@ export const ProjectForm = () => {
         }
     })
 
-    const { data: project_address, isLoading: project_address_isLoading, error: project_address_error, mutate: project_address_mutate } = useFrappeGetDocList('Address', {
-        fields: ["name", "address_title"],
-        filters: [["address_type", "=", "Shipping"]]
-    });
+    // const { data: project_address, isLoading: project_address_isLoading, error: project_address_error, mutate: project_address_mutate } = useFrappeGetDocList('Address', {
+    //     fields: ["name", "address_title"],
+    //     filters: [["address_type", "=", "Shipping"]]
+    // });
 
     const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
         fields: ["name", "full_name"],
@@ -260,12 +287,34 @@ export const ProjectForm = () => {
         const formatted_end_date = values.project_end_date.toISOString().replace('T', ' ').slice(0, 19)
         //const scopes = values.project_scopes.toString()
         //const formatted_project_milestone = values.project_work_milestones.
-        createDoc('Projects', {
-            ...values,
-            project_start_date: formatted_start_date,
-            project_end_date: formatted_end_date
-        }).then(() => {
-            console.log(values)
+        createDoc('Address', {
+            address_title: values.project_name,
+            address_type: "Shipping",
+            address_line1: values.address_line_1,
+            address_line2: values.address_line_2,
+            city: values.project_city,
+            state: values.project_state,
+            country: "India",
+            pincode: values.pin,
+            email_id: values.email,
+            phone: values.phone
+        }).then(doc => {
+            createDoc('Projects', {
+                project_name: values.project_name,
+                customer: values.customer,
+                project_type: values.project_type,
+                project_start_date: formatted_start_date,
+                project_end_date: formatted_end_date,
+                project_address: doc.name,
+                project_city: values.project_city,
+                project_state: values.project_state,
+                project_lead: values.project_lead,
+                procurement_lead: values.procurement_lead,
+                design_lead: values.design_lead,
+                project_manager: values.project_manager,
+                project_work_milestones: values.project_work_milestones,
+                project_scopes: values.project_scopes
+            }).then((doc) => console.log(doc)).catch(() => console.log(submit_error))
         }).catch(() => {
             console.log(submit_error)
         })
@@ -301,10 +350,10 @@ export const ProjectForm = () => {
         value: item.name
     })) || [];
 
-    const address_options: SelectOption[] = project_address?.map(item => ({
-        label: item.address_title, // Adjust based on your data structure
-        value: item.name
-    })) || [];
+    // const address_options: SelectOption[] = project_address?.map(item => ({
+    //     label: item.address_title, // Adjust based on your data structure
+    //     value: item.name
+    // })) || [];
 
     const user_options: SelectOption[] = user?.map(item => ({
         label: item.full_name, // Adjust based on your data structure
@@ -416,24 +465,51 @@ export const ProjectForm = () => {
                                         {/* <Button variant="secondary" asChild>
                                             <Link to="../../customers/edit" relative="path">+ Add Customer</Link>
                                         </Button> */}
-                                        <Dialog>
+                                        {/* <Dialog>
                                             <DialogTrigger asChild>
-                                                <Button variant="secondary"> + Add Customer</Button>
+
+                                                <Button variant="secondary">
+                                                    <div className="flex">
+                                                        <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                        <span className="pl-1">Add New Customer</span>
+                                                    </div>
+                                                </Button>
+
                                             </DialogTrigger>
-                                            <DialogContent className="max-w-[300px] md:max-w-[425px] ">
-                                                <ScrollArea className="max-h-[400px] md:max-h-[500px] ">
-                                                    <DialogHeader>
-                                                        <DialogTitle>Add New Customer</DialogTitle>
-                                                        <DialogDescription>
-                                                            Add new Customers here.
-                                                        </DialogDescription>
-                                                    </DialogHeader>
+                                            <DialogContent className="max-w-[300px] md:max-w-[1280px] ">
+
+                                                <DialogHeader>
+                                                    <DialogTitle>Create New Customer</DialogTitle>
+                                                    <DialogDescription>
+                                                        Fill the details to create a customer.
+                                                    </DialogDescription>
+                                                </DialogHeader>
+                                                <ScrollArea className="max-w-[280px] md:max-w-[800px] max-h-[400px] md:max-h-[720px] ">
                                                     <CustomerForm company_mutate={company_mutate} />
-                                                    {/* Dialog close and company_mutate is inside the customer form function */}
 
                                                 </ScrollArea>
                                             </DialogContent>
-                                        </Dialog>
+                                        </Dialog> */}
+                                        <Sheet>
+                                            <SheetTrigger asChild>
+                                                <Button variant="secondary">
+                                                    <div className="flex">
+                                                        <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                        <span className="pl-1">Add New Customer</span>
+                                                    </div>
+                                                </Button>
+                                            </SheetTrigger>
+                                            <SheetContent>
+                                                <ScrollArea className="h-[90%] w-[600px]  p-4">
+                                                    <SheetHeader>
+                                                        <SheetTitle><div className="pb-4 text-2xl font-bold">Create New Customer</div></SheetTitle>
+                                                        <SheetDescription>
+                                                            <CustomerForm company_mutate={company_mutate} />
+                                                        </SheetDescription>
+                                                    </SheetHeader>
+                                                </ScrollArea>
+                                            </SheetContent>
+                                        </Sheet>
                                     </div>
                                 </div>
                                 <div className="pt-2 pb-2">
@@ -477,7 +553,12 @@ export const ProjectForm = () => {
                                         <div className="md:basis-1/4 pl-10 pt-2">
                                             <Dialog>
                                                 <DialogTrigger asChild>
-                                                    <Button variant="secondary"> + Add Project Type</Button>
+                                                    <Button variant="secondary">
+                                                        <div className="flex">
+                                                            <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                            <span className="pl-1">Add New Project Type</span>
+                                                        </div>
+                                                    </Button>
                                                 </DialogTrigger>
                                                 <DialogContent className="max-w-[300px] md:max-w-[425px]">
                                                     <DialogHeader>
@@ -498,7 +579,204 @@ export const ProjectForm = () => {
                             )
                         }}
                     />
+                    <Separator className="my-6" />
+                    <p className="text-sky-600 font-semibold pb-9">Project Address Details</p>
                     <FormField
+                        control={form.control}
+                        name="address_line_1"
+                        render={({ field }) => (
+                            <FormItem>
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
+                                        <FormLabel>Address Line 1: </FormLabel>
+                                    </div>
+                                    <div className="md:basis-1/4">
+                                        <FormControl>
+                                            <Input placeholder="Address Line 1" {...field} />
+                                        </FormControl>
+                                    </div>
+                                    <div className="md:basis-1/2 pl-10 pt-2">
+                                        <FormDescription>
+                                            Example: Building name, Building no., Floor
+                                        </FormDescription>
+                                    </div>
+
+                                </div>
+                                <div className="pt-2 pb-2">
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="address_line_2"
+                        render={({ field }) => (
+                            <FormItem>
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
+                                        <FormLabel>Address Line 2: </FormLabel>
+                                    </div>
+                                    <div className="md:basis-1/4">
+                                        <FormControl>
+                                            <Input placeholder="Address Line 2" {...field} />
+                                        </FormControl>
+                                    </div>
+                                    <div className="md:basis-1/2 pl-10 pt-2">
+                                        <FormDescription>
+                                            Example: Road Name, Area name
+                                        </FormDescription>
+                                    </div>
+
+                                </div>
+                                <div className="pt-2 pb-2">
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="project_city"
+                        render={({ field }) => (
+                            <FormItem>
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
+                                        <FormLabel>City: </FormLabel>
+                                    </div>
+                                    <div className="md:basis-1/4">
+                                        <FormControl>
+                                            <Input placeholder="City Name" {...field} />
+                                        </FormControl>
+                                    </div>
+                                    <div className="md:basis-1/2 pl-10 pt-2">
+                                        <FormDescription>
+                                            Example: City name
+                                        </FormDescription>
+                                    </div>
+
+                                </div>
+                                <div className="pt-2 pb-2">
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="project_state"
+                        render={({ field }) => (
+                            <FormItem>
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
+                                        <FormLabel>State: </FormLabel>
+                                    </div>
+                                    <div className="md:basis-1/4">
+                                        <FormControl>
+                                            <Input placeholder="State Name" {...field} />
+                                        </FormControl>
+                                    </div>
+                                    <div className="md:basis-1/2 pl-10 pt-2">
+                                        <FormDescription>
+                                            Example: State name
+                                        </FormDescription>
+                                    </div>
+
+                                </div>
+                                <div className="pt-2 pb-2">
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="pin"
+                        render={({ field }) => (
+                            <FormItem>
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
+                                        <FormLabel>Pin Code: </FormLabel>
+                                    </div>
+                                    <div className="md:basis-1/4">
+                                        <FormControl>
+                                            <Input type="number" placeholder="Pincode" {...field} onChange={event => field.onChange(+event.target.value)} />
+                                        </FormControl>
+                                    </div>
+                                    <div className="md:basis-1/2 pl-10 pt-2">
+                                        <FormDescription>
+                                            Example: 100000
+                                        </FormDescription>
+                                    </div>
+
+                                </div>
+                                <div className="pt-2 pb-2">
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="phone"
+                        render={({ field }) => (
+                            <FormItem>
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
+                                        <FormLabel>Phone: </FormLabel>
+                                    </div>
+                                    <div className="md:basis-1/4">
+                                        <FormControl>
+                                            <Input type="number" placeholder="Phone" {...field} onChange={event => field.onChange(+event.target.value)} />
+                                        </FormControl>
+                                    </div>
+                                    <div className="md:basis-1/2 pl-10 pt-2">
+                                        <FormDescription>
+                                            Example: 90000000000
+                                        </FormDescription>
+                                    </div>
+
+                                </div>
+                                <div className="pt-2 pb-2">
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+
+                            <FormItem>
+                                <div className="md:flex md:flex-row pt-2 pb-2">
+                                    <div className="md:basis-1/4">
+                                        <FormLabel>Email: </FormLabel>
+                                    </div>
+                                    <div className="md:basis-1/4">
+                                        <FormControl>
+                                            <Input placeholder="Email" {...field} />
+                                        </FormControl>
+                                    </div>
+                                    <div className="md:basis-1/2 pl-10 pt-2">
+                                        <FormDescription>
+                                            Example: abc@mail.com
+                                        </FormDescription>
+                                    </div>
+
+                                </div>
+                                <div className="pt-2 pb-2">
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+
+                        )}
+                    />
+                    {/* <FormField
                         control={form.control}
                         name="project_address"
                         render={({ field }) => (
@@ -532,7 +810,12 @@ export const ProjectForm = () => {
                                     <div className="md:basis-1/4 pl-10 pt-2">
                                         <Dialog>
                                             <DialogTrigger asChild>
-                                                <Button variant="secondary"> + Add Project Address</Button>
+                                                <Button variant="secondary">
+                                                    <div className="flex">
+                                                        <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                        <span className="pl-1">Add New Project Address</span>
+                                                    </div>
+                                                </Button>
                                             </DialogTrigger>
                                             <DialogContent className="max-w-[300px] md:max-w-[425px]">
                                                 <ScrollArea className="max-h-[400px] md:max-h-[500px] ">
@@ -555,7 +838,7 @@ export const ProjectForm = () => {
                                 </div>
                             </FormItem>
                         )}
-                    />
+                    /> */}
                     <Separator className="my-6" />
                     <p className="text-sky-600 font-semibold pb-9">Project Timeline</p>
                     <FormField
@@ -693,7 +976,12 @@ export const ProjectForm = () => {
                         <div className="md:flex items-center">
                             <Dialog>
                                 <DialogTrigger asChild>
-                                    <Button variant="secondary"> + Add Employee</Button>
+                                    <Button variant="secondary">
+                                        <div className="flex">
+                                            <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                            <span className="pl-1">Add New Employee</span>
+                                        </div>
+                                    </Button>
                                 </DialogTrigger>
                                 <DialogContent className="max-w-[300px] md:max-w-[425px]">
                                     <DialogHeader>
@@ -1022,8 +1310,8 @@ export const ProjectForm = () => {
                             )}
                         /> */}
                     {/* ))} */}
-                    <Separator className="my-6" />
-                    <p className="text-sky-600 font-semibold pb-9">DEBUG Package Specification</p>
+                    {/* <Separator className="my-6" />
+                    <p className="text-sky-600 font-semibold pb-9">DEBUG Package Specification</p> */}
                     {/* <div>
                         {.map(wp => (
                             <h3>{wp.name}</h3>

@@ -20,8 +20,6 @@ export interface Projects{
 	project_start_date?: string
 	/**	Project End Date : Date	*/
 	project_end_date?: string
-	/**	Project Duration : Int	*/
-	project_duration?: number
 	/**	Project Address : Link - Address	*/
 	project_address?: string
 	/**	Project City : Data	*/
