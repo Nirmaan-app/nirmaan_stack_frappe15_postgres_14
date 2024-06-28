@@ -1310,8 +1310,8 @@ export const ProjectForm = () => {
                             )}
                         /> */}
                     {/* ))} */}
-                    <Separator className="my-6" />
-                    <p className="text-sky-600 font-semibold pb-9">DEBUG Package Specification</p>
+                    {/* <Separator className="my-6" />
+                    <p className="text-sky-600 font-semibold pb-9">DEBUG Package Specification</p> */}
                     {/* <div>
                         {.map(wp => (
                             <h3>{wp.name}</h3>
