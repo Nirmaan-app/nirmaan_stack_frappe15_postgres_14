@@ -25,16 +25,22 @@ import {
     DialogClose
 } from "@/components/ui/dialog"
 import { TrendingDown, CheckCheck, TrendingUp } from 'lucide-react';
-import { Space, Switch, Table } from 'antd';
+import { Space, Switch, Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
 interface DataType {
   key: React.ReactNode;
+  category: string;
   item: string;
   unit: string;
   quantity: number;
+  rate: number;
+  selectedVendor: string;
+  amount: number;
+  lowest2: string;
+  lowest3: string;
   children?: DataType[];
 }
 
@@ -58,33 +64,48 @@ const columns: TableColumnsType<DataType> = [
     },
     {
         title: 'Rate',
-        dataIndex: 'quote',
+        dataIndex: 'rate',
         width: '7%',
-        key: 'quote',
+        key: 'rate',
       },
     {
         title: 'Selected Vendor',
         dataIndex: 'selectedVendor',
         width: '15%',
-        key: 'quantity',
+        key: 'selectedVendor',
       },
       {
         title: 'Amount',
-        dataIndex: 'Amount',
-        width: '10%',
-        key: 'Amount',
+        dataIndex: 'amount',
+        width: '9%',
+        key: 'amount',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+              {text}
+            </span>
+          ),
       },
       {
-        title: 'Lowest Quoted Vendor',
+        title: 'Lowest Quoted Amount',
         dataIndex: 'lowest2',
         width: '10%',
         key: 'lowest2',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+              {text}
+            </span>
+          ),
       },
       {
-        title: '3 months Lowest Vendor',
+        title: '3 months Lowest Amount',
         dataIndex: 'lowest3',
         width: '10%',
         key: 'lowest3',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+              {text}
+            </span>
+          ),
       },
   ];
 
@@ -129,7 +150,6 @@ export const ApproveVendor = () => {
             fields: ['item', 'quote'],
             limit: 1000
         });
-    console.log("quotation_request_list",quotation_request_list)
 
     const [page, setPage] = useState<string>('approvequotation')
     const [orderData, setOrderData] = useState({
@@ -145,51 +165,7 @@ export const ApproveVendor = () => {
 
     const [data,setData] = useState<DataType>([]) 
     const [checkStrictly, setCheckStrictly] = useState(false);
-    useEffect(() => {
-        if (orderData.project) {
-            const newData: DataType[] = [];
-            orderData.category_list?.list.forEach((cat) => {
-                const items: DataType[] = [];
     
-                orderData.procurement_list?.list.forEach((item) => {
-                    if (item.category === cat.name) {
-                        items.push({
-                            item: item.item,
-                            key: item.name,
-                            unit: item.unit,
-                            quantity: item.quantity,
-                        });
-                    }
-                });
-    
-                const node: DataType = {
-                    item: cat.name,
-                    key: cat.name,
-                    unit: null,
-                    quantity: null,
-                    children: items,
-                };
-                console.log("cat.name", node);
-                newData.push(node);
-            });
-            console.log(newData)
-            setData(newData)
-        }
-    }, [orderData]);
-
-    const rowSelection: TableRowSelection<DataType> = {
-        onChange: (selectedRowKeys, selectedRows) => {
-            console.log("onChange")
-          console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
-        },
-        onSelect: (record, selected, selectedRows) => {
-          console.log(record, selected, selectedRows);
-        },
-        onSelectAll: (selected, selectedRows, changeRows) => {
-          console.log(selected, selectedRows, changeRows);
-        },
-      };
-
     useEffect(() => {
         const foundItem = procurement_request_list?.find(item => item.name === orderId);
         if (foundItem && !orderData.project) {
@@ -259,6 +235,212 @@ export const ApproveVendor = () => {
     const [approvedItems, setApprovedItems] = useState({
         list: []
     })
+
+    useEffect(() => {
+        const newCategories = [];
+        orderData.procurement_list.list.map((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+        setOrderData((prevState) => ({
+            ...prevState,
+            category_list: {
+                list: newCategories
+            },
+        }));
+    }, [orderData.procurement_list]);
+
+    useEffect(() => {
+        if (orderData.project) {
+            const newData: DataType[] = [];
+            orderData.category_list?.list.forEach((cat) => {
+                const items: DataType[] = [];
+    
+                orderData.procurement_list?.list.forEach((item) => {
+                    if (item.category === cat.name) {
+                        if(selectedVendors[item.name]){
+                            const price = Number(getPrice(selectedVendors[item.name], item.name))
+                            const quotesForItem = quote_data
+                                ?.filter(value => value.item === item.name && value.quote)
+                                ?.map(value => value.quote);
+                            let minQuote;
+                            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                            minQuote = (minQuote ? parseFloat(minQuote)*item.quantity : 0)
+
+                            items.push({
+                                item: item.item,
+                                key: item.name,
+                                unit: item.unit,
+                                quantity: item.quantity,
+                                category: item.category,
+                                rate: price,
+                                amount: price*item.quantity,
+                                selectedVendor: getVendorName(selectedVendors[item.name]),
+                                lowest2: getLowest2(item.name)*item.quantity,
+                                lowest3: minQuote ? minQuote : "N/A",
+                            });
+                        }
+                    }
+                });
+    
+                if(items.length){
+                    const node: DataType = {
+                        item: cat.name,
+                        key: cat.name,
+                        unit: null,
+                        quantity: null,
+                        amount: getTotal(cat.name),
+                        lowest2: getLowest(cat.name).quote,
+                        lowest3: getLowest3(cat.name),
+                        children: items,
+                    };
+                    newData.push(node);
+                }
+            });
+            setData(newData)
+        }
+    }, [orderData]);
+
+    const [selectedItems,setSelectedItems] = useState()
+
+    const rowSelection: TableRowSelection<DataType> = {
+        onChange: (selectedRowKeys, selectedRows) => {
+            console.log("onChange")
+          console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+          setSelectedItems(selectedRows)
+        },
+        onSelect: (record, selected, selectedRows) => {
+          console.log(record, selected, selectedRows);
+        },
+        onSelectAll: (selected, selectedRows, changeRows) => {
+          console.log(selected, selectedRows, changeRows);
+        },
+      };
+    
+    const newHandleApprove = () => {
+        
+        const filteredData = selectedItems?.filter(item => {
+            return item.unit !== null && item.quantity !== null
+        });
+        console.log(filteredData)
+
+        const vendorItems = {};
+        filteredData?.forEach((item) => {
+            if (selectedVendors[item.key]) {
+                if (!vendorItems[selectedVendors[item.key]]) {
+                    vendorItems[selectedVendors[item.key]] = [];
+                }
+                const price = Number(getPrice(selectedVendors[item.key], item.key))
+                vendorItems[selectedVendors[item.key]].push({
+                    name: item.key,
+                    quote: price,
+                    quantity: item.quantity,
+                    unit: item.unit,
+                    item: item.item
+                });
+            }
+
+        })
+
+        const createDocPromises = [];
+
+        Object.entries(vendorItems).forEach(([key, value]) => {
+
+            const newProcurementOrder = {
+                procurement_request: orderId,
+                project: orderData.project,
+                project_name: getProjectName(orderData.project),
+                project_address: getProjectAddress(orderData.project),
+                vendor: key,
+                vendor_name: getVendorName(key),
+                vendor_address: getVendorAddress(key),
+                vendor_gst: getVendorGST(key),
+                order_list: {
+                    list: value
+                }
+            };
+
+            if (value?.length > 0) {
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
+
+                createDocPromises.push(createDocPromise);
+            }
+
+        });
+
+        const filteredList = orderData.procurement_list?.list.filter(procItem =>
+            !filteredData.some(selItem => selItem.key === procItem.name)
+        );
+
+        setOrderData(prevOrderData => ({
+            ...prevOrderData,
+            procurement_list: {
+                list: filteredList
+            }
+        }));
+    }
+
+    const newHandleSentBack = () => {
+        const filteredData = selectedItems?.filter(item => {
+            return item.unit !== null && item.quantity !== null
+        });
+        console.log(filteredData)
+
+        const itemlist = [];
+        filteredData.map((value) => {
+                const price = getPrice(selectedVendors[value.key], value.key);
+                itemlist.push({
+                    name: value.key,
+                    item: value.item,
+                    quantity: value.quantity,
+                    quote: price,
+                    unit: value.unit,
+                    category: value.category
+                })
+        })
+        const newSendBack = {
+            procurement_request: orderId,
+            // project_name: orderData.project,
+            // category_list:{
+            //     list: total_categories
+            // }
+            item_list: {
+                list: itemlist
+            },
+            comments: comment,
+            type: "Rejected"
+        }
+        if (itemlist.length > 0) {
+            createDoc('Sent Back Category', newSendBack)
+                .then(() => {
+                    console.log(newSendBack);
+                    setComment('')
+                })
+                .catch(() => {
+                    console.log("submit_error", submit_error);
+                })
+        }
+
+        const filteredList = orderData.procurement_list?.list.filter(procItem =>
+            !filteredData.some(selItem => selItem.key === procItem.name)
+        );
+
+        setOrderData(prevOrderData => ({
+            ...prevOrderData,
+            procurement_list: {
+                list: filteredList
+            }
+        }));
+
+    }
 
     const handleSendBack = (cat: string) => {
         const itemlist = [];
@@ -452,7 +634,7 @@ export const ApproveVendor = () => {
                 }
             };
 
-            if (value.length > 0) {
+            if (value?.length > 0) {
                 const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
                     .then(() => {
                         console.log(newProcurementOrder);
@@ -594,7 +776,7 @@ export const ApproveVendor = () => {
                 }
             };
 
-            if (value.length > 0) {
+            if (value?.length > 0) {
                 const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
                     .then(() => {
                         console.log(newProcurementOrder);
@@ -680,24 +862,22 @@ export const ApproveVendor = () => {
     }, [quotation_request_list2, orderData]);
 
     const getLowest = (cat: string) => {
-        let price: number = 100000000;
-        let vendor: string = '';
-        selectedCategories[cat]?.map((ven) => {
-            let total: number = 0;
-            quotation_request_list2?.map((item) => {
-                if (item.vendor === ven && item.category === cat) {
-                    const price = item.quote
-                    total += (price ? parseFloat(price) : 0) * item.quantity;
-                }
-            })
-            if (total && total < price) {
-                price = total;
-                vendor = ven;
+        let price: number = 0;
+        let vendor: string = 'vendor';
+
+        orderData.procurement_list?.list.map((item) => {
+            if (item.category === cat) {
+                const quotesForItem = quotation_request_list2
+                    ?.filter(value => value.item === item.name && value.quote)
+                    ?.map(value => value.quote);
+                let minQuote;
+                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
             }
         })
-        if (price != 100000000) return { quote: price, vendor: vendor }
+
+        return { quote: price, vendor: vendor }
     }
-    // console.log(quotation_request_list2)
 
     const getLowest2 = (item: string) => {
         const quotesForItem = quotation_request_list2
@@ -967,7 +1147,7 @@ export const ApproveVendor = () => {
                             </div>
                         </div>
                     })}
-                    {orderData.category_list.list.length === total_categories ? <div className="flex space-x-2 justify-end items-end bottom-4 right-4">
+                    {orderData.category_list?.list.length === total_categories ? <div className="flex space-x-2 justify-end items-end bottom-4 right-4">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button className="border border-red-500 bg-white text-red-500 hover:text-white" >
@@ -1012,11 +1192,71 @@ export const ApproveVendor = () => {
             <Space className="hidden" align="center" style={{ marginBottom: 16 }}>
                 CheckStrictly: <Switch checked={checkStrictly} onChange={setCheckStrictly} />
             </Space>
+            <ConfigProvider
+                theme={{
+                token: {
+                    // Seed Token
+                    colorPrimary: '#FF2828',
+                    borderRadius: 4,
+
+                    // Alias Token
+                    colorBgContainer: '#FFFFFF',
+                },
+                }}
+            >
             <Table
                 columns={columns}
                 rowSelection={{ ...rowSelection,checkStrictly}}
                 dataSource={data}
             />
+            {selectedItems?.length>0 && <div className="text-right space-x-2">
+            <Dialog>
+                <DialogTrigger asChild>
+                    <Button className="text-red-500 bg-white border border-red-500 hover:text-white">
+                        Send Back 
+                    </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Are you Sure</DialogTitle>
+                        <DialogDescription>
+                            Add Comments and Send Back the Selected Items.
+                            <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
+                            <textarea
+                                id="textarea"
+                                className="w-full border rounded-lg p-2"
+                                value={comment}
+                                placeholder="Type your comments here"
+                                onChange={(e) => setComment(e.target.value)}
+                            />
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogClose>
+                        <Button className="text-white bg-red-500" onClick={() => newHandleSentBack()}>Send Back</Button>
+                    </DialogClose>
+                </DialogContent>
+            </Dialog>
+            <Dialog>
+                <DialogTrigger asChild>
+                    <Button>
+                        Approve 
+                    </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Are you Sure</DialogTitle>
+                        <DialogDescription>
+                            Click on Confirm to Approve the Selected Items.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogClose>
+                    <Button className="text-white bg-red-500" onClick={() => newHandleApprove()}>Approve</Button>
+                    </DialogClose>
+                </DialogContent>
+            </Dialog>
+            </div>}
+            </ConfigProvider>
+            <div className="py-10"></div>
         </MainLayout>
     )
 }
