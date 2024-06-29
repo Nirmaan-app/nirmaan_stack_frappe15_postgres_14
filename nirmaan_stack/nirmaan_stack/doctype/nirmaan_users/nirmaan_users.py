@@ -23,8 +23,10 @@ def create_user_profile(doc, method=None):
 		try:
 			frappe.get_doc(doctype="Nirmaan Users",
 				 first_name=doc.first_name,
+				 last_name=doc.last_name,
 				 full_name=doc.full_name,
 				 email=doc.email,
+				 mobile_no=doc.mobile_no,
 				 role_profile=doc.role_profile_name).insert(ignore_permissions=True)
 			frappe.db.commit()
 		except Exception as e:	

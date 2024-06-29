@@ -79,9 +79,7 @@ export default function CustomerForm({ company_mutate }) {
     // Has handleSubmit, control functions
     const form = useForm<CustomerFormValues>({
         resolver: zodResolver(customerFormSchema),
-        defaultValues: {
-            name: ""
-        },
+        defaultValues: {},
         mode: "onChange",
     })
 
@@ -341,7 +339,12 @@ export default function CustomerForm({ company_mutate }) {
                             {closewindow()}
                         </div>
                     }
-                    {submit_error && <div>{submit_error}</div>}
+                    {submit_error &&
+                        <div className="flex-1">
+                            <div className="font-semibold text-red-500">{submit_error.message}</div>
+                            <div className="font-slim text-red-500">{submit_error.exception}</div>
+                        </div>
+                    }
                 </div>
             </form>
         </Form>
