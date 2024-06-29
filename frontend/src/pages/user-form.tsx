@@ -58,7 +58,6 @@ export const UserForm = () => {
     const { data: role_profile_list, isLoading: role_profile_list_loading, error: role_profile_list_error } = useFrappeGetDocList("Role Profile",
         {
             fields: ['name', 'role_profile'],
-            filters: [["role_profile", "!=", "Nirmaan Admin Profile"]]
         });
     const options: SelectOption[] = role_profile_list?.map(item => ({
         label: item.role_profile,
@@ -91,11 +90,6 @@ export const UserForm = () => {
         window.location.reload()
     }
 
-    function closewindow() {
-        var button = document.getElementById('dialogClose');
-        company_mutate()
-        button.click();
-    }
 
     return (
         <MainLayout>

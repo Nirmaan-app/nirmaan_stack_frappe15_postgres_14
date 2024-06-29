@@ -65,7 +65,7 @@ export default function Profile() {
         })
     }
 
-    if (loading) return <h1>Loading</h1>;
+    if (isloading) return <h1>Loading</h1>;
     if (error) return <h1>{error.message}</h1>;
     return (
         <MainLayout>
@@ -73,7 +73,7 @@ export default function Profile() {
                 <div className="flex items-center justify-between mb-2 space-y-2">
                     <div className="flex">
                         <ArrowLeft className="mt-1.5" onClick={() => navigate("/users")} />
-                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">User : {data.full_name}</h2>
+                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">User : {data?.full_name}</h2>
                     </div>
 
                     <div className="flex items-center space-x-2">
