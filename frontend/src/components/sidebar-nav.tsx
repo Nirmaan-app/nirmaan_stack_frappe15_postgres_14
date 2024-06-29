@@ -52,9 +52,10 @@ export function Sidebar({ className }: SidebarProps) {
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className={cn("px-2 text-xs w-full justify-start", { "bg-red-200": isActive("/") })}>
+                                disabled={isActive("/")}
+                                className={cn("px-2 text-xs w-full justify-start", { "bg-red-400": isActive("/") })}>
                                 <LayoutGrid className="mr-2 h-4 w-4" />
-                                Dashboard
+                                <span className={cn({ "text-white": isActive("/") })}>Dashboard</span>
                             </Button>
                         </Link>
                         <Accordion type="multiple" defaultValue={["admin-actions", "pl-actions", "pe-actions"]} >
@@ -70,16 +71,51 @@ export function Sidebar({ className }: SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            className={cn("w-full justify-start", { "bg-red-200": isActive("/projects") })}>
-                                            Projects
-                                        </Button>
-                                        <Button variant="ghost" size="sm" className="w-full justify-start">
-                                            Users
-                                        </Button>
-                                        <Button variant="ghost" size="sm" className="w-full justify-start">
-                                            Work Packages
+                                            disabled={isActive("/projects")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/projects") })}>
+                                            <span className={cn({ "text-white": isActive("/projects") })}>Projects</span>
                                         </Button>
                                     </Link>
+                                    <Link to="/users">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/users")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/users") })}>
+                                            <span className={cn({ "text-white": isActive("/users") })}>Users</span>
+                                        </Button>
+                                    </Link>
+                                    <Link to="/wp">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/wp")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/wp") })}>
+                                            <span className={cn({ "text-white": isActive("/wp") })}>Work Packages</span>
+                                        </Button>
+                                    </Link>
+                                    {/* <Button variant="ghost" size="sm" className="w-full justify-start">
+                                        Procurement Requests
+                                    </Button> */}
+                                    <Link to="/items">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/items")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/items") })}>
+                                            <span className={cn({ "text-white": isActive("/items") })}>Items</span>
+                                        </Button>
+                                    </Link>
+                                    <Link to="/vendors">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/vendors")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/vendors") })}>
+                                            <span className={cn({ "text-white": isActive("/vendors") })}>Vendors</span>
+                                        </Button>
+                                    </Link>
+
                                 </AccordionContent>
 
                             </AccordionItem>}
@@ -92,18 +128,30 @@ export function Sidebar({ className }: SidebarProps) {
                                 </AccordionTrigger>
                                 <AccordionContent>
                                     <Link to="/approve-order">
-                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/approve-order") })}>
-                                            Approve PR
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/approve-order")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-order") })}>
+                                            <span className={cn({ "text-white": isActive("/approve-order") })}>Approve PR</span>
                                         </Button>
                                     </Link>
                                     <Link to="/approve-vendor">
-                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/approve-vendor") })}>
-                                            Approve Vendor
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/approve-vendor")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-vendor") })}>
+                                            <span className={cn({ "text-white": isActive("/approve-vendor") })}>Approve Vendor</span>
                                         </Button>
                                     </Link>
                                     <Link to="/approve-sent-back">
-                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/approve-sent-back") })}>
-                                            Approve Sent Back
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/approve-sent-back")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-sent-back") })}>
+                                            <span className={cn({ "text-white": isActive("/approve-sent-back") })}>Approve Sent Back</span>
                                         </Button>
                                     </Link>
                                 </AccordionContent>
@@ -117,48 +165,66 @@ export function Sidebar({ className }: SidebarProps) {
                                 </AccordionTrigger>
                                 <AccordionContent>
                                     <Link to="/procure-request">
-                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/procure-request") })}>
-                                            New
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/procure-request")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/procure-request") })}>
+                                            <span className={cn({ "text-white": isActive("/procure-request") })}>New PR Request</span>
                                         </Button>
                                     </Link>
                                     <Link to="/update-quote">
-                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/update-quote") })}>
-                                            Update Quote
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/update-quote")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/update-quote") })}>
+                                            <span className={cn({ "text-white": isActive("/update-quote") })}>Update Quote</span>
                                         </Button>
                                     </Link>
                                     <Link to="/select-vendor-list">
-                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/select-vendor-list") })}>
-                                            Select Vendor
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/select-vendor-list")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/select-vendor-list") })}>
+                                            <span className={cn({ "text-white": isActive("/select-vendor-list") })}>Select Vendor</span>
                                         </Button>
                                     </Link>
                                     <Link to="/release-po">
-                                        <Button variant="ghost" size="sm" className={cn("w-full justify-start", { "bg-red-200": isActive("/release-po") })}>
-                                            Release PO
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/release-po")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/release-po") })}>
+                                            <span className={cn({ "text-white": isActive("/release-po") })}>Release PO</span>
                                         </Button>
                                     </Link>
-                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                    {/* <Button variant="ghost" size="sm" className="w-full justify-start">
                                         Advance Payment
-                                    </Button>
-                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                    </Button> */}
+                                    {/* <Button variant="ghost" size="sm" className="w-full justify-start">
                                         Track Delivery
-                                    </Button>
-                                    <Button variant="ghost" size="sm" className="w-full justify-start">
+                                    </Button> */}
+                                    {/* <Button variant="ghost" size="sm" className="w-full justify-start">
                                         Order Delivered
-                                    </Button>
+                                    </Button> */}
                                 </AccordionContent>
                             </AccordionItem>}
                         </Accordion>
                     </div>
                 </div>
-            </div>
+            </div >
 
             {/* Backdrop for closing sidebar on mobile view */}
-            {isSidebarOpen && (
-                <div
-                    className="fixed inset-0 bg-black opacity-50 z-30 md:hidden"
-                    onClick={toggleSidebar}
-                ></div>
-            )}
+            {
+                isSidebarOpen && (
+                    <div
+                        className="fixed inset-0 bg-black opacity-50 z-30 md:hidden"
+                        onClick={toggleSidebar}
+                    ></div>
+                )
+            }
         </>
     );
 }
