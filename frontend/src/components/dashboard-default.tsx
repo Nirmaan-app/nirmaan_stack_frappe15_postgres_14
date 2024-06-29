@@ -108,7 +108,7 @@ export const Default = () => {
                             </CardContent>
                         </Link>
                     </Card>
-                    <Card className="hover:animate-shadow-drop-center" >
+                    {/* <Card className="hover:animate-shadow-drop-center" >
                         <Link to="/procurement-requests">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
@@ -125,7 +125,7 @@ export const Default = () => {
                                 <p className="text-xs text-muted-foreground">COUNT</p>
                             </CardContent>
                         </Link>
-                    </Card>
+                    </Card> */}
                     <Card className="hover:animate-shadow-drop-center" >
                         <Link to="/items">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

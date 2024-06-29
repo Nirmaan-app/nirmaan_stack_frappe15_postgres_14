@@ -67,6 +67,21 @@ export default function Projects() {
                 }
             },
             {
+                accessorKey: "creation",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("creation")?.split(" ")[0]}
+                        </div>
+                    )
+                }
+            },
+            {
                 accessorKey: "project_type",
                 header: ({ column }) => {
                     return (
@@ -95,7 +110,7 @@ export default function Projects() {
     )
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<ProjectsType>("Projects", {
-        fields: ["name", "project_name", "project_type", "project_city", "project_state"]
+        fields: ["name", "project_name", "project_type", "project_city", "project_state", "creation"]
     })
 
     return (

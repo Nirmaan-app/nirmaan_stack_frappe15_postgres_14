@@ -20,6 +20,7 @@ import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
 import { Checkbox } from "./ui/checkbox"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet"
+import { useNavigate } from "react-router-dom"
 
 
 // 1.a Create Form Schema accordingly
@@ -160,6 +161,8 @@ interface sowType {
 // }
 
 export const ProjectForm = () => {
+
+    const navigate = useNavigate()
     // 1.b Define your form.
     // Has handleSubmit, control functions
     const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
@@ -392,6 +395,10 @@ export const ProjectForm = () => {
     if (wp_list_error || sow_list_error) {
         let error = wp_list_error ? wp_list_error : sow_list_error;
         return <div>{error?.message}</div>;
+    }
+
+    const handleRedirect = () => {
+        navigate("/projects")
     }
 
     return (
@@ -974,7 +981,7 @@ export const ProjectForm = () => {
                     <div className="md:flex items-center justify-between">
                         <p className="text-sky-600 font-semibold pb-9">Project Asignees</p>
                         <div className="md:flex items-center">
-                            <Dialog>
+                            {/* <Dialog>
                                 <DialogTrigger asChild>
                                     <Button variant="secondary">
                                         <div className="flex">
@@ -990,9 +997,9 @@ export const ProjectForm = () => {
                                             Add new employees here.
                                         </DialogDescription>
                                     </DialogHeader>
-                                    {/* <EmployeeForm /> */}
+                                    <EmployeeForm />
                                 </DialogContent>
-                            </Dialog>
+                            </Dialog> */}
                         </div>
                     </div>
                     <FormField
@@ -1351,7 +1358,11 @@ export const ProjectForm = () => {
                     /> */}
 
                     <div className="pt-2 pb-2 ">
-                        {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
+                        {(loading) ?
+                            <ButtonLoading />
+                            : (submit_complete) ?
+                                <Button onClick={() => handleRedirect()}>Go Back</Button>
+                                : <Button type="submit">Submit</Button>}
                     </div>
                     <div>
                         {submit_complete &&
