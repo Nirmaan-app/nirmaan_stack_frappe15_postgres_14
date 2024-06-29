@@ -56,7 +56,7 @@ const router = createBrowserRouter(
 			<Route path='/forgot-password' lazy={() => import('@/pages/auth/forgot-password')} />
 			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
-				<Route path="users/:id" element={<Profile />} />
+
 				<Route path="pdf" element={<PDF />} />
 				<Route path="/new-pr/:id" element={<NewPR />} />
 				<Route path="/pr-summary/:id" element={<PRSummary />} />
@@ -78,9 +78,6 @@ const router = createBrowserRouter(
 				<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
 				<Route path="release-po" element={<ReleasePOSelect />} />
 				<Route path="/release-po/:id" element={<ReleasePO />} />
-				<Route path="/items" element={<Items />} />
-
-				<Route path="/vendors" element={<Vendors />} />
 
 
 				<Route path="projects">
@@ -96,12 +93,24 @@ const router = createBrowserRouter(
 					/>
 					<Route path=":projectId/edit" element={<EditProjectForm />} />
 				</Route>
+
 				<Route path="users">
 					<Route index element={<Users />} />
+					<Route path="new" element={<UserForm />} />
+					<Route path=":id" element={<Profile />} />
 				</Route>
 
-				<Route path="/users/edit" element={<UserForm/>} />
-				<Route path="/vendors/edit" element={<NewVendor/>} />
+				<Route path="wp" element={<WorkPackages />} />
+
+				<Route path="items" >
+					<Route index element={<Items />} />
+
+				</Route>
+
+				<Route path="vendors">
+					<Route index element={<Vendors />} />
+					<Route path="new" element={<NewVendor />} />
+				</Route>
 
 				<Route path="roles">
 					<Route index element={<Roles />} />
@@ -117,7 +126,7 @@ const router = createBrowserRouter(
 				<Route path="debug">
 					<Route index element={<Debug />} />
 				</Route>
-				<Route path="wp" element={<WorkPackages />} />
+
 				{/* <Route path="testlogin" element={<AuthenticationPage />} /> */}
 			</Route >
 		</>
