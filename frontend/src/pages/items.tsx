@@ -9,11 +9,11 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, Di
 
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { HardHat } from "lucide-react";
+import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
 
 import { useMemo, useState } from "react";
 
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { MainLayout } from "@/components/layout/main-layout"
@@ -23,6 +23,8 @@ import { Input } from "@/components/ui/input";
 
 
 export default function Items() {
+    const navigate = useNavigate();
+
 
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
@@ -54,6 +56,21 @@ export default function Items() {
                     return (
                         <div className="font-medium">
                             {row.getValue("item_name")}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "creation",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date Added" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("creation")?.split(" ")[0]}
                         </div>
                     )
                 }
@@ -93,16 +110,16 @@ export default function Items() {
     )
 
 
-    const { data: data, isLoading: isLoading, error: error , mutate: mutate} = useFrappeGetDocList("Items", {
+    const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList("Items", {
 
-        fields: ["name", "item_name", "unit_name", "category"],
+        fields: ["name", "item_name", "unit_name", "category", "creation"],
         limit: 1000
     })
 
 
-    const [curItem,setCurItem] = useState('');
-    const [unit,setUnit] = useState('');
-    const [category,setCategory] = useState('');
+    const [curItem, setCurItem] = useState('');
+    const [unit, setUnit] = useState('');
+    const [category, setCategory] = useState('');
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
 
@@ -130,7 +147,7 @@ export default function Items() {
 
         <MainLayout>
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                <div className="flex items-center justify-between space-y-2">
+                {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
                             <Link to="/" className="md:text-base text-sm">Dashboard</Link>
@@ -141,16 +158,18 @@ export default function Items() {
                             </Link>
                         </BreadcrumbItem>
                     </Breadcrumb>
-                </div>
+                </div> */}
                 <div className="flex items-center justify-between mb-2 space-y-2">
-                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Items Dashboard</h2>
-
+                    <div className="flex">
+                        <ArrowLeft className="mt-1.5" onClick={() => navigate("/")} />
+                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">User List</h2>
+                    </div>
                     <div className="flex items-center space-x-2">
                         <Dialog>
                             <DialogTrigger asChild>
-                            <Button>
-                                +Add Item
-                            </Button>
+                                <Button>
+                                    <CirclePlus className="w-5 h-5 mt- pr-1 " /><span className="hidden md:flex pl-1">Add New Item</span>
+                                </Button>
                             </DialogTrigger>
                             <DialogContent>
                                 <DialogHeader>
@@ -214,9 +233,9 @@ export default function Items() {
                                     </div>
                                 </DialogHeader>
                                 <div className="flex">
-                                <DialogClose className="flex-1 right-0">
-                                    <Button className="flex right-0" onClick={()=>handleAddItem()}>Submit</Button>
-                                </DialogClose>
+                                    <DialogClose className="flex-1 right-0">
+                                        <Button className="flex right-0" onClick={() => handleAddItem()}>Submit</Button>
+                                    </DialogClose>
                                 </div>
                             </DialogContent>
                         </Dialog>
@@ -242,7 +261,7 @@ export default function Items() {
                         </CardContent>
                     </Card>
                 </div>
-                <div className="container pl-0 pr-2">
+                <div className="cmx-auto py-10">
                     {isLoading && <h3>LOADING</h3>}
                     {error && <h3>ERROR</h3>}
                     <DataTable columns={columns} data={data || []} />

@@ -1,6 +1,7 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumb";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { MainLayout } from "@/components/layout/main-layout";
 import { NavBar } from "@/components/nav/nav-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,40 +9,42 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { Building2 } from "lucide-react";
+import { ArrowLeft, Building2, CirclePlus } from "lucide-react";
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 export default function Users() {
 
+    const navigate = useNavigate();
+
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-        fields: ["name", "full_name", "email", "mobile_no"]
+        fields: ["name", "full_name", "email", "mobile_no", "creation"]
     })
 
     const columns: ColumnDef<NirmaanUsers>[] = useMemo(
         () => [
-            {
-                id: "select",
-                header: ({ table }) => (
-                    <Checkbox
-                        checked={
-                            table.getIsAllPageRowsSelected() ||
-                            (table.getIsSomePageRowsSelected() && "indeterminate")
-                        }
-                        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-                        aria-label="Select all"
-                    />
-                ),
-                cell: ({ row }) => (
-                    <Checkbox
-                        checked={row.getIsSelected()}
-                        onCheckedChange={(value) => row.toggleSelected(!!value)}
-                        aria-label="Select row"
-                    />
-                ),
-                enableSorting: false,
-                enableHiding: false,
-            },
+            // {
+            //     id: "select",
+            //     header: ({ table }) => (
+            //         <Checkbox
+            //             checked={
+            //                 table.getIsAllPageRowsSelected() ||
+            //                 (table.getIsSomePageRowsSelected() && "indeterminate")
+            //             }
+            //             onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            //             aria-label="Select all"
+            //         />
+            //     ),
+            //     cell: ({ row }) => (
+            //         <Checkbox
+            //             checked={row.getIsSelected()}
+            //             onCheckedChange={(value) => row.toggleSelected(!!value)}
+            //             aria-label="Select row"
+            //         />
+            //     ),
+            //     enableSorting: false,
+            //     enableHiding: false,
+            // },
             {
                 accessorKey: "name",
                 header: ({ column }) => {
@@ -87,15 +90,29 @@ export default function Users() {
                 },
                 cell: ({ row }) => <div className="font-medium">{row.getValue("mobile_no")}</div>
             },
+            {
+                accessorKey: "creation",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date Joined" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("creation")?.split(" ")[0]}
+                        </div>
+                    )
+                }
+            }
 
         ],
         []
     )
     return (
-        <>
-            <NavBar />
+        <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-6">
-                <div className="flex items-center justify-between space-y-2">
+                {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
                             <Link to="/" className="md:text-base text-sm">Dashboard</Link>
@@ -106,12 +123,24 @@ export default function Users() {
                             </Link>
                         </BreadcrumbItem>
                     </Breadcrumb>
-                </div>
-                <div className="flex items-center justify-between space-y-2">
+                </div> */}
+                {/* <div className="flex items-center justify-between space-y-2">
                     <h2 className="text-3xl font-bold tracking-tight">Users List</h2>
                     <div className="flex items-center space-x-2">
                         <Button asChild>
                             <Link to="edit"> +Add Users</Link>
+                        </Button>
+                    </div>
+                </div> */}
+                <div className="flex items-center justify-between mb-2 space-y-2">
+                    <div className="flex">
+                        <ArrowLeft className="mt-1.5" onClick={() => navigate("/")} />
+                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">User List</h2>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                        <Button asChild>
+                            <Link to="new"> <CirclePlus className="w-5 h-5 mt- pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
                         </Button>
                     </div>
                 </div>
@@ -134,12 +163,12 @@ export default function Users() {
                         </Link>
                     </Card>
                 </div>
-                <div className="container mx-auto py-10">
+                <div className="mx-auto py-10">
                     {isLoading && <h3>LOADING</h3>}
                     {error && <h3>ERROR</h3>}
                     <DataTable columns={columns} data={data || []} />
                 </div>
             </div>
-        </>
+        </MainLayout>
     )
 }
