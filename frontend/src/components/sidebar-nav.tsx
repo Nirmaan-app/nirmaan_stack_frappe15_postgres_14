@@ -59,7 +59,7 @@ export function Sidebar({ className }: SidebarProps) {
                             </Button>
                         </Link>
                         <Accordion type="multiple" defaultValue={["admin-actions", "pl-actions", "pe-actions"]} >
-                            {userData.user_id == "Administrator" && <AccordionItem value="admin-actions">
+                            {(userData.user_id == "Administrator" || userData.role == "Nirmaan Admin Profile") && <AccordionItem value="admin-actions">
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
                                         <Shapes className="mr-2 h-4 w-4" />
@@ -119,7 +119,7 @@ export function Sidebar({ className }: SidebarProps) {
                                 </AccordionContent>
 
                             </AccordionItem>}
-                            {(userData.role == 'Nirmaan Project Lead Profile' || userData.user_id == "Administrator") && <AccordionItem value="pl-actions">
+                            {(userData.role == 'Nirmaan Project Lead Profile' || userData.user_id == "Administrator" || userData.role == "Nirmaan Admin Profile") && <AccordionItem value="pl-actions">
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
                                         <Shapes className="mr-2 h-4 w-4" />
@@ -156,7 +156,7 @@ export function Sidebar({ className }: SidebarProps) {
                                     </Link>
                                 </AccordionContent>
                             </AccordionItem>}
-                            {(userData.role == 'Nirmaan Procurement Executive Profile' || userData.user_id == "Administrator") && <AccordionItem value="pe-actions">
+                            {(userData.role == 'Nirmaan Procurement Executive Profile' || userData.user_id == "Administrator" || userData.role == "Nirmaan Admin Profile") && <AccordionItem value="pe-actions">
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
                                         <Building2 className="mr-2 h-4 w-4" />
