@@ -345,7 +345,7 @@ export const NewPR = () => {
                     <div className="w-1/2 md:w-2/3">
                         <h5 className="text-xs text-gray-400">Items</h5>
                         {/* <DropdownMenu items={item_lists} onSelect={handleSelect} /> */}
-                        <ReactSelect value={curItem} options={item_options} onChange={handleChange} />
+                        <ReactSelect value={{ value: curItem, label: curItem }} options={item_options} onChange={handleChange} />
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">UOM</h5>
