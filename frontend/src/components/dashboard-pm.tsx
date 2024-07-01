@@ -126,7 +126,7 @@ export const ProjectManager = () => {
                         <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Dashboard</h2>
                     </div>
                     <div className="grid grid-cols-2 gap-4 border border-gray-100 rounded-lg p-4">
-                        <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center" onClick={() => setPage("newprlist")}>
+                        <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center" onClick={() => navigate("/procurement-request")}>
                             <p className="text-center py-6 font-bold text-gray-500">Procurement Requests</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p>
                         </div>
@@ -160,7 +160,7 @@ export const ProjectManager = () => {
                                 {procurement_request_list?.map((item) => {
                                     if (item.project === orderData.project) {
                                         return <tr key={item.name} >
-                                            <td className="border-b-2 px-4 py-1 text-sm text-center"><Link to={`/pr-summary/${item.name}`}>{item.name.slice(-4)}</Link></td>
+                                            <td className="border-b-2 px-4 py-1 text-sm text-center text-blue-500"><Link to={`/pr-summary/${item.name}`}>{item.name.slice(-4)}</Link></td>
                                             <td className="border-b-2 px-4 py-1 text-sm text-center">{item.work_package}</td>
                                             <td className="border-b-2 px-4 py-1 text-sm text-center">{item.workflow_state}</td>
                                         </tr>
