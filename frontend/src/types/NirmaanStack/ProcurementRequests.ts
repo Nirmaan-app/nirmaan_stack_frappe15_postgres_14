@@ -18,4 +18,11 @@ export interface ProcurementRequests{
 	procurement_list?: any
 	/**	Amended From : Link - Procurement Requests	*/
 	amended_from?: string
+	/**	Category List : JSON	*/
+	category_list?: any
+	/**	Project Lead : Link - Nirmaan Users	*/
+	project_lead?: string
+	/**	Procurement Executive : Link - Nirmaan Users	*/
+	procurement_executive?: string
+	workflow_state: string
 }

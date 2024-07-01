@@ -60,7 +60,7 @@ const router = createBrowserRouter(
 
 				<Route path="pdf" element={<PDF />} />
 				{/* <Route path="/new-pr/:id" element={<NewPR />} /> */}
-				<Route path="/pr-summary/:id" element={<PRSummary />} />
+				{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
 				{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
 				<Route path="approve-order" element={<ApprovePR />} />
 				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
@@ -125,6 +125,7 @@ const router = createBrowserRouter(
 				<Route path="procurement-request">
 					<Route index element={<ListPR />} />
 					<Route path=":id/new" element={<NewPR />} />
+					<Route path=":id" lazy={() => import('@/components/pr-summary')} />
 				</Route>
 
 				<Route path="debug">

@@ -214,7 +214,7 @@ export const NewPR = () => {
         createDoc('Procurement Requests', orderData)
             .then(() => {
                 console.log(orderData)
-                navigate("/")
+                navigate("/procurement-request")
             }).catch(() => {
                 console.log("submit_error", submit_error)
             })

@@ -13,7 +13,7 @@ class Projects(Document):
 		# self.project_state = self.get_project_address()["state"] or ""
 		pass
 	def autoname(self):
-		city = f"{self.project_city}"
+		city = f"{self.project_city}".replace(" ", "_")
 		prefix = "PROJ-"
 		self.name = f"{city}-{prefix}{getseries(prefix, 5)}"
 	
