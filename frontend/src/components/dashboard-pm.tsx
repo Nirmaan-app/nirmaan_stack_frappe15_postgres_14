@@ -160,7 +160,7 @@ export const ProjectManager = () => {
                                 {procurement_request_list?.map((item) => {
                                     if (item.project === orderData.project) {
                                         return <tr key={item.name} >
-                                            <td className="border-b-2 px-4 py-1 text-sm text-center"><Link to={`/pr-summary/${item.name}`}>{item.name.slice(-4)}</Link></td>
+                                            <td className="border-b-2 px-4 py-1 text-sm text-center text-blue-500"><Link to={`/pr-summary/${item.name}`}>{item.name.slice(-4)}</Link></td>
                                             <td className="border-b-2 px-4 py-1 text-sm text-center">{item.work_package}</td>
                                             <td className="border-b-2 px-4 py-1 text-sm text-center">{item.workflow_state}</td>
                                         </tr>
