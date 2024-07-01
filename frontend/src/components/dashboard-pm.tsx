@@ -126,7 +126,7 @@ export const ProjectManager = () => {
                         <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Dashboard</h2>
                     </div>
                     <div className="grid grid-cols-2 gap-4 border border-gray-100 rounded-lg p-4">
-                        <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center" onClick={() => setPage("newprlist")}>
+                        <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center" onClick={() => navigate("/procurement-request")}>
                             <p className="text-center py-6 font-bold text-gray-500">Procurement Requests</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p>
                         </div>

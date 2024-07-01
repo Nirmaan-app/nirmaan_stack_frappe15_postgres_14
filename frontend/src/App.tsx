@@ -45,6 +45,7 @@ import Items from './pages/items'
 import Vendors from './pages/vendors'
 
 import { NewVendor } from './pages/new-vendor'
+import ListPR from './components/list/list-pr'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -58,7 +59,7 @@ const router = createBrowserRouter(
 				<Route index element={<Dashboard />} />
 
 				<Route path="pdf" element={<PDF />} />
-				<Route path="/new-pr/:id" element={<NewPR />} />
+				{/* <Route path="/new-pr/:id" element={<NewPR />} /> */}
 				<Route path="/pr-summary/:id" element={<PRSummary />} />
 				{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
 				<Route path="approve-order" element={<ApprovePR />} />
@@ -119,10 +120,13 @@ const router = createBrowserRouter(
 					<Route index element={<Customers />} />
 					{/* <Route path="edit" element={<EditCustomer />} /> */}
 				</Route>
-				{/* <Route index element={<ChannelRedirect />} />
-					<Route path="saved-messages" lazy={() => import('./components/feature/saved-messages/SavedMessages')} />
-					<Route path=":channelID" lazy={() => import('@/pages/ChatSpace')} />
-				</Route> */}
+
+				{/* Procurement Request Paths */}
+				<Route path="procurement-request">
+					<Route index element={<ListPR />} />
+					<Route path=":id/new" element={<NewPR />} />
+				</Route>
+
 				<Route path="debug">
 					<Route index element={<Debug />} />
 				</Route>
