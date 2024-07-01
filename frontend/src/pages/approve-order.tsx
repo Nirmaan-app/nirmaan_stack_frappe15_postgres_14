@@ -191,6 +191,7 @@ export const ProjectLeadComponent = () => {
                 setUnit('');
                 setQuantity(0);
                 setItem_id('');
+                setCurItem('');
             }
             const categoryIds = categories.list.map((cat) => cat.name);
             const curCategoryIds = orderData.category_list.list.map((cat) => cat.name);
@@ -326,7 +327,7 @@ export const ProjectLeadComponent = () => {
 
                                 <div className="w-1/2 md:w-2/3">
                                     <h5 className="text-xs text-gray-400">Items</h5>
-                                    <ReactSelect options={item_options} onChange={handleChange} />
+                                    <ReactSelect value={{ value: curItem, label: curItem }} options={item_options} onChange={handleChange} />
                                 </div>
                                 <div className="flex-1">
                                     <h5 className="text-xs text-gray-400">UOM</h5>
@@ -363,7 +364,7 @@ export const ProjectLeadComponent = () => {
                         </AlertDialog>
                         <Card className="p-4">
                             <div className="text-sm text-gray-700">Added Items</div>
-                            {categories.list?.map((cat) => {
+                            {orderData.category_list.list?.map((cat) => {
                                 return <div key={cat.name} className="">
                                     <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
                                     <table className="table-auto md:w-full">
