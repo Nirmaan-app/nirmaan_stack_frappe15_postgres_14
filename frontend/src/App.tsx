@@ -37,7 +37,7 @@ import Roles from './pages/roles'
 import Debug from './pages/debug'
 import { ApproveSelectVendor } from './pages/approve-select-vendor'
 import { ApproveVendor } from './pages/approve-vendor'
-import { NewPR } from './components/new-pr'
+import { NewPR } from './components/procurement-request/new-pr'
 import { PRSummary } from './components/pr-summary'
 import { UserForm } from './pages/user-form'
 import Items from './pages/items'
@@ -45,7 +45,7 @@ import Items from './pages/items'
 import Vendors from './pages/vendors'
 
 import { NewVendor } from './pages/new-vendor'
-import ListPR from './components/list/list-pr'
+import ListPR from './components/procurement-request/list-pr'
 // import { NewMilestone } from './components/new-milestone'
 
 

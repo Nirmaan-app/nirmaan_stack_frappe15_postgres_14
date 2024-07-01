@@ -1,25 +1,25 @@
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "./breadcrumb";
-import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "../breadcrumb";
+import { Card, CardHeader, CardTitle, CardContent } from "../ui/card";
 import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { HardHat, UserRound, PersonStanding, PackagePlus } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
-import DropdownMenu from './dropdown';
-import DropdownMenu2 from './dropdown2';
+import DropdownMenu from '../dropdown';
+import DropdownMenu2 from '../dropdown2';
 import { ArrowLeft } from 'lucide-react';
 import ReactSelect from 'react-select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "./ui/dialog"
-import { Button } from "./ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "../ui/dialog"
+import { Button } from "../ui/button"
 import { CirclePlus } from 'lucide-react';
 import { Pencil } from 'lucide-react';
 
 
 import imageUrl from "@/assets/user-icon.jpeg"
-import { MainLayout } from "./layout/main-layout";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
+import { MainLayout } from "../layout/main-layout";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 
 export const NewPR = () => {
 
@@ -185,6 +185,7 @@ export const NewPR = () => {
                         list: curRequest,
                     },
                 }));
+                setCurItem('');
                 setUnit('');
                 setQuantity(0);
                 setItem_id('');
@@ -344,7 +345,7 @@ export const NewPR = () => {
                     <div className="w-1/2 md:w-2/3">
                         <h5 className="text-xs text-gray-400">Items</h5>
                         {/* <DropdownMenu items={item_lists} onSelect={handleSelect} /> */}
-                        <ReactSelect options={item_options} onChange={handleChange} />
+                        <ReactSelect value={curItem} options={item_options} onChange={handleChange} />
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">UOM</h5>

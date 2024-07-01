@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
-import { MainLayout } from "../../components/layout/main-layout";
+import { MainLayout } from "../layout/main-layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 
 export default function ListPR() {
