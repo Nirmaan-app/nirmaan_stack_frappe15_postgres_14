@@ -43,7 +43,7 @@ export const SentBackUpdateQuote = () => {
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'item_list', 'comments'],
+            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category_list', 'project', 'creation', 'item_list', 'comments'],
             filters: [["workflow_state", "=", "Pending"]],
             limit: 100
         });
@@ -60,7 +60,7 @@ export const SentBackUpdateQuote = () => {
         list: []
     })
     const [orderData, setOrderData] = useState({
-        project_name: ''
+        project: ''
     })
 
     useEffect(() => {
@@ -72,14 +72,14 @@ export const SentBackUpdateQuote = () => {
     }, [sent_back_list]);
 
     useEffect(() => {
-        if (orderData.project_name) {
+        if (orderData.project) {
             console.log(orderData, quotation_request_list)
             const vendors = uniqueVendors.list;
             quotation_request_list?.map((item) => {
-                if (orderData.procurement_request === item.procurement_task && orderData.category === item.category) {
+                const isPresent = orderData.category_list.list.find(cat => cat.name === item.category)
+                if (orderData.procurement_request === item.procurement_task && isPresent) {
                     const value = item.vendor;
                     vendors.push(value)
-                    console.log("value", value)
                 }
             })
             const removeDuplicates = (array) => {
@@ -92,6 +92,7 @@ export const SentBackUpdateQuote = () => {
             }));
         }
     }, [quotation_request_list, orderData]);
+    // console.log(orderData)
 
     const handleUpdateQuote = () => {
         navigate(`/sent-back-request/select-vendor/${id}`);
@@ -106,7 +107,7 @@ export const SentBackUpdateQuote = () => {
                             <ArrowLeft onClick={() => navigate('/sent-back-request')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Select Vendor</h2>
                         </div>
-                        <Card className="grid grid-cols-6 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
 
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Sent Back ID</p>
@@ -122,16 +123,13 @@ export const SentBackUpdateQuote = () => {
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project_name}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{getPackage(orderData?.procurement_request)}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Category</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.category}</p>
-                            </div>
+                            
                         </Card>
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
@@ -182,7 +180,7 @@ export const SentBackUpdateQuote = () => {
                             <ArrowLeft onClick={() => setPage('summary')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Update Quote</h2>
                         </div>
-                        <Card className="grid grid-cols-6 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Sent Back ID</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name}</p>
@@ -197,15 +195,11 @@ export const SentBackUpdateQuote = () => {
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project_name}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{getPackage(orderData?.procurement_request)}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Category</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.category}</p>
                             </div>
                         </Card>
                         {uniqueVendors.list.map((item) => {
@@ -218,7 +212,7 @@ export const SentBackUpdateQuote = () => {
                                             <SheetHeader>
                                                 <SheetTitle>Enter Price</SheetTitle>
                                                 <SheetDescription>
-                                                    <SentBackQuotationForm cat={orderData.category} vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
+                                                    <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
                                                 </SheetDescription>
                                             </SheetHeader>
                                         </ScrollArea>

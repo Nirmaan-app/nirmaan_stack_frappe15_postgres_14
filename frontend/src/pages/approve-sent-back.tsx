@@ -24,6 +24,79 @@ import {
     DialogTrigger,
     DialogClose
 } from "@/components/ui/dialog"
+import { Space, Switch, Table, ConfigProvider, Collapse, Checkbox } from 'antd';
+import type { TableColumnsType, TableProps } from 'antd';
+
+type TableRowSelection<T> = TableProps<T>['rowSelection'];
+
+interface DataType {
+  key: React.ReactNode;
+  category: string;
+  item: string;
+  unit: string;
+  quantity: number;
+  rate: number;
+  selectedVendor: string;
+  amount: number;
+  lowest2: string;
+  lowest3: string;
+  children?: DataType[];
+}
+
+const columns: TableColumnsType<DataType> = [
+    {
+      title: 'Items',
+      dataIndex: 'item',
+      key: 'item'
+    },
+    {
+      title: 'Unit',
+      dataIndex: 'unit',
+      key: 'unit',
+      width: '7%',
+    },
+    {
+      title: 'Quantity',
+      dataIndex: 'quantity',
+      width: '7%',
+      key: 'quantity',
+    },
+    {
+        title: 'Rate',
+        dataIndex: 'rate',
+        width: '7%',
+        key: 'rate',
+      },
+    {
+        title: 'Selected Vendor',
+        dataIndex: 'selectedVendor',
+        width: '15%',
+        key: 'selectedVendor',
+      },
+      {
+        title: 'Amount',
+        dataIndex: 'amount',
+        width: '9%',
+        key: 'amount',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+              {text}
+            </span>
+          ),
+      },
+      {
+        title: '3 months Lowest Amount',
+        dataIndex: 'lowest3',
+        width: '10%',
+        key: 'lowest3',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+              {text}
+            </span>
+          ),
+      },
+  ];
+
 
 export const ApproveSentBack = () => {
     const { id } = useParams<{ id: string }>()
@@ -50,7 +123,7 @@ export const ApproveSentBack = () => {
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'owner',],
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category_list', 'project', 'creation', 'owner',],
             filters: [["workflow_state", "=", "Vendor Selected"]],
             limit: 100
         });
@@ -71,13 +144,83 @@ export const ApproveSentBack = () => {
         project_name: '',
         category: ''
     })
-    if (!orderData.project_name) {
+    if (!orderData.project) {
         sent_back_list?.map(item => {
             if (item.name === id) {
                 setOrderData(item)
             }
         })
     }
+
+    const [data,setData] = useState<DataType>([]) 
+    const [checkStrictly, setCheckStrictly] = useState(false);
+
+    useEffect(() => {
+        if (orderData.project) {
+            const newData: DataType[] = [];
+            orderData.category_list?.list?.forEach((cat) => {
+                const items: DataType[] = [];
+    
+                orderData.item_list?.list?.forEach((item) => {
+                    if (item.category === cat.name) {
+                            const price = Number(getPrice(item.vendor, item.name))
+                            const quotesForItem = quote_data
+                                ?.filter(value => value.item === item.name && value.quote)
+                                ?.map(value => value.quote);
+                            let minQuote;
+                            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                            minQuote = (minQuote ? parseFloat(minQuote)*item.quantity : 0)
+
+                            items.push({
+                                item: item.item,
+                                key: item.name,
+                                unit: item.unit,
+                                quantity: item.quantity,
+                                category: item.category,
+                                rate: item.quote,
+                                amount: item.vendor ? item.quote*item.quantity : "Delayed",
+                                selectedVendor: item.vendor ? getVendorName(item.vendor) : "Delayed",
+                                // lowest2: item.vendor ? getLowest2(item.name)*item.quantity : "Delayed",
+                                lowest3: minQuote ? minQuote : "N/A",
+                            });
+                    }
+                });
+    
+                if(items.length){
+                    const node: DataType = {
+                        item: cat.name,
+                        key: cat.name,
+                        unit: null,
+                        quantity: null,
+                        // amount: getTotal(cat.name),
+                        // lowest2: getLowest(cat.name).quote,
+                        // lowest3: getLowest3(cat.name),
+                        children: items,
+                    };
+                    newData.push(node);
+                }
+            });
+            console.log("newData",newData)
+            setData(newData)
+        }
+    }, [orderData]);
+    console.log("data",data)
+
+    const [selectedItems,setSelectedItems] = useState()
+    const rowSelection: TableRowSelection<DataType> = {
+        onChange: (selectedRowKeys, selectedRows) => {
+            console.log("onChange")
+          console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+          setSelectedItems(selectedRows)
+        },
+        onSelect: (record, selected, selectedRows) => {
+          console.log(record, selected, selectedRows);
+        },
+        onSelectAll: (selected, selectedRows, changeRows) => {
+          console.log(selected, selectedRows, changeRows);
+        },
+      };
+
     const [comment, setComment] = useState('')
 
     const getVendorName = (vendorName: string) => {
@@ -88,6 +231,9 @@ export const ApproveSentBack = () => {
     }
     const getVendorGST = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_gst;
+    }
+    const getVendorId = (vendorName: string) => {
+        return vendor_list?.find(vendor => vendor.vendor_name === vendorName)?.name;
     }
     const getProjectName = (projectName: string) => {
         return project_list?.find(project => project.name === projectName)?.project_name;
@@ -125,8 +271,156 @@ export const ApproveSentBack = () => {
     };
 
     const getPrice = (itemName: string) => {
-        return orderData?.item_list?.list.find(item => item.name === itemName).quote
+        return orderData?.item_list?.list.find(item => item.name === itemName)?.quote
     }
+
+    const newHandleApprove = () => {
+        
+        const filteredData = selectedItems?.filter(item => {
+            return item.unit !== null && item.quantity !== null
+        });
+        console.log(filteredData)
+
+        const vendorItems = {};
+        filteredData?.forEach((item) => {
+            if (item.selectedVendor) {
+                if (!vendorItems[item.selectedVendor]) {
+                    vendorItems[item.selectedVendor] = [];
+                }
+                // const price = Number(getPrice(item.selectedVendor, item.key))
+                vendorItems[item.selectedVendor].push({
+                    name: item.key,
+                    quote: Number(item.rate),
+                    quantity: item.quantity,
+                    unit: item.unit,
+                    item: item.item
+                });
+            }
+
+        })
+
+        const createDocPromises = [];
+
+        Object.entries(vendorItems)?.forEach(([key, value]) => {
+
+            const newProcurementOrder = {
+                procurement_request: orderData.procurement_request,
+                project: orderData.project,
+                project_name: getProjectName(orderData.project),
+                project_address: getProjectAddress(orderData.project),
+                vendor: getVendorId(key),
+                vendor_name: key,
+                vendor_address: getVendorAddress(getVendorId(key)),
+                vendor_gst: getVendorGST(getVendorId(key)),
+                order_list: {
+                    list: value
+                }
+            };
+
+            if (value?.length > 0) {
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
+
+                createDocPromises.push(createDocPromise);
+            }
+
+        });
+
+        const filteredList = orderData.item_list?.list.filter(procItem =>
+            !filteredData.some(selItem => selItem.key === procItem.name)
+        );
+
+        setOrderData(prevOrderData => ({
+            ...prevOrderData,
+            item_list: {
+                list: filteredList
+            }
+        }));
+    }
+
+    const newHandleSentBack = () => {
+        const filteredData = selectedItems?.filter(item => {
+            return item.unit !== null && item.quantity !== null
+        });
+        console.log(filteredData)
+
+        const itemlist = [];
+        filteredData?.map((value) => {
+                // const price = getPrice(value.selectedVendor, value.key);
+                itemlist.push({
+                    name: value.key,
+                    item: value.item,
+                    quantity: value.quantity,
+                    quote: value.rate,
+                    unit: value.unit,
+                    category: value.category
+                })
+        })
+
+        const newCategories = [];
+        itemlist?.forEach((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+
+        const newSendBack = {
+            procurement_request: orderData.procurement_request,
+            project: orderData.project,
+            category_list:{
+                list: newCategories
+            },
+            item_list: {
+                list: itemlist
+            },
+            comments: comment,
+            type: "Rejected"
+        }
+        if (itemlist.length > 0) {
+            createDoc('Sent Back Category', newSendBack)
+                .then(() => {
+                    console.log(newSendBack);
+                    setComment('')
+                })
+                .catch(() => {
+                    console.log("submit_error", submit_error);
+                })
+        }
+
+        const filteredList = orderData.item_list?.list.filter(procItem =>
+            !filteredData.some(selItem => selItem.key === procItem.name)
+        );
+
+        setOrderData(prevOrderData => ({
+            ...prevOrderData,
+            item_list: {
+                list: filteredList
+            }
+        }));
+
+    }
+    
+    useEffect(() => {
+        const newCategories = [];
+        orderData?.item_list?.list.map((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+        setOrderData((prevState) => ({
+            ...prevState,
+            category_list: {
+                list: newCategories
+            },
+        }));
+    }, [orderData]);
 
     const handleSendBack = (cat: string) => {
         if (selectedItem.list?.length > 0) {
@@ -179,7 +473,7 @@ export const ApproveSentBack = () => {
 
         const createDocPromises = [];
 
-        Object.entries(vendorItems).forEach(([key, value]) => {
+        Object.entries(vendorItems)?.forEach(([key, value]) => {
 
             const newProcurementOrder = {
                 procurement_request: orderData.procurement_request,
@@ -236,7 +530,7 @@ export const ApproveSentBack = () => {
 
         const createDocPromises = [];
 
-        Object.entries(vendorItems).forEach(([key, value]) => {
+        Object.entries(vendorItems)?.forEach(([key, value]) => {
 
             const newProcurementOrder = {
                 procurement_request: orderData.procurement_request,
@@ -302,16 +596,16 @@ export const ApproveSentBack = () => {
                     </div>
                     <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col items-center justify-center">
+                            <p className="text-left py-1 font-semibold text-sm text-gray-300">Sent Back ID</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name}</p>
+                        </div>
+                        <div className="border-0 flex flex-col items-center justify-center">
                             <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
                         </div>
                         <div className="border-0 flex flex-col items-center justify-center">
                             <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project_name}</p>
-                        </div>
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">Category</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.category}</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                         </div>
                         <div className="border-0 flex flex-col items-center justify-center">
                             <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
@@ -322,12 +616,12 @@ export const ApproveSentBack = () => {
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                         </div>
                     </Card>
-                    <div className="w-full">
+                    {/* <div className="w-full">
                         <div className="font-bold text-xl py-2">{orderData?.category}</div>
                         <Card className="flex w-1/2 shadow-none border border-grey-500" >
                             <CardHeader className="w-full">
                                 <CardTitle>
-                                    {/* <div className="text-sm text-gray-400">Selected Vendor</div> */}
+                                    
                                     <div className="flex justify-between border-b">
                                         <div className="font-bold text-lg py-2 border-gray-200">Total</div>
                                         <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
@@ -459,9 +753,74 @@ export const ApproveSentBack = () => {
                                 </DialogContent>
                             </Dialog>
                         </div>
-                    </div>
+                    </div> */}
                 </div>
             </div>
+            <ConfigProvider
+                    theme={{
+                    token: {
+                        // Seed Token
+                        colorPrimary: '#FF2828',
+                        borderRadius: 4,
+
+                        // Alias Token
+                        colorBgContainer: '#FFFFFF',
+                    },
+                    }}
+                >
+                <Table
+                    dataSource={data}
+                    rowSelection={{ ...rowSelection,checkStrictly}}
+                    columns={columns}
+                />
+
+                </ConfigProvider>
+                {selectedItems?.length>0 && <div className="text-right space-x-2">
+            <Dialog>
+                <DialogTrigger asChild>
+                    <Button className="text-red-500 bg-white border border-red-500 hover:text-white">
+                        Send Back 
+                    </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Are you Sure</DialogTitle>
+                        <DialogDescription>
+                            Add Comments and Send Back the Selected Items.
+                            <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
+                            <textarea
+                                id="textarea"
+                                className="w-full border rounded-lg p-2"
+                                value={comment}
+                                placeholder="Type your comments here"
+                                onChange={(e) => setComment(e.target.value)}
+                            />
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogClose>
+                        <Button className="text-white bg-red-500" onClick={() => newHandleSentBack()}>Send Back</Button>
+                    </DialogClose>
+                </DialogContent>
+            </Dialog>
+            <Dialog>
+                <DialogTrigger asChild>
+                    <Button>
+                        Approve 
+                    </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Are you Sure</DialogTitle>
+                        <DialogDescription>
+                            Click on Confirm to Approve the Selected Items.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogClose>
+                    <Button className="text-white bg-red-500" onClick={() => newHandleApprove()}>Approve</Button>
+                    </DialogClose>
+                </DialogContent>
+            </Dialog>
+            </div>}
         </MainLayout>
     )
 }
