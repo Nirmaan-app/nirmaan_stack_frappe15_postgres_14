@@ -1,25 +1,25 @@
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "./breadcrumb";
-import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "../breadcrumb";
+import { Card, CardHeader, CardTitle, CardContent } from "../ui/card";
 import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { HardHat, UserRound, PersonStanding, PackagePlus } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
-import DropdownMenu from './dropdown';
-import DropdownMenu2 from './dropdown2';
+import DropdownMenu from '../dropdown';
+import DropdownMenu2 from '../dropdown2';
 import { ArrowLeft } from 'lucide-react';
 import ReactSelect from 'react-select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "./ui/dialog"
-import { Button } from "./ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "../ui/dialog"
+import { Button } from "../ui/button"
 import { CirclePlus } from 'lucide-react';
 import { Pencil } from 'lucide-react';
 
 
 import imageUrl from "@/assets/user-icon.jpeg"
-import { MainLayout } from "./layout/main-layout";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
+import { MainLayout } from "../layout/main-layout";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 
 export const NewPR = () => {
 
@@ -33,7 +33,7 @@ export const NewPR = () => {
         });
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package']
+            fields: ['category_name', 'work_package', 'image_url']
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
@@ -185,6 +185,7 @@ export const NewPR = () => {
                         list: curRequest,
                     },
                 }));
+                setCurItem('');
                 setUnit('');
                 setQuantity(0);
                 setItem_id('');
@@ -214,7 +215,7 @@ export const NewPR = () => {
         createDoc('Procurement Requests', orderData)
             .then(() => {
                 console.log(orderData)
-                navigate("/")
+                navigate("/procurement-request")
             }).catch(() => {
                 console.log("submit_error", submit_error)
             })
@@ -252,12 +253,14 @@ export const NewPR = () => {
             }
             return curValue;
         });
-        if(quantity){setOrderData((prevState) => ({
-            ...prevState,
-            procurement_list: {
-                list: curRequest,
-            },
-        }));}
+        if (quantity) {
+            setOrderData((prevState) => ({
+                ...prevState,
+                procurement_list: {
+                    list: curRequest,
+                },
+            }));
+        }
         setQuantity(0)
         setCurItem('')
     };
@@ -289,7 +292,7 @@ export const NewPR = () => {
                                     <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.work_package_image === null ? imageUrl : item.work_package_image} alt="Project" />
                                     <span>{item.work_package_name}</span>
                                 </CardTitle>
-                                {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
+                                {console.log("FROM WP:", item.work_package_image)}
                             </CardHeader>
                         </Card>
                     ))}
@@ -307,7 +310,7 @@ export const NewPR = () => {
                                 <Card className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick(item.category_name, 'itemlist')}>
                                     <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
                                         <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
-                                            <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
+                                            <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.image_url === null ? imageUrl : item.image_url} alt="Category" />
                                             <span>{item.category_name}</span>
                                         </CardTitle>
                                         {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
@@ -342,7 +345,7 @@ export const NewPR = () => {
                     <div className="w-1/2 md:w-2/3">
                         <h5 className="text-xs text-gray-400">Items</h5>
                         {/* <DropdownMenu items={item_lists} onSelect={handleSelect} /> */}
-                        <ReactSelect options={item_options} onChange={handleChange} />
+                        <ReactSelect value={{ value: curItem, label: curItem }} options={item_options} onChange={handleChange} />
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">UOM</h5>
@@ -383,31 +386,31 @@ export const NewPR = () => {
                                             <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.quantity}</td>
                                             <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">
                                                 <Dialog className="border border-gray-200">
-                                                    <DialogTrigger><Pencil className="w-4 h-4"/></DialogTrigger>
+                                                    <DialogTrigger><Pencil className="w-4 h-4" /></DialogTrigger>
                                                     <DialogContent>
                                                         <DialogHeader>
                                                             <DialogTitle className="text-left py-2">Edit Item</DialogTitle>
                                                             <DialogDescription className="flex flex-row">
                                                             </DialogDescription>
                                                             <DialogDescription className="flex flex-row">
-                                                            <div className="flex space-x-2">
-                                                                <div className="w-1/2 md:w-2/3">
-                                                                    <h5 className="text-xs text-gray-400 text-left">Items</h5>
-                                                                    <div className=" w-full border rounded-lg px-1 py-2 text-left">
-                                                                        {item.item}
+                                                                <div className="flex space-x-2">
+                                                                    <div className="w-1/2 md:w-2/3">
+                                                                        <h5 className="text-xs text-gray-400 text-left">Items</h5>
+                                                                        <div className=" w-full border rounded-lg px-1 py-2 text-left">
+                                                                            {item.item}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="w-[30%]">
+                                                                        <h5 className="text-xs text-gray-400 text-left">UOM</h5>
+                                                                        <div className="h-[37px] w-full pt-1 text-left">
+                                                                            {item.unit}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="w-[25%]">
+                                                                        <h5 className="text-xs text-gray-400 text-left">Qty</h5>
+                                                                        <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
                                                                     </div>
                                                                 </div>
-                                                                <div className="w-[30%]">
-                                                                    <h5 className="text-xs text-gray-400 text-left">UOM</h5>
-                                                                    <div className="h-[37px] w-full pt-1 text-left">
-                                                                        {item.unit}
-                                                                    </div>
-                                                                </div>
-                                                                <div className="w-[25%]">
-                                                                    <h5 className="text-xs text-gray-400 text-left">Qty</h5>
-                                                                    <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
-                                                                </div>
-                                                            </div>
                                                             </DialogDescription>
                                                             <DialogDescription className="flex flex-row justify-between">
                                                                 <div></div>
@@ -442,7 +445,7 @@ export const NewPR = () => {
                             </DialogDescription>
                         </DialogHeader>
                         <DialogClose>
-                        <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                            <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
                         </DialogClose>
                     </DialogContent>
                 </Dialog>
@@ -545,7 +548,7 @@ export const NewPR = () => {
                                 <Card className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick2(item.category_name)}>
                                     <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
                                         <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
-                                            <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={imageUrl} alt="Project" />
+                                            <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.image_url === null ? imageUrl : item.image_url} alt="Category" />
                                             <span>{item.category_name}</span>
                                         </CardTitle>
                                         {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}

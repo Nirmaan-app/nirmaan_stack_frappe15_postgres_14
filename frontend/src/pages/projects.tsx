@@ -7,10 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { HardHat } from "lucide-react";
+import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
 
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { MainLayout } from "@/components/layout/main-layout";
@@ -30,6 +30,7 @@ import { MainLayout } from "@/components/layout/main-layout";
 // }
 
 export default function Projects() {
+    const navigate = useNavigate()
 
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
@@ -66,6 +67,21 @@ export default function Projects() {
                 }
             },
             {
+                accessorKey: "creation",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("creation")?.split(" ")[0]}
+                        </div>
+                    )
+                }
+            },
+            {
                 accessorKey: "project_type",
                 header: ({ column }) => {
                     return (
@@ -94,14 +110,14 @@ export default function Projects() {
     )
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<ProjectsType>("Projects", {
-        fields: ["name", "project_name", "project_type", "project_city", "project_state"]
+        fields: ["name", "project_name", "project_type", "project_city", "project_state", "creation"]
     })
 
     return (
 
         <MainLayout>
-            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                <div className="flex items-center justify-between space-y-2">
+            <div className="flex-1 space-x-2 md:space-y-4 p-6 pt-6">
+                {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
                             <Link to="/" className="md:text-base text-sm">Dashboard</Link>
@@ -112,12 +128,16 @@ export default function Projects() {
                             </Link>
                         </BreadcrumbItem>
                     </Breadcrumb>
-                </div>
+                </div> */}
                 <div className="flex items-center justify-between mb-2 space-y-2">
-                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
+                    <div className="flex">
+                        <ArrowLeft className="mt-1.5" onClick={() => navigate("/")} />
+                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
+                    </div>
+
                     <div className="flex items-center space-x-2">
                         <Button asChild>
-                            <Link to="edit"> +Add <span className="hidden md:flex">Project</span></Link>
+                            <Link to="new"> <CirclePlus className="w-5 h-5 mt- pr-1 " />Add <span className="hidden md:flex pl-1"> Project</span></Link>
                         </Button>
                     </div>
                 </div>
@@ -140,7 +160,7 @@ export default function Projects() {
                         </CardContent>
                     </Card>
                 </div>
-                <div className="container pl-0 pr-2">
+                <div className="pl-0 pr-2">
                     {isLoading && <h3>LOADING</h3>}
                     {error && <h3>ERROR</h3>}
                     <DataTable columns={columns} data={data || []} />

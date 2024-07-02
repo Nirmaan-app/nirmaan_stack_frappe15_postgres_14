@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 //import { HardHat } from "lucide-react";
 // import { useMemo } from "react";
-import { Link } from "react-router-dom";
-import {DialogClose} from "@/components/ui/dialog"
+import { Link, useNavigate } from "react-router-dom";
+import { DialogClose } from "@/components/ui/dialog"
 // import { ColumnDef } from "@tanstack/react-table";
 // import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 // import { DataTable } from "@/components/data-table/data-table";
@@ -28,6 +28,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
 import { ButtonLoading } from "@/components/button-loading"
+import { MainLayout } from "@/components/layout/main-layout";
+import { ArrowLeft, CirclePlus } from "lucide-react";
 
 
 interface WorkPackage {
@@ -47,9 +49,10 @@ const SOWFormSchema = z.object({
 type SOWFormValues = z.infer<typeof SOWFormSchema>
 
 export default function Projects() {
+    const navigate = useNavigate()
     //const { data: wp_count, isLoading: wp_count_loading, error: wp_count_error } = useFrappeGetDocCount("Work Packages");
 
-    const { data: data, isLoading: isLoading, error: error,mutate: mutate } = useFrappeGetDocList<WorkPackage>("Work Packages", {
+    const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList<WorkPackage>("Work Packages", {
         fields: ["work_package_name"]
     })
     const form = useForm<SOWFormValues>({
@@ -65,7 +68,7 @@ export default function Projects() {
     function onSubmit(values: z.infer<typeof SOWFormSchema>) {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
-        console.log("values ",values)
+        console.log("values ", values)
 
         createDoc('Work Packages', values)
             .then(() => {
@@ -98,15 +101,14 @@ export default function Projects() {
     //     ],
     //     []
     // )
-    function closewindow(){
+    function closewindow() {
         var button = document.getElementById('dialogClose');
         mutate()
     }
     return (
-        <>
-            <NavBar />
+        <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-6">
-                <div className="flex items-center justify-between space-y-2">
+                {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
                             <Link to="/" className="md:text-base text-sm">Dashboard</Link>
@@ -117,14 +119,21 @@ export default function Projects() {
                             </Link>
                         </BreadcrumbItem>
                     </Breadcrumb>
-                </div>
-                <div className="flex items-center justify-between space-y-2">
-                    <h2 className="text-3xl font-bold tracking-tight">Work Packages Dashboard</h2>
+                </div> */}
+                <div className="flex items-center justify-between mb-2 space-y-2">
+                    <div className="flex">
+                        <ArrowLeft className="mt-1.5" onClick={() => navigate("/")} />
+                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Work Packages Dashboard</h2>
+                    </div>
                     <div className="flex items-center space-x-2">
                         {/* <Button> Add New Work Packages</Button> */}
                         <Dialog>
                             <DialogTrigger asChild>
-                                <Button className="p-3 pb-4" variant="secondary">Add New Work Packages</Button>
+                                <Button variant="secondary">
+                                    <div className="flex"><CirclePlus className="w-5 h-5 mt- pr-1 " />
+                                        <span className="pl-1">Add New Work Package</span>
+                                    </div>
+                                </Button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
@@ -155,11 +164,11 @@ export default function Projects() {
                                         {(loading) ? (<ButtonLoading />) : (<DialogClose asChild><Button type="submit">Submit</Button></DialogClose>)}
                                         {/* <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose> */}
                                         <div>
-                                            {submit_complete && 
-                                            <div>
-                                            {/* <div className="font-semibold text-green-500"> Customer added</div> */}
-                                            {closewindow()}
-                                            </div>
+                                            {submit_complete &&
+                                                <div>
+                                                    {/* <div className="font-semibold text-green-500"> Customer added</div> */}
+                                                    {closewindow()}
+                                                </div>
                                             }
                                             {submit_error && <div>{submit_error}</div>}
                                         </div>
@@ -192,6 +201,6 @@ export default function Projects() {
                     )}
                 </div>
             </div>
-        </>
+        </MainLayout>
     )
 }

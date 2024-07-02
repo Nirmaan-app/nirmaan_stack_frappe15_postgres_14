@@ -1,9 +1,9 @@
 // import { useState } from 'react'
 import { FrappeProvider } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
-import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
+import { Route, RouterProvider, createBrowserRouter, createHashRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
-// import Login from './pages/login'
+import Login from './pages/auth/old-login'
 import Projects from './pages/projects'
 import Customers from './pages/customers'
 import WorkPackages from './pages/work-packages'
@@ -37,27 +37,30 @@ import Roles from './pages/roles'
 import Debug from './pages/debug'
 import { ApproveSelectVendor } from './pages/approve-select-vendor'
 import { ApproveVendor } from './pages/approve-vendor'
-import { NewPR } from './components/new-pr'
+import { NewPR } from './components/procurement-request/new-pr'
 import { PRSummary } from './components/pr-summary'
 import { UserForm } from './pages/user-form'
 import Items from './pages/items'
+
 import Vendors from './pages/vendors'
+
 import { NewVendor } from './pages/new-vendor'
+import ListPR from './components/procurement-request/list-pr'
 // import { NewMilestone } from './components/new-milestone'
 
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
 		<>
-			<Route path='/login' lazy={() => import('@/pages/auth/Login')} />
-			{/* <Route path='/login' element={<Login />} /> */}
+			{/* <Route path='/login' lazy={() => import('@/pages/auth/Login')} /> */}
+			<Route path='/login' element={<Login />} />
 			<Route path='/forgot-password' lazy={() => import('@/pages/auth/forgot-password')} />
 			<Route path='/' element={<ProtectedRoute />}>
 				<Route index element={<Dashboard />} />
-				<Route path="users/:id" element={<Profile />} />
+
 				<Route path="pdf" element={<PDF />} />
-				<Route path="/new-pr/:id" element={<NewPR />} />
-				<Route path="/pr-summary/:id" element={<PRSummary />} />
+				{/* <Route path="/new-pr/:id" element={<NewPR />} /> */}
+				{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
 				{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
 				<Route path="approve-order" element={<ApprovePR />} />
 				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
@@ -76,12 +79,11 @@ const router = createBrowserRouter(
 				<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
 				<Route path="release-po" element={<ReleasePOSelect />} />
 				<Route path="/release-po/:id" element={<ReleasePO />} />
-				<Route path="/items" element={<Items/>} />
-				<Route path="/vendors" element={<Vendors/>} />
+
 
 				<Route path="projects">
 					<Route index element={<Projects />} />
-					<Route path="edit" element={<EditProject />} />
+					<Route path="new" element={<EditProject />} />
 					<Route
 						path=":projectId"
 						// loader={(({ params }) => {
@@ -90,13 +92,26 @@ const router = createBrowserRouter(
 						// action={(({ params }) => {})}
 						lazy={() => import('@/pages/project')}
 					/>
-					<Route path="edit-one/:projectId" element={<EditProjectForm />} />
+					<Route path=":projectId/edit" element={<EditProjectForm />} />
 				</Route>
+
 				<Route path="users">
 					<Route index element={<Users />} />
+					<Route path="new" element={<UserForm />} />
+					<Route path=":id" element={<Profile />} />
 				</Route>
-				<Route path="/users/edit" element={<UserForm/>} />
-				<Route path="/vendors/edit" element={<NewVendor/>} />
+
+				<Route path="wp" element={<WorkPackages />} />
+
+				<Route path="items" >
+					<Route index element={<Items />} />
+
+				</Route>
+
+				<Route path="vendors">
+					<Route index element={<Vendors />} />
+					<Route path="new" element={<NewVendor />} />
+				</Route>
 
 				<Route path="roles">
 					<Route index element={<Roles />} />
@@ -105,14 +120,18 @@ const router = createBrowserRouter(
 					<Route index element={<Customers />} />
 					{/* <Route path="edit" element={<EditCustomer />} /> */}
 				</Route>
-				{/* <Route index element={<ChannelRedirect />} />
-					<Route path="saved-messages" lazy={() => import('./components/feature/saved-messages/SavedMessages')} />
-					<Route path=":channelID" lazy={() => import('@/pages/ChatSpace')} />
-				</Route> */}
+
+				{/* Procurement Request Paths */}
+				<Route path="procurement-request">
+					<Route index element={<ListPR />} />
+					<Route path=":id/new" element={<NewPR />} />
+					<Route path=":id" lazy={() => import('@/components/pr-summary')} />
+				</Route>
+
 				<Route path="debug">
 					<Route index element={<Debug />} />
 				</Route>
-				<Route path="wp" element={<WorkPackages />} />
+
 				{/* <Route path="testlogin" element={<AuthenticationPage />} /> */}
 			</Route >
 		</>

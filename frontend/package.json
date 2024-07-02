@@ -27,6 +27,7 @@
     "@radix-ui/react-slider": "^1.1.2",
     "@radix-ui/react-slot": "^1.0.2",
     "@radix-ui/react-switch": "^1.0.3",
+    "@radix-ui/react-tabs": "^1.1.0",
     "@radix-ui/themes": "^3.0.4",
     "@tanstack/match-sorter-utils": "^8.15.1",
     "@tanstack/react-table": "^8.13.2",
@@ -53,6 +54,7 @@
     "react-to-print": "^2.15.1",
     "tailwind-merge": "^2.2.1",
     "tailwindcss-animate": "^1.0.7",
+    "vite-plugin-pwa": "^0.20.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {

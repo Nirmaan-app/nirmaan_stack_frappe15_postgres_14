@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { HardHat } from "lucide-react";
+import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
 
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -51,6 +51,21 @@ export default function Vendors() {
                 }
             },
             {
+                accessorKey: "creation",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date Created" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("creation")?.split(" ")[0]}
+                        </div>
+                    )
+                }
+            },
+            {
                 accessorKey: "vendor_type",
                 header: ({ column }) => {
                     return (
@@ -85,7 +100,7 @@ export default function Vendors() {
     )
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList("Vendors", {
-        fields: ["name", "vendor_name", "vendor_type", "vendor_city", "vendor_email"],
+        fields: ["name", "vendor_name", "vendor_type", "vendor_city", "vendor_email", "creation"],
         limit: 1000
     })
 
@@ -93,7 +108,7 @@ export default function Vendors() {
 
         <MainLayout>
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                <div className="flex items-center justify-between space-y-2">
+                {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
                             <Link to="/" className="md:text-base text-sm">Dashboard</Link>
@@ -104,12 +119,16 @@ export default function Vendors() {
                             </Link>
                         </BreadcrumbItem>
                     </Breadcrumb>
-                </div>
+                </div> */}
                 <div className="flex items-center justify-between mb-2 space-y-2">
-                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
+                    <div className="flex">
+                        <Link to="/"><ArrowLeft className="mt-1.5" /></Link>
+                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
+                    </div>
+
                     <div className="flex items-center space-x-2">
                         <Button asChild>
-                            <Link to="edit"> +Add Vendor</Link>
+                            <Link to="new"> <CirclePlus className="w-5 h-5 mt- pr-1 " />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
                         </Button>
                     </div>
                 </div>
@@ -132,7 +151,7 @@ export default function Vendors() {
                         </CardContent>
                     </Card>
                 </div>
-                <div className="container pl-0 pr-2">
+                <div className="mx-auto py-10">
                     {isLoading && <h3>LOADING</h3>}
                     {error && <h3>ERROR</h3>}
                     <DataTable columns={columns} data={data || []} />
