@@ -18,7 +18,7 @@ type PRTable = {
 export const ApproveSelectSentBack = () => {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation'],
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation'],
             filters: [["workflow_state", "=", "Vendor Selected"]],
             limit: 100
         });
@@ -89,7 +89,7 @@ export const ApproveSelectSentBack = () => {
                 }
             },
             {
-                accessorKey: "project_name",
+                accessorKey: "project",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Project" />
@@ -97,7 +97,7 @@ export const ApproveSelectSentBack = () => {
                 },
                 cell: ({ row }) => {
                     const project = project_values.find(
-                        (project) => project.value === row.getValue("project_name")
+                        (project) => project.value === row.getValue("project")
                     )
                     if (!project) {
                         return null;
@@ -113,21 +113,6 @@ export const ApproveSelectSentBack = () => {
                 filterFn: (row, id, value) => {
                     return value.includes(row.getValue(id))
                 },
-            },
-            {
-                accessorKey: "category",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Category" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("category")}
-                        </div>
-                    )
-                }
             },
             {
                 accessorKey: "total",
