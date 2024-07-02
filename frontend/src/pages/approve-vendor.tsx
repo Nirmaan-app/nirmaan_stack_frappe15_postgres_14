@@ -301,7 +301,7 @@ export const ApproveVendor = () => {
             });
             setData(newData)
         }
-    }, [orderData]);
+    }, [orderData,selectedVendors]);
 
     const [selectedItems,setSelectedItems] = useState()
 
@@ -406,12 +406,21 @@ export const ApproveVendor = () => {
                     category: value.category
                 })
         })
+
+        const newCategories = [];
+        itemlist.forEach((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+
         const newSendBack = {
             procurement_request: orderId,
-            // project_name: orderData.project,
-            // category_list:{
-            //     list: total_categories
-            // }
+            project: orderData.project,
+            category_list:{
+                list: newCategories
+            },
             item_list: {
                 list: itemlist
             },
@@ -683,48 +692,6 @@ export const ApproveVendor = () => {
             list: newItems
         })
 
-        // const order_list = {
-        //     list: []
-        // };
-        // quotation_request_list?.map((value) => {
-        //     if (value.category === cat) {
-        //         const newItem = {
-        //             name: value.item,
-        //             item: getItem(value.item),
-        //             unit: getUnit(value.item),
-        //             quantity: value.quantity,
-        //             quote: value.quote
-        //         }
-        //         order_list.list.push(newItem)
-        //     }
-        // })
-        // const newProcurementOrder = {
-        //     procurement_request: orderId,
-        //     project: orderData.project,
-        //     project_name: getProjectName(orderData.project),
-        //     project_address: getProjectAddress(orderData.project),
-        //     category: cat,
-        //     vendor: selectedVendors[cat],
-        //     vendor_name: getVendorName(selectedVendors[cat]),
-        //     vendor_address: getVendorAddress(selectedVendors[cat]),
-        //     vendor_gst: getVendorGST(selectedVendors[cat]),
-        //     order_list: order_list
-        // }
-        // createDoc('Procurement Orders', newProcurementOrder)
-        //     .then(() => {
-        //         console.log(newProcurementOrder);
-        //     })
-        //     .catch(() => {
-        //         console.log("submit_error", submit_error);
-        //     })
-        // updateDoc('Procurement Requests', orderId, {
-        //     workflow_state: "Partially Approved"
-        // })
-        //     .then(() => {
-        //         console.log("item", orderId)
-        //     }).catch(() => {
-        //         console.log("update_submit_error", update_submit_error)
-        //     })
         setOrderData((prevState) => {
             const newCategoryList = prevState.category_list.list.filter(
                 (category) => category.name !== cat
@@ -1209,6 +1176,7 @@ export const ApproveVendor = () => {
                 rowSelection={{ ...rowSelection,checkStrictly}}
                 dataSource={data}
             />
+            </ConfigProvider>
             {selectedItems?.length>0 && <div className="text-right space-x-2">
             <Dialog>
                 <DialogTrigger asChild>
@@ -1255,7 +1223,7 @@ export const ApproveVendor = () => {
                 </DialogContent>
             </Dialog>
             </div>}
-            </ConfigProvider>
+            
             <div className="py-10"></div>
         </MainLayout>
     )

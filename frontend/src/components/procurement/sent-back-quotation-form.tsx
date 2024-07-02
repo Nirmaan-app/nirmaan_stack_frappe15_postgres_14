@@ -11,18 +11,18 @@ interface Category {
     name: string;
 }
 
-export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) {
+export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'item_list'],
+            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'project', 'creation', 'item_list'],
             filters: [["name", "=", sb_id]],
             limit: 100
         });
     const [orderData, setOrderData] = useState({
-        project_name: '',
+        project: '',
         category: ''
     })
-    if (!orderData.project_name) {
+    if (!orderData.project) {
         sent_back_list?.map(item => {
             if (item.name === sb_id) {
                 setOrderData(item)
@@ -160,10 +160,10 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
                 </div>
             </div>
             <div>
-                <div>{cat}</div>
+                {/* <div>{cat}</div> */}
                 {quotation_request_list?.map((q) => {
                     const isSelected = orderData.item_list?.list.some(item => item.name === q.item);
-                    if (q.category === cat && q.vendor === vendor_id && isSelected) {
+                    if (q.vendor === vendor_id && isSelected) {
                         return <div className="flex space-x-2">
                             <div className="w-1/2 font-semibold text-black flex-shrink-0">
                                 <div>{getItem(q.item)}</div>
@@ -182,7 +182,7 @@ export default function SentBackQuotationForm({ cat, vendor_id, pr_id, sb_id }) 
                 })}
             </div>
             <div className="flex flex-col justify-end items-end bottom-4 right-4 pt-10">
-                {deliveryTime ?
+                {(deliveryTime || 1) ?
                     <SheetClose>
                         <Button onClick={() => handleSubmit()}>
                             Save
