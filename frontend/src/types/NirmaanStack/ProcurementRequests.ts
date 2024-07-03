@@ -24,5 +24,4 @@ export interface ProcurementRequests{
 	project_lead?: string
 	/**	Procurement Executive : Link - Nirmaan Users	*/
 	procurement_executive?: string
-	workflow_state: string
 }
