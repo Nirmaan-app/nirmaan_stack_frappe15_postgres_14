@@ -13,6 +13,92 @@ import {
     DialogTrigger
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Space, Switch, Table, ConfigProvider, Collapse, Checkbox } from 'antd';
+import type { TableColumnsType, TableProps } from 'antd';
+
+type TableRowSelection<T> = TableProps<T>['rowSelection'];
+
+const { Panel } = Collapse;
+
+interface DataType {
+  key: React.ReactNode;
+  category: string;
+  item: string;
+  unit: string;
+  quantity: number;
+  rate: number;
+  selectedVendor: string;
+  amount: number;
+  lowest2: string;
+  lowest3: string;
+  children?: DataType[];
+}
+
+const columns: TableColumnsType<DataType> = [
+    {
+      title: 'Items',
+      dataIndex: 'item',
+      key: 'item'
+    },
+    {
+      title: 'Unit',
+      dataIndex: 'unit',
+      key: 'unit',
+      width: '7%',
+    },
+    {
+      title: 'Quantity',
+      dataIndex: 'quantity',
+      width: '7%',
+      key: 'quantity',
+    },
+    {
+        title: 'Rate',
+        dataIndex: 'rate',
+        width: '7%',
+        key: 'rate',
+      },
+    {
+        title: 'Selected Vendor',
+        dataIndex: 'selectedVendor',
+        width: '15%',
+        key: 'selectedVendor',
+      },
+      {
+        title: 'Amount',
+        dataIndex: 'amount',
+        width: '9%',
+        key: 'amount',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+              {text}
+            </span>
+          ),
+      },
+      {
+        title: 'Lowest Quoted Amount',
+        dataIndex: 'lowest2',
+        width: '10%',
+        key: 'lowest2',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+              {text}
+            </span>
+          ),
+      },
+      {
+        title: '3 months Lowest Amount',
+        dataIndex: 'lowest3',
+        width: '10%',
+        key: 'lowest3',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+              {text}
+            </span>
+          ),
+      },
+  ];
+
 
 export const SentBackSelectVendor = () => {
     const { id } = useParams<{ id: string }>()
@@ -35,7 +121,7 @@ export const SentBackSelectVendor = () => {
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'item_list'],
+            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category_list', 'project', 'creation', 'item_list'],
             filters: [["workflow_state", "=", "Pending"]],
             limit: 100
         });
@@ -48,41 +134,114 @@ export const SentBackSelectVendor = () => {
 
     const [page, setPage] = useState<string>('updatequotation')
     const [orderData, setOrderData] = useState({
-        project_name: '',
-        category: ''
+        project: ''
     })
-    if (!orderData.project_name) {
+    if (!orderData.project) {
         sent_back_list?.map(item => {
             if (item.name === id) {
                 setOrderData(item)
             }
         })
     }
+
+
+    
     const [selectedVendors, setSelectedVendors] = useState({})
     const [selectedCategories, setSelectedCategories] = useState({})
     const [totals, setTotals] = useState()
-    const curCategory = orderData.category
+    const curCategory = orderData?.category_list?.list[0]?.name
 
     useEffect(() => {
         const updatedCategories = { ...selectedCategories };
-        const newVendorsSet = new Set();
-        quotation_request_list?.forEach((item) => {
-            if (item.category === curCategory && item.procurement_task === orderData.procurement_request) {
-                if (!Array.isArray(updatedCategories[curCategory])) {
-                    updatedCategories[curCategory] = [];
+        orderData?.category_list?.list.map((cat) => {
+            const newVendorsSet = new Set();
+            const curCategory = cat.name
+            quotation_request_list?.forEach((item) => {
+                if (item.category === cat.name && item.procurement_task === orderData.procurement_request) {
+                    if (!Array.isArray(updatedCategories[curCategory])) {
+                        updatedCategories[curCategory] = [];
+                    }
+                    newVendorsSet.add(item.vendor);
                 }
-                newVendorsSet.add(item.vendor);
-            }
-        });
-        const newVendors = Array.from(newVendorsSet);
-        updatedCategories[curCategory] = newVendors;
-
+            });
+            const newVendors = Array.from(newVendorsSet);
+            updatedCategories[curCategory] = newVendors;
+        })
         setSelectedCategories(updatedCategories);
     }, [quotation_request_list, orderData]);
+
+    const [data,setData] = useState<DataType>([]) 
+    const [checkStrictly, setCheckStrictly] = useState(false);
+
+    useEffect(() => {
+        if (orderData.project) {
+            const newData: DataType[] = [];
+            orderData.category_list?.list.forEach((cat) => {
+                const items: DataType[] = [];
+    
+                orderData.item_list?.list.forEach((item) => {
+                    if (item.category === cat.name) {
+                            const price = Number(getPrice(selectedVendors[item.name], item.name))
+                            const quotesForItem = quote_data
+                                ?.filter(value => value.item === item.name && value.quote)
+                                ?.map(value => value.quote);
+                            let minQuote;
+                            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                            minQuote = (minQuote ? parseFloat(minQuote)*item.quantity : 0)
+
+                            items.push({
+                                item: item.item,
+                                key: item.name,
+                                unit: item.unit,
+                                quantity: item.quantity,
+                                category: item.category,
+                                rate: selectedVendors[item.name] ? price : "Delayed",
+                                amount: selectedVendors[item.name] ? price*item.quantity : "Delayed",
+                                selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
+                                lowest2: selectedVendors[item.name] ? getLowest2(item.name)*item.quantity : "Delayed",
+                                lowest3: minQuote ? minQuote : "N/A",
+                            });
+                    }
+                });
+    
+                if(items.length){
+                    const node: DataType = {
+                        item: cat.name,
+                        key: cat.name,
+                        unit: null,
+                        quantity: null,
+                        amount: getTotal(cat.name),
+                        // lowest2: getLowest(cat.name).quote,
+                        lowest3: getLowest3(cat.name),
+                        children: items,
+                    };
+                    newData.push(node);
+                }
+            });
+            console.log("newData",newData)
+            setData(newData)
+        }
+    }, [orderData,selectedVendors]);
+    console.log("data",data)
+    const rowSelection: TableRowSelection<DataType> = {
+        onChange: (selectedRowKeys, selectedRows) => {
+            console.log("onChange")
+          console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+        },
+        onSelect: (record, selected, selectedRows) => {
+          console.log(record, selected, selectedRows);
+        },
+        onSelectAll: (selected, selectedRows, changeRows) => {
+          console.log(selected, selectedRows, changeRows);
+        },
+      };
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
+
+
+
     const handleRadioChange = (item, vendor) => {
         setSelectedVendors(prevState => {
             if (prevState.hasOwnProperty(item)) {
@@ -110,7 +269,6 @@ export const SentBackSelectVendor = () => {
                 console.log("submit_error", submit_error)
             })
     }
-    console.log(orderData)
 
     // useEffect(() => {
     //     setOrderData(prevState => ({
@@ -184,13 +342,56 @@ export const SentBackSelectVendor = () => {
         return total
     }
 
+    const getLowest2 = (item: string) => {
+        const quotesForItem = quotation_request_list
+            ?.filter(value => value.item === item && value.procurement_task === orderData?.procurement_request && value.quote)
+            ?.map(value => value.quote);
+        let minQuote;
+        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+        return minQuote;
+    }
+
+    const getLowest = (cat: string) => {
+        let price: number = 100000000;
+        let vendor: string = '';
+        selectedCategories[cat]?.map((ven) => {
+            let total: number = 0;
+            quotation_request_list?.map((item) => {
+                if (item.vendor === ven && item.category === cat) {
+                    const price = item.quote
+                    total += (price ? parseFloat(price) : 0) * item.quantity;
+                }
+            })
+            if (total && total < price) {
+                price = total;
+                vendor = ven;
+            }
+        })
+        return { quote: price, vendor: vendor }
+    }
+
+    const getLowest3 = (cat: string) => {
+        let total: number = 0;
+        orderData.item_list?.list.map((item) => {
+            if (item.category === cat) {
+                const quotesForItem = quote_data
+                    ?.filter(value => value.item === item.name && value.quote)
+                    ?.map(value => value.quote);
+                let minQuote;
+                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+            }
+        })
+        return total;
+    }
+
     const getTotal2 = (vendor: string, cat: string) => {
         let total: number = 0;
         orderData?.item_list?.list.map((item) => {
-
-            const price = getPrice(vendor, item.name);
-            total += (price ? parseFloat(price) : 0) * item.quantity;
-
+            if (item.category === cat) {
+                const price = getPrice(vendor, item.name);
+                total += (price ? parseFloat(price) : 0) * item.quantity;
+            }
         })
         return total
     }
@@ -212,7 +413,7 @@ export const SentBackSelectVendor = () => {
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project_name}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
@@ -227,91 +428,94 @@ export const SentBackSelectVendor = () => {
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                             </div>
                         </Card>
-                        <div>
-                            <Card className="flex w-full shadow-none border border-grey-500" >
-                                <CardHeader className="w-full">
-                                    <div className='flex justify-between py-5'>
-                                        <CardTitle className="font-bold text-xl">
-                                            {curCategory}
-                                        </CardTitle>
-                                        <CardTitle className="font-bold text-xl">
-                                            {getSelectedVendor(curCategory)}
-                                        </CardTitle>
-                                    </div>
-                                    <table className="w-full">
-                                        <thead className="w-full border-b border-black">
-                                            <tr>
-                                                <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></th>
-                                                {selectedCategories[curCategory]?.map((item) => {
-                                                    const isSelected = selectedVendors[curCategory] === item;
-                                                    const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                    return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}>{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
-                                                        <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory)} Days</div>
-                                                    </th>
-                                                })}
-                                                <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="bg-white divide-y divide-gray-200">
-
-                                            {orderData?.item_list?.list.map((item) => {
-                                                const quotesForItem = quote_data
-                                                    ?.filter(value => value.item === item.name && value.quote != null)
-                                                    ?.map(value => value.quote);
-                                                let minQuote;
-                                                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-
-                                                return <tr>
-                                                    <td className="py-2 text-sm px-2 font-semibold border-b w-[40%]">
-                                                        {item.item}
-                                                    </td>
-                                                    {selectedCategories[curCategory]?.map((value) => {
-                                                        const price = getPrice(value, item.name);
-                                                        // total += (price ? parseFloat(price) : 0)*item.quantity;
-                                                        const isSelected = selectedVendors[item.name] === value;
+                        {orderData?.category_list?.list.map((cat)=>{
+                            const curCategory = cat.name;
+                            console.log("selectedCategories",selectedCategories)
+                            return <div>
+                                <Card className="flex w-full shadow-none border border-grey-500">
+                                    <CardHeader className="w-full">
+                                        <div className='flex justify-between py-5'>
+                                            <CardTitle className="font-bold text-xl">
+                                                {curCategory}
+                                            </CardTitle>
+                                            <CardTitle className="font-bold text-xl">
+                                                {getSelectedVendor(curCategory)}
+                                            </CardTitle>
+                                        </div>
+                                        <table className="w-full">
+                                            <thead className="w-full border-b border-black">
+                                                <tr>
+                                                    <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></th>
+                                                    {selectedCategories[curCategory]?.map((item) => {
+                                                        const isSelected = selectedVendors[curCategory] === item;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
-                                                            <input className="mr-2" type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
-                                                            {price * item.quantity}
+                                                        return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}>{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
+                                                            <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory)} Days</div>
+                                                        </th>
+                                                    })}
+                                                    <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+
+                                                {orderData?.item_list?.list.map((item) => {
+                                                    const quotesForItem = quote_data
+                                                        ?.filter(value => value.item === item.name && value.quote != null)
+                                                        ?.map(value => value.quote);
+                                                    let minQuote;
+                                                    if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+
+                                                    if(item.category === curCategory){return <tr>
+                                                        <td className="py-2 text-sm px-2 font-semibold border-b w-[40%]">
+                                                            {item.item}
+                                                        </td>
+                                                        {selectedCategories[curCategory]?.map((value) => {
+                                                            const price = getPrice(value, item.name);
+                                                            // total += (price ? parseFloat(price) : 0)*item.quantity;
+                                                            const isSelected = selectedVendors[item.name] === value;
+                                                            const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
+                                                            return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
+                                                                <input className="mr-2" type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
+                                                                {price * item.quantity}
+                                                            </td>
+                                                        })}
+                                                        <td className="py-2 text-sm px-2 border-b">
+                                                            {minQuote ? minQuote * item.quantity : "N/A"}
+                                                        </td>
+                                                    </tr>}
+                                                })}
+                                                <tr>
+                                                    <td className="py-4 text-sm px-2 font-semibold">Total</td>
+                                                    {selectedCategories[curCategory]?.map((value) => {
+                                                        const isSelected = selectedVendors[curCategory] === value;
+                                                        const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
+                                                        return <td className={`py-2 text-sm px-2 text-left font-bold ${dynamicClass}`}>
+                                                            {getTotal2(value, curCategory)}
                                                         </td>
                                                     })}
-                                                    <td className="py-2 text-sm px-2 border-b">
-                                                        {minQuote ? minQuote * item.quantity : "N/A"}
-                                                    </td>
+                                                    <td></td>
                                                 </tr>
-                                            })}
-                                            <tr>
-                                                <td className="py-4 text-sm px-2 font-semibold">Total</td>
-                                                {selectedCategories[curCategory]?.map((value) => {
-                                                    const isSelected = selectedVendors[curCategory] === value;
-                                                    const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                    return <td className={`py-2 text-sm px-2 text-left font-bold ${dynamicClass}`}>
-                                                        {getTotal2(value, curCategory)}
-                                                    </td>
-                                                })}
-                                                <td></td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </CardHeader>
-                            </Card>
-                        </div>
-                        <div className="pt-10"></div>
-                        <div className='pt-12 fixed bottom-4'>
+                                            </tbody>
+                                        </table>
+                                    </CardHeader>
+                                </Card>
+                            </div>
+                        })}
+                        {/* <div className="pt-10"></div> */}
+                        <div className='pt-12 flex justify-between'>
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => navigate(`/sent-back-request/${id}`)}>
                                 Edit Price
                             </Button>
-                        </div>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                        {/* </div>
+                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4"> */}
                             <Button onClick={() => handleUpdateOrderData()}>
                                 Confirm
                             </Button>
                         </div>
-
                     </div>
                 </div>}
             {page == 'approvequotation' &&
-                <div className="flex">
+                <><div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('updatequotation')} />
@@ -324,7 +528,7 @@ export const SentBackSelectVendor = () => {
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project_name}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
@@ -340,11 +544,10 @@ export const SentBackSelectVendor = () => {
                             </div>
                         </Card>
                         <div className="w-full">
-                            <div className="font-bold text-xl py-2">{curCategory}</div>
-                            <Card className="flex w-1/2 shadow-none border border-grey-500" >
+                            {/* <div className="font-bold text-xl py-2">{curCategory}</div> */}
+                            {/* <Card className="flex w-1/2 shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
-                                        {/* <div className="text-sm text-gray-400">Selected Vendor</div> */}
                                         <div className="flex justify-between border-b">
                                             <div className="font-bold text-lg py-2 border-gray-200">Total</div>
                                             <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
@@ -403,28 +606,38 @@ export const SentBackSelectVendor = () => {
                                         <div className="text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div>
                                     </div>
                                 </CardHeader>
-                            </Card>
-                        </div>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button className="font-normal py-2 px-6">
-                                        Send for Approval
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent className="sm:max-w-[425px]">
-                                    <DialogHeader>
-                                        <DialogTitle>Are you Sure</DialogTitle>
-                                        <DialogDescription>
-                                            Click on Confirm to Approve.
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
-                                </DialogContent>
-                            </Dialog>
+                            </Card> */}
+
+                            
+
                         </div>
                     </div>
-                </div>}
+                </div>
+                <ConfigProvider
+                    theme={{
+                    token: {
+                        // Seed Token
+                        colorPrimary: '#FF2828',
+                        borderRadius: 4,
+
+                        // Alias Token
+                        colorBgContainer: '#FFFFFF',
+                    },
+                    }}
+                >
+                <Table
+                    dataSource={data}
+                    columns={columns}
+                    expandable={{ defaultExpandAllRows: true }}
+
+                />
+
+                </ConfigProvider>
+                <div className="flex flex-col justify-end items-end">
+                <Button onClick={()=>handleSubmit()}>Send For Approval</Button>
+                </div>
+                </>
+                }
         </MainLayout>
     )
 }

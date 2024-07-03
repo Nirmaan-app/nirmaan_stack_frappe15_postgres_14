@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Projects } from "@/types/NirmaanStack/Projects";
 
 
 type PRTable = {
@@ -17,7 +18,7 @@ type PRTable = {
 export const SentBackRequest = () => {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category', 'project_name', 'creation', 'type'],
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation', 'type'],
             filters: [["workflow_state", "=", "Pending"]],
             limit: 100
         });
@@ -103,7 +104,7 @@ export const SentBackRequest = () => {
                 }
             },
             {
-                accessorKey: "project_name",
+                accessorKey: "project",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Project" />
@@ -111,7 +112,7 @@ export const SentBackRequest = () => {
                 },
                 cell: ({ row }) => {
                     const project = project_values.find(
-                        (project) => project.value === row.getValue("project_name")
+                        (project) => project.value === row.getValue("project")
                     )
                     if (!project) {
                         return null;
@@ -127,21 +128,6 @@ export const SentBackRequest = () => {
                 filterFn: (row, id, value) => {
                     return value.includes(row.getValue(id))
                 },
-            },
-            {
-                accessorKey: "category",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Category" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("category")}
-                        </div>
-                    )
-                }
             },
             {
                 accessorKey: "total",
@@ -170,7 +156,7 @@ export const SentBackRequest = () => {
                         <h2 className="text-lg font-bold tracking-tight">Sent Back PR</h2>
                     </div>
                     {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
-                    <DataTable columns={columns} data={sent_back_list || []} />
+                    <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
 
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">

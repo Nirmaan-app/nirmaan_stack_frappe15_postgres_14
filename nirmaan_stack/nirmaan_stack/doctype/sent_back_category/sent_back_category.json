@@ -7,13 +7,10 @@
  "field_order": [
   "pr_details_section",
   "procurement_request",
-  "project_name",
-  "category",
+  "project",
+  "category_list",
   "item_list",
-  "lead_time",
   "type",
-  "assignees_section",
-  "procurement_executive",
   "sent_back_details_section",
   "comments",
   "amended_from"
@@ -31,18 +28,6 @@
    "options": "Procurement Requests"
   },
   {
-   "fieldname": "project_name",
-   "fieldtype": "Link",
-   "label": "Project Name",
-   "options": "Projects"
-  },
-  {
-   "fieldname": "category",
-   "fieldtype": "Link",
-   "label": "Category",
-   "options": "Category"
-  },
-  {
    "fieldname": "item_list",
    "fieldtype": "JSON",
    "label": "Item List"
@@ -58,11 +43,6 @@
    "label": "Comments"
   },
   {
-   "fieldname": "lead_time",
-   "fieldtype": "Data",
-   "label": "Lead Time"
-  },
-  {
    "fieldname": "amended_from",
    "fieldtype": "Link",
    "label": "Amended From",
@@ -73,26 +53,27 @@
    "search_index": 1
   },
   {
-   "fieldname": "assignees_section",
-   "fieldtype": "Section Break",
-   "label": "Assignees"
-  },
-  {
-   "fieldname": "procurement_executive",
-   "fieldtype": "Link",
-   "label": "Procurement Executive",
-   "options": "Nirmaan Users"
-  },
-  {
    "fieldname": "type",
    "fieldtype": "Data",
    "label": "Type"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "category_list",
+   "fieldtype": "JSON",
+   "label": "Category List",
+   "options": "Category"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2024-06-18 17:00:13.027287",
+ "modified": "2024-06-29 12:16:56.439223",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Sent Back Category",
