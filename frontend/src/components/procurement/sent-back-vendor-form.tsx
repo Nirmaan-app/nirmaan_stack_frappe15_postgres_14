@@ -41,37 +41,39 @@ const VendorFormSchema = z.object({
         .min(3, {
             message: "Type Name must be at least 3 characters.",
         }),
-        address_line_1: z
+    address_line_1: z
         .string({
             required_error: "Address Required"
         }),
-        address_line_2: z
-            .string(),
-        vendor_city: z
-            .string({
-                required_error: "Must provide city"
-            }),
-        vendor_state: z
-            .string({
-                required_error: "Must provide state"
-            }),
-        pin: z
-            .number({
-                required_error: "Must provide pincode"
-            })
-            .positive()
-            .gte(100000)
-            .lte(999999),
-        vendor_email: z
-            .string()
-            .email(),
-        vendor_mobile: z
-            .number({
-                required_error: "Must provide contact"
-            })
-            .positive()
-            .gte(1000000000)
-            .lte(9999999999),
+    address_line_2: z
+        .string({
+            required_error: "Address Required"
+        }),
+    vendor_city: z
+        .string({
+            required_error: "Must provide city"
+        }),
+    vendor_state: z
+        .string({
+            required_error: "Must provide state"
+        }),
+    pin: z
+        .number({
+            required_error: "Must provide pincode"
+        })
+        .positive()
+        .gte(100000)
+        .lte(999999),
+    vendor_email: z
+        .string()
+        .email(),
+    vendor_mobile: z
+        .number({
+            required_error: "Must provide contact"
+        })
+        .positive()
+        .gte(1000000000)
+        .lte(9999999999),
     vendor_gst: z
         .string({
         }),
@@ -126,7 +128,7 @@ export default function SentBackVendorForm({ sent_back_data, quotation_request_l
             email_id: values.vendor_email,
             phone: values.vendor_mobile
         }).then(doc => {
-            createDoc('Vendors', { 
+            createDoc('Vendors', {
                 vendor_name: values.vendor_name,
                 vendor_type: "Material",
                 vendor_address: doc.name,
@@ -136,36 +138,36 @@ export default function SentBackVendorForm({ sent_back_data, quotation_request_l
                 vendor_mobile: values.vendor_mobile,
                 vendor_email: values.vendor_email,
                 vendor_gst: values.vendor_gst,
-                vendor_category: { "categories": category_json } 
+                vendor_category: { "categories": category_json }
             })
-            .then((doc) => {
-                sent_back_data.item_list?.list.map((value) => {
-                    const newItem = {
-                        procurement_task: sent_back_data.procurement_request,
-                        category: value.category,
-                        item: value.name,
-                        vendor: doc.name,
-                        quantity: value.quantity
-                    }
-                    createDoc("Quotation Requests", newItem)
-                        .then(() => {
-                            quotation_request_list_mutate()
-                            vendor_list_mutate()
-                            console.log(newItem)
-                        })
-                        .catch(() => {
-                            console.log(submit_error)
-                        })
+                .then((doc) => {
+                    sent_back_data.item_list?.list.map((value) => {
+                        const newItem = {
+                            procurement_task: sent_back_data.procurement_request,
+                            category: value.category,
+                            item: value.name,
+                            vendor: doc.name,
+                            quantity: value.quantity
+                        }
+                        createDoc("Quotation Requests", newItem)
+                            .then(() => {
+                                quotation_request_list_mutate()
+                                vendor_list_mutate()
+                                console.log(newItem)
+                            })
+                            .catch(() => {
+                                console.log(submit_error)
+                            })
 
+                    })
                 })
-            })
+                .catch(() => {
+                    console.log(submit_error)
+                })
+        })
             .catch(() => {
-                console.log(submit_error)
+                console.log("address_error", submit_error)
             })
-        })
-        .catch(()=> {
-            console.log("address_error",submit_error)
-        })
 
     }
     const options: SelectOption[] = address?.map(item => ({
@@ -296,99 +298,99 @@ export default function SentBackVendorForm({ sent_back_data, quotation_request_l
                     <ReactSelect options={category_options} onChange={handleChange} isMulti />
                 </div> */}
                 <Separator className="my-3" />
-                    <p className="text-sky-600 font-semibold pb-2">Vendor Address Details</p>
-                    <FormField
-                        control={form.control}
-                        name="address_line_1"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Address Line 1: </FormLabel>
-                                <FormControl>
-                                    <Input placeholder="Address Line 1" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="address_line_2"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Address Line 2: </FormLabel>
-                                <FormControl>
-                                    <Input placeholder="Address Line 2" {...field} />
-                                </FormControl>
+                <p className="text-sky-600 font-semibold pb-2">Vendor Address Details</p>
+                <FormField
+                    control={form.control}
+                    name="address_line_1"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Address Line 1: </FormLabel>
+                            <FormControl>
+                                <Input placeholder="Building, Floor" {...field} />
+                            </FormControl>
                             <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="vendor_city"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>City: </FormLabel>
-                                <FormControl>
-                                    <Input placeholder="City Name" {...field} />
-                                </FormControl>
+                        </FormItem>
+                    )}
+                />
+                <FormField
+                    control={form.control}
+                    name="address_line_2"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Address Line 2: </FormLabel>
+                            <FormControl>
+                                <Input placeholder="Street Name, Area, Landmark" {...field} />
+                            </FormControl>
                             <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="vendor_state"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>State: </FormLabel>
-                                <FormControl>
-                                    <Input placeholder="State Name" {...field} />
-                                </FormControl>
+                        </FormItem>
+                    )}
+                />
+                <FormField
+                    control={form.control}
+                    name="vendor_city"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>City: </FormLabel>
+                            <FormControl>
+                                <Input placeholder="City Name" {...field} />
+                            </FormControl>
                             <FormMessage />
-                            </FormItem>
+                        </FormItem>
+                    )}
+                />
+                <FormField
+                    control={form.control}
+                    name="vendor_state"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>State: </FormLabel>
+                            <FormControl>
+                                <Input placeholder="State Name" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
 
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="pin"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Pin Code: </FormLabel>
-                                <FormControl>
-                                    <Input type="number" placeholder="Pincode" {...field} onChange={event => field.onChange(+event.target.value)} />
-                                </FormControl>
+                    )}
+                />
+                <FormField
+                    control={form.control}
+                    name="pin"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Pin Code: </FormLabel>
+                            <FormControl>
+                                <Input type="number" placeholder="Pincode" {...field} onChange={event => field.onChange(+event.target.value)} />
+                            </FormControl>
                             <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="vendor_mobile"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Phone: </FormLabel>
-                                <FormControl>
-                                    <Input type="number" placeholder="Phone" {...field} onChange={event => field.onChange(+event.target.value)} />
-                                </FormControl>
+                        </FormItem>
+                    )}
+                />
+                <FormField
+                    control={form.control}
+                    name="vendor_mobile"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Phone: </FormLabel>
+                            <FormControl>
+                                <Input type="number" placeholder="Phone" {...field} onChange={event => field.onChange(+event.target.value)} />
+                            </FormControl>
                             <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="vendor_email"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Email: </FormLabel>
-                                <FormControl>
-                                    <Input placeholder="Email" {...field} />
-                                </FormControl>
+                        </FormItem>
+                    )}
+                />
+                <FormField
+                    control={form.control}
+                    name="vendor_email"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Email: </FormLabel>
+                            <FormControl>
+                                <Input placeholder="Email" {...field} />
+                            </FormControl>
                             <FormMessage />
-                            </FormItem>
-                        )}
-                    />
+                        </FormItem>
+                    )}
+                />
                 {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
                 <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose>
                 <div>
