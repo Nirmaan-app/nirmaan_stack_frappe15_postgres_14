@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
+import { Separator } from "./ui/separator";
 
 interface SidebarProps {
     className: string
@@ -209,6 +210,16 @@ export function Sidebar({ className }: SidebarProps) {
                                     {/* <Button variant="ghost" size="sm" className="w-full justify-start">
                                         Order Delivered
                                     </Button> */}
+                                    <Separator className="m-4" />
+                                    <Link to="/sent-back-request">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/sent-back-request")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/sent-back-request") })}>
+                                            <span className={cn({ "text-white": isActive("/sent-back-request") })}>New Sent Back</span>
+                                        </Button>
+                                    </Link>
                                 </AccordionContent>
                             </AccordionItem>}
                         </Accordion>
