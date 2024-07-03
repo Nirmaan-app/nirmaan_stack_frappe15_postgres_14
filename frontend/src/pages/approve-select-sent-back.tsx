@@ -138,10 +138,10 @@ export const ApproveSelectSentBack = () => {
             <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center justify-between space-y-2">
-                        <h2 className="text-lg font-bold tracking-tight">Approve Vendors</h2>
+                        <h2 className="text-lg font-bold tracking-tight">Approve Sent Back Vendors</h2>
                     </div>
 
-                    <DataTable columns={columns} data={sent_back_list || []} />
+                    <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">

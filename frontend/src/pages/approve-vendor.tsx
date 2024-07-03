@@ -132,8 +132,7 @@ export const ApproveVendor = () => {
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ['name', 'project_name', 'project_address', 'procurement_lead'],
-            filters: [['name', 'like', `%${orderId.split("-").at(1)}`]]
+            fields: ['name', 'project_name', 'project_address', 'procurement_lead']
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
@@ -345,6 +344,8 @@ export const ApproveVendor = () => {
     };
 
     const newHandleApprove = () => {
+
+        // TODO: Add Quotation request state change to approved 
 
         const filteredData = selectedItems?.filter(item => {
             return item.unit !== null && item.quantity !== null

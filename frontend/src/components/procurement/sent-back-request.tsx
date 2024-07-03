@@ -156,7 +156,7 @@ export const SentBackRequest = () => {
                         <h2 className="text-lg font-bold tracking-tight">Sent Back PR</h2>
                     </div>
                     {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
-                    <DataTable columns={columns} data={sent_back_list || []} />
+                    <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
 
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
