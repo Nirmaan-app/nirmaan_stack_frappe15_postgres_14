@@ -30,72 +30,72 @@ import type { TableColumnsType, TableProps } from 'antd';
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
 interface DataType {
-  key: React.ReactNode;
-  category: string;
-  item: string;
-  unit: string;
-  quantity: number;
-  rate: number;
-  selectedVendor: string;
-  amount: number;
-  lowest2: string;
-  lowest3: string;
-  children?: DataType[];
+    key: React.ReactNode;
+    category: string;
+    item: string;
+    unit: string;
+    quantity: number;
+    rate: number;
+    selectedVendor: string;
+    amount: number;
+    lowest2: string;
+    lowest3: string;
+    children?: DataType[];
 }
 
 const columns: TableColumnsType<DataType> = [
     {
-      title: 'Items',
-      dataIndex: 'item',
-      key: 'item'
+        title: 'Items',
+        dataIndex: 'item',
+        key: 'item'
     },
     {
-      title: 'Unit',
-      dataIndex: 'unit',
-      key: 'unit',
-      width: '7%',
+        title: 'Unit',
+        dataIndex: 'unit',
+        key: 'unit',
+        width: '7%',
     },
     {
-      title: 'Quantity',
-      dataIndex: 'quantity',
-      width: '7%',
-      key: 'quantity',
+        title: 'Quantity',
+        dataIndex: 'quantity',
+        width: '7%',
+        key: 'quantity',
     },
     {
         title: 'Rate',
         dataIndex: 'rate',
         width: '7%',
         key: 'rate',
-      },
+    },
     {
         title: 'Selected Vendor',
         dataIndex: 'selectedVendor',
         width: '15%',
         key: 'selectedVendor',
-      },
-      {
+    },
+    {
         title: 'Amount',
         dataIndex: 'amount',
         width: '9%',
         key: 'amount',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-              {text}
+                {text}
             </span>
-          ),
-      },
-      {
+        ),
+    },
+    {
         title: '3 months Lowest Amount',
         dataIndex: 'lowest3',
         width: '10%',
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-              {text}
+                {text}
             </span>
-          ),
-      },
-  ];
+        ),
+    },
+];
 
 
 export const ApproveSentBack = () => {
@@ -152,7 +152,7 @@ export const ApproveSentBack = () => {
         })
     }
 
-    const [data,setData] = useState<DataType>([]) 
+    const [data, setData] = useState<DataType>([])
     const [checkStrictly, setCheckStrictly] = useState(false);
 
     useEffect(() => {
@@ -160,33 +160,33 @@ export const ApproveSentBack = () => {
             const newData: DataType[] = [];
             orderData.category_list?.list?.forEach((cat) => {
                 const items: DataType[] = [];
-    
+
                 orderData.item_list?.list?.forEach((item) => {
                     if (item.category === cat.name) {
-                            const price = Number(getPrice(item.vendor, item.name))
-                            const quotesForItem = quote_data
-                                ?.filter(value => value.item === item.name && value.quote)
-                                ?.map(value => value.quote);
-                            let minQuote;
-                            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                            minQuote = (minQuote ? parseFloat(minQuote)*item.quantity : 0)
+                        const price = Number(getPrice(item.vendor, item.name))
+                        const quotesForItem = quote_data
+                            ?.filter(value => value.item === item.name && value.quote)
+                            ?.map(value => value.quote);
+                        let minQuote;
+                        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                        minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
 
-                            items.push({
-                                item: item.item,
-                                key: item.name,
-                                unit: item.unit,
-                                quantity: item.quantity,
-                                category: item.category,
-                                rate: item.quote,
-                                amount: item.vendor ? item.quote*item.quantity : "Delayed",
-                                selectedVendor: item.vendor ? getVendorName(item.vendor) : "Delayed",
-                                // lowest2: item.vendor ? getLowest2(item.name)*item.quantity : "Delayed",
-                                lowest3: minQuote ? minQuote : "N/A",
-                            });
+                        items.push({
+                            item: item.item,
+                            key: item.name,
+                            unit: item.unit,
+                            quantity: item.quantity,
+                            category: item.category,
+                            rate: item.quote,
+                            amount: item.vendor ? item.quote * item.quantity : "Delayed",
+                            selectedVendor: item.vendor ? getVendorName(item.vendor) : "Delayed",
+                            // lowest2: item.vendor ? getLowest2(item.name)*item.quantity : "Delayed",
+                            lowest3: minQuote ? minQuote : "N/A",
+                        });
                     }
                 });
-    
-                if(items.length){
+
+                if (items.length) {
                     const node: DataType = {
                         item: cat.name,
                         key: cat.name,
@@ -200,26 +200,26 @@ export const ApproveSentBack = () => {
                     newData.push(node);
                 }
             });
-            console.log("newData",newData)
+            console.log("newData", newData)
             setData(newData)
         }
     }, [orderData]);
-    console.log("data",data)
+    console.log("data", data)
 
-    const [selectedItems,setSelectedItems] = useState()
+    const [selectedItems, setSelectedItems] = useState()
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
             console.log("onChange")
-          console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
-          setSelectedItems(selectedRows)
+            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+            setSelectedItems(selectedRows)
         },
         onSelect: (record, selected, selectedRows) => {
-          console.log(record, selected, selectedRows);
+            console.log(record, selected, selectedRows);
         },
         onSelectAll: (selected, selectedRows, changeRows) => {
-          console.log(selected, selectedRows, changeRows);
+            console.log(selected, selectedRows, changeRows);
         },
-      };
+    };
 
     const [comment, setComment] = useState('')
 
@@ -275,7 +275,7 @@ export const ApproveSentBack = () => {
     }
 
     const newHandleApprove = () => {
-        
+
         const filteredData = selectedItems?.filter(item => {
             return item.unit !== null && item.quantity !== null
         });
@@ -351,15 +351,15 @@ export const ApproveSentBack = () => {
 
         const itemlist = [];
         filteredData?.map((value) => {
-                // const price = getPrice(value.selectedVendor, value.key);
-                itemlist.push({
-                    name: value.key,
-                    item: value.item,
-                    quantity: value.quantity,
-                    quote: value.rate,
-                    unit: value.unit,
-                    category: value.category
-                })
+            // const price = getPrice(value.selectedVendor, value.key);
+            itemlist.push({
+                name: value.key,
+                item: value.item,
+                quantity: value.quantity,
+                quote: value.rate,
+                unit: value.unit,
+                category: value.category
+            })
         })
 
         const newCategories = [];
@@ -373,7 +373,7 @@ export const ApproveSentBack = () => {
         const newSendBack = {
             procurement_request: orderData.procurement_request,
             project: orderData.project,
-            category_list:{
+            category_list: {
                 list: newCategories
             },
             item_list: {
@@ -405,7 +405,7 @@ export const ApproveSentBack = () => {
         }));
 
     }
-    
+
     useEffect(() => {
         const newCategories = [];
         orderData?.item_list?.list.map((item) => {
@@ -422,6 +422,20 @@ export const ApproveSentBack = () => {
         }));
     }, [orderData]);
 
+    useEffect(() => {
+        if (orderData.project && orderData.item_list?.list.length === 0) {
+            updateDoc('Sent Back Category', id, {
+                workflow_state: "Approved",
+            })
+                .then(() => {
+                    console.log("item", id)
+                    navigate("/")
+                }).catch(() => {
+                    console.log("update_submit_error", update_submit_error)
+                })
+        }
+    }, [orderData]);
+
     const handleSendBack = (cat: string) => {
         if (selectedItem.list?.length > 0) {
             updateDoc('Sent Back Category', id, {
@@ -431,12 +445,12 @@ export const ApproveSentBack = () => {
                     list: selectedItem.list
                 },
             })
-            .then(() => {
-                console.log("item", id)
-                navigate("/")
-            }).catch(() => {
-                console.log("update_submit_error", update_submit_error)
-            })
+                .then(() => {
+                    console.log("item", id)
+                    navigate("/")
+                }).catch(() => {
+                    console.log("update_submit_error", update_submit_error)
+                })
         }
 
         const order_list = {
@@ -757,7 +771,7 @@ export const ApproveSentBack = () => {
                 </div>
             </div>
             <ConfigProvider
-                    theme={{
+                theme={{
                     token: {
                         // Seed Token
                         colorPrimary: '#FF2828',
@@ -766,60 +780,60 @@ export const ApproveSentBack = () => {
                         // Alias Token
                         colorBgContainer: '#FFFFFF',
                     },
-                    }}
-                >
+                }}
+            >
                 <Table
                     dataSource={data}
-                    rowSelection={{ ...rowSelection,checkStrictly}}
+                    rowSelection={{ ...rowSelection, checkStrictly }}
                     columns={columns}
                 />
 
-                </ConfigProvider>
-                {selectedItems?.length>0 && <div className="text-right space-x-2">
-            <Dialog>
-                <DialogTrigger asChild>
-                    <Button className="text-red-500 bg-white border border-red-500 hover:text-white">
-                        Send Back 
-                    </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
-                        <DialogTitle>Are you Sure</DialogTitle>
-                        <DialogDescription>
-                            Add Comments and Send Back the Selected Items.
-                            <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
-                            <textarea
-                                id="textarea"
-                                className="w-full border rounded-lg p-2"
-                                value={comment}
-                                placeholder="Type your comments here"
-                                onChange={(e) => setComment(e.target.value)}
-                            />
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogClose>
-                        <Button className="text-white bg-red-500" onClick={() => newHandleSentBack()}>Send Back</Button>
-                    </DialogClose>
-                </DialogContent>
-            </Dialog>
-            <Dialog>
-                <DialogTrigger asChild>
-                    <Button>
-                        Approve 
-                    </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
-                        <DialogTitle>Are you Sure</DialogTitle>
-                        <DialogDescription>
-                            Click on Confirm to Approve the Selected Items.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogClose>
-                    <Button className="text-white bg-red-500" onClick={() => newHandleApprove()}>Approve</Button>
-                    </DialogClose>
-                </DialogContent>
-            </Dialog>
+            </ConfigProvider>
+            {selectedItems?.length > 0 && <div className="text-right space-x-2">
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white">
+                            Send Back
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                            <DialogTitle>Are you Sure</DialogTitle>
+                            <DialogDescription>
+                                Add Comments and Send Back the Selected Items.
+                                <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
+                                <textarea
+                                    id="textarea"
+                                    className="w-full border rounded-lg p-2"
+                                    value={comment}
+                                    placeholder="Type your comments here"
+                                    onChange={(e) => setComment(e.target.value)}
+                                />
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogClose>
+                            <Button className="text-white bg-red-500" onClick={() => newHandleSentBack()}>Send Back</Button>
+                        </DialogClose>
+                    </DialogContent>
+                </Dialog>
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button>
+                            Approve
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                            <DialogTitle>Are you Sure</DialogTitle>
+                            <DialogDescription>
+                                Click on Confirm to Approve the Selected Items.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogClose>
+                            <Button className="text-white bg-red-500" onClick={() => newHandleApprove()}>Approve</Button>
+                        </DialogClose>
+                    </DialogContent>
+                </Dialog>
             </div>}
         </MainLayout>
     )

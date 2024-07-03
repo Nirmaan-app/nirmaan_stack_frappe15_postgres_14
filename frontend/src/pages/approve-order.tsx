@@ -9,7 +9,7 @@ import {
     DialogClose
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { ArrowLeft } from 'lucide-react';
@@ -19,6 +19,8 @@ import ReactSelect from 'react-select';
 import { CirclePlus } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Pencil } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectValue, SelectTrigger } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
@@ -28,7 +30,7 @@ export const ProjectLeadComponent = () => {
         {
             fields: ['category_name', 'work_package', 'image_url']
         });
-    const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
+    const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'unit_name', 'category'],
             limit: 1000
@@ -49,6 +51,8 @@ export const ProjectLeadComponent = () => {
             limit: 1000
         });
 
+    const { createDoc: createDoc, error: update_error } = useFrappeCreateDoc()
+
 
     interface Category {
         name: string;
@@ -61,6 +65,7 @@ export const ProjectLeadComponent = () => {
     const [quantity, setQuantity] = useState<number>(0)
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
+
 
     // const [dialogVisible, setDialogVisible] = useState(false)
     const [dialogMessage, setDialogMessage] = useState("")
@@ -251,6 +256,36 @@ export const ProjectLeadComponent = () => {
             })
     }
 
+    const handleCreateItem = () => {
+        setUnit('')
+        setCurItem('')
+        setPage('additem')
+    }
+
+    const handleCategoryClick2 = (category: string) => {
+        addCategory(category);
+        setPage('additem');
+    };
+
+    const handleAddItem = () => {
+        const itemData = {
+            category: curCategory,
+            unit_name: unit,
+            item_name: curItem
+        }
+        console.log("itemData", itemData)
+        createDoc('Items', itemData)
+            .then(() => {
+                console.log(itemData)
+                setUnit('')
+                setCurItem('')
+                setPage('itemlist')
+                item_list_mutate()
+            }).catch(() => {
+                console.log("submit_error", update_error)
+            })
+    }
+
     return (
         <MainLayout>
             {page == 'categorylist' &&
@@ -338,11 +373,12 @@ export const ProjectLeadComponent = () => {
                                     <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
                                 </div>
                             </div>
-                            <div className="flex space-x-48 md:space-x-0 mt-2 ">
+                            <div className="flex-1 space-x-48 md:space-x-0 mt-2">
                                 {(curItem && quantity) ?
                                     <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button>
                                     :
                                     <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8" >Add</Button>}
+                                <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt-1 pr-1" />Create new item</button></div>
                             </div>
                         </Card>
                         }
@@ -524,6 +560,120 @@ export const ProjectLeadComponent = () => {
                         </div>
                     </div>
                 </div>}
+            {page == 'additem' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
+                {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
+                <div className="flex items-center pt-1 pb-4">
+                    <ArrowLeft onClick={() => setPage('itemlist')} />
+                    <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
+                </div>
+                <div className="mb-4">
+                    <div className="flex justify-between">
+                        <div className="text-lg font-bold py-2">Category: {curCategory}</div>
+                        <button onClick={() => setPage("categorylist2")} className="text-blue-500 underline">Change Category</button>
+                    </div>
+                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
+                    <Input
+                        type="text"
+                        id="itemName"
+                        value={curItem}
+                        onChange={(e) => setCurItem(e.target.value)}
+                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                </div>
+                {/* <div className="mb-4">
+                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
+                    <input
+                        type="text"
+                        id="itemUnit"
+                        value={unit}
+                        onChange={(e) => setUnit(e.target.value)}
+                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                </div> */}
+                <div className="mb-4">
+                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
+                    <Select onValueChange={(value) => setUnit(value)}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue className="text-gray-200" placeholder="Select Unit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="PCS">PCS</SelectItem>
+                            <SelectItem value="BOX">BOX</SelectItem>
+                            <SelectItem value="ROLL">ROLL</SelectItem>
+                            <SelectItem value="PKT">PKT</SelectItem>
+                            <SelectItem value="MTR">MTR</SelectItem>
+                            <SelectItem value="NOS">NOS</SelectItem>
+                            <SelectItem value="KGS">KGS</SelectItem>
+                            <SelectItem value="PAIRS">PAIRS</SelectItem>
+                            <SelectItem value="PACKS">PACKS</SelectItem>
+                            <SelectItem value="DRUM">DRUM</SelectItem>
+                            <SelectItem value="COIL">COIL</SelectItem>
+                            <SelectItem value="SQMTR">SQMTR</SelectItem>
+                            <SelectItem value="LTR">LTR</SelectItem>
+                            <SelectItem value="PAC">PAC</SelectItem>
+                            <SelectItem value="BAG">BAG</SelectItem>
+                            <SelectItem value="BUNDLE">BUNDLE</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+                {/* <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Image</label>
+                    <input
+                        type="text"
+                        id="itemUnit"
+                        value={unit}
+                        onChange={(e) => setUnit(e.target.value)}
+                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    /> */}
+                <div className="mb-4">
+                    <div className=" mt-72">
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                {(curItem && unit) ?
+                                    <Button className="mt-15 h-8 w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</Button>
+                                    :
+                                    <Button disabled={true} variant="secondary" className="h-8 w-full rounded-md text-sm">Confirm and Submit</Button>
+                                }
+
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Are you Sure</DialogTitle>
+                                    <DialogDescription>
+                                        Click on Confirm to create new Item.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <DialogClose>
+                                    <Button variant="secondary" onClick={() => handleAddItem()}>Confirm</Button>
+                                </DialogClose>
+                            </DialogContent>
+                        </Dialog>
+                    </div>
+
+                </div>
+            </div>}
+            {page == 'categorylist2' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+                <div className="flex items-center space-y-2">
+                    {/* <ArrowLeft onClick={() => setPage('wplist')} /> */}
+                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
+                    {category_list?.map((item) => {
+                        if (item.work_package === orderData.work_package) {
+                            return (
+                                <Card className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick2(item.category_name)}>
+                                    <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
+                                        <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
+                                            <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.image_url === null ? imageUrl : item.image_url} alt="Category" />
+                                            <span>{item.category_name}</span>
+                                        </CardTitle>
+                                        {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
+                                    </CardHeader>
+                                </Card>
+                            );
+                        }
+                    })}
+                </div>
+            </div>}
         </MainLayout>
     )
 }

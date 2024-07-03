@@ -514,27 +514,32 @@ export const NewPR = () => {
                         onChange={(e) => setUnit(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     /> */}
-                <Dialog>
-                    <DialogTrigger asChild>
-                        {(curItem && unit) ?
-                            <Button className="fixed bottom-2 h-8 left-2 right-2 md:w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</Button>
-                            :
-                            <Button disabled={true} variant="secondary" className="fixed bottom-2 h-8 left-2 right-2 md:w-full rounded-md text-sm">Confirm and Submit</Button>
-                        }
+                <div className="mb-4">
+                    <div className=" mt-72">
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                {(curItem && unit) ?
+                                    <Button className="mt-15 h-8 w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</Button>
+                                    :
+                                    <Button disabled={true} variant="secondary" className="h-8 w-full rounded-md text-sm">Confirm and Submit</Button>
+                                }
 
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                            <DialogTitle>Are you Sure</DialogTitle>
-                            <DialogDescription>
-                                Click on Confirm to create new Item.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogClose>
-                            <Button variant="secondary" onClick={() => handleAddItem()}>Confirm</Button>
-                        </DialogClose>
-                    </DialogContent>
-                </Dialog>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Are you Sure</DialogTitle>
+                                    <DialogDescription>
+                                        Click on Confirm to create new Item.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <DialogClose>
+                                    <Button variant="secondary" onClick={() => handleAddItem()}>Confirm</Button>
+                                </DialogClose>
+                            </DialogContent>
+                        </Dialog>
+                    </div>
+
+                </div>
             </div>}
             {page == 'categorylist2' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">

@@ -24,83 +24,83 @@ type TableRowSelection<T> = TableProps<T>['rowSelection'];
 const { Panel } = Collapse;
 
 interface DataType {
-  key: React.ReactNode;
-  category: string;
-  item: string;
-  unit: string;
-  quantity: number;
-  rate: number;
-  selectedVendor: string;
-  amount: number;
-  lowest2: string;
-  lowest3: string;
-  children?: DataType[];
+    key: React.ReactNode;
+    category: string;
+    item: string;
+    unit: string;
+    quantity: number;
+    rate: number;
+    selectedVendor: string;
+    amount: number;
+    lowest2: string;
+    lowest3: string;
+    children?: DataType[];
 }
 
 const columns: TableColumnsType<DataType> = [
     {
-      title: 'Items',
-      dataIndex: 'item',
-      key: 'item'
+        title: 'Items',
+        dataIndex: 'item',
+        key: 'item'
     },
     {
-      title: 'Unit',
-      dataIndex: 'unit',
-      key: 'unit',
-      width: '7%',
+        title: 'Unit',
+        dataIndex: 'unit',
+        key: 'unit',
+        width: '7%',
     },
     {
-      title: 'Quantity',
-      dataIndex: 'quantity',
-      width: '7%',
-      key: 'quantity',
+        title: 'Quantity',
+        dataIndex: 'quantity',
+        width: '7%',
+        key: 'quantity',
     },
     {
         title: 'Rate',
         dataIndex: 'rate',
         width: '7%',
         key: 'rate',
-      },
+    },
     {
         title: 'Selected Vendor',
         dataIndex: 'selectedVendor',
         width: '15%',
         key: 'selectedVendor',
-      },
-      {
+    },
+    {
         title: 'Amount',
         dataIndex: 'amount',
         width: '9%',
         key: 'amount',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-              {text}
+                {text}
             </span>
-          ),
-      },
-      {
+        ),
+    },
+    {
         title: 'Lowest Quoted Amount',
         dataIndex: 'lowest2',
         width: '10%',
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-              {text}
+                {text}
             </span>
-          ),
-      },
-      {
+        ),
+    },
+    {
         title: '3 months Lowest Amount',
         dataIndex: 'lowest3',
         width: '10%',
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-              {text}
+                {text}
             </span>
-          ),
-      },
-  ];
+        ),
+    },
+];
 
 
 interface VendorItem {
@@ -157,7 +157,7 @@ export const SelectVendors = () => {
     const [selectedVendors, setSelectedVendors] = useState({})
     const [selectedCategories, setSelectedCategories] = useState({})
 
-    const [data,setData] = useState<DataType>([]) 
+    const [data, setData] = useState<DataType>([])
     const [checkStrictly, setCheckStrictly] = useState(false);
 
     useEffect(() => {
@@ -165,33 +165,33 @@ export const SelectVendors = () => {
             const newData: DataType[] = [];
             orderData.category_list?.list.forEach((cat) => {
                 const items: DataType[] = [];
-    
+
                 orderData.procurement_list?.list.forEach((item) => {
                     if (item.category === cat.name) {
-                            const price = Number(getPrice(selectedVendors[item.name], item.name))
-                            const quotesForItem = quote_data
-                                ?.filter(value => value.item === item.name && value.quote)
-                                ?.map(value => value.quote);
-                            let minQuote;
-                            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                            minQuote = (minQuote ? parseFloat(minQuote)*item.quantity : 0)
+                        const price = Number(getPrice(selectedVendors[item.name], item.name))
+                        const quotesForItem = quote_data
+                            ?.filter(value => value.item === item.name && value.quote)
+                            ?.map(value => value.quote);
+                        let minQuote;
+                        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                        minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
 
-                            items.push({
-                                item: item.item,
-                                key: item.name,
-                                unit: item.unit,
-                                quantity: item.quantity,
-                                category: item.category,
-                                rate: selectedVendors[item.name] ? price : "Delayed",
-                                amount: selectedVendors[item.name] ? price*item.quantity : "Delayed",
-                                selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
-                                lowest2: selectedVendors[item.name] ? getLowest2(item.name)*item.quantity : "Delayed",
-                                lowest3: minQuote ? minQuote : "N/A",
-                            });
+                        items.push({
+                            item: item.item,
+                            key: item.name,
+                            unit: item.unit,
+                            quantity: item.quantity,
+                            category: item.category,
+                            rate: selectedVendors[item.name] ? price : "Delayed",
+                            amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
+                            selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
+                            lowest2: selectedVendors[item.name] ? getLowest2(item.name) * item.quantity : "Delayed",
+                            lowest3: minQuote ? minQuote : "N/A",
+                        });
                     }
                 });
-    
-                if(items.length){
+
+                if (items.length) {
                     const node: DataType = {
                         item: cat.name,
                         key: cat.name,
@@ -205,23 +205,23 @@ export const SelectVendors = () => {
                     newData.push(node);
                 }
             });
-            console.log("newData",newData)
+            console.log("newData", newData)
             setData(newData)
         }
-    }, [orderData,selectedVendors]);
-    console.log("data",data)
+    }, [orderData, selectedVendors]);
+    console.log("data", data)
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
             console.log("onChange")
-          console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
         },
         onSelect: (record, selected, selectedRows) => {
-          console.log(record, selected, selectedRows);
+            console.log(record, selected, selectedRows);
         },
         onSelectAll: (selected, selectedRows, changeRows) => {
-          console.log(selected, selectedRows, changeRows);
+            console.log(selected, selectedRows, changeRows);
         },
-      };
+    };
 
     useEffect(() => {
         const updatedCategories = { ...selectedCategories };
@@ -299,7 +299,7 @@ export const SelectVendors = () => {
         const newSendBack = {
             procurement_request: orderId,
             project: orderData.project,
-            category_list:{
+            category_list: {
                 list: newCategories
             },
             item_list: {
@@ -544,6 +544,7 @@ export const SelectVendors = () => {
                                 </Card>
                             </div>
                         })}
+                        <div className='p-10'></div>
                         <div className='pt-12 fixed bottom-4'>
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => handleEditPrice()}>
                                 Edit Price
@@ -584,7 +585,7 @@ export const SelectVendors = () => {
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div>
                         </Card>
-                        {orderData?.category_list?.list.map((cat) => {
+                        {/* {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name
                             let total: number = 0;
                             const lowest = getLowest(cat.name);
@@ -596,7 +597,6 @@ export const SelectVendors = () => {
                                 <Card className="flex w-full shadow-none border border-grey-500" >
                                     <CardHeader className="w-full">
                                         <CardTitle>
-                                            {/* <div className="text-sm text-gray-400">Selected Vendor</div> */}
                                             <div className="flex justify-between border-b">
                                                 <div className="font-bold text-lg py-2 border-gray-200">Total</div>
                                                 <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
@@ -662,7 +662,6 @@ export const SelectVendors = () => {
                                                     </DialogHeader>
                                                 </DialogContent>
                                             </Dialog>
-                                            {/* <div className="text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div> */}
                                         </div>
                                     </CardHeader>
                                 </Card>
@@ -707,7 +706,7 @@ export const SelectVendors = () => {
                                     </div>
                                 </div>
                             </div>
-                        })}
+                        })} */}
                         <div className='p-10'></div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                             <Dialog>
@@ -724,52 +723,52 @@ export const SelectVendors = () => {
                                         </DialogDescription>
                                     </DialogHeader>
                                     <DialogClose>
-                                    <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                        <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
                                     </DialogClose>
                                 </DialogContent>
                             </Dialog>
                         </div>
                     </div>
-                    
+
                 </div>
                     <ConfigProvider
                         theme={{
-                        token: {
-                            // Seed Token
-                            colorPrimary: '#FF2828',
-                            borderRadius: 4,
+                            token: {
+                                // Seed Token
+                                colorPrimary: '#FF2828',
+                                borderRadius: 4,
 
-                            // Alias Token
-                            colorBgContainer: '#FFFFFF',
-                        },
+                                // Alias Token
+                                colorBgContainer: '#FFFFFF',
+                            },
                         }}
                     >
-                    <Table
-                        dataSource={data}
-                        columns={columns}
+                        <Table
+                            dataSource={data}
+                            columns={columns}
                         />
 
                     </ConfigProvider>
                     <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button>
-                                        Send for Approval
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent className="sm:max-w-[425px]">
-                                    <DialogHeader>
-                                        <DialogTitle>Are you Sure</DialogTitle>
-                                        <DialogDescription>
-                                            Click on Confirm to Approve.
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    <DialogClose>
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <Button>
+                                    Send for Approval
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Are you Sure</DialogTitle>
+                                    <DialogDescription>
+                                        Click on Confirm to Approve.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <DialogClose>
                                     <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
-                                    </DialogClose>
-                                </DialogContent>
-                            </Dialog>
-                        </div>
+                                </DialogClose>
+                            </DialogContent>
+                        </Dialog>
+                    </div>
                 </>}
         </MainLayout>
     )
