@@ -253,18 +253,27 @@ export const ApproveVendor = () => {
     }, [orderData.procurement_list]);
 
     useEffect(() => {
-        if (orderData.project && orderData.procurement_list?.list.length === 0) {
-            updateDoc('Procurement Requests', orderId, {
-                workflow_state: "Vendor Approved",
+
+        if (orderData.project && Object.keys(selectedVendors).length > 0) {
+            let allChecked = true;
+            orderData.procurement_list?.list.forEach((item) => {
+                if(selectedVendors[item.name]){
+                    allChecked=false;
+                }
             })
-                .then(() => {
-                    console.log("item", orderId)
-                    navigate("/")
-                }).catch(() => {
-                    console.log("update_submit_error", update_submit_error)
+            if(allChecked){
+                updateDoc('Procurement Requests', orderId, {
+                    workflow_state: "Vendor Approved",
                 })
+                    .then(() => {
+                        console.log("item", orderId)
+                        navigate("/")
+                    }).catch(() => {
+                        console.log("update_submit_error", update_submit_error)
+                    })
+            }
         }
-    }, [orderData]);
+    }, [orderData, selectedVendors]);
 
     useEffect(() => {
         if (orderData.project) {
@@ -315,7 +324,7 @@ export const ApproveVendor = () => {
             });
             setData(newData)
         }
-    }, [orderData, selectedVendors]);
+    }, [orderData, selectedVendors, vendor_list]);
 
     const [selectedItems, setSelectedItems] = useState()
 
@@ -462,7 +471,6 @@ export const ApproveVendor = () => {
                 list: filteredList
             }
         }));
-
     }
 
     const handleSendBack = (cat: string) => {
@@ -1183,11 +1191,12 @@ export const ApproveVendor = () => {
                     },
                 }}
             >
-                <Table
-                    columns={columns}
-                    rowSelection={{ ...rowSelection, checkStrictly }}
+                {data.length > 0 && <Table
+                    rowSelection={{ ...rowSelection }}
                     dataSource={data}
-                />
+                    expandable={{ defaultExpandAllRows: true }}
+                    columns={columns}
+                />}
             </ConfigProvider>
             {selectedItems?.length > 0 && <div className="text-right space-x-2">
                 <Dialog>
