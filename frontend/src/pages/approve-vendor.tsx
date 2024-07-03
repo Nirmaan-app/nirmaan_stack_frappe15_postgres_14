@@ -1198,7 +1198,7 @@ export const ApproveVendor = () => {
                 }}
             >
                 {data.length > 0 && <Table
-                    rowSelection={{ ...rowSelection }}
+                    rowSelection={{ ...rowSelection,checkStrictly }}
                     dataSource={data}
                     expandable={{ defaultExpandAllRows: true }}
                     columns={columns}

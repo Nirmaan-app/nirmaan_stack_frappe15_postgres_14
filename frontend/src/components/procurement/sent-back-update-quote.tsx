@@ -165,7 +165,7 @@ export const SentBackUpdateQuote = () => {
                         <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
                             {orderData.comments}
                         </div>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                        <div className="flex flex-col justify-end items-end">
                             <Button onClick={() => setPage('quotation')}>
                                 Next
                             </Button>
@@ -233,7 +233,7 @@ export const SentBackUpdateQuote = () => {
                                 </ScrollArea>
                             </SheetContent>
                         </Sheet>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                        <div className="flex flex-col justify-end items-end">
                             <Button className="font-normal py-2 px-6" onClick={handleUpdateQuote}>
                                 Update Quote
                             </Button>

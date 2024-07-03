@@ -593,12 +593,12 @@ export const ApproveSentBack = () => {
     const getTotal = (cat: string) => {
         let total: number = 0;
         orderData.item_list?.list.map((item) => {
+            if(item.category === cat){
             const price = item.quote;
-            total += (price ? parseFloat(price) : 0) * item.quantity
+            total += (price ? parseFloat(price) : 0) * item.quantity}
         })
         return total
     }
-    let count: number = 0;
 
     return (
         <MainLayout>
@@ -611,7 +611,7 @@ export const ApproveSentBack = () => {
                     <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col items-center justify-center">
                             <p className="text-left py-1 font-semibold text-sm text-gray-300">Sent Back ID</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name}</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.split("-")[3]}</p>
                         </div>
                         <div className="border-0 flex flex-col items-center justify-center">
                             <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>

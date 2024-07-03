@@ -501,13 +501,13 @@ export const SentBackSelectVendor = () => {
                                 </Card>
                             </div>
                         })}
-                        <div className="pt-10"></div>
-                        <div className='pt-12 fixed bottom-4'>
+                        {/* <div className="pt-10"></div> */}
+                        <div className='pt-12 flex justify-between'>
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => navigate(`/sent-back-request/${id}`)}>
                                 Edit Price
                             </Button>
-                        </div>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                        {/* </div>
+                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4"> */}
                             <Button onClick={() => handleUpdateOrderData()}>
                                 Confirm
                             </Button>
@@ -633,7 +633,9 @@ export const SentBackSelectVendor = () => {
                 />
 
                 </ConfigProvider>
-                <Button onClick={()=>handleSubmit()}>Submit</Button>
+                <div className="flex flex-col justify-end items-end">
+                <Button onClick={()=>handleSubmit()}>Send For Approval</Button>
+                </div>
                 </>
                 }
         </MainLayout>

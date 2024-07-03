@@ -198,7 +198,7 @@ export const UpdateQuote = () => {
                             </div>
                         })}
                         <div className="p-10"></div>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                        <div className="flex flex-col justify-end items-end">
                             <Button onClick={handleUpdateQuote}>
                                 Update Quote
                             </Button>
