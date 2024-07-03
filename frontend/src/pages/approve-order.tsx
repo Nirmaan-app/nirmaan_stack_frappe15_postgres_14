@@ -465,10 +465,10 @@ export const ProjectLeadComponent = () => {
                             })}
                         </Card>
                         <div className="pt-10"></div>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => setPage('approve')}>
+                        <div className="flex flex-col justify-end items-end">
+                            <Button className="" onClick={() => setPage('approve')}>
                                 Next
-                            </button>
+                            </Button>
                         </div>
 
 
@@ -538,7 +538,7 @@ export const ProjectLeadComponent = () => {
                                 </tbody>
                             </table>
                         </div>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                        <div className="flex flex-col justify-end items-end">
                             <Dialog>
                                 <DialogTrigger asChild>
                                     <Button>

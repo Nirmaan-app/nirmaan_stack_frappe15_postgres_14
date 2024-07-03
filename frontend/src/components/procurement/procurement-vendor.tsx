@@ -285,7 +285,7 @@ export const ProcurementOrder = () => {
                                 </tbody>
                             </table>
                         </div>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                        <div className="flex flex-col justify-end items-end">
                             <Button onClick={() => setPage('vendors')}>
                                 Select Vendors
                             </Button>
@@ -351,7 +351,7 @@ export const ProcurementOrder = () => {
                                 <Select options={getCategoryByName(cat.name)} onChange={handleChange(cat.name)} isMulti />
                             </div>
                         })}
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                        <div className="flex flex-col justify-end items-end">
                             {block ? <div>loading...</div> : <Button onClick={() => { handleSubmit(); setBlock(true) }}>
                                 Send RFQ
                             </Button>}

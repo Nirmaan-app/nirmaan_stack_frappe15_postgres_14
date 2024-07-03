@@ -544,12 +544,12 @@ export const SelectVendors = () => {
                                 </Card>
                             </div>
                         })}
-                        <div className='p-10'></div>
-                        <div className='pt-12 fixed bottom-4'>
+                        {/* <div className='p-10'></div> */}
+                        <div className='flex justify-between pt-6'>
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => handleEditPrice()}>
                                 Edit Price
-                            </Button></div>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                            </Button>
+                        {/* <div className="flex flex-col justify-end items-end"> */}
                             <Button onClick={() => setPage('approvequotation')}>
                                 Confirm
                             </Button>
@@ -707,8 +707,8 @@ export const SelectVendors = () => {
                                 </div>
                             </div>
                         })} */}
-                        <div className='p-10'></div>
-                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                        {/* <div className='p-10'></div> */}
+                        <div className="flex flex-col justify-end items-end">
                             <Dialog>
                                 {/* <DialogTrigger asChild>
                                     <Button>
@@ -750,7 +750,7 @@ export const SelectVendors = () => {
                         />
 
                     </ConfigProvider>
-                    <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                    <div className="flex flex-col justify-end items-end">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button>
