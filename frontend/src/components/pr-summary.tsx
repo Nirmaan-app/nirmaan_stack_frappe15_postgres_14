@@ -1,4 +1,4 @@
-import { useFrappeGetDoc } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { MainLayout } from "./layout/main-layout";
 import { ArrowLeft } from 'lucide-react';
@@ -12,17 +12,20 @@ const PRSummary = () => {
 
     const { id } = useParams<{ id: string }>();
 
-    const project_id = id?.split('-').slice(1, 4).join("-")
+    const project_id = id?.split('-')[1];
 
     const { data: pr_data, error: pr_error } = useFrappeGetDoc<ProcurementRequests>("Procurement Requests", id);
 
-    const { data: project, error: project_error } = useFrappeGetDoc<Projects>("Projects", project_id);
+    const { data: project, error: project_error } = useFrappeGetDocList<Projects>("Projects", {
+        fields: ['name', 'project_name', 'project_address'],
+        filters: [['name', 'like', `%${project_id}`]]
+    });
 
     return (
         <>
             {pr_error && <h1>{pr_error.message}</h1>}
             {project_error && <h1>{project_error.message}</h1>}
-            {(pr_data && project) && <PRSummaryPage pr_data={pr_data} project={project} />}
+            {(pr_data && project) && <PRSummaryPage pr_data={pr_data} project={project[0]} />}
         </>
     )
 
