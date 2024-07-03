@@ -203,7 +203,7 @@ export const ApproveSentBack = () => {
             console.log("newData", newData)
             setData(newData)
         }
-    }, [orderData]);
+    }, [orderData,vendor_list]);
     console.log("data", data)
 
     const [selectedItems, setSelectedItems] = useState()
@@ -782,11 +782,12 @@ export const ApproveSentBack = () => {
                     },
                 }}
             >
-                <Table
+                {data.length > 0 && <Table
                     dataSource={data}
                     rowSelection={{ ...rowSelection, checkStrictly }}
+                    expandable={{ defaultExpandAllRows: true }}
                     columns={columns}
-                />
+                />}
 
             </ConfigProvider>
             {selectedItems?.length > 0 && <div className="text-right space-x-2">

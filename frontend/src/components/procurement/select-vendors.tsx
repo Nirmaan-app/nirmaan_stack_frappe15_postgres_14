@@ -208,7 +208,7 @@ export const SelectVendors = () => {
             console.log("newData", newData)
             setData(newData)
         }
-    }, [orderData, selectedVendors]);
+    }, [orderData, selectedVendors, vendor_list]);
     console.log("data", data)
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
@@ -745,6 +745,7 @@ export const SelectVendors = () => {
                     >
                         <Table
                             dataSource={data}
+                            expandable={{ defaultExpandAllRows: true }}
                             columns={columns}
                         />
 

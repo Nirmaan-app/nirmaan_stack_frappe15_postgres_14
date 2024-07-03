@@ -628,6 +628,8 @@ export const SentBackSelectVendor = () => {
                 <Table
                     dataSource={data}
                     columns={columns}
+                    expandable={{ defaultExpandAllRows: true }}
+
                 />
 
                 </ConfigProvider>
