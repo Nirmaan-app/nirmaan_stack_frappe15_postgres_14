@@ -52,7 +52,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         });
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
-            fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
+            fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode']
         });
 
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
@@ -125,7 +125,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
     const vendor_name = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_name;
     const vendor_address = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_address;
     const doc = address_list?.find(item => item.name == vendor_address);
-    const address = `${doc?.address_title}, ${doc?.address_line1}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+    const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
     const delivery_time = quotation_request_list?.find(item => item.vendor === vendor_id)?.lead_time
 
     return (

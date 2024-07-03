@@ -22,12 +22,13 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ['name', 'project_name', 'project_address']
+            fields: ['name', 'project_name', 'project_address', 'project_city', 'project_state'],
+            filters: [['name', 'like', `%${pr_id.split("-").at(1)}`]]
         });
-    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
-        {
-            fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
-        });
+    // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+    //     {
+    //         fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
+    //     });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_city'],
@@ -48,10 +49,10 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
         return item_name
     }
     const getProjectAddress = (item: string) => {
-        const id = project_list?.find(value => value.name === item)?.project_address;
-        const doc = address_list?.find(item => item.name === id);
-        const address = `${doc?.address_title}, ${doc?.address_line1}, ${doc?.city}, ${doc?.state}, PIN-${doc?.pincode}`
-        return address
+        // const id = project_list?.find(value => value.name === item)?.project_address;
+        // const doc = address_list?.find(item => item.name === id);
+        // const address = `${doc?.address_title}, ${doc?.address_line1}, ${doc?.city}, ${doc?.state}, PIN-${doc?.pincode}`
+        return `${project_list?.at(0).project_city}, ${project_list?.at(0).project_state}`
     }
     const getVendorName = (item: string) => {
         const name = vendor_list?.find(value => value.name === item)?.vendor_name;

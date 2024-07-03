@@ -91,21 +91,6 @@ export const ReleasePOSelect = () => {
                 }
             },
             {
-                accessorKey: "project_name",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Project" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("project_name")}
-                        </div>
-                    )
-                }
-            },
-            {
                 accessorKey: "project",
                 header: ({ column }) => {
                     return (

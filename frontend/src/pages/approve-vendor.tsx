@@ -117,6 +117,7 @@ export const ApproveVendor = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            filters: [['name', '=', orderId]],
             limit: 100
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
@@ -262,6 +263,7 @@ export const ApproveVendor = () => {
                 }
             })
             if(allChecked){
+
                 updateDoc('Procurement Requests', orderId, {
                     workflow_state: "Vendor Approved",
                 })
@@ -343,6 +345,8 @@ export const ApproveVendor = () => {
     };
 
     const newHandleApprove = () => {
+
+        // TODO: Add Quotation request state change to approved 
 
         const filteredData = selectedItems?.filter(item => {
             return item.unit !== null && item.quantity !== null
@@ -830,6 +834,8 @@ export const ApproveVendor = () => {
     }
 
     const [selectedCategories, setSelectedCategories] = useState({})
+
+    console.log(data)
 
     useEffect(() => {
         const updatedCategories = { ...selectedCategories };
