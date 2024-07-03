@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Projects } from "@/types/NirmaanStack/Projects";
 
 
 type PRTable = {
