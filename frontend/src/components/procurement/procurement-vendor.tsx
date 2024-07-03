@@ -217,6 +217,8 @@ export const ProcurementOrder = () => {
     };
     console.log("selectedCategories", Object.keys(selectedCategories).length)
 
+    const [block, setBlock] = useState(false);
+
     return (
         <MainLayout>
             {page == 'approve' &&
@@ -350,7 +352,7 @@ export const ProcurementOrder = () => {
                             </div>
                         })}
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                            {(loading || update_loading) ? <div>loading...</div> : <Button onClick={() => handleSubmit()}>
+                            {block ? <div>loading...</div> : <Button onClick={() => { handleSubmit(); setBlock(true) }}>
                                 Send RFQ
                             </Button>}
                         </div>

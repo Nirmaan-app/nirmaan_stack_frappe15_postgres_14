@@ -16,6 +16,92 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { TrendingDown, CheckCheck } from 'lucide-react';
+import { Space, Switch, Table, ConfigProvider, Collapse, Checkbox } from 'antd';
+import type { TableColumnsType, TableProps } from 'antd';
+
+type TableRowSelection<T> = TableProps<T>['rowSelection'];
+
+const { Panel } = Collapse;
+
+interface DataType {
+    key: React.ReactNode;
+    category: string;
+    item: string;
+    unit: string;
+    quantity: number;
+    rate: number;
+    selectedVendor: string;
+    amount: number;
+    lowest2: string;
+    lowest3: string;
+    children?: DataType[];
+}
+
+const columns: TableColumnsType<DataType> = [
+    {
+        title: 'Items',
+        dataIndex: 'item',
+        key: 'item'
+    },
+    {
+        title: 'Unit',
+        dataIndex: 'unit',
+        key: 'unit',
+        width: '7%',
+    },
+    {
+        title: 'Quantity',
+        dataIndex: 'quantity',
+        width: '7%',
+        key: 'quantity',
+    },
+    {
+        title: 'Rate',
+        dataIndex: 'rate',
+        width: '7%',
+        key: 'rate',
+    },
+    {
+        title: 'Selected Vendor',
+        dataIndex: 'selectedVendor',
+        width: '15%',
+        key: 'selectedVendor',
+    },
+    {
+        title: 'Amount',
+        dataIndex: 'amount',
+        width: '9%',
+        key: 'amount',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                {text}
+            </span>
+        ),
+    },
+    {
+        title: 'Lowest Quoted Amount',
+        dataIndex: 'lowest2',
+        width: '10%',
+        key: 'lowest2',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                {text}
+            </span>
+        ),
+    },
+    {
+        title: '3 months Lowest Amount',
+        dataIndex: 'lowest3',
+        width: '10%',
+        key: 'lowest3',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                {text}
+            </span>
+        ),
+    },
+];
+
 
 interface VendorItem {
     vendor: string;
@@ -71,6 +157,72 @@ export const SelectVendors = () => {
     const [selectedVendors, setSelectedVendors] = useState({})
     const [selectedCategories, setSelectedCategories] = useState({})
 
+    const [data, setData] = useState<DataType>([])
+    const [checkStrictly, setCheckStrictly] = useState(false);
+
+    useEffect(() => {
+        if (orderData.project) {
+            const newData: DataType[] = [];
+            orderData.category_list?.list.forEach((cat) => {
+                const items: DataType[] = [];
+
+                orderData.procurement_list?.list.forEach((item) => {
+                    if (item.category === cat.name) {
+                        const price = Number(getPrice(selectedVendors[item.name], item.name))
+                        const quotesForItem = quote_data
+                            ?.filter(value => value.item === item.name && value.quote)
+                            ?.map(value => value.quote);
+                        let minQuote;
+                        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                        minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
+
+                        items.push({
+                            item: item.item,
+                            key: item.name,
+                            unit: item.unit,
+                            quantity: item.quantity,
+                            category: item.category,
+                            rate: selectedVendors[item.name] ? price : "Delayed",
+                            amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
+                            selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
+                            lowest2: selectedVendors[item.name] ? getLowest2(item.name) * item.quantity : "Delayed",
+                            lowest3: minQuote ? minQuote : "N/A",
+                        });
+                    }
+                });
+
+                if (items.length) {
+                    const node: DataType = {
+                        item: cat.name,
+                        key: cat.name,
+                        unit: null,
+                        quantity: null,
+                        amount: getTotal(cat.name),
+                        lowest2: getLowest(cat.name).quote,
+                        lowest3: getLowest3(cat.name),
+                        children: items,
+                    };
+                    newData.push(node);
+                }
+            });
+            console.log("newData", newData)
+            setData(newData)
+        }
+    }, [orderData, selectedVendors]);
+    console.log("data", data)
+    const rowSelection: TableRowSelection<DataType> = {
+        onChange: (selectedRowKeys, selectedRows) => {
+            console.log("onChange")
+            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+        },
+        onSelect: (record, selected, selectedRows) => {
+            console.log(record, selected, selectedRows);
+        },
+        onSelectAll: (selected, selectedRows, changeRows) => {
+            console.log(selected, selectedRows, changeRows);
+        },
+    };
+
     useEffect(() => {
         const updatedCategories = { ...selectedCategories };
         orderData?.category_list.list.map((cat) => {
@@ -122,39 +274,49 @@ export const SelectVendors = () => {
             }
         })
 
-        orderData.category_list?.list.map((item) => {
-            const itemlist = [];
-            orderData.procurement_list?.list.map((value) => {
-                if (!selectedVendors[value.name] && value.category === item.name) {
-                    itemlist.push({
-                        name: value.name,
-                        item: value.item,
-                        quantity: value.quantity,
-                        quote: 0,
-                        unit: value.unit
-                    })
-                }
-            })
-            const newSendBack = {
-                procurement_request: orderId,
-                project_name: orderData.project,
-                category: item.name,
-                item_list: {
-                    list: itemlist
-                },
-                procurement_executive: orderData.procurement_executive,
-                type: "Delayed"
-            }
-            if (itemlist.length > 0) {
-                createDoc('Sent Back Category', newSendBack)
-                    .then(() => {
-                        console.log(newSendBack);
-                    })
-                    .catch(() => {
-                        console.log("submit_error", submit_error);
-                    })
+        const itemlist = [];
+        orderData.procurement_list?.list.map((value) => {
+            if (!selectedVendors[value.name]) {
+                itemlist.push({
+                    name: value.name,
+                    item: value.item,
+                    quantity: value.quantity,
+                    quote: 0,
+                    unit: value.unit,
+                    category: value.category
+                })
             }
         })
+
+        const newCategories = [];
+        itemlist.forEach((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+
+        const newSendBack = {
+            procurement_request: orderId,
+            project: orderData.project,
+            category_list: {
+                list: newCategories
+            },
+            item_list: {
+                list: itemlist
+            },
+            type: "Delayed"
+        }
+
+        if (itemlist.length > 0) {
+            createDoc('Sent Back Category', newSendBack)
+                .then(() => {
+                    console.log(newSendBack);
+                })
+                .catch(() => {
+                    console.log("submit_error", submit_error);
+                })
+        }
 
         updateDoc('Procurement Requests', orderId, {
             workflow_state: "Vendor Selected",
@@ -382,6 +544,7 @@ export const SelectVendors = () => {
                                 </Card>
                             </div>
                         })}
+                        <div className='p-10'></div>
                         <div className='pt-12 fixed bottom-4'>
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => handleEditPrice()}>
                                 Edit Price
@@ -394,7 +557,7 @@ export const SelectVendors = () => {
                     </div>
                 </div>}
             {page == 'approvequotation' &&
-                <div className="flex">
+                <><div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('updatequotation')} />
@@ -422,7 +585,7 @@ export const SelectVendors = () => {
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div>
                         </Card>
-                        {orderData?.category_list?.list.map((cat) => {
+                        {/* {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name
                             let total: number = 0;
                             const lowest = getLowest(cat.name);
@@ -434,7 +597,6 @@ export const SelectVendors = () => {
                                 <Card className="flex w-full shadow-none border border-grey-500" >
                                     <CardHeader className="w-full">
                                         <CardTitle>
-                                            {/* <div className="text-sm text-gray-400">Selected Vendor</div> */}
                                             <div className="flex justify-between border-b">
                                                 <div className="font-bold text-lg py-2 border-gray-200">Total</div>
                                                 <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
@@ -500,7 +662,6 @@ export const SelectVendors = () => {
                                                     </DialogHeader>
                                                 </DialogContent>
                                             </Dialog>
-                                            {/* <div className="text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div> */}
                                         </div>
                                     </CardHeader>
                                 </Card>
@@ -545,15 +706,15 @@ export const SelectVendors = () => {
                                     </div>
                                 </div>
                             </div>
-                        })}
+                        })} */}
                         <div className='p-10'></div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                             <Dialog>
-                                <DialogTrigger asChild>
+                                {/* <DialogTrigger asChild>
                                     <Button>
                                         Send for Approval
                                     </Button>
-                                </DialogTrigger>
+                                </DialogTrigger> */}
                                 <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>
                                         <DialogTitle>Are you Sure</DialogTitle>
@@ -562,13 +723,53 @@ export const SelectVendors = () => {
                                         </DialogDescription>
                                     </DialogHeader>
                                     <DialogClose>
-                                    <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                        <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
                                     </DialogClose>
                                 </DialogContent>
                             </Dialog>
                         </div>
                     </div>
-                </div>}
+
+                </div>
+                    <ConfigProvider
+                        theme={{
+                            token: {
+                                // Seed Token
+                                colorPrimary: '#FF2828',
+                                borderRadius: 4,
+
+                                // Alias Token
+                                colorBgContainer: '#FFFFFF',
+                            },
+                        }}
+                    >
+                        <Table
+                            dataSource={data}
+                            columns={columns}
+                        />
+
+                    </ConfigProvider>
+                    <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <Button>
+                                    Send for Approval
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Are you Sure</DialogTitle>
+                                    <DialogDescription>
+                                        Click on Confirm to Approve.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <DialogClose>
+                                    <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                </DialogClose>
+                            </DialogContent>
+                        </Dialog>
+                    </div>
+                </>}
         </MainLayout>
     )
 }

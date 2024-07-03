@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { MainLayout } from '@/components/layout/main-layout';
 import {
     Sheet,
@@ -25,6 +25,89 @@ import {
     DialogClose
 } from "@/components/ui/dialog"
 import { TrendingDown, CheckCheck, TrendingUp } from 'lucide-react';
+import { Space, Switch, Table, ConfigProvider } from 'antd';
+import type { TableColumnsType, TableProps } from 'antd';
+
+type TableRowSelection<T> = TableProps<T>['rowSelection'];
+
+interface DataType {
+    key: React.ReactNode;
+    category: string;
+    item: string;
+    unit: string;
+    quantity: number;
+    rate: number;
+    selectedVendor: string;
+    amount: number;
+    lowest2: string;
+    lowest3: string;
+    children?: DataType[];
+}
+
+const columns: TableColumnsType<DataType> = [
+    {
+        title: 'Items',
+        dataIndex: 'item',
+        key: 'item'
+    },
+    {
+        title: 'Unit',
+        dataIndex: 'unit',
+        key: 'unit',
+        width: '7%',
+    },
+    {
+        title: 'Quantity',
+        dataIndex: 'quantity',
+        width: '7%',
+        key: 'quantity',
+    },
+    {
+        title: 'Rate',
+        dataIndex: 'rate',
+        width: '7%',
+        key: 'rate',
+    },
+    {
+        title: 'Selected Vendor',
+        dataIndex: 'selectedVendor',
+        width: '15%',
+        key: 'selectedVendor',
+    },
+    {
+        title: 'Amount',
+        dataIndex: 'amount',
+        width: '9%',
+        key: 'amount',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                {text}
+            </span>
+        ),
+    },
+    {
+        title: 'Lowest Quoted Amount',
+        dataIndex: 'lowest2',
+        width: '10%',
+        key: 'lowest2',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                {text}
+            </span>
+        ),
+    },
+    {
+        title: '3 months Lowest Amount',
+        dataIndex: 'lowest3',
+        width: '10%',
+        key: 'lowest3',
+        render: (text, record) => (
+            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                {text}
+            </span>
+        ),
+    },
+];
 
 
 export const ApproveVendor = () => {
@@ -68,7 +151,6 @@ export const ApproveVendor = () => {
             limit: 1000
         });
 
-
     const [page, setPage] = useState<string>('approvequotation')
     const [orderData, setOrderData] = useState({
         project: '',
@@ -80,6 +162,9 @@ export const ApproveVendor = () => {
             list: []
         }
     })
+
+    const [data, setData] = useState<DataType>([])
+    const [checkStrictly, setCheckStrictly] = useState(false);
 
     useEffect(() => {
         const foundItem = procurement_request_list?.find(item => item.name === orderId);
@@ -150,6 +235,235 @@ export const ApproveVendor = () => {
     const [approvedItems, setApprovedItems] = useState({
         list: []
     })
+
+    useEffect(() => {
+        const newCategories = [];
+        orderData.procurement_list.list.map((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+        setOrderData((prevState) => ({
+            ...prevState,
+            category_list: {
+                list: newCategories
+            },
+        }));
+    }, [orderData.procurement_list]);
+
+    useEffect(() => {
+        if (orderData.project && orderData.procurement_list?.list.length === 0) {
+            updateDoc('Procurement Requests', orderId, {
+                workflow_state: "Vendor Approved",
+            })
+                .then(() => {
+                    console.log("item", orderId)
+                    navigate("/")
+                }).catch(() => {
+                    console.log("update_submit_error", update_submit_error)
+                })
+        }
+    }, [orderData]);
+
+    useEffect(() => {
+        if (orderData.project) {
+            const newData: DataType[] = [];
+            orderData.category_list?.list.forEach((cat) => {
+                const items: DataType[] = [];
+
+                orderData.procurement_list?.list.forEach((item) => {
+                    if (item.category === cat.name) {
+                        if (selectedVendors[item.name]) {
+                            const price = Number(getPrice(selectedVendors[item.name], item.name))
+                            const quotesForItem = quote_data
+                                ?.filter(value => value.item === item.name && value.quote)
+                                ?.map(value => value.quote);
+                            let minQuote;
+                            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                            minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
+
+                            items.push({
+                                item: item.item,
+                                key: item.name,
+                                unit: item.unit,
+                                quantity: item.quantity,
+                                category: item.category,
+                                rate: price,
+                                amount: price * item.quantity,
+                                selectedVendor: getVendorName(selectedVendors[item.name]),
+                                lowest2: getLowest2(item.name) * item.quantity,
+                                lowest3: minQuote ? minQuote : "N/A",
+                            });
+                        }
+                    }
+                });
+
+                if (items.length) {
+                    const node: DataType = {
+                        item: cat.name,
+                        key: cat.name,
+                        unit: null,
+                        quantity: null,
+                        amount: getTotal(cat.name),
+                        lowest2: getLowest(cat.name).quote,
+                        lowest3: getLowest3(cat.name),
+                        children: items,
+                    };
+                    newData.push(node);
+                }
+            });
+            setData(newData)
+        }
+    }, [orderData, selectedVendors]);
+
+    const [selectedItems, setSelectedItems] = useState()
+
+    const rowSelection: TableRowSelection<DataType> = {
+        onChange: (selectedRowKeys, selectedRows) => {
+            console.log("onChange")
+            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+            setSelectedItems(selectedRows)
+        },
+        onSelect: (record, selected, selectedRows) => {
+            console.log(record, selected, selectedRows);
+        },
+        onSelectAll: (selected, selectedRows, changeRows) => {
+            console.log(selected, selectedRows, changeRows);
+        },
+    };
+
+    const newHandleApprove = () => {
+
+        const filteredData = selectedItems?.filter(item => {
+            return item.unit !== null && item.quantity !== null
+        });
+        console.log(filteredData)
+
+        const vendorItems = {};
+        filteredData?.forEach((item) => {
+            if (selectedVendors[item.key]) {
+                if (!vendorItems[selectedVendors[item.key]]) {
+                    vendorItems[selectedVendors[item.key]] = [];
+                }
+                const price = Number(getPrice(selectedVendors[item.key], item.key))
+                vendorItems[selectedVendors[item.key]].push({
+                    name: item.key,
+                    quote: price,
+                    quantity: item.quantity,
+                    unit: item.unit,
+                    item: item.item
+                });
+            }
+
+        })
+
+        const createDocPromises = [];
+
+        Object.entries(vendorItems).forEach(([key, value]) => {
+
+            const newProcurementOrder = {
+                procurement_request: orderId,
+                project: orderData.project,
+                project_name: getProjectName(orderData.project),
+                project_address: getProjectAddress(orderData.project),
+                vendor: key,
+                vendor_name: getVendorName(key),
+                vendor_address: getVendorAddress(key),
+                vendor_gst: getVendorGST(key),
+                order_list: {
+                    list: value
+                }
+            };
+
+            if (value?.length > 0) {
+                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+                    .then(() => {
+                        console.log(newProcurementOrder);
+                    })
+                    .catch((error) => {
+                        console.log("submit_error", error);
+                    });
+
+                createDocPromises.push(createDocPromise);
+            }
+
+        });
+
+        const filteredList = orderData.procurement_list?.list.filter(procItem =>
+            !filteredData.some(selItem => selItem.key === procItem.name)
+        );
+
+        setOrderData(prevOrderData => ({
+            ...prevOrderData,
+            procurement_list: {
+                list: filteredList
+            }
+        }));
+    }
+
+    const newHandleSentBack = () => {
+        const filteredData = selectedItems?.filter(item => {
+            return item.unit !== null && item.quantity !== null
+        });
+        console.log(filteredData)
+
+        const itemlist = [];
+        filteredData.map((value) => {
+            const price = getPrice(selectedVendors[value.key], value.key);
+            itemlist.push({
+                name: value.key,
+                item: value.item,
+                quantity: value.quantity,
+                quote: price,
+                unit: value.unit,
+                category: value.category
+            })
+        })
+
+        const newCategories = [];
+        itemlist.forEach((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+
+        const newSendBack = {
+            procurement_request: orderId,
+            project: orderData.project,
+            category_list: {
+                list: newCategories
+            },
+            item_list: {
+                list: itemlist
+            },
+            comments: comment,
+            type: "Rejected"
+        }
+        if (itemlist.length > 0) {
+            createDoc('Sent Back Category', newSendBack)
+                .then(() => {
+                    console.log(newSendBack);
+                    setComment('')
+                })
+                .catch(() => {
+                    console.log("submit_error", submit_error);
+                })
+        }
+
+        const filteredList = orderData.procurement_list?.list.filter(procItem =>
+            !filteredData.some(selItem => selItem.key === procItem.name)
+        );
+
+        setOrderData(prevOrderData => ({
+            ...prevOrderData,
+            procurement_list: {
+                list: filteredList
+            }
+        }));
+
+    }
 
     const handleSendBack = (cat: string) => {
         const itemlist = [];
@@ -343,7 +657,7 @@ export const ApproveVendor = () => {
                 }
             };
 
-            if (value.length > 0) {
+            if (value?.length > 0) {
                 const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
                     .then(() => {
                         console.log(newProcurementOrder);
@@ -392,48 +706,6 @@ export const ApproveVendor = () => {
             list: newItems
         })
 
-        // const order_list = {
-        //     list: []
-        // };
-        // quotation_request_list?.map((value) => {
-        //     if (value.category === cat) {
-        //         const newItem = {
-        //             name: value.item,
-        //             item: getItem(value.item),
-        //             unit: getUnit(value.item),
-        //             quantity: value.quantity,
-        //             quote: value.quote
-        //         }
-        //         order_list.list.push(newItem)
-        //     }
-        // })
-        // const newProcurementOrder = {
-        //     procurement_request: orderId,
-        //     project: orderData.project,
-        //     project_name: getProjectName(orderData.project),
-        //     project_address: getProjectAddress(orderData.project),
-        //     category: cat,
-        //     vendor: selectedVendors[cat],
-        //     vendor_name: getVendorName(selectedVendors[cat]),
-        //     vendor_address: getVendorAddress(selectedVendors[cat]),
-        //     vendor_gst: getVendorGST(selectedVendors[cat]),
-        //     order_list: order_list
-        // }
-        // createDoc('Procurement Orders', newProcurementOrder)
-        //     .then(() => {
-        //         console.log(newProcurementOrder);
-        //     })
-        //     .catch(() => {
-        //         console.log("submit_error", submit_error);
-        //     })
-        // updateDoc('Procurement Requests', orderId, {
-        //     workflow_state: "Partially Approved"
-        // })
-        //     .then(() => {
-        //         console.log("item", orderId)
-        //     }).catch(() => {
-        //         console.log("update_submit_error", update_submit_error)
-        //     })
         setOrderData((prevState) => {
             const newCategoryList = prevState.category_list.list.filter(
                 (category) => category.name !== cat
@@ -485,7 +757,7 @@ export const ApproveVendor = () => {
                 }
             };
 
-            if (value.length > 0) {
+            if (value?.length > 0) {
                 const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
                     .then(() => {
                         console.log(newProcurementOrder);
@@ -571,31 +843,28 @@ export const ApproveVendor = () => {
     }, [quotation_request_list2, orderData]);
 
     const getLowest = (cat: string) => {
-        let price: number = 100000000;
-        let vendor: string = '';
-        selectedCategories[cat]?.map((ven) => {
-            let total: number = 0;
-            quotation_request_list2?.map((item) => {
-                if (item.vendor === ven && item.category === cat) {
-                    const price = item.quote
-                    total += (price ? parseFloat(price) : 0) * item.quantity;
-                }
-            })
-            if (total && total < price) {
-                price = total;
-                vendor = ven;
+        let price: number = 0;
+        let vendor: string = 'vendor';
+
+        orderData.procurement_list?.list.map((item) => {
+            if (item.category === cat) {
+                const quotesForItem = quotation_request_list2
+                    ?.filter(value => value.item === item.name && value.quote)
+                    ?.map(value => value.quote);
+                let minQuote;
+                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
             }
         })
-        if (price != 100000000) return { quote: price, vendor: vendor }
+
+        return { quote: price, vendor: vendor }
     }
-    // console.log(quotation_request_list2)
 
     const getLowest2 = (item: string) => {
         const quotesForItem = quotation_request_list2
             ?.filter(value => value.item === item && value.quote)
             ?.map(value => value.quote);
         let minQuote;
-        console.log(item,quotesForItem)
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
         return minQuote;
     }
@@ -656,7 +925,7 @@ export const ApproveVendor = () => {
                         </div>
                     </Card>
                     {(orderData.project && orderData.category_list?.list.length === 0) && <div className="text-red-500 text-center text-2xl font-bold">All Done !!!</div>}
-                    {orderData?.category_list?.list.map((cat) => {
+                    {/* {orderData?.category_list?.list.map((cat) => {
                         const curCategory = cat.name
                         const lowest = getLowest(cat.name);
                         let total: number = 0;
@@ -666,7 +935,6 @@ export const ApproveVendor = () => {
                             <Card className="flex w-full shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
-                                        {/* <div className="text-sm text-gray-400">Selected Vendor</div> */}
                                         <div className="flex justify-between border-b">
                                             <div className="font-bold text-lg py-2 border-gray-200">Total</div>
                                             <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
@@ -754,7 +1022,6 @@ export const ApproveVendor = () => {
                                     <div className="font-medium text-gray-700 text-sm">
                                         {getVendorName(lowest?.vendor)}
                                     </div>
-                                    {/* <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div> */}
                                 </div>
                                 <div className="mt-2 h-[50%] p-5 rounded-lg border border-grey-500">
                                     <div className="flex justify-between">
@@ -858,8 +1125,8 @@ export const ApproveVendor = () => {
                                 </Dialog>
                             </div>
                         </div>
-                    })}
-                    {orderData.category_list.list.length === total_categories ? <div className="flex space-x-2 justify-end items-end bottom-4 right-4">
+                    })} */}
+                    {/* {orderData.category_list?.list.length === total_categories ? <div className="flex space-x-2 justify-end items-end bottom-4 right-4">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button className="border border-red-500 bg-white text-red-500 hover:text-white" >
@@ -898,9 +1165,78 @@ export const ApproveVendor = () => {
                                 Done
                             </Button>}
                         </div>)
-                    }
+                    } */}
                 </div>
             </div>}
+            <Space className="hidden" align="center" style={{ marginBottom: 16 }}>
+                CheckStrictly: <Switch checked={checkStrictly} onChange={setCheckStrictly} />
+            </Space>
+            <ConfigProvider
+                theme={{
+                    token: {
+                        // Seed Token
+                        colorPrimary: '#FF2828',
+                        borderRadius: 4,
+
+                        // Alias Token
+                        colorBgContainer: '#FFFFFF',
+                    },
+                }}
+            >
+                <Table
+                    columns={columns}
+                    rowSelection={{ ...rowSelection, checkStrictly }}
+                    dataSource={data}
+                />
+            </ConfigProvider>
+            {selectedItems?.length > 0 && <div className="text-right space-x-2">
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white">
+                            Send Back
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                            <DialogTitle>Are you Sure</DialogTitle>
+                            <DialogDescription>
+                                Add Comments and Send Back the Selected Items.
+                                <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
+                                <textarea
+                                    id="textarea"
+                                    className="w-full border rounded-lg p-2"
+                                    value={comment}
+                                    placeholder="Type your comments here"
+                                    onChange={(e) => setComment(e.target.value)}
+                                />
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogClose>
+                            <Button className="text-white bg-red-500" onClick={() => newHandleSentBack()}>Send Back</Button>
+                        </DialogClose>
+                    </DialogContent>
+                </Dialog>
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button>
+                            Approve
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                            <DialogTitle>Are you Sure</DialogTitle>
+                            <DialogDescription>
+                                Click on Confirm to Approve the Selected Items.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogClose>
+                            <Button className="text-white bg-red-500" onClick={() => newHandleApprove()}>Approve</Button>
+                        </DialogClose>
+                    </DialogContent>
+                </Dialog>
+            </div>}
+
+            <div className="py-10"></div>
         </MainLayout>
     )
 }
