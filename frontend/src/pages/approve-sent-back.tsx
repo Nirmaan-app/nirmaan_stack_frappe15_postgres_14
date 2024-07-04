@@ -163,7 +163,6 @@ export const ApproveSentBack = () => {
 
                 orderData.item_list?.list?.forEach((item) => {
                     if (item.category === cat.name) {
-                        const price = Number(getPrice(item.vendor, item.name))
                         const quotesForItem = quote_data
                             ?.filter(value => value.item === item.name && value.quote)
                             ?.map(value => value.quote);
@@ -192,9 +191,9 @@ export const ApproveSentBack = () => {
                         key: cat.name,
                         unit: null,
                         quantity: null,
-                        // amount: getTotal(cat.name),
+                        amount: getTotal(cat.name),
                         // lowest2: getLowest(cat.name).quote,
-                        // lowest3: getLowest3(cat.name),
+                        lowest3: getLowest3(cat.name),
                         children: items,
                     };
                     newData.push(node);
@@ -203,7 +202,7 @@ export const ApproveSentBack = () => {
             console.log("newData", newData)
             setData(newData)
         }
-    }, [orderData,vendor_list]);
+    }, [orderData,vendor_list,quote_data]);
     console.log("data", data)
 
     const [selectedItems, setSelectedItems] = useState()
@@ -598,6 +597,48 @@ export const ApproveSentBack = () => {
             total += (price ? parseFloat(price) : 0) * item.quantity}
         })
         return total
+    }
+
+    // const getLowest = (cat: string) => {
+    //     let price: number = 0;
+    //     let vendor: string = 'vendor';
+
+    //     orderData.procurement_list?.list.map((item) => {
+    //         if (item.category === cat) {
+    //             const quotesForItem = quotation_request_list
+    //                 ?.filter(value => value.item === item.name && value.quote)
+    //                 ?.map(value => value.quote);
+    //             let minQuote;
+    //             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+    //             price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+    //         }
+    //     })
+
+    //     return { quote: price, vendor: vendor }
+    // }
+
+    // const getLowest2 = (item: string) => {
+    //     const quotesForItem = quotation_request_list
+    //         ?.filter(value => value.item === item && value.quote)
+    //         ?.map(value => value.quote);
+    //     let minQuote;
+    //     if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+    //     return minQuote;
+    // }
+
+    const getLowest3 = (cat: string) => {
+        let total: number = 0;
+        orderData.item_list?.list.map((item) => {
+            if (item.category === cat) {
+                const quotesForItem = quote_data
+                    ?.filter(value => value.item === item.name && value.quote)
+                    ?.map(value => value.quote);
+                let minQuote;
+                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+            }
+        })
+        return total;
     }
 
     return (

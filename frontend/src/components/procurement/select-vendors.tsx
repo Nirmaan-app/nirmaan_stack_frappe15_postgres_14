@@ -185,7 +185,7 @@ export const SelectVendors = () => {
                             rate: selectedVendors[item.name] ? price : "Delayed",
                             amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
                             selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
-                            lowest2: selectedVendors[item.name] ? getLowest2(item.name) * item.quantity : "Delayed",
+                            lowest2: getLowest2(item.name) ? getLowest2(item.name) * item.quantity : "Delayed",
                             lowest3: minQuote ? minQuote : "N/A",
                         });
                     }
@@ -347,22 +347,22 @@ export const SelectVendors = () => {
         });
         setPriceMap(newPriceMap);
     }, [quotation_request_list]);
+
     const getLowest = (cat: string) => {
-        let price: number = 100000000;
-        let vendor: string = '';
-        selectedCategories[cat]?.map((ven) => {
-            let total: number = 0;
-            quotation_request_list?.map((item) => {
-                if (item.vendor === ven && item.category === cat) {
-                    const price = item.quote
-                    total += (price ? parseFloat(price) : 0) * item.quantity;
-                }
-            })
-            if (total && total < price) {
-                price = total;
-                vendor = ven;
+        let price: number = 0;
+        let vendor: string = 'vendor';
+
+        orderData.procurement_list?.list.map((item) => {
+            if (item.category === cat) {
+                const quotesForItem = quotation_request_list
+                    ?.filter(value => value.item === item.name && value.quote)
+                    ?.map(value => value.quote);
+                let minQuote;
+                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
             }
         })
+
         return { quote: price, vendor: vendor }
     }
 
@@ -517,7 +517,7 @@ export const SelectVendors = () => {
                                                                 const isSelected = selectedVendors[item.name] === value;
                                                                 const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                                 return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
-                                                                    <input className="mr-2" type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
+                                                                    <input className="mr-2" disabled={(price === "-" || price === 0) ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
                                                                     {price * item.quantity}
                                                                 </td>
                                                             })}
