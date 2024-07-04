@@ -211,7 +211,7 @@ export const SentBackSelectVendor = () => {
                         unit: null,
                         quantity: null,
                         amount: getTotal(cat.name),
-                        // lowest2: getLowest(cat.name).quote,
+                        lowest2: getLowest(cat.name).quote,
                         lowest3: getLowest3(cat.name),
                         children: items,
                     };
@@ -336,8 +336,8 @@ export const SentBackSelectVendor = () => {
     const getTotal = (cat: string) => {
         let total: number = 0;
         orderData.item_list?.list.map((item) => {
-            const price = getPrice(selectedVendors[item.name], item.name);
-            total += (price ? parseFloat(price) : 0) * item.quantity;
+            if(item.category === cat){const price = getPrice(selectedVendors[item.name], item.name);
+            total += (price ? parseFloat(price) : 0) * item.quantity;}
         })
         return total
     }
@@ -352,21 +352,20 @@ export const SentBackSelectVendor = () => {
     }
 
     const getLowest = (cat: string) => {
-        let price: number = 100000000;
-        let vendor: string = '';
-        selectedCategories[cat]?.map((ven) => {
-            let total: number = 0;
-            quotation_request_list?.map((item) => {
-                if (item.vendor === ven && item.category === cat) {
-                    const price = item.quote
-                    total += (price ? parseFloat(price) : 0) * item.quantity;
-                }
-            })
-            if (total && total < price) {
-                price = total;
-                vendor = ven;
+        let price: number = 0;
+        let vendor: string = 'vendor';
+
+        orderData.item_list?.list.map((item) => {
+            if (item.category === cat) {
+                const quotesForItem = quotation_request_list
+                    ?.filter(value => value.item === item.name && value.quote && value.procurement_task === orderData.procurement_request)
+                    ?.map(value => value.quote);
+                let minQuote;
+                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
             }
         })
+
         return { quote: price, vendor: vendor }
     }
 
@@ -430,7 +429,6 @@ export const SentBackSelectVendor = () => {
                         </Card>
                         {orderData?.category_list?.list.map((cat)=>{
                             const curCategory = cat.name;
-                            console.log("selectedCategories",selectedCategories)
                             return <div>
                                 <Card className="flex w-full shadow-none border border-grey-500">
                                     <CardHeader className="w-full">
@@ -460,7 +458,7 @@ export const SentBackSelectVendor = () => {
 
                                                 {orderData?.item_list?.list.map((item) => {
                                                     const quotesForItem = quote_data
-                                                        ?.filter(value => value.item === item.name && value.quote != null)
+                                                        ?.filter(value => value.item === item.name && value.quote)
                                                         ?.map(value => value.quote);
                                                     let minQuote;
                                                     if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -475,7 +473,7 @@ export const SentBackSelectVendor = () => {
                                                             const isSelected = selectedVendors[item.name] === value;
                                                             const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                             return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
-                                                                <input className="mr-2" type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
+                                                                <input className="mr-2" disabled={price === "-" ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
                                                                 {price * item.quantity}
                                                             </td>
                                                         })}
