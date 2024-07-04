@@ -2,11 +2,13 @@ import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { MainLayout } from "../layout/main-layout";
 import { useUserData } from "@/hooks/useUserData";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { Form, Input, InputNumber } from 'antd';
+import { Button } from "@/components/ui/button";
 
 
 type PRTable = {
@@ -41,6 +43,9 @@ export const ReleasePOSelect = () => {
         return total;
     }
 
+    const [orderData,setOrderData] = useState()
+    console.log(orderData)
+
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
             {
@@ -52,10 +57,10 @@ export const ReleasePOSelect = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/release-po/${row.getValue("name")}`}>
+                        <div onClick={() => setOrderData(row)} className="font-medium underline cursor-pointer">
+                            {/* <Link className="underline hover:underline-offset-2" to={`/release-po/${row.getValue("name")}`}> */}
                                 {row.getValue("name")}
-                            </Link>
+                            {/* </Link> */}
                         </div>
                     )
                 }
@@ -150,6 +155,21 @@ export const ReleasePOSelect = () => {
         [project_values]
     )
 
+    const [advance, setAdvance] = useState(0);
+    const [totalAmount, setTotalAmount] = useState(100); // Example total amount
+
+    const handleAdvanceChange = (value) => {
+        setAdvance(value);
+    };
+
+    const handleSubmit = (values) => {
+        console.log('Form values:', values);
+        console.log('Advance percentage:', values.advance);
+
+    };
+
+  const afterDelivery = totalAmount * (1 - advance / 100);
+
     return (
         <MainLayout>
             <div className="flex">
@@ -157,38 +177,43 @@ export const ReleasePOSelect = () => {
                     <div className="flex items-center justify-between space-y-2">
                         <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Release PO</h2>
                     </div>
-                    {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
                     <DataTable columns={columns} data={procurement_order_list || []} project_values={project_values} />
-                    {/* <div className="overflow-x-auto">
-                        <table className="min-w-full divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO Id</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimated Price</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {procurement_order_list?.map(item => (
-                                    <tr key={item.name}>
-                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/release-po/${item.name}`}>{item.name}</Link></td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            {item.creation.split(" ")[0]}
-                                        </td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.project_name}</td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.vendor_name}</td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.category}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            {getTotal(item.name)}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div> */}
+                    {orderData && 
+                    
+                    <div className="max-w-md mx-auto mt-10">
+                        <div className="font-semibold py-4">Selected PO: {orderData.getValue("name")}</div>
+                        <Form layout="vertical" onFinish={handleSubmit}>
+                        <Form.Item
+                            name="advance"
+                            label="Advance (%)"
+                            rules={[{ required: true, message: 'Please input the advance percentage!' }]}
+                        >
+                            <InputNumber
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={advance}
+                            className="w-full"
+                            onChange={handleAdvanceChange}
+                            />
+                        </Form.Item>
+                        <Form.Item label="After Delivery Amount">
+                            <Input
+                            value={afterDelivery.toFixed(2)}
+                            disabled
+                            className="w-full"
+                            />
+                        </Form.Item>
+                        <Form.Item>
+                        <Link className="underline hover:underline-offset-2" to={`/release-po/${orderData.getValue("name")}`}>
+                            <Button className="bg-red-500 hover:bg-red-600 border-none" type="primary" htmlType="submit">
+                            Submit
+                            </Button>
+                        </Link>
+                        </Form.Item>
+                        </Form>
+                    </div>
+                    }
                 </div>
             </div>
         </MainLayout>
