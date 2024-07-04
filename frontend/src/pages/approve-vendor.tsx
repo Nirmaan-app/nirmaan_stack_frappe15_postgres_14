@@ -25,6 +25,8 @@ import {
     DialogClose
 } from "@/components/ui/dialog"
 import { TrendingDown, CheckCheck, TrendingUp } from 'lucide-react';
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table as ReactTable } from "@/components/ui/table";
 import { Space, Switch, Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 
@@ -309,6 +311,7 @@ export const ApproveVendor = () => {
                         }
                     }
                 });
+                // console.log("items",items)
 
                 if (items.length) {
                     const node: DataType = {
@@ -326,7 +329,7 @@ export const ApproveVendor = () => {
             });
             setData(newData)
         }
-    }, [orderData, selectedVendors, vendor_list]);
+    }, [orderData, selectedVendors, vendor_list, quote_data, quotation_request_list2]);
 
     const [selectedItems, setSelectedItems] = useState()
 
@@ -351,7 +354,6 @@ export const ApproveVendor = () => {
         const filteredData = selectedItems?.filter(item => {
             return item.unit !== null && item.quantity !== null
         });
-        console.log(filteredData)
 
         const vendorItems = {};
         filteredData?.forEach((item) => {
@@ -419,7 +421,6 @@ export const ApproveVendor = () => {
         const filteredData = selectedItems?.filter(item => {
             return item.unit !== null && item.quantity !== null
         });
-        console.log(filteredData)
 
         const itemlist = [];
         filteredData.map((value) => {
@@ -835,8 +836,6 @@ export const ApproveVendor = () => {
 
     const [selectedCategories, setSelectedCategories] = useState({})
 
-    console.log(data)
-
     useEffect(() => {
         const updatedCategories = { ...selectedCategories };
         orderData?.category_list.list.map((cat) => {
@@ -861,7 +860,7 @@ export const ApproveVendor = () => {
         let vendor: string = 'vendor';
 
         orderData.procurement_list?.list.map((item) => {
-            if (item.category === cat) {
+            if (item.category === cat && selectedVendors[item.name]) {
                 const quotesForItem = quotation_request_list2
                     ?.filter(value => value.item === item.name && value.quote)
                     ?.map(value => value.quote);
@@ -886,7 +885,7 @@ export const ApproveVendor = () => {
     const getLowest3 = (cat: string) => {
         let total: number = 0;
         orderData.procurement_list?.list.map((item) => {
-            if (item.category === cat) {
+            if (item.category === cat && selectedVendors[item.name]) {
                 const quotesForItem = quote_data
                     ?.filter(value => value.item === item.name && value.quote)
                     ?.map(value => value.quote);
@@ -896,6 +895,18 @@ export const ApproveVendor = () => {
             }
         })
         return total;
+    }
+
+    const isDelayed = (cat: string) => {
+        let isPresent = false;
+        orderData.procurement_list?.list.forEach((item)=>{
+            if(item.category === cat){
+                if(!selectedVendors[item.name]){
+                    isPresent = true;
+                } 
+            }
+        })
+        return isPresent
     }
 
     const getPercentdiff = (a: number, b: number) => {
@@ -1250,6 +1261,40 @@ export const ApproveVendor = () => {
                     </DialogContent>
                 </Dialog>
             </div>}
+            <div className="flex items-center pt-1  pb-4">
+                <h2 className="text-base pl-2 font-bold tracking-tight">Delayed Items</h2>
+            </div>
+            <div className="overflow-x-auto">
+
+                <div className="min-w-full inline-block align-middle">
+                    {orderData.category_list?.list.map((cat) => {
+                        if(isDelayed(cat.name)){return <div className="p-5">
+                            <ReactTable>
+                                <TableHeader>
+                                    <TableRow className="bg-red-100">
+                                        <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>Items</TableHead>
+                                        <TableHead className="w-[25%]">UOM</TableHead>
+                                        <TableHead className="w-[15%]">Qty</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {orderData.procurement_list?.list.map((item) => {
+                                        if (item.category === cat.name) {
+                                            if(!selectedVendors[item.name]){return (
+                                                <TableRow key={item.item}>
+                                                    <TableCell>{item.item}</TableCell>
+                                                    <TableCell>{item.unit}</TableCell>
+                                                    <TableCell>{item.quantity}</TableCell>
+                                                </TableRow>
+                                            )}
+                                        }
+                                    })}
+                                </TableBody>
+                            </ReactTable>
+                        </div>}
+                    })}
+                </div>
+            </div>
 
             <div className="py-10"></div>
         </MainLayout>
