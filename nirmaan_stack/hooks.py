@@ -253,7 +253,9 @@ fixtures = [
     {"dt": "Role", "filters": [["role_name", "like", "Nirmaan %"]]},
     {"dt": "Role Profile", "filters": [["role_profile", "like", "Nirmaan %"]]},
     "Workflow",
-    "Workflow State"
+    "Workflow State",
+    "Workspace",
+    "Workspace Shortcut"
 ]
 
 
