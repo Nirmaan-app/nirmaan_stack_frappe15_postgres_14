@@ -26,9 +26,9 @@
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-05-07 19:06:31.087064",
+  "modified": "2024-07-04 11:48:55.862975",
   "name": "Electrical",
-  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=test/2024/05/07/Work Packages/FE761JQX_electrical.jpeg&file_name=electrical.jpeg",
+  "work_package_image": null,
   "work_package_name": "Electrical"
  }
 ]
