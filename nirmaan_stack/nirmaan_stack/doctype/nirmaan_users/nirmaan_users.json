@@ -10,6 +10,7 @@
   "first_name",
   "last_name",
   "full_name",
+  "has_project",
   "other_details_section",
   "mobile_no",
   "email",
@@ -60,11 +61,17 @@
    "fieldname": "mobile_no",
    "fieldtype": "Data",
    "label": "Mobile"
+  },
+  {
+   "default": "false",
+   "fieldname": "has_project",
+   "fieldtype": "Data",
+   "label": "Has Project"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-06 18:32:56.173427",
+ "modified": "2024-07-05 19:09:25.427589",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Nirmaan Users",

@@ -26,3 +26,7 @@ def generateUserPermissions(project, method=None):
 		doc.allow = "Projects"
 		doc.for_value = project.name
 		doc.insert(ignore_permissions=True)
+		nuser = frappe.get_doc("Nirmaan Users", user)
+		if(nuser.has_project=="false"):
+			nuser.has_project = "true"
+			nuser.save(ignore_permissions=True)
