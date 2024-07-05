@@ -1,6 +1,6 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "./breadcrumb";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
-import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk";
 import { HardHat, UserRound, PersonStanding, CirclePlus } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
@@ -33,15 +33,23 @@ export const ProjectManager = () => {
     //         fields: ['name', 'item_name', 'unit_name', 'category'],
     //         limit: 1000
     //     });
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
+    const { data: project_list, isLoading: project_list_loading, error: project_list_error, mutate: project_list_mutate } = useFrappeGetDocList("Projects",
         {
             fields: ['name', 'project_name', 'project_address', "project_manager"],
         });
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: procurement_request_list_mutate } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'workflow_state'],
             limit: 100
         });
+
+    useFrappeDocTypeEventListener("Procurement Requests", () => {
+        procurement_request_list_mutate()
+    })
+    useFrappeDocTypeEventListener("Projects", () => {
+        project_list_mutate()
+    })
+
     const [orderData, setOrderData] = useState({
         project: '',
         work_package: '',

@@ -1,22 +1,22 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
 import { Card } from "../ui/card";
 
 
 export default function ProcurementDashboard() {
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: procurement_request_list_mutate } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state'],
             limit: 1000
         });
-    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
+    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sent_back_list_mutate } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name', 'workflow_state'],
             filters: [["workflow_state", "=", "Pending"]],
             limit: 100
         });
-    const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error } = useFrappeGetDocList("Procurement Orders",
+    const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: procurement_order_list_mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ['name'],
             limit: 100
@@ -35,6 +35,16 @@ export default function ProcurementDashboard() {
     })
     procurement_request_list?.map((item) => {
         if (item.workflow_state === "Quote Updated") quote_updated_procurement_requests.push(item.name)
+    })
+
+    useFrappeDocTypeEventListener("Procurement Requests", () => {
+        procurement_request_list_mutate()
+    })
+    useFrappeDocTypeEventListener("Sent Back Category", () => {
+        sent_back_list_mutate()
+    })
+    useFrappeDocTypeEventListener("Procurement Orders", () => {
+        procurement_order_list_mutate()
     })
 
     return (
