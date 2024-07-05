@@ -13,6 +13,7 @@ import { useUserData } from "@/hooks/useUserData";
 
 import imageUrl from "@/assets/user-icon.jpeg"
 import { Button } from "./ui/button";
+import { MainLayout } from "./layout/main-layout";
 
 
 export const ProjectManager = () => {
@@ -128,6 +129,7 @@ export const ProjectManager = () => {
 
     return (
         <>
+            <MainLayout>
             {page == 'dashboard' && <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center space-y-2">
@@ -416,6 +418,7 @@ export const ProjectManager = () => {
                     </button>
                 </div>
             </div>}
+            </MainLayout>
         </>
     )
 }
