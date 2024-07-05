@@ -241,7 +241,7 @@ export const ProjectForm = () => {
     // });
 
     const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
-        fields: ["name", "full_name"],
+        fields: ["name", "full_name", "role_profile"],
         filters: [["name", "!=", "Administrator"]]
     });
 
@@ -358,7 +358,22 @@ export const ProjectForm = () => {
     //     value: item.name
     // })) || [];
 
-    const user_options: SelectOption[] = user?.map(item => ({
+    const project_lead_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Project Lead Profile").map(item => ({
+        label: item.full_name, // Adjust based on your data structure
+        value: item.name
+    })) || [];
+
+    const project_manager_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Project Manager Profile").map(item => ({
+        label: item.full_name, // Adjust based on your data structure
+        value: item.name
+    })) || [];
+
+    const design_lead_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Design Executive Profile").map(item => ({
+        label: item.full_name, // Adjust based on your data structure
+        value: item.name
+    })) || [];
+
+    const procurement_lead_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Procurement Executive Profile").map(item => ({
         label: item.full_name, // Adjust based on your data structure
         value: item.name
     })) || [];
@@ -1022,7 +1037,7 @@ export const ProjectForm = () => {
                                                 <SelectContent>
                                                     {user_isLoading && <div>Loading...</div>}
                                                     {user_error && <div>Error: {user_error.message}</div>}
-                                                    {user_options.map(option => (
+                                                    {project_lead_options.map(option => (
                                                         <SelectItem value={option.value}>{option.label}</SelectItem>
                                                     ))}
 
@@ -1062,7 +1077,7 @@ export const ProjectForm = () => {
                                                 <SelectContent>
                                                     {user_isLoading && <div>Loading...</div>}
                                                     {user_error && <div>Error: {user_error.message}</div>}
-                                                    {user_options.map(option => (
+                                                    {project_manager_options.map(option => (
                                                         <SelectItem value={option.value}>{option.label}</SelectItem>
                                                     ))}
 
@@ -1102,7 +1117,7 @@ export const ProjectForm = () => {
                                                 <SelectContent>
                                                     {user_isLoading && <div>Loading...</div>}
                                                     {user_error && <div>Error: {user_error.message}</div>}
-                                                    {user_options.map(option => (
+                                                    {design_lead_options.map(option => (
                                                         <SelectItem value={option.value}>{option.label}</SelectItem>
                                                     ))}
 
@@ -1142,7 +1157,7 @@ export const ProjectForm = () => {
                                                 <SelectContent>
                                                     {user_isLoading && <div>Loading...</div>}
                                                     {user_error && <div>Error: {user_error.message}</div>}
-                                                    {user_options.map(option => (
+                                                    {procurement_lead_options.map(option => (
                                                         <SelectItem value={option.value}>{option.label}</SelectItem>
                                                     ))}
 

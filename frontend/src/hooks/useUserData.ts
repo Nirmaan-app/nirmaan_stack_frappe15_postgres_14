@@ -11,16 +11,18 @@ export const useUserData = () => {
   const full_name = Cookies.get('full_name') ?? ''
   const user_image = Cookies.get('user_image') ?? ''
 
-  const {data, isLoading, error} = useFrappeGetDoc<NirmaanUsers>("Nirmaan Users", user_id)
+  const {data, isLoading, error} = useFrappeGetDoc("Nirmaan Users", user_id)
 
 
   const role = data?.role_profile
+  const has_project = data?.has_project
 
 
   return {
     user_id,
     full_name,
     user_image,
-    role
+    role,
+    has_project
   }
 }

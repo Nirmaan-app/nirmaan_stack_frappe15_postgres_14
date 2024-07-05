@@ -1,16 +1,17 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { Card } from "./ui/card";
 import { TailSpin } from "react-loader-spinner";
+import { MainLayout } from "./layout/main-layout";
 
 export const ProjectLead = () => {
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: procurement_request_list_mutate } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state'],
             limit: 100
         });
-    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
+    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sent_back_list_mutate } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name'],
             filters: [["workflow_state", "=", "Vendor Selected"]],
@@ -28,7 +29,15 @@ export const ProjectLead = () => {
         if (item.workflow_state === "Vendor Selected") vendor_selected_procurement_request.push(item.name)
     })
 
+    useFrappeDocTypeEventListener("Procurement Requests", () => {
+        procurement_request_list_mutate()
+    })
+    useFrappeDocTypeEventListener("Sent Back Category", () => {
+        sent_back_list_mutate()
+    })
+
     return (
+        <MainLayout>
         <div className="flex">
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">
@@ -71,5 +80,6 @@ export const ProjectLead = () => {
                 </div>
             </div>
         </div>
+        </MainLayout>
     );
 }
