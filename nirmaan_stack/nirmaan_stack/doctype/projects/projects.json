@@ -140,7 +140,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-06-28 16:45:18.806527",
+ "modified": "2024-07-05 16:36:50.053180",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
@@ -164,7 +164,16 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Nirmaan Project Manager",
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
    "share": 1
   },
   {
@@ -182,16 +191,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Nirmaan Project Lead",
-   "share": 1
-  },
-  {
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Nirmaan Design Executive",
+   "role": "Nirmaan Project Manager",
    "share": 1
   }
  ],
