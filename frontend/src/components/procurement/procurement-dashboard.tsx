@@ -2,6 +2,7 @@ import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react
 import { Link } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
 import { Card } from "../ui/card";
+import { MainLayout } from "../layout/main-layout";
 
 
 export default function ProcurementDashboard() {
@@ -48,6 +49,7 @@ export default function ProcurementDashboard() {
     })
 
     return (
+        <MainLayout>
         <div className="flex">
 
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
@@ -115,5 +117,6 @@ export default function ProcurementDashboard() {
                 </div>
             </div>
         </div>
+        </MainLayout>
     );
 }

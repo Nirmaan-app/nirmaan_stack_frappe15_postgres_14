@@ -2,6 +2,7 @@ import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react
 import { Link } from "react-router-dom";
 import { Card } from "./ui/card";
 import { TailSpin } from "react-loader-spinner";
+import { MainLayout } from "./layout/main-layout";
 
 export const ProjectLead = () => {
 
@@ -36,6 +37,7 @@ export const ProjectLead = () => {
     })
 
     return (
+        <MainLayout>
         <div className="flex">
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">
@@ -78,5 +80,6 @@ export const ProjectLead = () => {
                 </div>
             </div>
         </div>
+        </MainLayout>
     );
 }
