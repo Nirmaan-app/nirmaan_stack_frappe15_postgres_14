@@ -1,11 +1,15 @@
 import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
 import { Card } from "../ui/card";
 import { MainLayout } from "../layout/main-layout";
+import { Button } from "../ui/button";
 
 
 export default function ProcurementDashboard() {
+
+    const navigate = useNavigate()
+
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: procurement_request_list_mutate } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state'],
@@ -53,8 +57,9 @@ export default function ProcurementDashboard() {
         <div className="flex">
 
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                <div className="flex items-center space-y-2">
+                <div className="flex justify-between items-center space-y-2">
                     <h2 className="text-2xl pt-1 pl-2 pb-4 font-bold tracking-tight">Procurement Executive Dashboard</h2>
+                    <Button onClick={() => navigate("/procurement-request")}>Urgent PR</Button>
                 </div>
                 <div className="flex items-center space-y-2">
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">New PR Actions</h2>

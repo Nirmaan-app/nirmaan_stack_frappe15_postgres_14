@@ -89,7 +89,7 @@ export const ReleasePOSelect = () => {
                     return (
                         <div onClick={() => handleSet(row.getValue("name"))} className="font-medium underline cursor-pointer">
                             {/* <Link className="underline hover:underline-offset-2" to={`/release-po/${row.getValue("name")}`}> */}
-                                {(row.getValue("name")).toUpperCase()}
+                                {(row.getValue("name"))?.toUpperCase()}
                             {/* </Link> */}
                         </div>
                     )
@@ -231,7 +231,7 @@ export const ReleasePOSelect = () => {
                     {orderData && 
                     
                     <div className="max-w-md mx-auto mt-10">
-                        <div className="font-semibold py-4">Selected PO: {(orderData?.name).toUpperCase()}</div>
+                        <div className="font-semibold py-4">Selected PO: {(orderData?.name)?.toUpperCase()}</div>
                         <Form form={form} layout="vertical" onFinish={handleSubmit} initialValues={{ advance, afterDelivery: totalAmount * (1 - advance / 100) }}>
                         <Form.Item
                             name="advance"
@@ -280,7 +280,7 @@ export const ReleasePOSelect = () => {
                                             </div>
                                             <div>
                                                 <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order</div>
-                                                <div className="text-lg text-black font-bold">PO # : {(orderData?.name).toUpperCase()}</div>
+                                                <div className="text-lg text-black font-bold">PO # : {(orderData?.name)?.toUpperCase()}</div>
                                             </div>
                                         </div>
 
