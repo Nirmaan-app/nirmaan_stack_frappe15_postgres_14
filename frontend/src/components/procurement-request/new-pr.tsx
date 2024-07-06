@@ -1,7 +1,7 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "../breadcrumb";
 import { Card, CardHeader, CardTitle, CardContent } from "../ui/card";
-import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc } from "frappe-react-sdk";
-import { HardHat, UserRound, PersonStanding, PackagePlus } from "lucide-react";
+import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { HardHat, UserRound, PersonStanding, PackagePlus, Workflow } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
@@ -20,11 +20,13 @@ import { MainLayout } from "../layout/main-layout";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { useUserData } from "@/hooks/useUserData";
 
 export const NewPR = () => {
 
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate();
+    const userData = useUserData()
 
     const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
@@ -53,6 +55,7 @@ export const NewPR = () => {
     interface Category {
         name: string;
     }
+    
 
     const [page, setPage] = useState<string>('wplist')
     const [curItem, setCurItem] = useState<string>('')
@@ -210,15 +213,35 @@ export const NewPR = () => {
     }, [orderData.procurement_list]);
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    
+    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+        
     const handleSubmit = () => {
-        console.log("orderData2", orderData)
-        createDoc('Procurement Requests', orderData)
+        console.log(userData)
+        if(userData?.role === "Nirmaan Project Manager Profile" || userData?.role === "Nirmaan Admin Profile" || userData.user_id == "Administrator"){
+            createDoc('Procurement Requests', orderData)
             .then(() => {
                 console.log(orderData)
                 navigate("/procurement-request")
             }).catch(() => {
                 console.log("submit_error", submit_error)
+            })}
+        if(userData?.role === "Nirmaan Procurement Executive Profile"){
+            createDoc('Procurement Requests', orderData)
+            .then((doc) => {
+                updateDoc('Procurement Requests', doc.name, {
+                    workflow_state: "Approved",
+                })
+                    .then(() => {
+                        console.log("doc", doc)
+                        navigate("/")
+                    }).catch(() => {
+                        console.log("update_submit_error", update_submit_error)
+                    })
+            }).catch(() => {
+                console.log("submit_error", submit_error)
             })
+        }
     }
     const handleAddItem = () => {
         const itemData = {
@@ -292,7 +315,7 @@ export const NewPR = () => {
                                     <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.work_package_image === null ? imageUrl : item.work_package_image} alt="Project" />
                                     <span>{item.work_package_name}</span>
                                 </CardTitle>
-                                {console.log("FROM WP:", item.work_package_image)}
+                                {/* {console.log("FROM WP:", item.work_package_image)} */}
                             </CardHeader>
                         </Card>
                     ))}

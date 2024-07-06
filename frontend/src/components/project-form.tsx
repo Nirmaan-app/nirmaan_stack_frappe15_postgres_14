@@ -175,6 +175,10 @@ export const ProjectForm = () => {
             limit: 100,
         });
 
+    const valueChange = (e) => {
+        console.log(e);
+    }
+
     const form = useForm<ProjectFormValues>({
         resolver: zodResolver(projectFormSchema),
         mode: "onChange",
@@ -404,7 +408,6 @@ export const ProjectForm = () => {
         scope_of_work_name: item.scope_of_work_name, // Adjust based on your data structure
         work_package: item.work_package
     })) || [];
-    console.log(wp_list, sow_list)
 
     if (wp_list_loading || sow_list_loading) return <div>Loading...</div>
     if (wp_list_error || sow_list_error) {
@@ -1191,7 +1194,7 @@ export const ProjectForm = () => {
                                     </FormDescription>
                                 </div>
                                 {wp_list.map((item) => (
-                                    <Accordion type="single" collapsible className="w-full">
+                                    <Accordion type="single" collapsible value={form.getValues().project_work_milestones.work_packages.find(d => d.work_package_name === item.work_package_name)?.work_package_name} className="w-full">
                                         <AccordionItem value={item.work_package_name}>
                                             <AccordionTrigger>
                                                 <FormField

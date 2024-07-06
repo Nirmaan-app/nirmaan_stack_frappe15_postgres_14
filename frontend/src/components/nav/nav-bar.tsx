@@ -1,5 +1,6 @@
 import { MainNav } from "./main-nav"
 import { ModeToggle } from "./mode-toggle"
+import { Notifications } from "./notifications"
 import { UserNav } from "./user-nav"
 
 export const NavBar = () => {
@@ -12,6 +13,7 @@ export const NavBar = () => {
                         <MainNav className="mx-2 md:mx-6"/>
                         <div className="ml-auto flex items-center space-x-4">
                             <ModeToggle />
+                            <Notifications />
                             <UserNav />
                         </div>
                     </div>

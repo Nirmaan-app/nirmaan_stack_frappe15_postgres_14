@@ -1,4 +1,4 @@
-import { useState,useContext } from "react";
+import { useState,useContext, useEffect } from "react";
 import { Default } from "@/components/dashboard-default"
 import { ProjectManager } from "@/components/dashboard-pm"
 import { ProjectLead } from "@/components/dashboard-pl"
@@ -30,6 +30,12 @@ export default function Dashboard() {
     };
 
     const userData = useUserData()
+
+    useEffect(()=>{
+        if((userData.user_id == "Administrator" || userData.role == "Nirmaan Admin Profile") && selectedValue === ''){
+            setSelectedValue("default")
+        }
+    },[userData])
 
     return (
         <>
@@ -70,7 +76,7 @@ export default function Dashboard() {
              {userData.role == 'Nirmaan Project Lead Profile' && <ProjectLead />}
              {userData.role == 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
              </>
-            }
+            }   
         </>
     )
 }
