@@ -25,7 +25,7 @@ type PRTable = {
 
 export const ReleasePOSelect = () => {
     const userData = useUserData();
-    const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error,mutate: mutate } = useFrappeGetDocList("Procurement Orders",
+    const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'procurement_request', 'advance'],
             limit: 100
@@ -59,7 +59,7 @@ export const ReleasePOSelect = () => {
         content: () => componentRef.current,
         documentTitle: `${orderData?.name}_${orderData?.vendor_name}`
     });
-    
+
 
     const [projectAddress, setProjectAddress] = useState()
     const [vendorAddress, setVendorAddress] = useState()
@@ -88,9 +88,9 @@ export const ReleasePOSelect = () => {
                 cell: ({ row }) => {
                     return (
                         <div onClick={() => handleSet(row.getValue("name"))} className="font-medium underline cursor-pointer">
-                            {/* <Link className="underline hover:underline-offset-2" to={`/release-po/${row.getValue("name")}`}> */}
+                            <Link className="underline hover:underline-offset-2" to={`/release-po/${row.getValue("name").replaceAll("/", "&=")}`}>
                                 {(row.getValue("name"))?.toUpperCase()}
-                            {/* </Link> */}
+                            </Link>
                         </div>
                     )
                 }
@@ -218,8 +218,8 @@ export const ReleasePOSelect = () => {
             })
     };
 
-  const afterDelivery = totalAmount * (1 - advance / 100);
-  let count = 1;
+    const afterDelivery = totalAmount * (1 - advance / 100);
+    let count = 1;
 
     return (
         <MainLayout>
@@ -229,39 +229,39 @@ export const ReleasePOSelect = () => {
                         <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Release PO</h2>
                     </div>
                     <DataTable columns={columns} data={procurement_order_list || []} project_values={project_values} />
-                    {orderData && 
-                    
-                    <div className="max-w-md mx-auto mt-10">
-                        <div className="font-semibold py-4">Selected PO: {(orderData?.name)?.toUpperCase()}</div>
-                        <Form form={form} layout="vertical" onFinish={handleSubmit} initialValues={{ advance, afterDelivery: totalAmount * (1 - advance / 100) }}>
-                        <Form.Item
-                            name="advance"
-                            label="Advance (%)"
-                            rules={[{ required: true, message: 'Please input the advance percentage!' }]}
-                        >
-                            <InputNumber
-                            // type="number"
-                            min={0}
-                            max={100}
-                            value={advance}
-                            className="w-full"
-                            onChange={handleAdvanceChange}
-                            />
-                        </Form.Item>
-                        <Form.Item label="After Delivery Amount">
-                            <Input
-                            value={afterDelivery.toFixed(2)}
-                            disabled
-                            className="w-full"
-                            />
-                        </Form.Item>
-                        <Form.Item>
-                            {update_loading ? <div>loading...</div> : <Button className="bg-red-500 hover:bg-red-600 border-none" type="primary" htmlType="submit">
-                                Print
-                            </Button>}
-                        </Form.Item>
-                        </Form>
-                    </div>
+                    {orderData &&
+
+                        <div className="max-w-md mx-auto mt-10">
+                            <div className="font-semibold py-4">Selected PO: {(orderData?.name)?.toUpperCase()}</div>
+                            <Form form={form} layout="vertical" onFinish={handleSubmit} initialValues={{ advance, afterDelivery: totalAmount * (1 - advance / 100) }}>
+                                <Form.Item
+                                    name="advance"
+                                    label="Advance (%)"
+                                    rules={[{ required: true, message: 'Please input the advance percentage!' }]}
+                                >
+                                    <InputNumber
+                                        // type="number"
+                                        min={0}
+                                        max={100}
+                                        value={advance}
+                                        className="w-full"
+                                        onChange={handleAdvanceChange}
+                                    />
+                                </Form.Item>
+                                <Form.Item label="After Delivery Amount">
+                                    <Input
+                                        value={afterDelivery.toFixed(2)}
+                                        disabled
+                                        className="w-full"
+                                    />
+                                </Form.Item>
+                                <Form.Item>
+                                    {update_loading ? <div>loading...</div> : <Button className="bg-red-500 hover:bg-red-600 border-none" type="primary" htmlType="submit">
+                                        Print
+                                    </Button>}
+                                </Form.Item>
+                            </Form>
+                        </div>
                     }
                 </div>
             </div>
@@ -291,7 +291,7 @@ export const ReleasePOSelect = () => {
                                                 <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
                                             </div>
                                         </div>
-                                        
+
                                         <div className="flex justify-between">
                                             <div>
                                                 <div className="text-gray-500 text-sm pb-2 text-left">Vendor Address</div>
@@ -322,7 +322,7 @@ export const ReleasePOSelect = () => {
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
-                                
+
                                 {orderData?.order_list?.list.map((item) => {
                                     return <tr className="">
                                         <td className="py-2 text-sm whitespace-nowrap w-[7%]">{count++}.</td>
@@ -357,11 +357,11 @@ export const ReleasePOSelect = () => {
                                     </td>
                                     <td className="space-y-4 py-4 text-sm">
                                         <div>{getTotal(orderData?.name)}</div>
-                                        <div>{(getTotal(orderData?.name)*0.18).toFixed(2)}</div>
-                                        <div>{(getTotal(orderData?.name)*1.18).toFixed(2)}</div>
+                                        <div>{(getTotal(orderData?.name) * 0.18).toFixed(2)}</div>
+                                        <div>{(getTotal(orderData?.name) * 1.18).toFixed(2)}</div>
                                     </td>
                                     <td>
-                                        
+
                                     </td>
                                 </tr>
                                 <tr className="border-none">
