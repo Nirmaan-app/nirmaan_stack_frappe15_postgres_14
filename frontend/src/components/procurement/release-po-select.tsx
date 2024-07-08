@@ -219,6 +219,7 @@ export const ReleasePOSelect = () => {
     };
 
   const afterDelivery = totalAmount * (1 - advance / 100);
+  let count = 1;
 
     return (
         <MainLayout>
@@ -312,6 +313,7 @@ export const ReleasePOSelect = () => {
                                     </th>
                                 </tr>
                                 <tr>
+                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider w-[7%]">S. No.</th>
                                     <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
                                     <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                     <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
@@ -320,8 +322,10 @@ export const ReleasePOSelect = () => {
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
+                                
                                 {orderData?.order_list?.list.map((item) => {
                                     return <tr className="">
+                                        <td className="py-2 text-sm whitespace-nowrap w-[7%]">{count++}.</td>
                                         <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
                                         <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                         <td className="px-6 py-2 text-sm whitespace-nowrap">
