@@ -21,3 +21,15 @@ def delete_vendor_category(vendor, method=None):
 	frappe.db.delete("Vendor Category", {
 		"vendor": vendor.name
 	})
+
+def update_vendor_category(vendor, method=None):
+	frappe.db.delete("Vendor Category", {
+		"vendor": vendor.name
+	})
+	categories = vendor.vendor_category["categories"]
+	for category in categories:
+		doc = frappe.new_doc("Vendor Category")
+		doc.vendor=vendor.name
+		doc.category=category
+		doc.vendor_name=vendor.vendor_name
+		doc.insert(ignore_permissions=True)

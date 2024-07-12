@@ -9,7 +9,9 @@ export function Notifications() {
     const { data: notification_list, isLoading: notification_list_loading, error: notification_list_error } = useFrappeGetDocList("Notification Log",
         {
             fields: ['name','subject'],
-            filters: [["read","=",0]]
+            filters: [["read","=",0]],
+            limit: 5,
+            orderBy: {field : "creation" , order: "desc"}
         });
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
     

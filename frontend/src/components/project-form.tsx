@@ -1211,6 +1211,11 @@ export const ProjectForm = () => {
                                                                     <Checkbox
                                                                         checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
                                                                         onCheckedChange={(checked) => {
+                                                                            if(!checked){
+                                                                                const filteredSow = form.getValues().project_scopes.scopes.filter(sow => sow.work_package != item.work_package_name)
+                                                                                form.setValue(("project_scopes.scopes"),filteredSow)
+                                                                            }
+                                                                            form.getValues()
                                                                             return checked
                                                                                 ? field.onChange([...field.value, { work_package_name: item.work_package_name }])
                                                                                 : field.onChange(
