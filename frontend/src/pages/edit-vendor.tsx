@@ -81,8 +81,8 @@ export const EditVendor = () => {
             vendor_city: "",
             vendor_state: "",
             pin: 0,
-            vendor_email: "",
-            vendor_mobile: 0,
+            vendor_email: data?.vendor_email,
+            vendor_mobile: data?.vendor_mobile,
             vendor_gst: ""
 
         },
