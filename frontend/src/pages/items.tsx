@@ -162,7 +162,7 @@ export default function Items() {
                 <div className="flex items-center justify-between mb-2 space-y-2">
                     <div className="flex">
                         <ArrowLeft className="mt-1.5" onClick={() => navigate("/")} />
-                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">User List</h2>
+                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Items List</h2>
                     </div>
                     <div className="flex items-center space-x-2">
                         <Dialog>
