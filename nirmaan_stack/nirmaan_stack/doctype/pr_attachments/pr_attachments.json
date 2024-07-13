@@ -1,0 +1,55 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-07-08 17:24:17.144624",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "attachment_details_section",
+  "rfq_pdf",
+  "procurement_request"
+ ],
+ "fields": [
+  {
+   "fieldname": "attachment_details_section",
+   "fieldtype": "Section Break",
+   "label": "Attachment Details"
+  },
+  {
+   "fieldname": "rfq_pdf",
+   "fieldtype": "Attach Image",
+   "label": "RFQ pdf",
+   "options": "File"
+  },
+  {
+   "fieldname": "procurement_request",
+   "fieldtype": "Link",
+   "label": "Procurement Request",
+   "options": "Procurement Requests"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-07-08 20:09:30.727484",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "PR Attachments",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
@@ -14,56 +14,35 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { AddressForm } from "../components/address-form"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useState } from "react"
-import { Navigate, useNavigate } from "react-router-dom"
+import { Navigate, useNavigate, useParams } from "react-router-dom"
 
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z
         .string({
-            required_error: "Must provide type Name"
-        })
-        .min(3, {
-            message: "Type Name must be at least 3 characters.",
         }),
     vendor_name: z
         .string({
-            required_error: "Must provide type vendor_name"
-        })
-        .min(3, {
-            message: "Type Name must be at least 3 characters.",
         }),
     address_line_1: z
         .string({
-            required_error: "Address Required"
         }),
     address_line_2: z
         .string({
-            required_error: "Address Required"
         }),
     vendor_city: z
         .string({
-            required_error: "Must provide city"
         }),
     vendor_state: z
         .string({
-            required_error: "Must provide state"
         }),
     pin: z
         .number({
-            required_error: "Must provide pincode"
-        })
-        .positive()
-        .gte(100000)
-        .lte(999999),
+        }),
     vendor_email: z
-        .string()
-        .email(),
+        .string(),
     vendor_mobile: z
         .number({
-            required_error: "Must provide contact"
-        })
-        .positive()
-        .gte(1000000000)
-        .lte(9999999999),
+        }),
     vendor_gst: z
         .string({
         }),
@@ -78,12 +57,34 @@ interface SelectOption {
     value: string;
 }
 
-export const NewVendor = () => {
+export const EditVendor = () => {
     const navigate = useNavigate()
+    const { id } = useParams<{ id: string }>()
+    const { data, error, isValidating } = useFrappeGetDoc(
+        'Vendors',
+        `${id}`
+    );
+    const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error } = useFrappeGetDocList("Vendor Category",
+        {
+            fields: ['vendor', 'category'],
+            filters:[["vendor","=",id]]
+        });
+
+
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
         defaultValues: {
-            name: ""
+            vendor_contact_person_name: "",
+            vendor_name: "",
+            address_line_1: "",
+            address_line_2: "",
+            vendor_city: "",
+            vendor_state: "",
+            pin: 0,
+            vendor_email: "",
+            vendor_mobile: 0,
+            vendor_gst: ""
+
         },
         mode: "onChange",
     })
@@ -97,13 +98,24 @@ export const NewVendor = () => {
             fields: ['category_name', 'work_package']
         });
 
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    // const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
 
     function onSubmit(values: z.infer<typeof VendorFormSchema>) {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
         let category_json = Object.values(categories).map((object) => { return object["value"] })
         console.log(category_json)
+
+        updateDoc('Vendors',`${id}`, {
+            vendor_category: { "categories": category_json }
+        }).then((doc) => {
+            console.log(doc)
+            navigate("/vendors")
+        }).catch(() => {
+            console.log(submit_error)
+        })
+
         // createDoc('Vendors', { ...values, vendor_category: { "categories": category_json } })
         //     .then((doc) => {
 
@@ -112,40 +124,40 @@ export const NewVendor = () => {
         //         console.log(submit_error)
         //     })
 
-        createDoc('Address', {
-            address_title: values.vendor_name,
-            address_type: "Shop",
-            address_line1: values.address_line_1,
-            address_line2: values.address_line_2,
-            city: values.vendor_city,
-            state: values.vendor_state,
-            country: "India",
-            pincode: values.pin,
-            email_id: values.vendor_email,
-            phone: values.vendor_mobile
-        }).then(doc => {
-            createDoc('Vendors', {
-                vendor_name: values.vendor_name,
-                vendor_type: "Material",
-                vendor_address: doc.name,
-                vendor_city: doc.city,
-                vendor_state: doc.state,
-                vendor_contact_person_name: values.vendor_contact_person_name,
-                vendor_mobile: values.vendor_mobile,
-                vendor_email: values.vendor_email,
-                vendor_gst: values.vendor_gst,
-                vendor_category: { "categories": category_json }
-            })
-                .then(() => {
-                    navigate("/vendors")
-                })
-                .catch(() => {
-                    console.log(submit_error)
-                })
-        })
-            .catch(() => {
-                console.log("address_error", submit_error)
-            })
+        // createDoc('Address', {
+        //     address_title: values.vendor_name,
+        //     address_type: "Shop",
+        //     address_line1: values.address_line_1,
+        //     address_line2: values.address_line_2,
+        //     city: values.vendor_city,
+        //     state: values.vendor_state,
+        //     country: "India",
+        //     pincode: values.pin,
+        //     email_id: values.vendor_email,
+        //     phone: values.vendor_mobile
+        // }).then(doc => {
+        //     createDoc('Vendors', {
+        //         vendor_name: values.vendor_name,
+        //         vendor_type: "Material",
+        //         vendor_address: doc.name,
+        //         vendor_city: doc.city,
+        //         vendor_state: doc.state,
+        //         vendor_contact_person_name: values.vendor_contact_person_name,
+        //         vendor_mobile: values.vendor_mobile,
+        //         vendor_email: values.vendor_email,
+        //         vendor_gst: values.vendor_gst,
+        //         vendor_category: { "categories": category_json }
+        //     })
+        //         .then(() => {
+        //             navigate("/vendors")
+        //         })
+        //         .catch(() => {
+        //             console.log(submit_error)
+        //         })
+        // })
+        //     .catch(() => {
+        //         console.log("address_error", submit_error)
+        //     })
 
     }
 
@@ -159,7 +171,15 @@ export const NewVendor = () => {
             label: `${item.category_name}-(${item.work_package})`,
             value: item.category_name
         })) || [];
-    const [categories, setCategories] = useState()
+
+    const default_options: SelectOption[] = vendor_category_list
+    ?.map(item => ({
+        label: item.category,
+        value: item.category
+    })) || [];
+    console.log(default_options)
+
+    const [categories, setCategories] = useState(default_options)
     const handleChange = (selectedOptions) => {
         setCategories(selectedOptions)
         console.log(categories)
@@ -187,7 +207,7 @@ export const NewVendor = () => {
                                 <FormItem>
                                     <FormLabel>Vendor Name</FormLabel>
                                     <FormControl>
-                                        <Input placeholder="Vendor Name" {...field} />
+                                        <Input placeholder={data?.vendor_name} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -246,7 +266,7 @@ export const NewVendor = () => {
                                 <FormItem>
                                     <FormLabel>Name</FormLabel>
                                     <FormControl>
-                                        <Input placeholder="Name" {...field} />
+                                        <Input placeholder={data?.vendor_contact_person_name} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -261,7 +281,7 @@ export const NewVendor = () => {
                                 <FormItem>
                                     <FormLabel>GST Number</FormLabel>
                                     <FormControl>
-                                        <Input placeholder="GST Number" {...field} />
+                                        <Input placeholder={data?.vendor_gst} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -270,36 +290,36 @@ export const NewVendor = () => {
                         />
                         <div>
                             <label>Add Category</label>
-                            <ReactSelect options={category_options} onChange={handleChange} isMulti />
+                            {(default_options.length>0 && category_options.length>0) && <ReactSelect options={category_options} defaultValue={default_options} onChange={handleChange} isMulti />}
                         </div>
                         <Separator className="my-3" />
                         <p className="text-sky-600 font-semibold pb-2">Vendor Address Details</p>
                         <FormField
                             control={form.control}
-                            name="address_line_1"
+                            name="address"
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Address Line 1: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder="Building name, floor" {...field} />
+                                        <Input placeholder={data?.vendor_address} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
                         />
-                        <FormField
+                        {/* <FormField
                             control={form.control}
                             name="address_line_2"
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Address Line 2: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder="Street name, area, landmark" {...field} />
+                                        <Input placeholder={data?.address_line_2} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
-                        />
+                        /> */}
                         <FormField
                             control={form.control}
                             name="vendor_city"
@@ -307,7 +327,7 @@ export const NewVendor = () => {
                                 <FormItem>
                                     <FormLabel>City: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder="City Name" {...field} />
+                                        <Input placeholder={data?.vendor_city} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -320,26 +340,26 @@ export const NewVendor = () => {
                                 <FormItem>
                                     <FormLabel>State: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder="State Name" {...field} />
+                                        <Input placeholder={data?.vendor_state}{...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
 
                             )}
                         />
-                        <FormField
+                        {/* <FormField
                             control={form.control}
                             name="pin"
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Pin Code: </FormLabel>
                                     <FormControl>
-                                        <Input type="number" placeholder="Pincode" {...field} onChange={event => field.onChange(+event.target.value)} />
+                                        <Input type="number" placeholder={data?.pin} {...field} onChange={event => field.onChange(+event.target.value)} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
-                        />
+                        /> */}
                         <FormField
                             control={form.control}
                             name="vendor_mobile"
@@ -347,7 +367,7 @@ export const NewVendor = () => {
                                 <FormItem>
                                     <FormLabel>Phone: </FormLabel>
                                     <FormControl>
-                                        <Input type="number" placeholder="Phone" {...field} onChange={event => field.onChange(+event.target.value)} />
+                                        <Input type="number" placeholder={data?.vendor_mobile} {...field} onChange={event => field.onChange(+event.target.value)} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -360,20 +380,19 @@ export const NewVendor = () => {
                                 <FormItem>
                                     <FormLabel>Email: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder="Email" {...field} />
+                                        <Input placeholder={data?.vendor_email} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
                         />
-                        {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
+                        {(loading) ? (<ButtonLoading />) : (<Button type="submit">Update Vendor Category</Button>)}
 
                         <div>
                             {submit_complete &&
                                 <div>
-                                    <div className="font-semibold text-green-500">New Vendor added</div>
+                                    <div className="font-semibold text-green-500">Vendor Updated</div>
                                 </div>
-
                             }
                             {submit_error && <div>{submit_error}</div>}
                         </div>
