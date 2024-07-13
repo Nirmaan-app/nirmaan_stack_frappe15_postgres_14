@@ -26,6 +26,16 @@ export default function ProcurementDashboard() {
             fields: ['name'],
             limit: 100
         });
+    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
+        {
+            fields: ['name'],
+            limit: 1000
+        });
+    const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
+        {
+            fields: ['name'],
+            limit: 1000
+        });
 
 
     const approved_procurement_requests: string[] = []
@@ -117,6 +127,27 @@ export default function ProcurementDashboard() {
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(procurement_order_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                                 : (procurement_order_list?.length)}
                                 {procurement_order_list_error && <p>Error</p>}</p>
+                        </Link>
+                    </Card>
+                </div>
+                <div className="flex items-center space-y-2">
+                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">General Actions</h2>
+                </div>
+                <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                    <Card className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                        <Link to="/vendors">
+                            <p className="text-center py-6 font-bold text-gray-500">Total Vendors</p>
+                            <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(vendor_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                : (vendor_list?.length)}
+                                {vendor_list_error && <p>Error</p>}</p>
+                        </Link>
+                    </Card>
+                    <Card className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                        <Link to="/items">
+                            <p className="text-center py-6 font-bold text-gray-500">Total Items</p>
+                            <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(item_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                : (item_list?.length)}
+                                {item_list_error && <p>Error</p>}</p>
                         </Link>
                     </Card>
                 </div>
