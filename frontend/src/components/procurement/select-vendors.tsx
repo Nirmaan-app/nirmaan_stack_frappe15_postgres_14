@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { TrendingDown, CheckCheck } from 'lucide-react';
 import { Space, Switch, Table, ConfigProvider, Collapse, Checkbox } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
+import { ItemComponent } from '@/pages/items';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -177,7 +178,7 @@ export const SelectVendors = () => {
                         minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
 
                         items.push({
-                            item: item.item,
+                            item: <ItemComponent item_id={item.name} />,
                             key: item.name,
                             unit: item.unit,
                             quantity: item.quantity,
@@ -509,7 +510,7 @@ export const SelectVendors = () => {
                                                     if (item.category === cat.name) {
                                                         return <tr>
                                                             <td className="py-2 text-sm px-2 font-slim border-b w-[40%]">
-                                                                {item.item}
+                                                                <ItemComponent item_id={item.name} />
                                                             </td>
                                                             {selectedCategories[curCategory]?.map((value) => {
                                                                 const price = getPrice(value, item.name);

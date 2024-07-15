@@ -9,6 +9,7 @@ import { Button } from "../ui/button";
 import { BadgeIndianRupee } from "lucide-react";
 import { previousDay } from "date-fns";
 import { MainLayout } from "../layout/main-layout";
+import { ItemComponent } from "@/pages/items";
 
 export const ReleasePO = () => {
     const { id } = useParams<{ id: string }>()
@@ -214,7 +215,7 @@ export const ReleasePO = () => {
                                         {orderData?.order_list?.list.map((item) => {
                                             return <tr className="">
                                                 <td className="py-2 text-sm whitespace-nowrap w-[7%]">{count++}.</td>
-                                                <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">{<ItemComponent item_id={item.name} />}</td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">
                                                     {item.quantity}

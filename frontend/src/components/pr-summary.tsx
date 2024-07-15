@@ -7,6 +7,7 @@ import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Label } from "./ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import { ItemComponent } from "@/pages/items";
 
 const PRSummary = () => {
 
@@ -106,7 +107,7 @@ const PRSummaryPage = ({ pr_data, project }: PRSummaryPageProps) => {
                                                             if (item.category === cat.name) {
                                                                 return (
                                                                     <TableRow key={item.item}>
-                                                                        <TableCell>{item.item}</TableCell>
+                                                                        <TableCell>{<ItemComponent item_id={item.name} />}</TableCell>
                                                                         <TableCell>{item.unit}</TableCell>
                                                                         <TableCell>{item.quantity}</TableCell>
                                                                     </TableRow>

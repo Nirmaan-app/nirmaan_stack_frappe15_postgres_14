@@ -29,6 +29,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 import { Table as ReactTable } from "@/components/ui/table";
 import { Space, Switch, Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
+import { ItemComponent } from './items';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -297,7 +298,7 @@ export const ApproveVendor = () => {
                             minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
 
                             items.push({
-                                item: item.item,
+                                item: <ItemComponent item_id={item.name} />,
                                 key: item.name,
                                 unit: item.unit,
                                 quantity: item.quantity,
@@ -1282,7 +1283,7 @@ export const ApproveVendor = () => {
                                         if (item.category === cat.name) {
                                             if(!selectedVendors[item.name]){return (
                                                 <TableRow key={item.item}>
-                                                    <TableCell>{item.item}</TableCell>
+                                                    <TableCell>{<ItemComponent item_id={item.name} />}</TableCell>
                                                     <TableCell>{item.unit}</TableCell>
                                                     <TableCell>{item.quantity}</TableCell>
                                                 </TableRow>

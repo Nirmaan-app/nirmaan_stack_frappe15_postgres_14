@@ -21,6 +21,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescript
 import { Pencil } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectValue, SelectTrigger } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { ItemComponent } from "./items";
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
@@ -416,7 +417,7 @@ export const ProjectLeadComponent = () => {
                                             {orderData.procurement_list.list?.map((item) => {
                                                 if (item.category === cat.name) {
                                                     return <tr key={item.item} >
-                                                        <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm text-cent">{item.item}</td>
+                                                        <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm text-cent">{<ItemComponent item_id={item.name} />}</td>
                                                         <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
                                                         <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
                                                         <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">

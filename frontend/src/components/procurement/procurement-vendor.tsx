@@ -19,6 +19,7 @@ import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom";
 import { MainLayout } from '../layout/main-layout';
 import { Button } from '@/components/ui/button'
+import { ItemComponent } from '@/pages/items';
 
 interface VendorItem {
     vendor: string;
@@ -271,7 +272,7 @@ export const ProcurementOrder = () => {
                                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
                                         return <tr key={item.item}>
-                                            <td className="px-6 py-4">{item.item}</td>
+                                            <td className="px-6 py-4">{<ItemComponent item_id={item.name} />}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 {item.category}
                                             </td>

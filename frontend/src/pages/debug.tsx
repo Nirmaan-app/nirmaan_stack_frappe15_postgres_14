@@ -20,6 +20,15 @@ export default function Debug() {
     )
 }
 
+
+export function ItemComponent({ item_id }) {
+    const { data: item_data, isLoading: item_loading, error: item_error } = useFrappeGetDoc("Items", item_id);
+
+    if (item_loading) return <>Loading</>
+    if (item_error) return <>{item_error.message}</>
+    return item_data?.item_name
+}
+
 // export default function DebugImageCropAndImport() {
 //     const { upload: upload_img, loading: upload_loading, error: upload_error, reset: upload_reset } = useFrappeFileUpload()
 //     const { updateDoc: update, loading: update_loading, error: update_error } = useFrappeUpdateDoc()

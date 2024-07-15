@@ -47,6 +47,7 @@ import Vendors from './pages/vendors'
 import { NewVendor } from './pages/new-vendor'
 import ListPR from './components/procurement-request/list-pr'
 import { EditVendor } from './pages/edit-vendor'
+import EditItems from './pages/items-edit'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -106,7 +107,7 @@ const router = createBrowserRouter(
 
 				<Route path="items" >
 					<Route index element={<Items />} />
-
+					<Route path=":id" element={<EditItems />} />
 				</Route>
 
 				<Route path="vendors">

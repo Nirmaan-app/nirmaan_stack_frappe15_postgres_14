@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog"
 import { Space, Switch, Table, ConfigProvider, Collapse, Checkbox } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
+import { ItemComponent } from './items';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -171,7 +172,7 @@ export const ApproveSentBack = () => {
                         minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
 
                         items.push({
-                            item: item.item,
+                            item: <ItemComponent item_id={item.name} />,
                             key: item.name,
                             unit: item.unit,
                             quantity: item.quantity,

@@ -189,9 +189,9 @@ export const EditVendor = () => {
         <MainLayout>
             <div className="p-4">
                 <div className="space-y-0.5">
-                    <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
+                    <h2 className="text-2xl font-bold tracking-tight">Edit Vendor</h2>
                     <p className="text-muted-foreground">
-                        Fill out this to create a new Vendor
+                        Fill out this to edit vendor category details
                     </p>
                 </div>
                 <Separator className="my-6" />
@@ -207,7 +207,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>Vendor Name</FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_name} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_name} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -266,7 +266,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>Name</FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_contact_person_name} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_contact_person_name} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -281,7 +281,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>GST Number</FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_gst} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_gst} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -301,7 +301,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>Address Line 1: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_address} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_address} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -327,7 +327,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>City: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_city} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_city} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -340,7 +340,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>State: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_state}{...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_state}{...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -367,7 +367,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>Phone: </FormLabel>
                                     <FormControl>
-                                        <Input type="number" placeholder={data?.vendor_mobile} {...field} onChange={event => field.onChange(+event.target.value)} />
+                                        <Input disabled={true} type="number" placeholder={data?.vendor_mobile} {...field} onChange={event => field.onChange(+event.target.value)} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -380,7 +380,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>Email: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_email} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_email} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
