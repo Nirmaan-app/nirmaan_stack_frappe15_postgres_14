@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_import": 1,
  "allow_rename": 1,
  "autoname": "field:scope_of_work_name",
  "creation": "2024-04-01 15:16:58.363683",
@@ -35,7 +36,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-06 18:35:25.015002",
+ "modified": "2024-07-16 14:57:44.119371",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Scopes of Work",

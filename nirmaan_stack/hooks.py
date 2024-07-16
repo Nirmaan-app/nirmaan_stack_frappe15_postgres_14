@@ -249,6 +249,7 @@ doc_events = {
 fixtures = [
 	# All Data
     "Work Packages",
+    "Category",
     "Scopes of Work",
     "Milestones",
     {"dt": "Role", "filters": [["role_name", "like", "Nirmaan %"]]},

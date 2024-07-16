@@ -1,0 +1,515 @@
+[
+ {
+  "category_name": "Wires & Cables",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.876768",
+  "name": "Wires & Cables",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Switch & Sockets",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.892647",
+  "name": "Switch & Sockets",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Raceway",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.896989",
+  "name": "Raceway",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Cable Tray & Junction Box",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.901199",
+  "name": "Cable Tray & Junction Box",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Electrical Miscellaneous",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.904638",
+  "name": "Electrical Miscellaneous",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "DB & Switch Gear",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.908610",
+  "name": "DB & Switch Gear",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "LT Panels",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.912843",
+  "name": "LT Panels",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "UPS & Inverter",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.917972",
+  "name": "UPS & Inverter",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Earthing Material",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.922793",
+  "name": "Earthing Material",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Electrical Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.928004",
+  "name": "Electrical Accessories",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Enclosure",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.932051",
+  "name": "Enclosure",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Conduits",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.935756",
+  "name": "Conduits",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Industrial Sockets",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.940246",
+  "name": "Industrial Sockets",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Copper Piping",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.944749",
+  "name": "Copper Piping",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Drain Pipes",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.949871",
+  "name": "Drain Pipes",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Chilled Water Piping",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.953387",
+  "name": "Chilled Water Piping",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "GI Ducts & MS Ducts",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.958648",
+  "name": "GI Ducts & MS Ducts",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Flexible Ducts",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.962286",
+  "name": "Flexible Ducts",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Plenum Box",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.966116",
+  "name": "Plenum Box",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Grills, Diffusers and Dampers",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.969635",
+  "name": "Grills, Diffusers and Dampers",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Fans",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.973798",
+  "name": "Fans",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "HVAC Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.978370",
+  "name": "HVAC Accessories",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "DX Sysetm",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.982741",
+  "name": "DX Sysetm",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "VRF System",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.987778",
+  "name": "VRF System",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Insulation",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.992210",
+  "name": "Insulation",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "HVAC Miscellaneous",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.996157",
+  "name": "HVAC Miscellaneous",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "AHU & CSU",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.000132",
+  "name": "AHU & CSU",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Sprinklers",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.004173",
+  "name": "Sprinklers",
+  "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "Sprinkler Piping",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.007947",
+  "name": "Sprinkler Piping",
+  "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "Sprinkler Valves",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.011814",
+  "name": "Sprinkler Valves",
+  "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "IP Cameras",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.015724",
+  "name": "IP Cameras",
+  "work_package": "CCTV System"
+ },
+ {
+  "category_name": "Analog Cameras",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.019825",
+  "name": "Analog Cameras",
+  "work_package": "CCTV System"
+ },
+ {
+  "category_name": "CCTV Cabling",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.024007",
+  "name": "CCTV Cabling",
+  "work_package": "CCTV System"
+ },
+ {
+  "category_name": "CCTV Network Switches",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.028163",
+  "name": "CCTV Network Switches",
+  "work_package": "CCTV System"
+ },
+ {
+  "category_name": "CCTV Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.032054",
+  "name": "CCTV Accessories",
+  "work_package": "CCTV System"
+ },
+ {
+  "category_name": "NVR & DVR",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.035930",
+  "name": "NVR & DVR",
+  "work_package": "CCTV System"
+ },
+ {
+  "category_name": "Addressable Detectors",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.039903",
+  "name": "Addressable Detectors",
+  "work_package": "FA System"
+ },
+ {
+  "category_name": "Conventional Detectors",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.044219",
+  "name": "Conventional Detectors",
+  "work_package": "FA System"
+ },
+ {
+  "category_name": "Addressable Module",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.049440",
+  "name": "Addressable Module",
+  "work_package": "FA System"
+ },
+ {
+  "category_name": "Conventional Module",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.053248",
+  "name": "Conventional Module",
+  "work_package": "FA System"
+ },
+ {
+  "category_name": "Fire Alarm Panel",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.056950",
+  "name": "Fire Alarm Panel",
+  "work_package": "FA System"
+ },
+ {
+  "category_name": "FA Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.060654",
+  "name": "FA Accessories",
+  "work_package": "FA System"
+ },
+ {
+  "category_name": "FA Cables",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.064489",
+  "name": "FA Cables",
+  "work_package": "FA System"
+ },
+ {
+  "category_name": "PA Cables",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.068530",
+  "name": "PA Cables",
+  "work_package": "PA System"
+ },
+ {
+  "category_name": "Speaker",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.072264",
+  "name": "Speaker",
+  "work_package": "PA System"
+ },
+ {
+  "category_name": "Mic",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.076288",
+  "name": "Mic",
+  "work_package": "PA System"
+ },
+ {
+  "category_name": "Controller",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.080294",
+  "name": "Controller",
+  "work_package": "PA System"
+ },
+ {
+  "category_name": "Amplifier",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.084176",
+  "name": "Amplifier",
+  "work_package": "PA System"
+ },
+ {
+  "category_name": "PA Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.088243",
+  "name": "PA Accessories",
+  "work_package": "PA System"
+ },
+ {
+  "category_name": "Controllers",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.091963",
+  "name": "Controllers",
+  "work_package": "Access Control System"
+ },
+ {
+  "category_name": "Reader",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.095655",
+  "name": "Reader",
+  "work_package": "Access Control System"
+ },
+ {
+  "category_name": "Data Cabling",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.099441",
+  "name": "Data Cabling",
+  "work_package": "Data & Networking"
+ },
+ {
+  "category_name": "Terminations",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.103381",
+  "name": "Terminations",
+  "work_package": "Data & Networking"
+ },
+ {
+  "category_name": "Jack Panel",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.107298",
+  "name": "Jack Panel",
+  "work_package": "Data & Networking"
+ },
+ {
+  "category_name": "Rack & Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.111545",
+  "name": "Rack & Accessories",
+  "work_package": "Data & Networking"
+ },
+ {
+  "category_name": "Switches",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.115397",
+  "name": "Switches",
+  "work_package": "Data & Networking"
+ },
+ {
+  "category_name": "Data Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.119932",
+  "name": "Data Accessories",
+  "work_package": "Data & Networking"
+ }
+]

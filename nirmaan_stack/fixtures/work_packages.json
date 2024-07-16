@@ -11,24 +11,56 @@
   "docstatus": 0,
   "doctype": "Work Packages",
   "modified": "2024-04-13 15:25:21.468791",
-  "name": "Fire Fighting",
+  "name": "Fire Fighting System",
   "work_package_image": null,
-  "work_package_name": "Fire Fighting"
+  "work_package_name": "Fire Fighting System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
   "modified": "2024-04-13 15:25:21.468791",
-  "name": "Access Control & Security System",
+  "name": "Access Control System",
   "work_package_image": null,
-  "work_package_name": "Access Control & Security System"
+  "work_package_name": "Access Control System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-07-04 11:48:55.862975",
-  "name": "Electrical",
+  "modified": "2024-07-16 12:21:42.904871",
+  "name": "HVAC System",
   "work_package_image": null,
-  "work_package_name": "Electrical"
+  "work_package_name": "HVAC System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-07-16 12:22:05.135076",
+  "name": "CCTV System",
+  "work_package_image": null,
+  "work_package_name": "CCTV System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-07-16 12:22:21.663535",
+  "name": "FA System",
+  "work_package_image": null,
+  "work_package_name": "FA System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-07-16 12:22:29.706806",
+  "name": "PA System",
+  "work_package_image": null,
+  "work_package_name": "PA System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-07-16 12:20:07.962566",
+  "name": "Electrical Work",
+  "work_package_image": null,
+  "work_package_name": "Electrical Work"
  }
 ]
