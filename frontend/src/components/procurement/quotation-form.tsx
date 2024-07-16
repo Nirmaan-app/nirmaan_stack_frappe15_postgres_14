@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { FileArgs, useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk"
 import {
     SheetClose
 } from "@/components/ui/sheet"
 import { Button } from "../ui/button";
+import { TailSpin } from "react-loader-spinner";
 
 
 interface Category {
@@ -37,6 +38,10 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
             fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
+        });
+    const { data: is_present,mutate: is_present_mutate } = useFrappeGetDocList("PR Attachments",
+        {
+            filters: [["procurement_request", "=", pr_id], ["vendor", "=", vendor_id]]
         });
 
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
@@ -97,7 +102,23 @@ export default function QuotationForm({ vendor_id, pr_id }) {
             list: newList
         }));
     };
+    const { createDoc: createDoc, loading: create_loading, isCompleted: create_submit_complete, error: create_submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+
+    const vendor_name = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_name;
+    const vendor_address = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_address;
+    const doc = address_list?.find(item => item.name == vendor_address);
+    const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+
+    const [selectedFile, setSelectedFile] = useState(null);
+    const handleFileChange = (event) => {
+        setSelectedFile(event.target.files[0]);
+        console.log(event.target.files[0])
+        };
+    const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
+    const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
+
+
     const handleSubmit = () => {
         quotationData.list.map((item) => {
             updateDoc('Quotation Requests', item.qr_id, {
@@ -110,12 +131,50 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                     console.log(submit_error)
                 })
         })
-    }
 
-    const vendor_name = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_name;
-    const vendor_address = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_address;
-    const doc = address_list?.find(item => item.name == vendor_address);
-    const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+        if(selectedFile){
+        createDoc("PR Attachments",{
+            procurement_request: pr_id,
+            vendor: vendor_id
+        })
+        .then((doc)=>{
+            is_present_mutate()
+            const fileArgs = {
+                doctype: "PR Attachments",
+                docname: doc.name,
+                fieldname : "rfq_pdf",
+                isPrivate: true
+              };
+    
+            upload(selectedFile, fileArgs)
+                .then((d) => {
+                    console.log("done",d)
+                    is_present_mutate()
+                        call({
+                            doctype: 'PR Attachments',
+                            name: doc.name,
+                            fieldname: 'rfq_pdf',
+                            value: d.file_url
+                        }).then(() => {
+                            console.log("done")
+                            const btn = document.getElementById("save-button")
+                            btn?.click()
+                            setSelectedFile(null)
+                        }).catch(() => {
+                            console.log("error",call_error)
+                        })
+
+                }).catch(() => {
+                    console.log(upload_error)
+                })
+            is_present_mutate()
+
+        })}
+        else{
+            const btn = document.getElementById("save-button")
+            btn?.click()
+        }
+    }
 
     return (
         <div>
@@ -123,8 +182,8 @@ export default function QuotationForm({ vendor_id, pr_id }) {
             <div className="text-gray-500 text-sm">{address}</div>
             <div className="flex justify-between py-4">
                 <div className="w-[48%]">
-                    <div className="text-gray-500 text-sm">Attach File</div>
-                    <Input />
+                    <div className="text-gray-500 text-sm">Attach File {is_present?.length>0 && <span className="font-bold">(Already Uploaded)</span>}</div>
+                    <Input type="file" disabled={is_present?.length>0 ? true : false} onChange={handleFileChange} />
                 </div>
                 <div className="w-[48%]">
                     <div className="flex justify-between">
@@ -172,16 +231,13 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                 </div>
             })}
             <div className="flex flex-col justify-end items-end bottom-4 right-4 pt-10">
-                {deliveryTime ?
-                    <SheetClose>
-                        <Button onClick={() => handleSubmit()}>
-                            Save
-                        </Button>
-                    </SheetClose>
+                {(upload_loading || create_loading || loading) ?
+                    <TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />
                     :
-                    <Button disabled={true}>
+                    <Button onClick={handleSubmit}>
                         Save
                     </Button>}
+                <SheetClose><Button id="save-button" className="invisible"></Button></SheetClose>
             </div>
         </div>
     )
