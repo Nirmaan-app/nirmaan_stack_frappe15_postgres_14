@@ -8,25 +8,30 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 
 import { ColumnDef } from "@tanstack/react-table";
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
 
 import { useMemo, useState } from "react";
 
 import { Link, useNavigate } from "react-router-dom";
-
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { MainLayout } from "@/components/layout/main-layout"
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 
+export function ItemComponent({ item_id }) {
+    const { data: item_data, isLoading: item_loading, error: item_error } = useFrappeGetDoc("Items", item_id);
+
+    if (item_loading) return <>Loading</>
+    if (item_error) return <>{item_error.message}</>
+    return item_data?.item_name
+}
 
 export default function Items() {
     const navigate = useNavigate();
 
 
-    const columns: ColumnDef<ProjectsType>[] = useMemo(
+    const columns: ColumnDef[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -44,6 +49,8 @@ export default function Items() {
                         </div>
                     )
                 }
+
+
             },
             {
                 accessorKey: "item_name",
@@ -141,7 +148,6 @@ export default function Items() {
                 console.log("submit_error", error)
             })
     }
-
 
     return (
 
