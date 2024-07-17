@@ -11,6 +11,7 @@
   "procurement_list",
   "amended_from",
   "category_list",
+  "comment",
   "assignees_section",
   "project_lead",
   "procurement_executive"
@@ -69,12 +70,17 @@
    "fieldtype": "Link",
    "label": "Procurement Executive",
    "options": "Nirmaan Users"
+  },
+  {
+   "fieldname": "comment",
+   "fieldtype": "Long Text",
+   "label": "Comment"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2024-07-03 13:37:59.163067",
+ "modified": "2024-07-16 15:31:03.325139",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Requests",

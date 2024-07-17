@@ -212,6 +212,13 @@ export const NewPR = () => {
         }));
     }, [orderData.procurement_list]);
 
+    const handleCommentChange = (e) => {
+        setOrderData((prevState) => ({
+            ...prevState,
+            comment: e.target.value,
+        }));
+    }
+
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
@@ -379,7 +386,7 @@ export const NewPR = () => {
                         <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
                     </div>
                 </div>
-                <div className="flex justify-between  md:space-x-0 mt-2">
+                <div className="flex justify-between md:space-x-0 mt-2">
                     <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt- pr-1" />Create new item</button></div>
                     {(curItem && quantity) ?
                         <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button>
@@ -389,7 +396,7 @@ export const NewPR = () => {
                 </div>
                 <div className="text-xs font-thin text-rose-700">Added Items</div>
                 {orderData.category_list?.list?.map((cat) => {
-                    return <div className="container mx-0 px-0">
+                    return <div className="container mb-4 mx-0 px-0">
                         <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
                         <table className="table-auto w-[95%]">
                             <thead>
@@ -453,6 +460,11 @@ export const NewPR = () => {
                         </table>
                     </div>
                 })}
+                
+                <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
+                    <h3 className="font-bold py-1">Include Comments</h3>
+                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Comments" onChange={handleCommentChange} />
+                </Card>
                 <Dialog>
                     <DialogTrigger asChild>
                         {Object.keys(orderData.procurement_list.list).length !== 0 ?
