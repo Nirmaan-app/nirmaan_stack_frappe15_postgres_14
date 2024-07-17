@@ -1,17 +1,17 @@
 [
- {
-  "docstatus": 0,
-  "doctype": "Portal Menu Item",
-  "enabled": 0,
-  "modified": "2024-07-05 18:19:24.621588",
-  "name": "udie4pp2f4",
-  "parent": "Portal Settings",
-  "parentfield": "custom_menu",
-  "parenttype": "Portal Settings",
-  "reference_doctype": null,
-  "role": null,
-  "route": "https://stack.nirmaan.app/frontend/login",
-  "target": null,
-  "title": "Nirmaan Stack"
- }
+    {
+        "docstatus": 0,
+        "doctype": "Portal Menu Item",
+        "enabled": 1,
+        "modified": "2024-07-05 18:19:24.621588",
+        "name": "udie4pp2f4",
+        "parent": "Portal Settings",
+        "parentfield": "custom_menu",
+        "parenttype": "Portal Settings",
+        "reference_doctype": null,
+        "role": null,
+        "route": "/frontend/login",
+        "target": null,
+        "title": "Nirmaan Stack"
+    }
 ]

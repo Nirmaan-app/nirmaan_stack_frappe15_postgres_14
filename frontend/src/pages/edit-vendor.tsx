@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
@@ -15,6 +15,7 @@ import { AddressForm } from "../components/address-form"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useState } from "react"
 import { Navigate, useNavigate, useParams } from "react-router-dom"
+import { ArrowLeft } from "lucide-react"
 
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z
@@ -64,15 +65,18 @@ export const EditVendor = () => {
         'Vendors',
         `${id}`
     );
-    const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error } = useFrappeGetDocList("Vendor Category",
+    const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
             fields: ['vendor', 'category'],
             filters:[["vendor","=",id]]
         });
+    useFrappeDocTypeEventListener("Vendor Category", () => {
+        vendor_category_mutate()
+    })
 
 
-    const form = useForm<VendorFormValues>({
-        resolver: zodResolver(VendorFormSchema),
+    const form = useForm({
+        // resolver: zodResolver(VendorFormSchema),
         defaultValues: {
             vendor_contact_person_name: "",
             vendor_name: "",
@@ -189,7 +193,10 @@ export const EditVendor = () => {
         <MainLayout>
             <div className="p-4">
                 <div className="space-y-0.5">
-                    <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
+                    <div className="flex space-x-2">
+                        <ArrowLeft onClick={() => navigate("/vendors")}/>
+                        <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
+                    </div>
                     <p className="text-muted-foreground">
                         Fill out this to create a new Vendor
                     </p>
@@ -207,7 +214,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>Vendor Name</FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_name} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_name} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -266,7 +273,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>Name</FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_contact_person_name} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_contact_person_name} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -281,17 +288,13 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>GST Number</FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_gst} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_gst} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
 
                             )}
                         />
-                        <div>
-                            <label>Add Category</label>
-                            {(default_options.length>0 && category_options.length>0) && <ReactSelect options={category_options} defaultValue={default_options} onChange={handleChange} isMulti />}
-                        </div>
                         <Separator className="my-3" />
                         <p className="text-sky-600 font-semibold pb-2">Vendor Address Details</p>
                         <FormField
@@ -301,7 +304,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>Address Line 1: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_address} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_address} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -327,7 +330,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>City: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_city} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_city} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -340,7 +343,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>State: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_state}{...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_state}{...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -367,7 +370,7 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>Phone: </FormLabel>
                                     <FormControl>
-                                        <Input type="number" placeholder={data?.vendor_mobile} {...field} onChange={event => field.onChange(+event.target.value)} />
+                                        <Input disabled={true} type="number" placeholder={data?.vendor_mobile} {...field} onChange={event => field.onChange(+event.target.value)} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -380,12 +383,19 @@ export const EditVendor = () => {
                                 <FormItem>
                                     <FormLabel>Email: </FormLabel>
                                     <FormControl>
-                                        <Input placeholder={data?.vendor_email} {...field} />
+                                        <Input disabled={true} placeholder={data?.vendor_email} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
                         />
+
+                        <Separator className="my-3" />
+                        <p className="text-sky-600 font-semibold pb-2">Change Vendor Category</p>
+                        <div>
+                            <label>Add Category</label>
+                            {(default_options.length>0 && category_options.length>0) && <ReactSelect options={category_options} defaultValue={default_options} onChange={handleChange} isMulti />}
+                        </div>
                         {(loading) ? (<ButtonLoading />) : (<Button type="submit">Update Vendor Category</Button>)}
 
                         <div>
