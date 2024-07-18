@@ -13,7 +13,11 @@ export default function ListPR() {
 
     const navigate = useNavigate();
     const userData = useUserData()
-    const [project, setProject] = useState();
+    const [project, setProject] = useState(() => {
+        // Initialize state from session storage
+        const savedProject = sessionStorage.getItem('selectedProject');
+        return savedProject ? JSON.parse(savedProject) : null;
+    });
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList<ProcurementRequests>("Procurement Requests",
         {
@@ -25,6 +29,7 @@ export default function ListPR() {
     const handleChange = (selectedItem: any) => {
         console.log('Selected item:', selectedItem);
         setProject(selectedItem ? selectedItem.value : null);
+        sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
     };
 
     if (procurement_request_list_loading) return <h1>LOADING</h1>;

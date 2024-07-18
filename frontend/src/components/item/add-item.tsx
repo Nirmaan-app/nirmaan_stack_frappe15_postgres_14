@@ -58,6 +58,7 @@ export default function AddItem({ curCategory, handleCreateItem, handleAdd }: Ad
                 unit: unit
             };
             handleAdd(newItem);
+            setCurItem('');
             setUnit('');
             setQuantity('');
         }
@@ -82,7 +83,7 @@ export default function AddItem({ curCategory, handleCreateItem, handleAdd }: Ad
                 <div className="w-1/2 md:w-2/3">
                     <h5 className="text-xs text-gray-400">Items</h5>
                     {/* <DropdownMenu items={item_lists} onSelect={handleSelect} /> */}
-                    <ReactSelect options={options} onChange={handleChangeItem} ></ReactSelect>
+                    <ReactSelect value={{ value: curItem, label: curItem }} options={options} onChange={handleChangeItem} ></ReactSelect>
                 </div>
                 <div className="flex-1">
                     <h5 className="text-xs text-gray-400">UOM</h5>
