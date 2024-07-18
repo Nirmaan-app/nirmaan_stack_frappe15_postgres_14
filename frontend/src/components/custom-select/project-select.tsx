@@ -20,18 +20,35 @@ export default function ProjectSelect({ onChange }: ProjectSelectProps) {
 
     const [options, setOptions] = useState<SelectOptions[]>([]);
 
+    const [selectedOption, setSelectedOption] = useState<SelectOptions | null>(null);
+
     useEffect(() => {
         if (data) {
             let currOptions = data.map((item) => {
                 return ({ value: item.name, label: item.project_name })
             })
             setOptions(currOptions);
+            // Set initial selected option from sessionStorage
+            const savedProject = sessionStorage.getItem('selectedProject');
+            if (savedProject) {
+                const savedProjectObj = JSON.parse(savedProject);
+                const initialOption = currOptions.find(option => option.value === savedProjectObj);
+                setSelectedOption(initialOption || null);
+                if (initialOption) {
+                    onChange(initialOption);
+                }
+            }
         }
-    }, [data]);
+    }, [data, onChange]);
+
+    const handleChange = (selectedOption: SelectOptions | null) => {
+        setSelectedOption(selectedOption);
+        onChange(selectedOption);
+    };
 
     if (loading) return <h1>Loading</h1>;
     if (error) return <h1>Error</h1>;
     return (
-        <ReactSelect options={options} onChange={onChange} placeholder="Select Project"></ReactSelect>
+        <ReactSelect options={options} value={selectedOption} onChange={handleChange} placeholder="Select Project"></ReactSelect>
     );
 }

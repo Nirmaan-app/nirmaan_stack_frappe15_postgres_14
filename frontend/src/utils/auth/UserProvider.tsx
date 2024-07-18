@@ -28,6 +28,7 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
         return logout()
             .then(() => {
                 //Clear cache on logout
+                sessionStorage.clear()
                 return mutate(() => true, undefined, false)
             })
             .then(() => {
