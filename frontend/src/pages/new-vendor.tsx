@@ -185,7 +185,7 @@ export const NewVendor = () => {
                             name="vendor_name"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Vendor Name</FormLabel>
+                                    <FormLabel>Vendor Shop Name</FormLabel>
                                     <FormControl>
                                         <Input placeholder="Vendor Name" {...field} />
                                     </FormControl>
@@ -244,7 +244,7 @@ export const NewVendor = () => {
                             name="vendor_contact_person_name"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Name</FormLabel>
+                                    <FormLabel>Vendor Contact Person Name</FormLabel>
                                     <FormControl>
                                         <Input placeholder="Name" {...field} />
                                     </FormControl>

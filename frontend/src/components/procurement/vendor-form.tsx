@@ -183,7 +183,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     name="vendor_name"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Vendor Name</FormLabel>
+                            <FormLabel>Vendor Shop Name</FormLabel>
                             <FormControl>
                                 <Input placeholder="Vendor Name" {...field} />
                             </FormControl>
@@ -256,7 +256,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     name="vendor_contact_person_name"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Name</FormLabel>
+                            <FormLabel>Vendor Contact Person Name</FormLabel>
                             <FormControl>
                                 <Input placeholder="Name" {...field} />
                             </FormControl>
