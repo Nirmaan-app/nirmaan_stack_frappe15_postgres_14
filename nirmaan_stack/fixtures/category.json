@@ -511,5 +511,14 @@
   "modified": "2024-07-16 14:54:59.119932",
   "name": "Data Accessories",
   "work_package": "Data & Networking"
+ },
+ {
+  "category_name": "Lighting",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-17 20:19:23.895000",
+  "name": "Lighting",
+  "work_package": "Electrical Work"
  }
 ]
