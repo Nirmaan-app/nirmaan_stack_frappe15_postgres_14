@@ -394,7 +394,7 @@ export const EditVendor = () => {
                         <p className="text-sky-600 font-semibold pb-2">Change Vendor Category</p>
                         <div>
                             <label>Add Category</label>
-                            {(default_options.length>0 && category_options.length>0) && <ReactSelect options={category_options} defaultValue={default_options} onChange={handleChange} isMulti />}
+                            {(category_options.length>0) && <ReactSelect options={category_options} defaultValue={default_options} onChange={handleChange} isMulti />}
                         </div>
                         {(loading) ? (<ButtonLoading />) : (<Button type="submit">Update Vendor Category</Button>)}
 
