@@ -1211,7 +1211,8 @@ export const ProjectForm = () => {
                                         console.log(form.getValues())
                                     }}
 
-                                /> Select All
+                                /> <span className="text-sm">Select All</span>
+                                <Separator className="my-3" />
                                 {wp_list.map((item) => (
                                     <Accordion type="single" collapsible value={form.getValues().project_work_milestones.work_packages.find(d => d.work_package_name === item.work_package_name)?.work_package_name} className="w-full">
                                         <AccordionItem value={item.work_package_name}>
@@ -1233,8 +1234,19 @@ export const ProjectForm = () => {
                                                                             if(!checked){
                                                                                 const filteredSow = form.getValues().project_scopes.scopes.filter(sow => sow.work_package != item.work_package_name)
                                                                                 form.setValue(("project_scopes.scopes"),filteredSow)
-                                                                                console.log(form.getValues());
                                                                             }
+                                                                            else{
+                                                                                const filteredSow = form.getValues().project_scopes.scopes.filter(sow => sow.work_package != item.work_package_name)
+                                                                            
+                                                                                sow_list?.forEach((sow) => {
+                                                                                    if(sow.work_package === item.work_package_name){
+                                                                                        filteredSow.push(sow);
+                                                                                    }
+                                                                                })
+                                                                                form.setValue(("project_scopes.scopes"),filteredSow)
+
+                                                                            }
+                                                                            console.log(form.getValues());
                                                                             return checked
                                                                                 ? field.onChange([...field.value, { work_package_name: item.work_package_name }])
                                                                                 : field.onChange(
