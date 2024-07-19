@@ -94,7 +94,9 @@ export const NewVendor = () => {
     });
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package']
+            fields: ['category_name', 'work_package'],
+            orderBy: { field: 'work_package', order: 'asc' },
+            limit: 1000
         });
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()

@@ -68,7 +68,7 @@ export const EditVendor = () => {
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
             fields: ['vendor', 'category'],
-            filters:[["vendor","=",id]]
+            filters: [["vendor", "=", id]]
         });
     useFrappeDocTypeEventListener("Vendor Category", () => {
         vendor_category_mutate()
@@ -99,7 +99,9 @@ export const EditVendor = () => {
     });
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package']
+            fields: ['category_name', 'work_package'],
+            orderBy: { field: 'work_package', order: 'asc' },
+            limit: 1000
         });
 
     // const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
@@ -111,7 +113,7 @@ export const EditVendor = () => {
         let category_json = Object.values(categories).map((object) => { return object["value"] })
         console.log(category_json)
 
-        updateDoc('Vendors',`${id}`, {
+        updateDoc('Vendors', `${id}`, {
             vendor_category: { "categories": category_json }
         }).then((doc) => {
             console.log(doc)
@@ -177,10 +179,10 @@ export const EditVendor = () => {
         })) || [];
 
     const default_options: SelectOption[] = vendor_category_list
-    ?.map(item => ({
-        label: item.category,
-        value: item.category
-    })) || [];
+        ?.map(item => ({
+            label: item.category,
+            value: item.category
+        })) || [];
     console.log(default_options)
 
     const [categories, setCategories] = useState(default_options)
@@ -194,7 +196,7 @@ export const EditVendor = () => {
             <div className="p-4">
                 <div className="space-y-0.5">
                     <div className="flex space-x-2">
-                        <ArrowLeft onClick={() => navigate("/vendors")}/>
+                        <ArrowLeft onClick={() => navigate("/vendors")} />
                         <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
                     </div>
                     <p className="text-muted-foreground">
@@ -394,7 +396,7 @@ export const EditVendor = () => {
                         <p className="text-sky-600 font-semibold pb-2">Change Vendor Category</p>
                         <div>
                             <label>Add Category</label>
-                            {(category_options.length>0) && <ReactSelect options={category_options} defaultValue={default_options} onChange={handleChange} isMulti />}
+                            {(category_options.length > 0) && <ReactSelect options={category_options} defaultValue={default_options} onChange={handleChange} isMulti />}
                         </div>
                         {(loading) ? (<ButtonLoading />) : (<Button type="submit">Update Vendor Category</Button>)}
 
