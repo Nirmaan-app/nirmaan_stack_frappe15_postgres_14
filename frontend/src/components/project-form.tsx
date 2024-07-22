@@ -14,7 +14,7 @@ import { Separator } from "./ui/separator"
 import { ScrollArea } from "./ui/scroll-area"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 import { cn } from "@/lib/utils"
-import { CalendarIcon, CirclePlus } from "lucide-react"
+import { CalendarIcon, CirclePlus, GitCommitVertical } from "lucide-react"
 import { Calendar } from "./ui/calendar"
 import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
@@ -415,8 +415,8 @@ export const ProjectForm = () => {
         return <div>{error?.message}</div>;
     }
 
-    console.log("wp_list",wp_list)
-    console.log("sow_list",sow_list)
+    console.log("wp_list", wp_list)
+    console.log("sow_list", sow_list)
 
 
     const handleRedirect = () => {
@@ -887,13 +887,13 @@ export const ProjectForm = () => {
                                                     <Button
                                                         variant={"outline"}
                                                         className={cn(
-                                                            "w-[240px] pl-3 text-left font-normal",
+                                                            "w-[50%] md:w-[100%] pl-3 text-left font-normal",
                                                             !field.value && "text-muted-foreground"
                                                         )}
                                                     >
                                                         {field.value ? (
 
-                                                            format(field.value, "yyyy-MM-dd")
+                                                            format(field.value, "yyyy-MMM-dd")
                                                         ) : (
                                                             <span>Pick a date</span>
                                                         )}
@@ -944,13 +944,13 @@ export const ProjectForm = () => {
                                                     <Button
                                                         variant={"outline"}
                                                         className={cn(
-                                                            "w-[240px] pl-3 text-left font-normal",
+                                                            "w-[50%] md:w-[100%] pl-3 text-left font-normal",
                                                             !field.value && "text-muted-foreground"
                                                         )}
                                                     >
                                                         {field.value ? (
 
-                                                            format(field.value, "yyyy-MM-dd")
+                                                            format(field.value, "yyyy-MMM-dd")
                                                         ) : (
                                                             <span>Pick a date</span>
                                                         )}
@@ -987,15 +987,16 @@ export const ProjectForm = () => {
                         )}
                     />
                     <div className="pt-2 pb-2">
-                        <div className="md:flex md:flex-row pt-2 pb-2">
+                        <div className="flex flex-row pt-2 pb-2">
                             <div className="md:basis-1/4">
-                                <h1>Duration: </h1>
+                                <FormLabel>Duration: </FormLabel>
                             </div>
-                            <div className="md:basis-1/4">
+                            <div className="md:basis-1/4 flex pl-5">
                                 <h1>{
-                                    (Math.round(form.getValues("project_end_date").getTime() - form.getValues("project_start_date").getTime()) / (1000 * 3600 * 24)) || "0"
-                                }Days
+                                    (Math.round((form.getValues("project_end_date").getTime() - form.getValues("project_start_date").getTime()) / (1000 * 3600 * 24))) || "0"
+                                }
                                 </h1>
+                                <h1 className="pl-3 mt-0.5 text-sm text-red-600">*(Days)</h1>
                             </div>
                         </div>
                     </div>
@@ -1197,22 +1198,23 @@ export const ProjectForm = () => {
                                         Select the work packages.
                                     </FormDescription>
                                 </div>
-                                <Checkbox 
+                                <Checkbox
                                     className="mr-3"
-                                    onCheckedChange={(checked)=>{
-                                        if(checked){
-                                            form.setValue(("project_scopes.scopes"),sow_list)
-                                            form.setValue(("project_work_milestones.work_packages"),wp_list)
+                                    onCheckedChange={(checked) => {
+                                        if (checked) {
+                                            form.setValue(("project_scopes.scopes"), sow_list)
+                                            form.setValue(("project_work_milestones.work_packages"), wp_list)
                                         }
-                                        else{
-                                            form.setValue(("project_scopes.scopes"),[])
-                                            form.setValue(("project_work_milestones.work_packages"),[])
+                                        else {
+                                            form.setValue(("project_scopes.scopes"), [])
+                                            form.setValue(("project_work_milestones.work_packages"), [])
                                         }
                                         console.log(form.getValues())
                                     }}
 
-                                /> <span className="text-sm">Select All</span>
-                                <Separator className="my-3" />
+                                /> <span className="text-sm text-red-600 font-bold">Select All</span>
+                                <Separator />
+                                <Separator />
                                 {wp_list.map((item) => (
                                     <Accordion type="single" collapsible value={form.getValues().project_work_milestones.work_packages.find(d => d.work_package_name === item.work_package_name)?.work_package_name} className="w-full">
                                         <AccordionItem value={item.work_package_name}>
@@ -1231,19 +1233,19 @@ export const ProjectForm = () => {
                                                                     <Checkbox
                                                                         checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
                                                                         onCheckedChange={(checked) => {
-                                                                            if(!checked){
+                                                                            if (!checked) {
                                                                                 const filteredSow = form.getValues().project_scopes.scopes.filter(sow => sow.work_package != item.work_package_name)
-                                                                                form.setValue(("project_scopes.scopes"),filteredSow)
+                                                                                form.setValue(("project_scopes.scopes"), filteredSow)
                                                                             }
-                                                                            else{
+                                                                            else {
                                                                                 const filteredSow = form.getValues().project_scopes.scopes.filter(sow => sow.work_package != item.work_package_name)
-                                                                            
+
                                                                                 sow_list?.forEach((sow) => {
-                                                                                    if(sow.work_package === item.work_package_name){
+                                                                                    if (sow.work_package === item.work_package_name) {
                                                                                         filteredSow.push(sow);
                                                                                     }
                                                                                 })
-                                                                                form.setValue(("project_scopes.scopes"),filteredSow)
+                                                                                form.setValue(("project_scopes.scopes"), filteredSow)
 
                                                                             }
                                                                             console.log(form.getValues());
@@ -1269,35 +1271,43 @@ export const ProjectForm = () => {
                                                 {sow_list.map((scope) => {
                                                     if (scope.work_package === item.work_package_name) {
                                                         return (
-                                                            <FormField
-                                                                key={scope.scope_of_work_name}
-                                                                control={form.control}
-                                                                name="project_scopes.scopes"
-                                                                render={({ field }) => (
-                                                                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                                                                        <FormControl>
-                                                                            <Checkbox
-                                                                                checked={field.value?.some((i) => i.scope_of_work_name === scope.scope_of_work_name)}
-                                                                                onCheckedChange={(checked) => {
-                                                                                    return checked
-                                                                                        ? field.onChange([...field.value, {
-                                                                                            scope_of_work_name: scope.scope_of_work_name,
-                                                                                            work_package: scope.work_package
-                                                                                        }])
-                                                                                        : field.onChange(
-                                                                                            field.value?.filter(
-                                                                                                (value) => value.scope_of_work_name !== scope.scope_of_work_name
+                                                            <div className="md:w-[35%]">
+                                                                <Separator />
+                                                                <FormField
+                                                                    key={scope.scope_of_work_name}
+                                                                    control={form.control}
+                                                                    name="project_scopes.scopes"
+                                                                    render={({ field }) => (
+                                                                        <FormItem className="flex flex-row items-center justify-between p-3">
+                                                                            <FormLabel className="text-sm font-normal">
+                                                                                <div className="flex">
+                                                                                    <GitCommitVertical className="w-6" />
+                                                                                    <span className="text-sm mt-0.5">{scope.scope_of_work_name}</span>
+
+                                                                                </div>
+                                                                            </FormLabel>
+                                                                            <FormControl>
+                                                                                <Checkbox
+                                                                                    checked={field.value?.some((i) => i.scope_of_work_name === scope.scope_of_work_name)}
+                                                                                    onCheckedChange={(checked) => {
+                                                                                        return checked
+                                                                                            ? field.onChange([...field.value, {
+                                                                                                scope_of_work_name: scope.scope_of_work_name,
+                                                                                                work_package: scope.work_package
+                                                                                            }])
+                                                                                            : field.onChange(
+                                                                                                field.value?.filter(
+                                                                                                    (value) => value.scope_of_work_name !== scope.scope_of_work_name
+                                                                                                )
                                                                                             )
-                                                                                        )
-                                                                                }}
-                                                                            />
-                                                                        </FormControl>
-                                                                        <FormLabel className="text-sm font-normal">
-                                                                            {scope.scope_of_work_name}
-                                                                        </FormLabel>
-                                                                    </FormItem>
-                                                                )}
-                                                            />
+                                                                                    }}
+                                                                                />
+                                                                            </FormControl>
+
+                                                                        </FormItem>
+                                                                    )}
+                                                                />
+                                                            </div>
                                                         );
                                                     }
                                                 })}
@@ -1426,7 +1436,7 @@ export const ProjectForm = () => {
                         }
                     </div>
                 </div>
-            </form>
-        </Form>
+            </form >
+        </Form >
     )
 }
