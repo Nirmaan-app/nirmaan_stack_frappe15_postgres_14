@@ -62,7 +62,7 @@ export default function Dashboard() {
 
 
             {/* {userData.role == 'Nirmaan Admin' && <Default />} */}
-            {userData.has_project === "false" ? 
+            {(userData.has_project === "false" && userData.role !== "Nirmaan Admin Profile") ? 
             <Alert className="ml-[25%] w-[50%] mt-[15%]">
                 <RocketIcon className="h-4 w-4" />
                 <AlertTitle>Sorry !!!</AlertTitle>
