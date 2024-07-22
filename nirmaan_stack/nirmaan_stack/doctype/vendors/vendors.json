@@ -2,7 +2,6 @@
  "actions": [],
  "allow_import": 1,
  "allow_rename": 1,
- "autoname": "format:VENDOR-{vendor_type}-{#####}",
  "creation": "2024-04-20 14:36:42.147284",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -104,11 +103,10 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-06-10 13:08:20.252312",
+ "modified": "2024-07-22 13:51:30.179134",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",
- "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {
