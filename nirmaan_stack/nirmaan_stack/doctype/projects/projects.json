@@ -23,7 +23,8 @@
   "project_manager",
   "project_work_details_section",
   "project_work_milestones",
-  "project_scopes"
+  "project_scopes",
+  "subdivisions"
  ],
  "fields": [
   {
@@ -136,11 +137,16 @@
    "fieldtype": "Link",
    "label": "Project Manager",
    "options": "Nirmaan Users"
+  },
+  {
+   "fieldname": "subdivisions",
+   "fieldtype": "Data",
+   "label": "Subdivisions"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-07-05 16:36:50.053180",
+ "modified": "2024-07-24 15:28:25.850189",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
