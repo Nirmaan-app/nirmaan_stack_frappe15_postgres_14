@@ -12,7 +12,8 @@
   "milestone",
   "start_date",
   "end_date",
-  "status"
+  "status",
+  "status_list"
  ],
  "fields": [
   {
@@ -55,11 +56,16 @@
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
+  },
+  {
+   "fieldname": "status_list",
+   "fieldtype": "JSON",
+   "label": "Status List"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-06-06 16:11:41.576177",
+ "modified": "2024-07-25 13:56:20.542955",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Work Milestones",

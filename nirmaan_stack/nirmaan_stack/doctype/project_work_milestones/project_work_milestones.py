@@ -17,6 +17,8 @@ def generate_pwm(project, method=None):
 	project_end_date = project_end_datetime.date()
 	project_duration_days = (project_end_date - project_start_date).days
 
+	divisions = int(project.subdivisions)
+
 	scopes = project.project_scopes["scopes"]
 	for values in scopes:
 		milestones = frappe.db.get_list("Milestones",
@@ -33,4 +35,8 @@ def generate_pwm(project, method=None):
 			end_day = int(m.end_day)
 			doc.start_date = project_start_date + timedelta(days=((start_day * project_duration_days) / 60))
 			doc.end_date = project_start_date + timedelta(days=((end_day * project_duration_days) / 60))
+			status_list = {}
+			for i in range(1, divisions+1):
+				status_list[i] = "Pending"
+			doc.status_list = status_list
 			doc.insert(ignore_permissions=True)
