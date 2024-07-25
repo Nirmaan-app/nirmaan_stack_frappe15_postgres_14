@@ -41,6 +41,10 @@ const projectFormSchema = z.object({
         .string({
             //required_error: "Please select Project Type"
         }),
+    subdivisions: z
+        .string({
+            //required_error: "Please select Sub-Divisions"
+        }),
     address_line_1: z
         .string({
             required_error: "Address Required"
@@ -320,7 +324,8 @@ export const ProjectForm = () => {
                 design_lead: values.design_lead,
                 project_manager: values.project_manager,
                 project_work_milestones: values.project_work_milestones,
-                project_scopes: values.project_scopes
+                project_scopes: values.project_scopes,
+                subdivisions: values.subdivisions
             }).then((doc) => console.log(doc)).catch(() => console.log(submit_error))
         }).catch(() => {
             console.log(submit_error)
@@ -599,6 +604,45 @@ export const ProjectForm = () => {
                                                     <ProjectTypeForm project_types_mutate={project_types_mutate} />
                                                 </DialogContent>
                                             </Dialog>
+                                        </div>
+                                    </div>
+                                    <div className="pt-2 pb-2">
+                                        <FormMessage />
+                                    </div>
+                                </FormItem>
+                            )
+                        }}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="subdivisions"
+                        render={({ field }) => {
+                            return (
+                                <FormItem>
+                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
+                                        <div className="md:basis-1/4">
+                                            <FormLabel>Sub-Divisions</FormLabel>
+                                        </div>
+                                        <div className="md:basis-1/4">
+                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select the number of Sub Divisions" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(item => (
+                                                        <SelectItem key={item} value={`${item}`}>
+                                                        {item}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="md:basis-1/4 pl-10 pt-2">
+                                            <FormDescription>
+                                                Select Total number of Area
+                                            </FormDescription>
                                         </div>
                                     </div>
                                     <div className="pt-2 pb-2">
