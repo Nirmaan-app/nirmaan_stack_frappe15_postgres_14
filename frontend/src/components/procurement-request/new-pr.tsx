@@ -33,7 +33,7 @@ export const NewPR = () => {
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package', 'image_url'],
-            limit:100
+            limit: 100
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
@@ -121,7 +121,7 @@ export const NewPR = () => {
     const project_lists: string[] = [];
     if (curCategory) {
         item_list?.map((item) => {
-            if (item.category === curCategory) item_options.push({ value: item.item_name, label: `${item.item_name}${item.make_name ? "-" +item.make_name : ""}` })
+            if (item.category === curCategory) item_options.push({ value: item.item_name, label: `${item.item_name}${item.make_name ? "-" + item.make_name : ""}` })
         })
     }
     if (project_list?.length != project_lists.length) {
@@ -165,7 +165,7 @@ export const NewPR = () => {
             if (itemIdToUpdate) {
                 const curRequest = [...orderData.procurement_list.list];
                 const curValue = {
-                    item: `${curItem}${itemMake ? "-"+itemMake : ""}`,
+                    item: `${curItem}${itemMake ? "-" + itemMake : ""}`,
                     name: itemIdToUpdate,
                     unit: unit,
                     quantity: Number(quantity),
@@ -268,6 +268,7 @@ export const NewPR = () => {
     const handleCreateItem = () => {
         setUnit('')
         setCurItem('')
+        setMake('')
         setPage('additem')
     }
 
@@ -371,7 +372,7 @@ export const NewPR = () => {
                     <div className="w-1/2 md:w-2/3">
                         <h5 className="text-xs text-gray-400">Items</h5>
                         {/* <DropdownMenu items={item_lists} onSelect={handleSelect} /> */}
-                        <ReactSelect value={{ value: curItem, label: `${curItem}${make ? "-"+make : ""}` }} options={item_options} onChange={handleChange} />
+                        <ReactSelect value={{ value: curItem, label: `${curItem}${make ? "-" + make : ""}` }} options={item_options} onChange={handleChange} />
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">UOM</h5>
@@ -502,7 +503,7 @@ export const NewPR = () => {
                     />
                     <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name</label>
                     <Input
-                        type="text" 
+                        type="text"
                         id="makeName"
                         value={make}
                         onChange={(e) => setMake(e.target.value)}
