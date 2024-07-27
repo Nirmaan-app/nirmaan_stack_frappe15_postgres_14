@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, useSWR } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "./ui/form"
@@ -21,6 +21,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./
 import { Checkbox } from "./ui/checkbox"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet"
 import { useNavigate } from "react-router-dom"
+import { useState } from "react"
 
 
 // 1.a Create Form Schema accordingly
@@ -40,6 +41,10 @@ const projectFormSchema = z.object({
     project_type: z
         .string({
             //required_error: "Please select Project Type"
+        }),
+    subdivisions: z
+        .string({
+            //required_error: "Please select Sub-Divisions"
         }),
     address_line_1: z
         .string({
@@ -271,6 +276,7 @@ export const ProjectForm = () => {
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
 
+
     // const handleCheckboxChange = (item: WorkPackages) => {
     //     item.isChecked = !item.isChecked
     //     setWorkPackages([...workPackages.filter(wp => wp.name !== item.name), item])
@@ -287,6 +293,8 @@ export const ProjectForm = () => {
 
 
     // 2. Define a submit handler.
+    const [areaNames, setAreaNames] = useState([]);
+
     function onSubmit(values: z.infer<typeof projectFormSchema>) {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
@@ -320,7 +328,11 @@ export const ProjectForm = () => {
                 design_lead: values.design_lead,
                 project_manager: values.project_manager,
                 project_work_milestones: values.project_work_milestones,
-                project_scopes: values.project_scopes
+                project_scopes: values.project_scopes,
+                subdivisions: values.subdivisions,
+                subdivision_list: {
+                    list: areaNames
+                }
             }).then((doc) => console.log(doc)).catch(() => console.log(submit_error))
         }).catch(() => {
             console.log(submit_error)
@@ -415,13 +427,25 @@ export const ProjectForm = () => {
         return <div>{error?.message}</div>;
     }
 
-    console.log("wp_list", wp_list)
-    console.log("sow_list", sow_list)
-
-
     const handleRedirect = () => {
         navigate("/projects")
     }
+
+    const handleSubdivisionChange = (e) => {
+        console.log("e",e)
+        let n = e;
+        setAreaNames(Array.from({ length: Number(n) }, (_, i) => ({
+            name: `Area ${i + 1}`,
+            status: "Pending",
+          })));
+    }
+
+    const handleAreaNameChange = (index, event) => {
+        const newAreaNames = [...areaNames];
+        newAreaNames[index].name = event.target.value;
+        setAreaNames(newAreaNames);
+    }
+    console.log(form.getValues(),areaNames)
 
     return (
         <Form {...form}>
@@ -608,6 +632,68 @@ export const ProjectForm = () => {
                             )
                         }}
                     />
+                    <FormField
+                        control={form.control}
+                        name="subdivisions"
+                        render={({ field }) => {
+                            return (
+                                <FormItem>
+                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
+                                        <div className="md:basis-1/4">
+                                            <FormLabel>Sub-Divisions</FormLabel>
+                                        </div>
+                                        <div className="md:basis-1/4">
+                                            <Select 
+                                                onValueChange={(e) => {
+                                                    field.onChange(e);
+                                                    handleSubdivisionChange(e);
+                                                }}
+                                                defaultValue={field.value}
+                                            >
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select the number of Sub Divisions" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(item => (
+                                                        <SelectItem key={item} value={`${item}`}>
+                                                        {item}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="md:basis-1/4 pl-10 pt-2">
+                                            <FormDescription>
+                                                Select Total number of Area
+                                            </FormDescription>
+                                        </div>
+                                    </div>
+                                    <div className="pt-2 pb-2">
+                                        <FormMessage />
+                                    </div>
+                                </FormItem>
+                            )
+                        }}
+                    />
+                    {Array.from({ length: form.getValues().subdivisions }).map((_, index) => {
+                        return <FormItem>
+                                <div className="md:flex md:flex-row pt-2 pb-2 ">
+                                    <div className="md:basis-1/4">
+                                        <FormLabel>Area {index + 1}:</FormLabel>
+                                    </div>
+                                    <div className="md:basis-1/4">
+                                        <Input 
+                                            type="text" 
+                                            onChange={(e) => handleAreaNameChange(index,e)}
+                                            // placeholder={area}
+                                            value={areaNames[index].name} 
+                                        />
+                                    </div>
+                                </div>
+                            </FormItem>
+                    })}
                     <Separator className="my-6" />
                     <p className="text-sky-600 font-semibold pb-9">Project Address Details</p>
                     <FormField
