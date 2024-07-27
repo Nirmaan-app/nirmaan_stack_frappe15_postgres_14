@@ -35,8 +35,8 @@ def generate_pwm(project, method=None):
 			end_day = int(m.end_day)
 			doc.start_date = project_start_date + timedelta(days=((start_day * project_duration_days) / 60))
 			doc.end_date = project_start_date + timedelta(days=((end_day * project_duration_days) / 60))
-			status_list = {}
-			for i in range(1, divisions+1):
-				status_list[i] = "Pending"
+			status_list = project.subdivision_list
+			# for i in range(1, divisions+1):
+			# 	status_list[i] = "Pending"
 			doc.status_list = status_list
 			doc.insert(ignore_permissions=True)

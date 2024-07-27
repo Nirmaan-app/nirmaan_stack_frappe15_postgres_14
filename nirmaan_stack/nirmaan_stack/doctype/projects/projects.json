@@ -24,7 +24,8 @@
   "project_work_details_section",
   "project_work_milestones",
   "project_scopes",
-  "subdivisions"
+  "subdivisions",
+  "subdivision_list"
  ],
  "fields": [
   {
@@ -142,11 +143,16 @@
    "fieldname": "subdivisions",
    "fieldtype": "Data",
    "label": "Subdivisions"
+  },
+  {
+   "fieldname": "subdivision_list",
+   "fieldtype": "JSON",
+   "label": "Subdivision List"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-07-24 15:28:25.850189",
+ "modified": "2024-07-27 12:43:28.821386",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

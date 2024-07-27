@@ -62,7 +62,8 @@ export default function Items() {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("item_name")}
+                            {row.getValue("item_name")} {row.getValue("make_name") ? "-" + row.getValue("make_name") : ""}
+                            {/* `${item.item_name} ${ ? "-" + row.getValue("make_name") : ""}` */}
                         </div>
                     )
                 }
@@ -119,12 +120,18 @@ export default function Items() {
 
     const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList("Items", {
 
-        fields: ["name", "item_name", "unit_name", "category", "creation"],
+        fields: ["name", "item_name", "unit_name", "make_name", "category", "creation"],
+        limit: 1000
+    })
+    const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
+
+        fields: ["category_name", "work_package"],
         limit: 1000
     })
 
 
     const [curItem, setCurItem] = useState('');
+    const [make, setMake] = useState('');
     const [unit, setUnit] = useState('');
     const [category, setCategory] = useState('');
 
@@ -135,7 +142,8 @@ export default function Items() {
         const itemData = {
             category: category,
             unit_name: unit,
-            item_name: curItem
+            item_name: curItem,
+            make_name: make
         }
         createDoc('Items', itemData)
             .then(() => {
@@ -143,6 +151,7 @@ export default function Items() {
                 setUnit('')
                 setCurItem('')
                 setCategory('')
+                setMake('')
                 mutate()
             }).catch(() => {
                 console.log("submit_error", error)
@@ -194,6 +203,16 @@ export default function Items() {
                                         />
                                     </div>
                                     <div className="mb-4">
+                                        <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name</label>
+                                        <Input
+                                            type="text"
+                                            id="makeName"
+                                            value={make}
+                                            onChange={(e) => setMake(e.target.value)}
+                                            className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                        />
+                                    </div>
+                                    <div className="mb-4">
                                         <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
                                         <Select onValueChange={(value) => setUnit(value)}>
                                             <SelectTrigger className="w-[180px]">
@@ -226,14 +245,17 @@ export default function Items() {
                                                 <SelectValue className="text-gray-200" placeholder="Select Category" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="Miscellaneous">Miscellaneous</SelectItem>
+                                                {category_list?.map((cat)=>{
+                                                    return <SelectItem value={cat.category_name}>{cat.category_name}-({cat.work_package})</SelectItem>
+                                                })}
+                                                {/* <SelectItem value="Miscellaneous">Miscellaneous</SelectItem>
                                                 <SelectItem value="Conduits">Conduits</SelectItem>
                                                 <SelectItem value="Wires & Cables">Wires & Cables</SelectItem>
                                                 <SelectItem value="Switch Sockets">Switch Sockets</SelectItem>
                                                 <SelectItem value="Accessories">Accessories</SelectItem>
                                                 <SelectItem value="Lighting">Lighting</SelectItem>
                                                 <SelectItem value="Raceway & Cabletray">Raceway & Cabletray</SelectItem>
-                                                <SelectItem value="Switch Gear">Switch Gear</SelectItem>
+                                                <SelectItem value="Switch Gear">Switch Gear</SelectItem> */}
                                             </SelectContent>
                                         </Select>
                                     </div>
