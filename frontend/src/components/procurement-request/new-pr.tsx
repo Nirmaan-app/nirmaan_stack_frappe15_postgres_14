@@ -155,15 +155,17 @@ export const NewPR = () => {
     const handleAdd = () => {
         if (curItem && Number(quantity)) {
             let itemIdToUpdate = null;
+            let itemMake = null;
             item_list.forEach((item) => {
                 if (item.item_name === curItem) {
                     itemIdToUpdate = item.name;
+                    itemMake = item.make_name;
                 }
             });
             if (itemIdToUpdate) {
                 const curRequest = [...orderData.procurement_list.list];
                 const curValue = {
-                    item: curItem,
+                    item: `${curItem}${itemMake ? "-"+itemMake : ""}`,
                     name: itemIdToUpdate,
                     unit: unit,
                     quantity: Number(quantity),
@@ -369,7 +371,7 @@ export const NewPR = () => {
                     <div className="w-1/2 md:w-2/3">
                         <h5 className="text-xs text-gray-400">Items</h5>
                         {/* <DropdownMenu items={item_lists} onSelect={handleSelect} /> */}
-                        <ReactSelect value={{ value: curItem, label: `${curItem}-${make}` }} options={item_options} onChange={handleChange} />
+                        <ReactSelect value={{ value: curItem, label: `${curItem}${make ? "-"+make : ""}` }} options={item_options} onChange={handleChange} />
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">UOM</h5>
