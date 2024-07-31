@@ -63,7 +63,7 @@ export const ProjectManager = () => {
     })
     const { data: project_work_milestones_list, isLoading: project_work_milestones_list_loading, error: project_work_milestones_list_error, mutate: project_work_milestones_list_mutate } = useFrappeGetDocList("Project Work Milestones",
         {
-            fields: ['name', 'project', 'work_package', 'scope_of_work', 'milestone', 'start_date', 'end_date', 'status'],
+            fields: ['name', 'project', 'work_package', 'scope_of_work', 'milestone', 'start_date', 'end_date', 'status', 'status_list'],
             limit: 1000
         });
 
@@ -200,42 +200,11 @@ export const ProjectManager = () => {
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Project Status Details</h2>
                 </div>
                 <div className="gap-4 rounded-lg">
-                    {/* <DropdownMenu2 items={project_lists} onSelect={handleProjectSelect} /> */}
                     <ReactSelect options={project_options} onChange={handleChange} />
-
                     {orderData.project && <div className="container mx-0 px-0 pt-8">
-                        <div className="text-lg pb-2 font-semibold">Today's Task</div>
                         <table className="table-auto w-full">
                             <thead>
-                                <tr className="w-full border-b">
-                                    <th className="px-1 py-1 text-sm text-gray-600">Milestone</th>
-                                    <th className="px-1 py-1 text-sm text-gray-600">Package</th>
-                                    <th className="px-1 py-1 text-sm text-gray-600">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="w-full">
-                                {project_work_milestones_list?.map((item) => {
-                                    console.log(item.start_date)
-                                    const startDate = new Date(item.start_date);
-                                    const today = new Date();
-                                    const futureDate = new Date(today);
-                                    futureDate.setDate(today.getDate() + 30);
-                                    if (item.project === orderData.project && (startDate <= futureDate)) {
-                                        return <tr key={item.name} >
-                                            <td className="border-b-2 px- py-1 text-sm text-center text-blue-600 cursor-pointer" onClick={() => handleMilestone(item.name)}>{item.milestone}</td>
-                                            <td className="border-b-2 px- py-1 text-sm text-center">{item.work_package}-({item.scope_of_work})</td>
-                                            <td className="border-b-2 px- py-1 text-sm text-center">{item?.status ? item?.status : "Pending"}</td>
-                                        </tr>
-                                    }
-                                })}
-                            </tbody>
-                        </table>
-                    </div>}
-                    {orderData.project && <div className="container mx-0 px-0 pt-8">
-                        <div className="text-lg pb-2 font-semibold">All Task</div>
-                        <table className="table-auto w-full">
-                            <thead>
-                                <tr className="w-full border-b">
+                                <tr className="w-full border-b pb-2">
                                     <th className="px-1 py-1 text-sm text-gray-600">Milestone</th>
                                     <th className="px-1 py-1 text-sm text-gray-600">Package</th>
                                     <th className="px-1 py-1 text-sm text-gray-600">Status</th>
@@ -244,10 +213,39 @@ export const ProjectManager = () => {
                             <tbody className="w-full">
                                 {project_work_milestones_list?.map((item) => {
                                     if (item.project === orderData.project) {
-                                        return <tr key={item.name} >
-                                            <td className="border-b-2 px- py-1 text-sm text-center">{item.milestone}</td>
-                                            <td className="border-b-2 px- py-1 text-sm text-center">{item.work_package}-({item.scope_of_work})</td>
-                                            <td className="border-b-2 px- py-1 text-sm text-center">{item?.status ? item?.status : "Pending"}</td>
+                                        return <tr className="">
+                                            <th colSpan="3">
+                                            <div className="p-3 mb-2 border rounded-lg">
+                                                <tr key={item.name}>
+                                                    <th colSpan="3">
+                                                        <div className="flex justify-between py-1">
+                                                            <div className="text-xs whitespace-nowrap text-gray-400">{item?.start_date} to {item?.end_date}</div>
+                                                            <div className="text-blue-500 underline" onClick={()=>handleMilestone(item.name)}>Update</div>
+                                                        </div>
+                                                    </th>
+                                                    
+                                                </tr>
+                                                <tr>
+                                                    <th colSpan="3">
+                                                        <div className="flex justify-between space-x-4 py-1">
+                                                            <div className="text-sm font-semibold">{item?.scope_of_work}</div>
+                                                            <div className="text-sm font-semibold">{item.work_package}</div>
+                                                            <div className="text-sm font-semibold">{item.status}</div>
+                                                        </div>
+                                                    </th>
+                                                </tr>
+                                                {item.status_list.list.map((status) => {
+                                                    return <tr>
+                                                        <th colSpan="3">
+                                                            <div className="flex justify-between py-1">
+                                                                <div className="text-sm font-normal">{status.name}</div>
+                                                                <div className="text-sm font-normal text-red-400">{status.status}</div>
+                                                            </div>
+                                                        </th>
+                                                    </tr>
+                                                })}
+                                            </div>
+                                            </th>
                                         </tr>
                                     }
                                 })}
@@ -262,161 +260,71 @@ export const ProjectManager = () => {
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Milestone Details</h2>
                 </div>
                 <div className="gap-4 rounded-lg">
-                    <div className="border-l border-green-400 pl-2 py-2 my-4">
-                        <div className="flex justify-between space-x-6">
-                            <div className="font-semibold text-sm">{curMilestone?.milestone}</div>
+                    <div className="py-2 my-4">
+                        <div className="flex justify-between">
                             <div className="text-xs whitespace-nowrap text-gray-400">{curMilestone?.start_date} to {curMilestone?.end_date}</div>
+                            <div className="font-bold text-blue-400 underline" onClick={() => setPage("milestonelist")}>Save</div>
                         </div>
-                        <div className="text-sm text-gray-600">Scope - {curMilestone?.scope_of_work}</div>
+                        <div className="font-bold pt-2">{curMilestone?.milestone}</div>
+
+                        {/* <div className="text-sm text-gray-600">Scope - {curMilestone?.scope_of_work}</div> */}
                         <div className="text-sm text-gray-600">{curMilestone?.work_package}</div>
-                        <div className="font-semibold text-sm my-2">Common Area</div>
-                        <div className="flex justify-between border rounded-lg text-sm px-2 relative">
-                            <div className="flex-1 text-center py-2">
-                                <label className="flex items-center justify-center">
-                                    <input
-                                        type="radio"
-                                        name="common area"
-                                        value="wip"
-                                        id="wip"
-                                        checked={curMilestone?.status == 'wip'}
-                                        onChange={() => handleMilestoneChange('wip', curMilestone.name)}
-                                        className="text-center mr-1"
-                                    />
-                                    WIP
-                                </label>
-                            </div>
-                            <div className="flex-1 text-center relative py-2">
-                                <label className="flex items-center justify-center">
-                                    <input
-                                        type="radio"
-                                        name="common area"
-                                        value="completed"
-                                        id="completed"
-                                        checked={curMilestone?.status === 'completed'}
-                                        onChange={() => handleMilestoneChange('completed', curMilestone.name)}
-                                        className="text-center mr-1"
-                                    />
-                                    Completed
-                                </label>
-                                <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
-                            </div>
-                            <div className="flex-1 text-center relative py-2">
-                                <label className="flex items-center justify-center">
-                                    <input
-                                        type="radio"
-                                        name="common area"
-                                        value="halted"
-                                        id="halted"
-                                        checked={curMilestone?.status === 'halted'}
-                                        onChange={() => handleMilestoneChange('halted', curMilestone.name)}
-                                        className="text-center mr-1"
-                                    />
-                                    Halted
-                                </label>
-                                <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
-                            </div>
-                        </div>
-                        {/* <div className="font-semibold text-sm my-2">Area 1</div>
+                        {curMilestone?.status_list.list.map((item) => {
+                            return <><div className="font-semibold text-sm my-2">{item.name}</div>
                             <div className="flex justify-between border rounded-lg text-sm px-2 relative">
                                 <div className="flex-1 text-center py-2">
-                                <label  className="flex items-center justify-center">
-                                    <input
-                                        type="radio"
-                                        name="Area 1"
-                                        value="wip2"
-                                        id="wip2"
-                                        // checked={selectedOption === 'wip2'}
-                                        onChange={() => handleChange('wip2', 'param1')}
-                                        className="text-center mr-1"
-                                    />
-                                    WIP
-                                </label>
+                                    <label className="flex items-center justify-center">
+                                        <input
+                                            type="radio"
+                                            name="common area"
+                                            value="wip"
+                                            id="wip"
+                                            checked={item?.status == 'wip'}
+                                            onChange={() => handleMilestoneChange('wip', curMilestone.name)}
+                                            className="text-center mr-1"
+                                        />
+                                        WIP
+                                    </label>
                                 </div>
                                 <div className="flex-1 text-center relative py-2">
-                                <label  className="flex items-center justify-center">
-                                    <input
-                                        type="radio"
-                                        name="Area 1"
-                                        value="completed2"
-                                        id="completed2"
-                                        // checked={selectedOption === 'completed2'}
-                                        onChange={() => handleChange('completed2', 'param1')}
-                                        className="text-center mr-1"
-                                    />
-                                    Completed
-                                </label>
+                                    <label className="flex items-center justify-center">
+                                        <input
+                                            type="radio"
+                                            name="common area"
+                                            value="completed"
+                                            id="completed"
+                                            checked={item?.status === 'completed'}
+                                            onChange={() => handleMilestoneChange('completed', curMilestone.name)}
+                                            className="text-center mr-1"
+                                        />
+                                        Completed
+                                    </label>
                                     <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
                                 </div>
                                 <div className="flex-1 text-center relative py-2">
-                                <label  className="flex items-center justify-center">
-                                    <input
-                                        type="radio"
-                                        name="Area 1"
-                                        value="halted2"
-                                        id="halted2"
-                                        // checked={selectedOption === 'halted2'}
-                                        onChange={() => handleChange('halted2', 'param1')}
-                                        className="text-center mr-1"
-                                    />
-                                    Halted
-                                </label>
+                                    <label className="flex items-center justify-center">
+                                        <input
+                                            type="radio"
+                                            name="common area"
+                                            value="halted"
+                                            id="halted"
+                                            checked={item?.status === 'halted'}
+                                            onChange={() => handleMilestoneChange('halted', curMilestone.name)}
+                                            className="text-center mr-1"
+                                        />
+                                        Halted
+                                    </label>
                                     <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
                                 </div>
-                            </div>
-                            <div className="font-semibold text-sm my-2">Area 2</div>
-                            <div className="flex justify-between border rounded-lg text-sm px-2 relative">
-                                <div className="flex-1 text-center py-2">
-                                <label  className="flex items-center justify-center">
-                                    <input
-                                        type="radio"
-                                        name="Area 2"
-                                        value="wip3"
-                                        id="wip3"
-                                        // checked={selectedOption === 'wip3'}
-                                        onChange={() => handleChange('wip3', 'param1')}
-                                        className="text-center mr-1"
-                                    />
-                                    WIP
-                                </label>
-                                </div>
-                                <div className="flex-1 text-center relative py-2">
-                                <label  className="flex items-center justify-center">
-                                    <input
-                                        type="radio"
-                                        name="Area 2"
-                                        value="completed3"
-                                        id="completed3"
-                                        // checked={selectedOption === 'completed3'}
-                                        onChange={() => handleChange('completed3', 'param1')}
-                                        className="text-center mr-1"
-                                    />
-                                    Completed
-                                </label>
-                                    <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
-                                </div>
-                                <div className="flex-1 text-center relative py-2">
-                                <label  className="flex items-center justify-center">
-                                    <input
-                                        type="radio"
-                                        name="Area 2"
-                                        value="halted3"
-                                        id="halted3"
-                                        // checked={selectedOption === 'halted3'}
-                                        onChange={() => handleChange('halted3', 'param1')}
-                                        className="text-center mr-1"
-                                    />
-                                    Halted
-                                </label>
-                                    <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
-                                </div>
-                            </div> */}
+                            </div></>
+                        })}
                     </div>
                 </div>
-                <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                {/* <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
                     <button className="bg-red-500 text-white font-normal py-2 px-6 rounded-lg" onClick={() => setPage("milestonelist")}>
                         Save
                     </button>
-                </div>
+                </div> */}
             </div>}
             </MainLayout>
         </>
