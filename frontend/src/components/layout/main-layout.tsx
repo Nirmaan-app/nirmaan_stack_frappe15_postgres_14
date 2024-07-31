@@ -1,3 +1,4 @@
+import Dashboard from "@/pages/dashboard";
 import { NavBar } from "../nav/nav-bar";
 import { Sidebar } from "../sidebar-nav";
 
@@ -5,7 +6,8 @@ import { Sidebar } from "../sidebar-nav";
 export function MainLayout({ children }: any) {
     return (
         <div>
-            <NavBar />
+            {/* <Dashboard /> */}
+            {/* <NavBar /> */}
             <div className="flex">
                 <div className="rounded-lg m-1 p-1 ">
                     <Sidebar className="" />

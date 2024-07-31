@@ -1,7 +1,7 @@
 // import { useState } from 'react'
 import { FrappeProvider } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
-import { Route, RouterProvider, createBrowserRouter, createHashRouter, createRoutesFromElements } from 'react-router-dom'
+import { Routes, Route, RouterProvider, createBrowserRouter, createHashRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
 import Login from './pages/auth/old-login'
 import Projects from './pages/projects'
@@ -48,96 +48,110 @@ import { NewVendor } from './pages/new-vendor'
 import ListPR from './components/procurement-request/list-pr'
 import { EditVendor } from './pages/edit-vendor'
 import EditItems from './pages/items-edit'
+import { Component } from './pages/auth/Login'
+import { FC } from 'react'
+import { MainLayout } from './components/layout/main-layout'
+import { NavBar } from './components/nav/nav-bar'
 // import { NewMilestone } from './components/new-milestone'
 
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
 		<>
-			{/* <Route path='/login' lazy={() => import('@/pages/auth/Login')} /> */}
-			<Route path='/login' element={<Login />} />
-			<Route path='/forgot-password' lazy={() => import('@/pages/auth/forgot-password')} />
-			<Route path='/' element={<ProtectedRoute />}>
-				<Route index element={<Dashboard />} />
+ {/* const AppContent: FC = () => (
+ 	<Routes> */}
+	 {/* <Route path='/login' lazy={() => import('@/pages/auth/Login')} /> */}
+	 {/* <Route path='/login' element={<Component />} /> */}
+	<Route path='/login' element={<Login />} />
 
-				<Route path="pdf" element={<PDF />} />
-				{/* <Route path="/new-pr/:id" element={<NewPR />} /> */}
-				{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
-				{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
-				<Route path="approve-order" element={<ApprovePR />} />
-				<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
-				<Route path="approve-vendor" element={<ApproveSelectVendor />} />
-				<Route path="approve-vendor/:orderId" element={<ApproveVendor />} />
-				<Route path="approve-sent-back" element={<ApproveSelectSentBack />} />
-				<Route path="approve-sent-back/:id" element={<ApproveSentBack />} />
-				<Route path="procure-request" element={<PRList />} />
-				<Route path="update-quote" element={<QuoteUpdateSelect />} />
-				<Route path="select-vendor-list" element={<SelectVendorList />} />
-				<Route path="sent-back-request" element={<SentBackRequest />} />
-				<Route path="sent-back-request/:id" element={<SentBackUpdateQuote />} />
-				<Route path="sent-back-request/select-vendor/:id" element={<SentBackSelectVendor />} />
-				<Route path="/procure-request/:orderId" element={<ProcurementOrder />} />
-				<Route path="/procure-request/quote-update/:orderId" element={<UpdateQuote />} />
-				<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
-				<Route path="release-po" element={<ReleasePOSelect />} />
-				<Route path="/release-po/:id" element={<ReleasePO />} />
+	<Route path='/forgot-password' lazy={() => import('@/pages/auth/forgot-password')} />
+	<Route path='/' element={<ProtectedRoute />}>
+		{/* <Route index element={<Dashboard />} /> */}
+		<Route index element={<NavBar/>} />
+		{/* <Route index element={<MainLayout />} /> */}
+
+		<Route path="pdf" element={<PDF />} />
+		{/* <Route path="/new-pr/:id" element={<NewPR />} /> */}
+		{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
+		{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
+		<Route path="approve-order" element={<ApprovePR />} />
+		<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
+		<Route path="approve-vendor" element={<ApproveSelectVendor />} />
+		<Route path="approve-vendor/:orderId" element={<ApproveVendor />} />
+		<Route path="approve-sent-back" element={<ApproveSelectSentBack />} />
+		<Route path="approve-sent-back/:id" element={<ApproveSentBack />} />
+		<Route path="procure-request" element={<PRList />} />
+		<Route path="update-quote" element={<QuoteUpdateSelect />} />
+		<Route path="select-vendor-list" element={<SelectVendorList />} />
+		<Route path="sent-back-request" element={<SentBackRequest />} />
+		<Route path="sent-back-request/:id" element={<SentBackUpdateQuote />} />
+		<Route path="sent-back-request/select-vendor/:id" element={<SentBackSelectVendor />} />
+		<Route path="/procure-request/:orderId" element={<ProcurementOrder />} />
+		<Route path="/procure-request/quote-update/:orderId" element={<UpdateQuote />} />
+		<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
+		<Route path="release-po" element={<ReleasePOSelect />} />
+		<Route path="/release-po/:id" element={<ReleasePO />} />
 
 
-				<Route path="projects">
-					<Route index element={<Projects />} />
-					<Route path="new" element={<EditProject />} />
-					<Route
-						path=":projectId"
-						// loader={(({ params }) => {
-						// 	console.log(params.projectId)
-						// })}
-						// action={(({ params }) => {})}
-						lazy={() => import('@/pages/project')}
-					/>
-					<Route path=":projectId/edit" element={<EditProjectForm />} />
-				</Route>
+		<Route path="projects">
+			<Route index element={<Projects />} />
+			<Route path="new" element={<EditProject />} />
+			<Route
+				path=":projectId"
+				// loader={(({ params }) => {
+				// 	console.log(params.projectId)
+				// })}
+				// action={(({ params }) => {})}
+				lazy={() => import('@/pages/project')}
+			/>
+			<Route path=":projectId/edit" element={<EditProjectForm />} />
+		</Route>
 
-				<Route path="users">
-					<Route index element={<Users />} />
-					<Route path="new" element={<UserForm />} />
-					<Route path=":id" element={<Profile />} />
-				</Route>
+		<Route path="users">
+			<Route index element={<Users />} />
+			<Route path="new" element={<UserForm />} />
+			<Route path=":id" element={<Profile />} />
+		</Route>
 
-				<Route path="wp" element={<WorkPackages />} />
+		<Route path="wp" element={<WorkPackages />} />
 
-				<Route path="items" >
-					<Route index element={<Items />} />
-					<Route path=":id" element={<EditItems />} />
-				</Route>
+		<Route path="items" >
+			<Route index element={<Items />} />
+			<Route path=":id" element={<EditItems />} />
+		</Route>
 
-				<Route path="vendors">
-					<Route index element={<Vendors />} />
-					<Route path="new" element={<NewVendor />} />
-					<Route path=":id" element={<EditVendor />} />
-				</Route>
+		<Route path="vendors">
+			<Route index element={<Vendors />} />
+			<Route path="new" element={<NewVendor />} />
+			<Route path=":id" element={<EditVendor />} />
+		</Route>
 
-				<Route path="roles">
-					<Route index element={<Roles />} />
-				</Route>
-				<Route path="customers" >
-					<Route index element={<Customers />} />
-					{/* <Route path="edit" element={<EditCustomer />} /> */}
-				</Route>
+		<Route path="roles">
+			<Route index element={<Roles />} />
+		</Route>
+		<Route path="customers" >
+			<Route index element={<Customers />} />
+			{/* <Route path="edit" element={<EditCustomer />} /> */}
+		</Route>
 
-				{/* Procurement Request Paths */}
-				<Route path="procurement-request">
-					<Route index element={<ListPR />} />
-					<Route path=":id/new" element={<NewPR />} />
-					<Route path=":id" lazy={() => import('@/components/pr-summary')} />
-				</Route>
+		{/* Procurement Request Paths */}
+		<Route path="procurement-request">
+			<Route index element={<ListPR />} />
+			<Route path=":id/new" element={<NewPR />} />
+			<Route path=":id" lazy={() => import('@/components/pr-summary')} />
+		</Route>
 
-				<Route path="debug">
-					<Route index element={<Debug />} />
-				</Route>
+		<Route path="debug">
+			<Route index element={<Debug />} />
+		</Route>
 
-				{/* <Route path="testlogin" element={<AuthenticationPage />} /> */}
-			</Route >
-		</>
+		{/* <Route path="testlogin" element={<AuthenticationPage />} /> */}
+	</Route >
+	</>
+// {/* </Routes>
+
+// ) */}
+		
 	), {
 	basename: `/${import.meta.env.VITE_BASE_NAME}` ?? "",
 }
@@ -146,7 +160,7 @@ const router = createBrowserRouter(
 
 
 
-function App() {
+const App: FC = () => {
 	// Sitename support for frappe v15
 	const getSiteName = () => {
 		// @ts-ignore
@@ -167,9 +181,10 @@ function App() {
 			<UserProvider>
 				<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
 					<RouterProvider router={router} />
+					{/* <AppContent /> */}
 				</ThemeProvider>
-			</UserProvider>
-		</FrappeProvider>
+		 	</UserProvider>
+		 </FrappeProvider>
 	)
 }
 
