@@ -110,7 +110,7 @@ export default function Users() {
         []
     )
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-6">
                 {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
@@ -169,6 +169,6 @@ export default function Users() {
                     <DataTable columns={columns} data={data || []} />
                 </div>
             </div>
-       </MainLayout>
+    //    </MainLayout>
     )
 }

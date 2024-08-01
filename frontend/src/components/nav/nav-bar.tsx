@@ -7,7 +7,7 @@ export const NavBar = () => {
     return (
         <>
             {/* NAVBAR */}
-            <div className="mt-[100px]">
+            <div className="">
                 <div className="border-b">
                     <div className="flex h-16 items-center px-2 md:px-4">
                         <MainNav className="mx-2 md:mx-6"/>

@@ -287,7 +287,8 @@ export const ProjectLeadComponent = () => {
     }
 
     return (
-        <MainLayout>
+        // <MainLayout>
+        <>
             {page == 'categorylist' &&
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-6 pt-6">
@@ -674,6 +675,7 @@ export const ProjectLeadComponent = () => {
                     })}
                 </div>
             </div>}
-        </MainLayout>
+            </>
+        // </MainLayout>
     )
 }

@@ -192,7 +192,7 @@ export const EditVendor = () => {
     }
 
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="p-4">
                 <div className="space-y-0.5">
                     <div className="flex space-x-2">
@@ -411,6 +411,6 @@ export const EditVendor = () => {
                     </form>
                 </Form>
             </div>
-        </MainLayout>
+        // </MainLayout>
     )
 }

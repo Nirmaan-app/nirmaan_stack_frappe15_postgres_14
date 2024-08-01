@@ -115,7 +115,7 @@ export default function Projects() {
 
     return (
 
-        <MainLayout>
+        // <MainLayout>
             <div className="flex-1 space-x-2 md:space-y-4 p-6 pt-6">
                 {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
@@ -166,7 +166,7 @@ export default function Projects() {
                     <DataTable columns={columns} data={data || []} />
                 </div>
             </div>
-        </MainLayout>
+        // </MainLayout>
 
     )
 }

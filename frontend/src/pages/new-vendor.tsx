@@ -168,7 +168,7 @@ export const NewVendor = () => {
     }
 
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="p-4">
                 <div className="space-y-0.5">
                     <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
@@ -382,6 +382,6 @@ export const NewVendor = () => {
                     </form>
                 </Form>
             </div>
-        </MainLayout>
+        // </MainLayout>
     )
 }

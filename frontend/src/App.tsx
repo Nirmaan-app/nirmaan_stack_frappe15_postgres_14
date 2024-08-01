@@ -28,7 +28,7 @@ import { ApproveSentBack } from './pages/approve-sent-back'
 import { PDF } from './pages/pdf'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
-import { ProtectedRoute } from './utils/auth/ProtectedRoute'
+import { AdminRoute, LeadRoute, ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
 
 //import AuthenticationPage from './pages/auth/login-shadcn'
@@ -48,33 +48,33 @@ import { NewVendor } from './pages/new-vendor'
 import ListPR from './components/procurement-request/list-pr'
 import { EditVendor } from './pages/edit-vendor'
 import EditItems from './pages/items-edit'
-import { Component } from './pages/auth/Login'
 import { FC } from 'react'
 import { MainLayout } from './components/layout/main-layout'
-import { NavBar } from './components/nav/nav-bar'
+
 // import { NewMilestone } from './components/new-milestone'
 
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
 		<>
- {/* const AppContent: FC = () => (
- 	<Routes> */}
 	 {/* <Route path='/login' lazy={() => import('@/pages/auth/Login')} /> */}
 	 {/* <Route path='/login' element={<Component />} /> */}
 	<Route path='/login' element={<Login />} />
 
 	<Route path='/forgot-password' lazy={() => import('@/pages/auth/forgot-password')} />
 	<Route path='/' element={<ProtectedRoute />}>
-		{/* <Route index element={<Dashboard />} /> */}
-		<Route index element={<NavBar/>} />
-		{/* <Route index element={<MainLayout />} /> */}
+		
+		<Route path='/' element={<MainLayout />}>
 
+		<Route index element={<Dashboard />} />
+
+		
 		<Route path="pdf" element={<PDF />} />
 		{/* <Route path="/new-pr/:id" element={<NewPR />} /> */}
 		{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
 		{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
 		<Route path="approve-order" element={<ApprovePR />} />
+		
 		<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
 		<Route path="approve-vendor" element={<ApproveSelectVendor />} />
 		<Route path="approve-vendor/:orderId" element={<ApproveVendor />} />
@@ -144,13 +144,12 @@ const router = createBrowserRouter(
 		<Route path="debug">
 			<Route index element={<Debug />} />
 		</Route>
+		</Route>
 
 		{/* <Route path="testlogin" element={<AuthenticationPage />} /> */}
 	</Route >
 	</>
-// {/* </Routes>
 
-// ) */}
 		
 	), {
 	basename: `/${import.meta.env.VITE_BASE_NAME}` ?? "",
@@ -181,7 +180,7 @@ const App: FC = () => {
 			<UserProvider>
 				<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
 					<RouterProvider router={router} />
-					{/* <AppContent /> */}
+					
 				</ThemeProvider>
 		 	</UserProvider>
 		 </FrappeProvider>

@@ -10,6 +10,7 @@ export default defineConfig({
 	server: {
 		port: 8080,
 		proxy: proxyOptions,
+		// host: '0.0.0.0'
 	},
 	resolve: {
 		alias: {

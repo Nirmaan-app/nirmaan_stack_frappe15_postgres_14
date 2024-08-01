@@ -106,7 +106,7 @@ export default function Projects() {
         mutate()
     }
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-6">
                 {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
@@ -201,6 +201,6 @@ export default function Projects() {
                     )}
                 </div>
             </div>
-        </MainLayout>
+        // </MainLayout>
     )
 }

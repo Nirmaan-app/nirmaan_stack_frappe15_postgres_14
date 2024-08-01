@@ -112,7 +112,7 @@ export const ReleasePO = () => {
 
     return (
         <>
-            <MainLayout>
+            {/* <MainLayout> */}
                 <div className="flex">
                     <div className="w-[30%] mx-auto mt-10">
                         <div className="font-semibold py-4">Selected PO: {(orderData?.name)?.toUpperCase()}</div>
@@ -270,7 +270,7 @@ export const ReleasePO = () => {
                         </div>
                     </div>
                 </div>
-            </MainLayout>
+            {/* </MainLayout> */}
             {/* <button onClick={handlePrint} className="m-8 p-2 bg-blue-500 text-white">Print</button> */}
         </>
     )

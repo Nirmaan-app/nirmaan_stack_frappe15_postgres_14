@@ -92,7 +92,7 @@ export const UserForm = () => {
 
 
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-6">
                 <div className="flex items-center justify-between mb-2 space-y-2">
                     <div className="flex">
@@ -280,6 +280,6 @@ export const UserForm = () => {
                     </form>
                 </Form>
             </div>
-        </MainLayout>
+        // </MainLayout>
     )
 }

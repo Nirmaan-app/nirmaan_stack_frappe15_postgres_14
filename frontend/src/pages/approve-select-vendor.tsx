@@ -144,7 +144,7 @@ export const ApproveSelectVendor = () => {
     if (projects_loading || procurement_request_list_loading) return <h1>Loading</h1>
     if (procurement_request_list_error || projects_error) return <h1>Error</h1>
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center justify-between space-y-2">
@@ -182,6 +182,6 @@ export const ApproveSelectVendor = () => {
                     </div> */}
                 </div>
             </div>
-        </MainLayout>
+        // </MainLayout>
     )
 }

@@ -155,7 +155,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     if (isValidating || mile_isloading) return <h1>Loading...</h1>
     if (error || mile_error) return <h1>Error</h1>
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-4">
                 {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
@@ -441,6 +441,6 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                     <DataTable columns={columns} data={mile_data || []} />
                 </div>
             </div >
-        </MainLayout>
+        // </MainLayout>
     )
 }

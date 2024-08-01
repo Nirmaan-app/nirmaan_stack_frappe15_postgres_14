@@ -115,7 +115,8 @@ export const UpdateQuote = () => {
     }
 
     return (
-        <MainLayout>
+        // <MainLayout>
+        <>
             {page == 'quotation' &&
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
@@ -205,6 +206,7 @@ export const UpdateQuote = () => {
                         </div>
                     </div>
                 </div>}
-        </MainLayout>
+                </>
+        // </MainLayout>
     )
 }

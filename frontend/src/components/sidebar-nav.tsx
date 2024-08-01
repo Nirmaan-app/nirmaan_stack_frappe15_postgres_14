@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useContext } from "react";
 import {
     Building2,
     LayoutGrid,
@@ -12,12 +12,14 @@ import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 import { Separator } from "./ui/separator";
+import { UserContext } from '@/utils/auth/UserProvider';
 
 interface SidebarProps {
     className: string
+    
 }
 
-export function Sidebar({ className }: SidebarProps) {
+export function Sidebar({ className } : SidebarProps) {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const location = useLocation()
     const userData = useUserData()
@@ -49,7 +51,7 @@ export function Sidebar({ className }: SidebarProps) {
             >
                 <div className="space-y-4 py-2">
                     <div className="px-2 py-2">
-                        <Link to="/">
+                        {/* <Link to="/">
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -58,15 +60,17 @@ export function Sidebar({ className }: SidebarProps) {
                                 <LayoutGrid className="mr-2 h-4 w-4" />
                                 <span className={cn({ "text-white": isActive("/") })}>Dashboard</span>
                             </Button>
-                        </Link>
+                        </Link> */}
                         <Accordion type="multiple" defaultValue={["admin-actions", "pl-actions", "pe-actions"]} >
                             {(userData.user_id == "Administrator" || userData.role == "Nirmaan Admin Profile") && <AccordionItem value="admin-actions">
+                                {/* <Link to="/admin"> */}
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
                                         <Shapes className="mr-2 h-4 w-4" />
                                         Admin Options
                                     </Button>
                                 </AccordionTrigger>
+                                {/* </Link> */}
                                 <AccordionContent>
                                     <Link to="/projects">
                                         <Button
@@ -239,3 +243,273 @@ export function Sidebar({ className }: SidebarProps) {
         </>
     );
 }
+
+
+// import { useState } from "react";
+// import { Link, useLocation } from "react-router-dom";
+// import { cn } from "@/lib/utils";
+// import { Button } from "@/components/ui/button";
+// import { useUserData } from "@/hooks/useUserData";
+// import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
+// import { Separator } from "./ui/separator";
+// import {
+//     LayoutGrid,
+//     Shapes,
+//     Menu,
+//     X,
+// } from "lucide-react";
+
+// interface SidebarProps {
+//     className: string
+// }
+
+// export function Sidebar({ className }: SidebarProps) {
+//     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+//     const location = useLocation();
+//     const userData = useUserData();
+
+//     const toggleSidebar = () => {
+//         setIsSidebarOpen(!isSidebarOpen);
+//     };
+
+//     const isActive = (path: string) => location.pathname === path;
+
+//     return (
+//         <>
+//             <Button
+//                 variant="secondary"
+//                 size="sm"
+//                 className="md:hidden p-2 fixed top-4 left-4 z-50"
+//                 onClick={toggleSidebar}
+//                 aria-label="Toggle Menu"
+//             >
+//                 {isSidebarOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+//             </Button>
+
+//             <div
+//                 className={cn(
+//                     "pb-4 text-gray-500 transition-transform duration-300 ease-in-out",
+//                     isSidebarOpen ? "translate-x-0 bg-white" : "-translate-x-full",
+//                     "fixed md:relative md:translate-x-0 md:w-64 w-64 h-full z-40"
+//                 )}
+//             >
+//                 <div className="space-y-4 py-2">
+//                     <div className="px-2 py-2">
+//                         <Link to="/">
+//                             <Button
+//                                 variant="ghost"
+//                                 size="sm"
+//                                 disabled={isActive("/")}
+//                                 className={cn("px-2 text-xs w-full justify-start", { "bg-red-400": isActive("/") })}>
+//                                 <LayoutGrid className="mr-2 h-4 w-4" />
+//                                 Dashboard
+//                             </Button>
+//                         </Link>
+//                     </div>
+//                     <Separator />
+//                     <Accordion type="single" collapsible>
+//                         {(userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile") && (
+//                             <>
+//                                 <AccordionItem value="productManagement">
+//                                     <AccordionTrigger>
+//                                         <Shapes className="mr-2 h-4 w-4" />
+//                                         Product Management
+//                                     </AccordionTrigger>
+//                                     <AccordionContent>
+//                                         <div className="space-y-1">
+//                                             <Link to="/projects">
+//                                                 <Button
+//                                                     variant="ghost"
+//                                                     size="sm"
+//                                                     disabled={isActive("/products")}
+//                                                     className={cn("w-full justify-start text-xs", { "bg-red-400": isActive("/products") })}>
+//                                                     Product List
+//                                                 </Button>
+//                                             </Link>
+//                                             <Link to="/products/add">
+//                                                 <Button
+//                                                     variant="ghost"
+//                                                     size="sm"
+//                                                     disabled={isActive("/products/add")}
+//                                                     className={cn("w-full justify-start text-xs", { "bg-red-400": isActive("/products/add") })}>
+//                                                     Add Product
+//                                                 </Button>
+//                                             </Link>
+//                                         </div>
+//                                     </AccordionContent>
+//                                 </AccordionItem>
+//                             </>
+//                         )}
+//                         {userData.role === "Nirmaan Procurement Executive Profile" && (
+//                             <>
+//                                 <AccordionItem value="orderManagement">
+//                                     <AccordionTrigger>
+//                                         <Shapes className="mr-2 h-4 w-4" />
+//                                         Order Management
+//                                     </AccordionTrigger>
+//                                     <AccordionContent>
+//                                         <div className="space-y-1">
+//                                             <Link to="/orders">
+//                                                 <Button
+//                                                     variant="ghost"
+//                                                     size="sm"
+//                                                     disabled={isActive("/orders")}
+//                                                     className={cn("w-full justify-start text-xs", { "bg-red-400": isActive("/orders") })}>
+//                                                     Order List
+//                                                 </Button>
+//                                             </Link>
+//                                             <Link to="/orders/add">
+//                                                 <Button
+//                                                     variant="ghost"
+//                                                     size="sm"
+//                                                     disabled={isActive("/orders/add")}
+//                                                     className={cn("w-full justify-start text-xs", { "bg-red-400": isActive("/orders/add") })}>
+//                                                     Add Order
+//                                                 </Button>
+//                                             </Link>
+//                                         </div>
+//                                     </AccordionContent>
+//                                 </AccordionItem>
+//                             </>
+//                         )}
+//                     </Accordion>
+//                 </div>
+//             </div>
+//         </>
+//     );
+// }
+
+
+// import { useState } from "react";
+// import { Link, useLocation } from "react-router-dom";
+// import { cn } from "@/lib/utils";
+// import { Button } from "@/components/ui/button";
+// import { useUserData } from "@/hooks/useUserData";
+// import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
+// import { Separator } from "./ui/separator";
+// import {
+//     LayoutGrid,
+//     Shapes,
+//     Menu,
+//     X,
+// } from "lucide-react";
+
+// interface SidebarProps {
+//     className: string
+// }
+
+// export function Sidebar({ className }: SidebarProps) {
+//     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+//     const location = useLocation();
+//     const userData = useUserData();
+
+//     const toggleSidebar = () => {
+//         setIsSidebarOpen(!isSidebarOpen);
+//     };
+
+//     const isActive = (path: string) => location.pathname === path;
+
+//     return (
+//         <>
+//             <Button
+//                 variant="secondary"
+//                 size="sm"
+//                 className="md:hidden p-2 fixed top-4 left-4 z-50"
+//                 onClick={toggleSidebar}
+//                 aria-label="Toggle Menu"
+//             >
+//                 {isSidebarOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+//             </Button>
+
+//             <div
+//                 className={cn(
+//                     "pb-4 text-gray-500 transition-transform duration-300 ease-in-out",
+//                     isSidebarOpen ? "translate-x-0 bg-white" : "-translate-x-full",
+//                     "fixed md:relative md:translate-x-0 md:w-64 w-64 h-full z-40"
+//                 )}
+//             >
+//                 <div className="space-y-4 py-2">
+//                     <div className="px-2 py-2">
+//                         <Link to="/">
+//                             <Button
+//                                 variant="ghost"
+//                                 size="sm"
+//                                 disabled={isActive("/")}
+//                                 className={cn("px-2 text-xs w-full justify-start", { "bg-red-400": isActive("/") })}>
+//                                 <LayoutGrid className="mr-2 h-4 w-4" />
+//                                 Dashboard
+//                             </Button>
+//                         </Link>
+//                     </div>
+//                     <Separator />
+//                     <Accordion type="single" collapsible>
+//                         {(userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile") && (
+//                             <>
+//                                 <AccordionItem value="productManagement">
+//                                     <AccordionTrigger>
+//                                         <Shapes className="mr-2 h-4 w-4" />
+//                                         Product Management
+//                                     </AccordionTrigger>
+//                                     <AccordionContent>
+//                                         <div className="space-y-1">
+//                                             <Link to="/projects">
+//                                                 <Button
+//                                                     variant="ghost"
+//                                                     size="sm"
+//                                                     disabled={isActive("/products")}
+//                                                     className={cn("w-full justify-start text-xs", { "bg-red-400": isActive("/products") })}>
+//                                                     Product List
+//                                                 </Button>
+//                                             </Link>
+//                                             <Link to="/products/add">
+//                                                 <Button
+//                                                     variant="ghost"
+//                                                     size="sm"
+//                                                     disabled={isActive("/products/add")}
+//                                                     className={cn("w-full justify-start text-xs", { "bg-red-400": isActive("/products/add") })}>
+//                                                     Add Product
+//                                                 </Button>
+//                                             </Link>
+//                                         </div>
+//                                     </AccordionContent>
+//                                 </AccordionItem>
+//                             </>
+//                         )}
+//                         {userData.role === "Nirmaan Procurement Executive Profile" && (
+//                             <>
+//                                 <AccordionItem value="orderManagement">
+//                                     <AccordionTrigger>
+//                                         <Shapes className="mr-2 h-4 w-4" />
+//                                         Order Management
+//                                     </AccordionTrigger>
+//                                     <AccordionContent>
+//                                         <div className="space-y-1">
+//                                             <Link to="/orders">
+//                                                 <Button
+//                                                     variant="ghost"
+//                                                     size="sm"
+//                                                     disabled={isActive("/orders")}
+//                                                     className={cn("w-full justify-start text-xs", { "bg-red-400": isActive("/orders") })}>
+//                                                     Order List
+//                                                 </Button>
+//                                             </Link>
+//                                             <Link to="/orders/add">
+//                                                 <Button
+//                                                     variant="ghost"
+//                                                     size="sm"
+//                                                     disabled={isActive("/orders/add")}
+//                                                     className={cn("w-full justify-start text-xs", { "bg-red-400": isActive("/orders/add") })}>
+//                                                     Add Order
+//                                                 </Button>
+//                                             </Link>
+//                                         </div>
+//                                     </AccordionContent>
+//                                 </AccordionItem>
+//                             </>
+//                         )}
+//                     </Accordion>
+//                 </div>
+//             </div>
+//         </>
+//     );
+// }

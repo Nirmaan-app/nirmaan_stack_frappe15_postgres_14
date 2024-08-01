@@ -1,7 +1,8 @@
 import { useFrappeAuth, useSWRConfig } from 'frappe-react-sdk'
-import { FC, PropsWithChildren, useEffect } from 'react'
+import React, { FC, PropsWithChildren, useEffect } from 'react'
 import { createContext } from 'react'
 import { useState } from 'react'
+import { boolean } from 'zod'
 // import { useNavigate } from 'react-router-dom'
 
 interface UserContextProps {
@@ -10,6 +11,7 @@ interface UserContextProps {
     login: (username: string, password: string) => Promise<void>,
     logout: () => Promise<void>,
     updateCurrentUser: VoidFunction,
+    
 }
 
 export const UserContext = createContext<UserContextProps>({
@@ -25,6 +27,7 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
     const { mutate } = useSWRConfig()
     const { login, logout, currentUser, updateCurrentUser, isLoading } = useFrappeAuth()
     const [authStatus, setAuthStatus] = useState<'idle' | 'loggedOut' | 'loggedIn'>('idle')
+
     // const navigate  = useNavigate();
 
 

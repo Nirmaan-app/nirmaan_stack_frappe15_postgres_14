@@ -305,7 +305,8 @@ export const NewPR = () => {
     }
 
     return (
-        <MainLayout>
+        // <MainLayout>
+        <>
             {page == 'wplist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex-col items-center pt-1 pb-4">
                     {/* <ArrowLeft onClick={() => setPage('projectlist')} /> */}
@@ -605,6 +606,7 @@ export const NewPR = () => {
                     })}
                 </div>
             </div>}
-        </MainLayout>
+            </>
+        // </MainLayout>
     )
 }
