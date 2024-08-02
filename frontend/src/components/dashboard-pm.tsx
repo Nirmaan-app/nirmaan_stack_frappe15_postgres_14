@@ -14,6 +14,7 @@ import { useUserData } from "@/hooks/useUserData";
 import imageUrl from "@/assets/user-icon.jpeg"
 import { Button } from "./ui/button";
 import { MainLayout } from "./layout/main-layout";
+import NewMilestones from "./updates/NewMilestones";
 
 
 export const ProjectManager = () => {
@@ -133,7 +134,7 @@ export const ProjectManager = () => {
             {page == 'dashboard' && <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center space-y-2">
-                        <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Dashboard</h2>
+                        <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">PRs & MileStones</h2>
                     </div>
                     <div className="grid grid-cols-2 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center" onClick={() => navigate("/procurement-request")}>
@@ -194,13 +195,13 @@ export const ProjectManager = () => {
                 </div>
                 <div className="pt-10"></div>
             </div>}
-            {page == 'milestonelist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            {/* {page == 'milestonelist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">
                     <ArrowLeft onClick={() => setPage('dashboard')} />
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Project Status Details</h2>
                 </div>
                 <div className="gap-4 rounded-lg">
-                    {/* <DropdownMenu2 items={project_lists} onSelect={handleProjectSelect} /> */}
+                    //  <DropdownMenu2 items={project_lists} onSelect={handleProjectSelect} /> 
                     <ReactSelect options={project_options} onChange={handleChange} />
 
                     {orderData.project && <div className="container mx-0 px-0 pt-8">
@@ -255,7 +256,10 @@ export const ProjectManager = () => {
                         </table>
                     </div>}
                 </div>
-            </div>}
+            </div>
+            } */}
+
+             {page == 'milestonelist' && <NewMilestones />}
             {page == 'milestone' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">
                     <ArrowLeft onClick={() => setPage("milestonelist")} />
@@ -422,3 +426,4 @@ export const ProjectManager = () => {
         </>
     )
 }
+

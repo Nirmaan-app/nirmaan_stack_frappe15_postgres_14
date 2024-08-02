@@ -50,6 +50,7 @@ import { EditVendor } from './pages/edit-vendor'
 import EditItems from './pages/items-edit'
 import { FC } from 'react'
 import { MainLayout } from './components/layout/main-layout'
+import { ProjectManager } from './components/dashboard-pm'
 
 // import { NewMilestone } from './components/new-milestone'
 
@@ -74,6 +75,8 @@ const router = createBrowserRouter(
 		{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
 		{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
 		<Route path="approve-order" element={<ApprovePR />} />
+
+		<Route path='/prs&milestones' element={<ProjectManager />} />
 		
 		<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
 		<Route path="approve-vendor" element={<ApproveSelectVendor />} />

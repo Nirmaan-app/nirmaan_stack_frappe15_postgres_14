@@ -132,6 +132,15 @@ export function Sidebar({ className } : SidebarProps) {
                                     </Button>
                                 </AccordionTrigger>
                                 <AccordionContent>
+                                <Link to="/prs&milestones">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={isActive("/prs&milestones")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/prs&milestones") })}>
+                                            <span className={cn({ "text-white": isActive("/prs&milestones") })}>PRs & Milestones</span>
+                                        </Button>
+                                    </Link>
                                     <Link to="/approve-order">
                                         <Button
                                             variant="ghost"
