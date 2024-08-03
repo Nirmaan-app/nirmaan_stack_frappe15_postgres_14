@@ -19,7 +19,11 @@
   "vendor_gst",
   "order_list",
   "payment_terms_section",
-  "advance"
+  "advance",
+  "loading_charges",
+  "freight_charges",
+  "tracking_details_section",
+  "status"
  ],
  "fields": [
   {
@@ -94,17 +98,40 @@
   {
    "fieldname": "payment_terms_section",
    "fieldtype": "Section Break",
-   "label": "Payment Terms"
+   "label": "Payment Details "
   },
   {
+   "default": "0",
    "fieldname": "advance",
    "fieldtype": "Data",
    "label": "Advance"
+  },
+  {
+   "default": "0",
+   "fieldname": "loading_charges",
+   "fieldtype": "Data",
+   "label": "Loading Charges"
+  },
+  {
+   "default": "0",
+   "fieldname": "freight_charges",
+   "fieldtype": "Data",
+   "label": "Freight Charges"
+  },
+  {
+   "fieldname": "tracking_details_section",
+   "fieldtype": "Section Break",
+   "label": "Tracking Details"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-07-05 12:01:22.048488",
+ "modified": "2024-08-02 18:16:12.180628",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",
