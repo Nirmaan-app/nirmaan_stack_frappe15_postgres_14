@@ -173,7 +173,7 @@ export const NewVendor = () => {
                 <div className="space-y-0.5">
                     <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
                     <p className="text-muted-foreground">
-                        Fill out this to create a new Vendor
+                        Fill out to create a new Vendor
                     </p>
                 </div>
                 <Separator className="my-6" />

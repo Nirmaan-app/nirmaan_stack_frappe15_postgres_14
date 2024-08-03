@@ -11,7 +11,7 @@ export const ProtectedRoute = () => {
 
     const {role} = useUserData()
 
-    console.log("role1", role)
+    // console.log("role1", role)
 
     if (isLoading) {
         // return <h1>Loading Protected Routeeeee...

@@ -134,16 +134,17 @@ export const ProjectManager = () => {
             {page == 'dashboard' && <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center space-y-2">
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
                         <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">PRs & MileStones</h2>
                     </div>
                     <div className="grid grid-cols-2 gap-4 border border-gray-100 rounded-lg p-4">
-                        <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center" onClick={() => navigate("/procurement-request")}>
+                        <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer" onClick={() => navigate("/procurement-request")}>
                             <p className="text-center py-6 font-bold text-gray-500">Procurement Requests</p>
-                            <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p>
+                            {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p> */}
                         </div>
-                        <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center" onClick={() => setPage("milestonelist")}>
+                        <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer" onClick={() => setPage("milestonelist")}>
                             <p className="text-center py-6 font-bold text-gray-500">Milestones</p>
-                            <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p>
+                            {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p> */}
                         </div>
                     </div>
                 </div>

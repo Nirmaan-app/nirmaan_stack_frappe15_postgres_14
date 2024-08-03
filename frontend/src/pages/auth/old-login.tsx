@@ -38,7 +38,7 @@ export default function Login() {
     console.log(error)
 
     return (
-      <div className="mt-10">
+      <div className="w-full h-auto mt-[20%]">
         {isLoading ? <h1>Loading Loginnnnnnnnnn...</h1> :
 
           <Card className="mx-auto max-w-sm">

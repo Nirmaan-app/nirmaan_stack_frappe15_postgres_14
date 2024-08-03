@@ -15,27 +15,32 @@ import { Separator } from "./ui/separator";
 import { UserContext } from '@/utils/auth/UserProvider';
 
 interface SidebarProps {
-    className: string
+    className: string,
+    isSidebarOpen: boolean,
+    toggleSidebar: () => void,
+    setIsSidebarOpen: (isOpen: boolean) => void;
     
 }
 
-export function Sidebar({ className } : SidebarProps) {
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSidebar } : SidebarProps) {
+    // const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const location = useLocation()
     const userData = useUserData()
 
-    const toggleSidebar = () => {
-        setIsSidebarOpen(!isSidebarOpen);
-    };
+    // const toggleSidebar = () => {
+    //     setIsSidebarOpen(!isSidebarOpen);
+    // };
 
-    const isActive = (path: string) => location.pathname === path;
+    const isActive = (path: string) => {
+        location.pathname === path;
+    }
 
     return (
         <>
             {/* <Button
                 variant="secondary"
                 size="sm"
-                className="md:hidden p-2 fixed top-4 left-4 z-50"
+                className="md:hidden p-2 top-4 left-4 z-50"
                 onClick={toggleSidebar}
                 aria-label="Toggle Menu"
             >
@@ -51,16 +56,23 @@ export function Sidebar({ className } : SidebarProps) {
             >
                 <div className="space-y-4 py-2">
                     <div className="px-2 py-2">
-                        {/* <Link to="/">
+
+                        <div className="flex items-center justify-between w-full">
+                        <Link to="/">
                             <Button
                                 variant="ghost"
                                 size="sm"
+                                onClick={() => setIsSidebarOpen(false)}
                                 disabled={isActive("/")}
-                                className={cn("px-2 text-xs w-full justify-start", { "bg-red-400": isActive("/") })}>
+                                className={cn("px-2 text-xs w-[200px] justify-start", { "bg-red-400": isActive("/") })}>
                                 <LayoutGrid className="mr-2 h-4 w-4" />
                                 <span className={cn({ "text-white": isActive("/") })}>Dashboard</span>
                             </Button>
-                        </Link> */}
+                        </Link>
+
+                        {isSidebarOpen && <X onClick={toggleSidebar} className="h-5 w-5" />}
+
+                        </div>
                         <Accordion type="multiple" defaultValue={["admin-actions", "pl-actions", "pe-actions"]} >
                             {(userData.user_id == "Administrator" || userData.role == "Nirmaan Admin Profile") && <AccordionItem value="admin-actions">
                                 {/* <Link to="/admin"> */}
@@ -76,6 +88,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/projects")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/projects") })}>
                                             <span className={cn({ "text-white": isActive("/projects") })}>Projects</span>
@@ -85,6 +98,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/users")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/users") })}>
                                             <span className={cn({ "text-white": isActive("/users") })}>Users</span>
@@ -94,6 +108,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/wp")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/wp") })}>
                                             <span className={cn({ "text-white": isActive("/wp") })}>Work Packages</span>
@@ -106,6 +121,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/items")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/items") })}>
                                             <span className={cn({ "text-white": isActive("/items") })}>Items</span>
@@ -115,6 +131,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/vendors")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/vendors") })}>
                                             <span className={cn({ "text-white": isActive("/vendors") })}>Vendors</span>
@@ -136,6 +153,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/prs&milestones")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/prs&milestones") })}>
                                             <span className={cn({ "text-white": isActive("/prs&milestones") })}>PRs & Milestones</span>
@@ -145,6 +163,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/approve-order")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-order") })}>
                                             <span className={cn({ "text-white": isActive("/approve-order") })}>Approve PR</span>
@@ -154,6 +173,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/approve-vendor")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-vendor") })}>
                                             <span className={cn({ "text-white": isActive("/approve-vendor") })}>Approve Vendor</span>
@@ -163,6 +183,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/approve-sent-back")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-sent-back") })}>
                                             <span className={cn({ "text-white": isActive("/approve-sent-back") })}>Approve Sent Back</span>
@@ -182,6 +203,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/procure-request")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/procure-request") })}>
                                             <span className={cn({ "text-white": isActive("/procure-request") })}>New PR Request</span>
@@ -191,6 +213,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/update-quote")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/update-quote") })}>
                                             <span className={cn({ "text-white": isActive("/update-quote") })}>Update Quote</span>
@@ -200,6 +223,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/select-vendor-list")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/select-vendor-list") })}>
                                             <span className={cn({ "text-white": isActive("/select-vendor-list") })}>Select Vendor</span>
@@ -209,6 +233,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/release-po")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/release-po") })}>
                                             <span className={cn({ "text-white": isActive("/release-po") })}>Release PO</span>
@@ -228,6 +253,7 @@ export function Sidebar({ className } : SidebarProps) {
                                         <Button
                                             variant="ghost"
                                             size="sm"
+                                            onClick={() => setIsSidebarOpen(false)}
                                             disabled={isActive("/sent-back-request")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/sent-back-request") })}>
                                             <span className={cn({ "text-white": isActive("/sent-back-request") })}>New Sent Back</span>

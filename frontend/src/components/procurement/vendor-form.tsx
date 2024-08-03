@@ -104,8 +104,11 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
     });
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package']
+            fields: ['category_name', 'work_package'],
+            limit: 100
         });
+
+        // console.log("category list,", category_list)
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     // 2. Define a submit handler.
@@ -158,6 +161,8 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
             label: item.category_name,
             value: item.category_name
         })) || [];
+
+        // console.log("categoryoptions", category_options)
     const [categories, setCategories] = useState()
     const handleChange = (selectedOptions) => {
         setCategories(selectedOptions)

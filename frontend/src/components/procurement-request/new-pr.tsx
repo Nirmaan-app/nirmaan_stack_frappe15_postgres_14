@@ -308,8 +308,8 @@ export const NewPR = () => {
         // <MainLayout>
         <>
             {page == 'wplist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
-                <div className="flex-col items-center pt-1 pb-4">
-                    {/* <ArrowLeft onClick={() => setPage('projectlist')} /> */}
+                <div className="flex items-center pt-1 pb-4">
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/procurement-request")} />
                     <h3 className="text-base pl-2 font-bold tracking-tight">Select Work Package</h3>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">

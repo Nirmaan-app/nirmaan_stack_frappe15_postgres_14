@@ -176,14 +176,15 @@ export default function Items() {
                 </div> */}
                 <div className="flex items-center justify-between mb-2 space-y-2">
                     <div className="flex">
-                        <ArrowLeft className="mt-1.5" onClick={() => navigate("/")} />
+                        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/")} />
                         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Items List</h2>
                     </div>
                     <div className="flex items-center space-x-2">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button>
-                                    <CirclePlus className="w-5 h-5 mt- pr-1 " /><span className="hidden md:flex pl-1">Add New Item</span>
+                                    <CirclePlus className="w-5 h-5 mt- pr-1 " />
+                                    <span className="hidden md:flex pl-1">Add New Item</span>
                                 </Button>
                             </DialogTrigger>
                             <DialogContent>

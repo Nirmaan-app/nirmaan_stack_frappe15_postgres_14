@@ -178,7 +178,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                     <>
                         <div className="flex items-center justify-between space-y-2">
                             <div className="flex">
-                                <ArrowLeft className="mt-1.5" onClick={() => navigate("/projects")} />
+                                <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
                                 <h2 className="pl-1 text-2xl font-bold tracking-tight">{data.project_name}</h2>
                             </div>
                             <div className="flex space-x-2">

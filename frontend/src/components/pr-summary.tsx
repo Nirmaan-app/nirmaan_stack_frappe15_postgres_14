@@ -50,7 +50,7 @@ const PRSummaryPage = ({ pr_data, project }: PRSummaryPageProps) => {
                 // <MainLayout>
                     <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft className="mb-3" onClick={() => navigate("/procurement-request")} />
+                            <ArrowLeft className="mb-3 cursor-pointer" onClick={() => navigate("/procurement-request")} />
                             <h2 className="text-xl pt-1 pb-4 pl-2 font-bold tracking-tight">Summary: </h2>
                             <span className="pl-2 pb-2.5 text-red-500 text-2xl">PR-{pr_no}</span>
                         </div>

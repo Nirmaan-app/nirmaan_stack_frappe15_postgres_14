@@ -96,12 +96,12 @@ export const UserForm = () => {
             <div className="flex-1 space-y-4 p-8 pt-6">
                 <div className="flex items-center justify-between mb-2 space-y-2">
                     <div className="flex">
-                        <ArrowLeft className="mt-1.5" onClick={() => navigate("/users")} />
+                        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} />
                         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Add User</h2>
                     </div>
                 </div>
                 <p className=" pl-7 text-muted-foreground">
-                    Fill out this to create a new User
+                    Fill out to create a new User
                 </p>
                 <Separator className="my-6" />
                 <Form {...form}>
