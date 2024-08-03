@@ -29,11 +29,28 @@ export function ItemComponent({ item_id }) {
     return item_data?.item_name
 }
 
+interface SelectOption {
+    label: string;
+    value: string;
+}
+
 export default function EditItems() {
     const navigate = useNavigate();
     const { id } = useParams<{ id: string }>()
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDoc("Items", id)
+
+    const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
+        fields: ["category_name", "work_package"],
+        limit: 1000
+
+    })
+
+    const category_options: SelectOption[] = category_list
+        ?.map(item => ({
+            label: `${item.category_name}-(${item.work_package})`,
+            value: item.category_name
+        })) || [];
 
 
     const [curItem, setCurItem] = useState('');
@@ -122,7 +139,7 @@ export default function EditItems() {
                                         <SelectTrigger className="w-[180px]">
                                             <SelectValue className="text-gray-200" placeholder={data?.category} />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        {/* <SelectContent>
                                             <SelectItem value="Miscellaneous">Miscellaneous</SelectItem>
                                             <SelectItem value="Conduits">Conduits</SelectItem>
                                             <SelectItem value="Wires & Cables">Wires & Cables</SelectItem>
@@ -131,6 +148,13 @@ export default function EditItems() {
                                             <SelectItem value="Lighting">Lighting</SelectItem>
                                             <SelectItem value="Raceway & Cabletray">Raceway & Cabletray</SelectItem>
                                             <SelectItem value="Switch Gear">Switch Gear</SelectItem>
+                                        </SelectContent> */}
+                                        <SelectContent>
+                                            {category_options?.map((item) => {
+                                                return (
+                                                    <SelectItem value={item.value}>{item.label}</SelectItem>
+                                                )
+                                            })}
                                         </SelectContent>
                                     </Select>
                                 </div>
