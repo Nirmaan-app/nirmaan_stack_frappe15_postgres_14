@@ -149,10 +149,10 @@ export const SentBackRequest = () => {
     )
 
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                    <div className="flex items-center justify-between space-y-2">
+                    <div className="flex items-center justify-between pl-2 space-y-2">
                         <h2 className="text-lg font-bold tracking-tight">Sent Back PR</h2>
                     </div>
                     {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
@@ -192,6 +192,6 @@ export const SentBackRequest = () => {
                     </div> */}
                 </div>
             </div>
-        </MainLayout>
+        // </MainLayout>
     )
 }

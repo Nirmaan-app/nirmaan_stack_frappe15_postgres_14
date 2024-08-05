@@ -37,7 +37,7 @@ export const ProjectLead = () => {
     })
 
     return (
-        <MainLayout>
+        // <MainLayout>
         <div className="flex">
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">
@@ -80,6 +80,6 @@ export const ProjectLead = () => {
                 </div>
             </div>
         </div>
-        </MainLayout>
+        // </MainLayout>
     );
 }

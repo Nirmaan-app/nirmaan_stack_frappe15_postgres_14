@@ -186,7 +186,7 @@ export const ReleasePO = () => {
 
     return (
         <>
-            <MainLayout>
+            {/* <MainLayout> */}
                 <div className="flex">
                     <div className="w-[30%] mx-auto mt-10">
                         <div className="flex py-4">
@@ -451,8 +451,9 @@ export const ReleasePO = () => {
                             </div>
                         </div>
                     </div>
-                </div >
-            </MainLayout >
+                </div>
+            {/* </MainLayout> */}
+
             {/* <button onClick={handlePrint} className="m-8 p-2 bg-blue-500 text-white">Print</button> */}
         </>
     )

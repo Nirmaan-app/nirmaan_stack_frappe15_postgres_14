@@ -220,7 +220,8 @@ export const ProcurementOrder = () => {
     const [block, setBlock] = useState(false);
 
     return (
-        <MainLayout>
+        // <MainLayout>
+        <>
             {page == 'approve' &&
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
@@ -359,6 +360,8 @@ export const ProcurementOrder = () => {
                     </div>
                 </div>}
 
-        </MainLayout>
+                </>
+
+        // </MainLayout>
     )
 }

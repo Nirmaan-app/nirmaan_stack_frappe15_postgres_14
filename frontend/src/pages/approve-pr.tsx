@@ -163,11 +163,11 @@ export const ApprovePR = () => {
     if (projects_loading || procurement_request_list_loading) return <h1>Loading</h1>
     if (procurement_request_list_error || projects_error) return <h1>Error</h1>
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="flex">
 
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                    <div className="flex items-center justify-between space-y-2">
+                    <div className="flex items-center justify-between space-y-2 pl-2">
                         <h2 className="text-lg font-bold tracking-tight">Approve New PR</h2>
                     </div>
                     {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
@@ -205,6 +205,6 @@ export const ApprovePR = () => {
                     </div> */}
                 </div>
             </div>
-        </MainLayout>
+        // </MainLayout>
     )
 }

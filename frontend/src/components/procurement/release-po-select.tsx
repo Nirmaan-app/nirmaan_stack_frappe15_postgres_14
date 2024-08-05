@@ -222,11 +222,12 @@ export const ReleasePOSelect = () => {
     let count = 1;
 
     return (
-        <MainLayout>
+        // <MainLayout>
+        <>
             <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center justify-between space-y-2">
-                        <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Release PO</h2>
+                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Release PO</h2>
                     </div>
                     <DataTable columns={columns} data={procurement_order_list || []} project_values={project_values} />
                     {orderData &&
@@ -381,7 +382,8 @@ export const ReleasePOSelect = () => {
                     </div>
                 </div>
             </div>
-        </MainLayout>
+            </>
+        // </MainLayout>
     )
 }
 

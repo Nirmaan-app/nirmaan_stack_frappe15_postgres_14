@@ -441,7 +441,8 @@ export const SelectVendors = () => {
     }
 
     return (
-        <MainLayout>
+        // <MainLayout>
+        <>
             {page == 'updatequotation' &&
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
@@ -771,6 +772,7 @@ export const SelectVendors = () => {
                         </Dialog>
                     </div>
                 </>}
-        </MainLayout>
+        {/* </MainLayout> */}
+        </>
     )
 }

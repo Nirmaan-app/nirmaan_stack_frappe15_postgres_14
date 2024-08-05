@@ -55,7 +55,7 @@ export default function ProcurementDashboard() {
     })
 
     return (
-        <MainLayout>
+        // <MainLayout>
         <div className="flex">
 
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
@@ -145,6 +145,6 @@ export default function ProcurementDashboard() {
                 </div>
             </div>
         </div>
-        </MainLayout>
+        // </MainLayout>
     );
 }
