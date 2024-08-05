@@ -243,7 +243,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                                                         <div className="text-l text-muted-foreground">
                                                             <p>No. of Sections in Layout</p>
                                                         </div>
-                                                        <p className="text-xl font-medium">PLACEHOLDER</p>
+                                                        <p className="text-xl font-medium">{data.subdivisions}</p>
                                                     </div>
                                                 </div>
 

@@ -220,22 +220,24 @@ export default function Items() {
                                                 <SelectValue className="text-gray-200" placeholder="Select Unit" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="PCS">PCS</SelectItem>
+                                                {/* <SelectItem value="PCS">PCS</SelectItem> */}
                                                 <SelectItem value="BOX">BOX</SelectItem>
                                                 <SelectItem value="ROLL">ROLL</SelectItem>
-                                                <SelectItem value="PKT">PKT</SelectItem>
+                                                {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                                                <SelectItem value="LENGTH">LTH</SelectItem>
                                                 <SelectItem value="MTR">MTR</SelectItem>
                                                 <SelectItem value="NOS">NOS</SelectItem>
                                                 <SelectItem value="KGS">KGS</SelectItem>
                                                 <SelectItem value="PAIRS">PAIRS</SelectItem>
                                                 <SelectItem value="PACKS">PACKS</SelectItem>
                                                 <SelectItem value="DRUM">DRUM</SelectItem>
-                                                <SelectItem value="COIL">COIL</SelectItem>
+                                                {/* <SelectItem value="COIL">COIL</SelectItem> */}
                                                 <SelectItem value="SQMTR">SQMTR</SelectItem>
                                                 <SelectItem value="LTR">LTR</SelectItem>
-                                                <SelectItem value="PAC">PAC</SelectItem>
-                                                <SelectItem value="BAG">BAG</SelectItem>
+                                                {/* <SelectItem value="PAC">PAC</SelectItem> */}
+                                                {/* <SelectItem value="BAG">BAG</SelectItem> */}
                                                 <SelectItem value="BUNDLE">BUNDLE</SelectItem>
+                                                <SelectItem value="FEET">FEET</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -246,7 +248,7 @@ export default function Items() {
                                                 <SelectValue className="text-gray-200" placeholder="Select Category" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {category_list?.map((cat)=>{
+                                                {category_list?.map((cat) => {
                                                     return <SelectItem value={cat.category_name}>{cat.category_name}-({cat.work_package})</SelectItem>
                                                 })}
                                                 {/* <SelectItem value="Miscellaneous">Miscellaneous</SelectItem>

@@ -1,22 +1,27 @@
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useState, useEffect, useRef } from "react"
 import React from 'react';
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
-import { Form, Input, InputNumber } from 'antd';
+// import { Form, InputNumber } from 'antd';
 import { Button } from "../ui/button";
-import { BadgeIndianRupee } from "lucide-react";
-import { previousDay } from "date-fns";
+import { ArrowLeft, X } from "lucide-react";
 import { MainLayout } from "../layout/main-layout";
+import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
+import { Controller, useForm } from "react-hook-form";
+import { Input } from '@/components/ui/input';
+import { Label } from "../ui/label";
 
 export const ReleasePO = () => {
     const { id } = useParams<{ id: string }>()
     const orderId = id?.replaceAll("&=", "/")
 
+    const navigate = useNavigate()
+
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
-            fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'advance'],
+            fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'advance', 'loading_charges', 'freight_charges'],
             limit: 100
         });
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
@@ -30,10 +35,10 @@ export const ReleasePO = () => {
     const [projectAddress, setProjectAddress] = useState()
     const [vendorAddress, setVendorAddress] = useState()
 
-    useEffect(() => {
-        const curOrder = procurement_order_list?.find(item => item.name === orderId);
-        setOrderData(curOrder)
-    }, [procurement_order_list]);
+    // useEffect(() => {
+    //     const curOrder = procurement_order_list?.find(item => item.name === orderId);
+    //     setOrderData(curOrder)
+    // }, [procurement_order_list]);
 
     useEffect(() => {
         if (orderData?.project_address) {
@@ -63,25 +68,88 @@ export const ReleasePO = () => {
         }
     };
 
-    const [advance, setAdvance] = useState(0);
+    const [advance, setAdvance] = useState(0)
+    const [loadingCharges, setLoadingCharges] = useState(0)
+    const [freightCharges, setFreightcCharges] = useState(0)
     const [totalAmount, setTotalAmount] = useState(100); // Example total amount
 
-    const handleAdvanceChange = (value) => {
-        setAdvance(value);
-        if (parseInt(value) > 100 || parseInt(value) < 0) {
-            alert("Invalid: Advance % should be between 0 and 100");
+    // const handleAdvanceChange = (value) => {
+    //     setAdvance(value);
+
+    //     if (parseInt(value) > 100 || parseInt(value) < 0) {
+    //         alert("Invalid: Advance % should be between 0 and 100");
+    //     }
+    // };
+
+    // const handleLoadingChargesChange = (value) => {
+    //     setLoadingCharges(value);
+    //     console.log(value, loadingCharges)
+    //     if (parseInt(value) < 0) {
+    //         alert("Amount cannot be negative");
+    //     }
+    // }
+
+    // const handleFreightChargesChange = (value) => {
+    //     setFreightcCharges(value);
+    //     console.log(value, freightCharges)
+    //     if (parseInt(value) < 0) {
+    //         alert("Amount cannot be negative");
+    //     }
+    // }
+    // const [form] = Form.useForm();
+
+    const { control, handleSubmit, setValue, reset, formState: { errors } } = useForm({
+        defaultValues: {
+            advance: 0,
+            loadingCharges: 0,
+            freightCharges: 0,
+            // afterDelivery: 0  // Initial values need to be set based on your state or props
         }
-    };
-    const [form] = Form.useForm();
+    });
+
+
+    useEffect(() => {
+        if (procurement_order_list && orderId) {
+            const curOrder = procurement_order_list.find(item => item.name === orderId);
+            if (curOrder) {
+                setOrderData(curOrder);
+                reset({
+                    advance: parseInt(curOrder.advance || 0),
+                    loadingCharges: parseInt(curOrder.loading_charges || 0),
+                    freightCharges: parseInt(curOrder.freight_charges || 0),
+                    // afterDelivery: calculateAfterDelivery(curOrder) // Assuming you have a function to calculate this
+                });
+                setLoadingCharges(parseInt(curOrder.loading_charges || 0))
+                setFreightcCharges(parseInt(curOrder.freight_charges || 0))
+            }
+            // setOrderData(curOrder);
+            // setAdvance(parseInt(curOrder?.advance || 0));
+            // setLoadingCharges(parseInt(curOrder?.loading_charges || 0));
+            // setFreightcCharges(parseInt(curOrder?.freight_charges || 0));
+            // form.setFieldsValue({
+            //     advance: parseInt(curOrder?.advance || 0),
+            //     loadingCharges: parseInt(curOrder?.loading_charges || 0),
+            //     freightCharges: parseInt(curOrder?.freight_charges || 0),
+            // });
+        }
+    }, [procurement_order_list, orderId, reset]);
+
+
 
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
 
 
-    const handleSubmit = () => {
 
-        updateDoc('Procurement Orders', orderData?.name, {
-            advance: advance,
-        })
+    // handleSubmit
+    const onSubmit = (data: any) => {
+
+        const updateData = {
+            advance: data.advance,
+            loading_charges: !loadingCharges ? 0 : data.loadingCharges,
+            freight_charges: !freightCharges ? 0 : data.freightCharges,
+        };
+
+        updateDoc('Procurement Orders', orderData?.name, updateData)
             .then((doc) => {
                 // setOrderData(prev => ({
                 //     ...prev,
@@ -102,55 +170,158 @@ export const ReleasePO = () => {
             const price = item.quote;
             total += (price ? parseFloat(price) : 0) * (item.quantity ? parseFloat(item.quantity) : 1);
         })
-        return total;
+        return total + loadingCharges + freightCharges;
     }
 
-    const afterDelivery = totalAmount * (1 - advance / 100);
+    // const afterDelivery = totalAmount * (1 - advance / 100);
 
     let count = 1;
     console.log(advance)
+
+
+
+
+    if (procurement_order_list_loading || address_list_loading) return <div>Loading</div>
+    if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
 
     return (
         <>
             {/* <MainLayout> */}
                 <div className="flex">
                     <div className="w-[30%] mx-auto mt-10">
-                        <div className="font-semibold py-4">Selected PO: {(orderData?.name)?.toUpperCase()}</div>
-                        <Form form={form} layout="vertical" initialValues={{ advance, afterDelivery: totalAmount * (1 - advance / 100) }}>
-                            <Form.Item
-                                name="advance"
-                                label="Advance (%)"
-                                rules={[{ required: true, message: 'Please input the advance percentage!' }]}
-                            >
-                                <InputNumber
-                                    // type="number"
-                                    onChange={handleAdvanceChange}
-                                    value={advance}
-                                    className="w-full"
+                        <div className="flex py-4">
+                            <ArrowLeft className="mt-1" onClick={() => navigate("/release-po")} />
+                            <div className="font-semibold text-xl pl-2"><span className="text-red-700 text-2xl">Selected PO:</span> {(orderData?.name)?.toUpperCase()}</div>
+                        </div>
 
-                                />
-                            </Form.Item>
-                            <Form.Item label="After Delivery Amount">
-                                <Input
-                                    value={afterDelivery.toFixed(2)}
-                                    disabled
-                                    className="w-full"
-                                />
-                            </Form.Item>
-                            <Form.Item>
-                                {update_loading ? <div>loading...</div> : (<Button className="bg-red-500 hover:bg-red-600 border-none mr-2" disabled={advance > 100 || advance < 0} onClick={handleSubmit}>
-                                    Save
-                                </Button>)}
-                                <Button className="bg-red-500 hover:bg-red-600 border-none" onClick={handlePrint}>
-                                    Print
-                                </Button>
-                                {update_submit_complete &&
-                                    <div>
-                                        <div className="font-semibold text-green-500">Advance Value Saved Successfully</div>
+
+                        {/* <Form form={form} layout="vertical" initialValues={{ advance, afterDelivery: totalAmount * (1 - advance / 100), loadingCharges, freightCharges }}>
+                            <div className="flex-col p-4">
+                                {!loadingCharges ? <Button variant='outline' onClick={() => setLoadingCharges(1)}>Add Loading/Unloading Charges</Button>
+                                    :
+                                    <div className="flex-1">
+                                        <Form.Item
+                                            name="loadingCharges"
+                                            label="Loading Charges"
+                                        >
+                                            <Input
+                                                onChange={handleLoadingChargesChange}
+                                                value={loadingCharges}
+                                                className="w-full"
+                                            />
+                                        </Form.Item>
+                                        <Button className="mb-2" onClick={() => setLoadingCharges(0)}>Cancel</Button>
+                                    </div>}
+                                {
+                                    !freightCharges ? <Button variant='outline' onClick={() => setFreightcCharges(1)}>Add Freight Charges</Button>
+                                        :
+                                        <div className="flex-1">
+                                            <Form.Item
+                                                name="freightCharges"
+                                                label="Freight Charges"
+                                            >
+                                                <Input
+                                                    onChange={() => handleFreightChargesChange}
+                                                    value={freightCharges}
+                                                    className="w-full"
+                                                />
+
+                                            </Form.Item>
+                                            <Button className="mb-2" onClick={() => setFreightcCharges(0)}>Cancel</Button>
+                                        </div>
+                                }
+
+
+                                <Form.Item
+                                    name="advance"
+                                    label="Advance (%)"
+                                    rules={[{ required: true, message: 'Please input the advance percentage!' }]}
+                                >
+                                    <InputNumber
+                                        // type="number"
+                                        onChange={() => handleAdvanceChange}
+                                        value={advance}
+                                        className="w-full"
+
+                                    />
+                                </Form.Item>
+                                <Form.Item label="After Delivery Amount">
+                                    <Input
+                                        value={afterDelivery.toFixed(2)}
+                                        disabled
+                                        className="w-full"
+                                    />
+                                </Form.Item>
+                                <Form.Item>
+                                    {update_loading ? <div>loading...</div> : (<Button className="mr-2" disabled={advance > 100 || advance < 0} onClick={handleSubmit}>
+                                        Save
+                                    </Button>)}
+                                    <Button onClick={handlePrint}>
+                                        Print
+                                    </Button>
+                                    {update_submit_complete &&
+                                        <div>
+                                            <div className="font-semibold text-green-500">Advance Value Saved Successfully</div>
+                                        </div>
+                                    }
+                                </Form.Item>
+                            </div>
+                        </Form> */}
+                        <form onSubmit={handleSubmit(onSubmit)} className="p-4">
+                            <div className="flex-col">
+                                {!loadingCharges ? <Button variant='outline' onClick={() => setLoadingCharges(1)}>Add Loading/Unloading Charges</Button>
+                                    :
+                                    <div className="flex-1">
+                                        <Label>Loading Charges</Label>
+                                        <div className="flex">
+                                            <Controller
+                                                control={control}
+                                                name="loadingCharges"
+                                                render={({ field }) => <Input {...field} className="w-full" />}
+                                            />
+                                            <Button className="mb-2 ml-2" onClick={() => setLoadingCharges(0)}><X /></Button>
+                                        </div>
                                     </div>
                                 }
-                            </Form.Item>
-                        </Form>
+                                {!freightCharges ? <Button variant='outline' className="mt-2" onClick={() => setFreightcCharges(1)}>Add Freight Charges</Button>
+                                    :
+                                    <div className="flex-1">
+                                        <Label>Freight Charges</Label>
+                                        <div className="flex">
+                                            <Controller
+                                                control={control}
+                                                name="freightCharges"
+                                                render={({ field }) => <Input {...field} className="w-full" />}
+                                            />
+                                            <Button className="mb-2 ml-2" onClick={() => setFreightcCharges(0)}><X /></Button>
+                                        </div>
+                                    </div>
+
+                                }
+                                <div className="flex-1 mt-2">
+                                    <Label>Advance (in %)</Label>
+                                    <Controller
+                                        control={control}
+                                        name="advance"
+                                        render={({ field }) => <Input {...field} className="w-full" />}
+                                    />
+                                </div>
+                                <div className="mt-2">
+                                    {update_loading ? <div>loading...</div> : (<Button className="mr-2" disabled={advance > 100 || advance < 0} onClick={handleSubmit}>
+                                        Save
+                                    </Button>)}
+                                    <Button onClick={handlePrint}>
+                                        Print
+                                    </Button>
+                                    {update_submit_complete &&
+                                        <div>
+                                            <div className="font-semibold text-green-500">PO Update Successfull</div>
+                                        </div>
+                                    }
+                                </div>
+
+                            </div>
+                        </form>
                     </div>
 
                     <div className="w-[50%] p-4 m-4 border rounded-lg">
@@ -216,40 +387,51 @@ export const ReleasePO = () => {
                                                 <td className="py-2 text-sm whitespace-nowrap w-[7%]">{count++}.</td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
-                                                <td className="px-6 py-2 text-sm whitespace-nowrap">
-                                                    {item.quantity}
-                                                </td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                                                 <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
                                                 <td className="px-2 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
                                             </tr>
                                         })}
-                                        {/* {Array.from({ length: 10 }).map((_, index) => (
-                                    orderData?.order_list?.list.map((item, itemIndex) => (
-                                    <tr key={`${index}-${itemIndex}`} className="">
-                                        <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
-                                        <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
-                                        <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote * item.quantity}</td>
-                                    </tr>
-                                ))
-                                ))} */}
+                                        {loadingCharges ?
+                                            <tr className="">
+                                                <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">NOS</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">1</td>
+                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
+                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
+                                            </tr>
+                                            :
+                                            <></>
+                                        }
+                                        {freightCharges ?
+                                            <tr className="">
+                                                <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">NOS</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">1</td>
+                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
+                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
+                                            </tr>
+                                            :
+                                            <></>
+                                        }
                                         <tr>
                                             <td></td>
                                             <td></td>
                                             <td></td>
                                             <td className="space-y-4 py-4 text-sm font-semibold">
                                                 <div>Sub Total:</div>
-                                                <div>IGST(18%):</div>
+                                                <div>CGST(9%):</div>
+                                                <div>SGST(9%):</div>
                                                 <div>Total:</div>
                                             </td>
-                                            <td className="space-y-4 py-4 text-sm">
+                                            <td></td>
+                                            <td className="space-y-4 py-4 text-sm whitespace-nowrap">
                                                 <div>{getTotal(orderData?.name)}</div>
-                                                <div>{(getTotal(orderData?.name) * 0.18).toFixed(2)}</div>
+                                                <div>{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
+                                                <div>{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
                                                 <div>{(getTotal(orderData?.name) * 1.18).toFixed(2)}</div>
-                                            </td>
-                                            <td>
-
                                             </td>
                                         </tr>
                                         <tr className="border-none">
@@ -260,7 +442,7 @@ export const ReleasePO = () => {
                                                 <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                                 <div className="text-sm text-gray-900">{orderData?.advance}% advance {orderData?.advance === "100" ? "" : `and remaining ${100 - orderData?.advance}% on material readiness before delivery of material to site`}</div>
 
-                                                <BadgeIndianRupee className="w-24 h-24" />
+                                                <img src={Seal} className="w-24 h-24" />
                                                 <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
                                             </td>
                                         </tr>
@@ -271,6 +453,7 @@ export const ReleasePO = () => {
                     </div>
                 </div>
             {/* </MainLayout> */}
+
             {/* <button onClick={handlePrint} className="m-8 p-2 bg-blue-500 text-white">Print</button> */}
         </>
     )

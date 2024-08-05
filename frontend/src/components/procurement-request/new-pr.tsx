@@ -532,6 +532,7 @@ export const NewPR = () => {
                             <SelectItem value="BOX">BOX</SelectItem>
                             <SelectItem value="ROLL">ROLL</SelectItem>
                             {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                            <SelectItem value="LENGTH">LTH</SelectItem>
                             <SelectItem value="MTR">MTR</SelectItem>
                             <SelectItem value="NOS">NOS</SelectItem>
                             <SelectItem value="KGS">KGS</SelectItem>

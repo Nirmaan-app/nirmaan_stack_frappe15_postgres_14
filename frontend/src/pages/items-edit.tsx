@@ -33,7 +33,7 @@ export default function EditItems() {
     const navigate = useNavigate();
     const { id } = useParams<{ id: string }>()
 
-    const { data: data, isLoading: isLoading, error: error} = useFrappeGetDoc("Items",id)
+    const { data: data, isLoading: isLoading, error: error } = useFrappeGetDoc("Items", id)
 
 
     const [curItem, setCurItem] = useState('');
@@ -95,22 +95,24 @@ export default function EditItems() {
                                             <SelectValue className="text-gray-200" placeholder={data?.unit_name} />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="PCS">PCS</SelectItem>
+                                            {/* <SelectItem value="PCS">PCS</SelectItem> */}
                                             <SelectItem value="BOX">BOX</SelectItem>
                                             <SelectItem value="ROLL">ROLL</SelectItem>
-                                            <SelectItem value="PKT">PKT</SelectItem>
+                                            {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                                            <SelectItem value="LENGTH">LTH</SelectItem>
                                             <SelectItem value="MTR">MTR</SelectItem>
                                             <SelectItem value="NOS">NOS</SelectItem>
                                             <SelectItem value="KGS">KGS</SelectItem>
                                             <SelectItem value="PAIRS">PAIRS</SelectItem>
                                             <SelectItem value="PACKS">PACKS</SelectItem>
                                             <SelectItem value="DRUM">DRUM</SelectItem>
-                                            <SelectItem value="COIL">COIL</SelectItem>
+                                            {/* <SelectItem value="COIL">COIL</SelectItem> */}
                                             <SelectItem value="SQMTR">SQMTR</SelectItem>
                                             <SelectItem value="LTR">LTR</SelectItem>
-                                            <SelectItem value="PAC">PAC</SelectItem>
-                                            <SelectItem value="BAG">BAG</SelectItem>
+                                            {/* <SelectItem value="PAC">PAC</SelectItem> */}
+                                            {/* <SelectItem value="BAG">BAG</SelectItem> */}
                                             <SelectItem value="BUNDLE">BUNDLE</SelectItem>
+                                            <SelectItem value="FEET">FEET</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
