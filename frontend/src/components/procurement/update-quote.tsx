@@ -25,7 +25,9 @@ export const UpdateQuote = () => {
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package']
+            fields: ['category_name', 'work_package'],
+            orderBy: { field: 'category_name', order: 'asc' },
+            limit: 100
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
@@ -206,7 +208,7 @@ export const UpdateQuote = () => {
                         </div>
                     </div>
                 </div>}
-                </>
+        </>
         // </MainLayout>
     )
 }

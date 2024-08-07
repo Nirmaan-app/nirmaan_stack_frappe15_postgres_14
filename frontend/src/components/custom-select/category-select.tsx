@@ -14,7 +14,8 @@ export default function CategorySelect({ data, handleCategoryClick }: CategorySe
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList<Category>("Category", {
         fields: ['category_name', 'work_package'],
         filters: [['work_package', '=', data.work_package]],
-        orderBy: { field: 'category_name', order: 'asc' }
+        orderBy: { field: 'category_name', order: 'asc' },
+        limit: 100
     });
 
     // const orderDataZ = useProcurementRequest(store => store);
