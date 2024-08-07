@@ -171,7 +171,7 @@ export const NewPR = () => {
                     quantity: Number(quantity),
                     category: curCategory,
                 };
-                const isDuplicate = curRequest.some((item) => item.item === curItem);
+                const isDuplicate = curRequest.some((item) => item.name === curValue.name);
                 if (!isDuplicate) {
                     curRequest.push(curValue);
                 }
@@ -185,6 +185,7 @@ export const NewPR = () => {
                 setUnit('');
                 setQuantity(0);
                 setItem_id('');
+                setMake('');
             }
         }
     };
@@ -607,7 +608,7 @@ export const NewPR = () => {
                     })}
                 </div>
             </div>}
-            </>
+        </>
         // </MainLayout>
     )
 }
