@@ -72,8 +72,7 @@
    "fieldname": "vendor_contact_person_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Vendor Contact Person Name",
-   "reqd": 1
+   "label": "Vendor Contact Person Name"
   },
   {
    "fieldname": "vendor_mobile",
@@ -93,7 +92,8 @@
   {
    "fieldname": "vendor_gst",
    "fieldtype": "Data",
-   "label": "Vendor GST"
+   "label": "Vendor GST",
+   "reqd": 1
   },
   {
    "fieldname": "vendor_category",
@@ -103,7 +103,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-07-22 13:51:30.179134",
+ "modified": "2024-08-07 16:50:21.992624",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",
