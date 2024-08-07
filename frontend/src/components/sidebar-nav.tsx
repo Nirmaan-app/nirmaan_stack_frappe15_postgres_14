@@ -32,7 +32,7 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
     // };
 
     const isActive = (path: string) => {
-        location.pathname === path;
+        return location.pathname === path;
     }
 
     return (
