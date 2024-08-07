@@ -18,12 +18,12 @@ import { Navigate, useNavigate } from "react-router-dom"
 
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z
-        .string({
-            required_error: "Must provide type Name"
-        })
+        .string()
         .min(3, {
             message: "Type Name must be at least 3 characters.",
-        }),
+        })
+        .optional()
+        .or(z.literal('')),
     vendor_name: z
         .string({
             required_error: "Must provide type vendor_name"
@@ -33,11 +33,11 @@ const VendorFormSchema = z.object({
         }),
     address_line_1: z
         .string({
-            required_error: "Address Required"
+            required_error: "Address Line 1 Required"
         }),
     address_line_2: z
         .string({
-            required_error: "Address Required"
+            required_error: "Address Line 2Required"
         }),
     vendor_city: z
         .string({
@@ -56,7 +56,9 @@ const VendorFormSchema = z.object({
         .lte(999999),
     vendor_email: z
         .string()
-        .email(),
+        .email()
+        .optional()
+        .or(z.literal('')),
     vendor_mobile: z
         .number({
             required_error: "Must provide contact"
@@ -66,6 +68,7 @@ const VendorFormSchema = z.object({
         .lte(9999999999),
     vendor_gst: z
         .string({
+            required_error: "Vendor GST Required"
         }),
     // vendor_categories: z
     //     .array(z.string())
@@ -169,34 +172,34 @@ export const NewVendor = () => {
 
     return (
         // <MainLayout>
-            <div className="p-4">
-                <div className="space-y-0.5">
-                    <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
-                    <p className="text-muted-foreground">
-                        Fill out to create a new Vendor
-                    </p>
-                </div>
-                <Separator className="my-6" />
-                <Form {...form}>
-                    <form onSubmit={(event) => {
-                        event.stopPropagation();
-                        return form.handleSubmit(onSubmit)(event);
-                    }} className="space-y-8">
-                        <FormField
-                            control={form.control}
-                            name="vendor_name"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Vendor Shop Name</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="Vendor Name" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
+        <div className="p-4">
+            <div className="space-y-0.5">
+                <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
+                <p className="text-muted-foreground">
+                    Fill out to create a new Vendor
+                </p>
+            </div>
+            <Separator className="my-6" />
+            <Form {...form}>
+                <form onSubmit={(event) => {
+                    event.stopPropagation();
+                    return form.handleSubmit(onSubmit)(event);
+                }} className="space-y-8">
+                    <FormField
+                        control={form.control}
+                        name="vendor_name"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Vendor Shop Name <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Vendor Name" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
 
-                            )}
-                        />
-                        {/* <FormField
+                        )}
+                    />
+                    {/* <FormField
                     control={form.control}
                     name="vendor_address"
                     render={({ field }) => {
@@ -241,147 +244,147 @@ export const NewVendor = () => {
                         )
                     }}
                 /> */}
-                        <FormField
-                            control={form.control}
-                            name="vendor_contact_person_name"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Vendor Contact Person Name</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="Name" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
+                    <FormField
+                        control={form.control}
+                        name="vendor_contact_person_name"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Vendor Contact Person Name</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Name" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
 
-                            )}
-                        />
+                        )}
+                    />
 
-                        <FormField
-                            control={form.control}
-                            name="vendor_gst"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>GST Number</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="GST Number" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
+                    <FormField
+                        control={form.control}
+                        name="vendor_gst"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">GST Number <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="GST Number" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
 
-                            )}
-                        />
-                        <div>
-                            <label>Add Category</label>
-                            <ReactSelect options={category_options} onChange={handleChange} isMulti />
-                        </div>
-                        <Separator className="my-3" />
-                        <p className="text-sky-600 font-semibold pb-2">Vendor Address Details</p>
-                        <FormField
-                            control={form.control}
-                            name="address_line_1"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Address Line 1: </FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="Building name, floor" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="address_line_2"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Address Line 2: </FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="Street name, area, landmark" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="vendor_city"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>City: </FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="City Name" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="vendor_state"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>State: </FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="State Name" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
+                        )}
+                    />
+                    <div>
+                        <label className="flex">Add Category <h1 className="text-sm text-red-600">*</h1></label>
+                        <ReactSelect options={category_options} onChange={handleChange} isMulti />
+                    </div>
+                    <Separator className="my-3" />
+                    <p className="text-sky-600 font-semibold pb-2">Vendor Address Details</p>
+                    <FormField
+                        control={form.control}
+                        name="address_line_1"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Address Line 1: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Building name, floor" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="address_line_2"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Address Line 2: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Street name, area, landmark" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="vendor_city"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">City: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="City Name" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="vendor_state"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">State: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="State Name" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
 
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="pin"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Pin Code: </FormLabel>
-                                    <FormControl>
-                                        <Input type="number" placeholder="Pincode" {...field} onChange={event => field.onChange(+event.target.value)} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="vendor_mobile"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Phone: </FormLabel>
-                                    <FormControl>
-                                        <Input type="number" placeholder="Phone" {...field} onChange={event => field.onChange(+event.target.value)} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="vendor_email"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Email: </FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="Email" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="pin"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Pin Code: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input type="number" placeholder="Pincode" {...field} onChange={event => field.onChange(+event.target.value)} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="vendor_mobile"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Phone: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input type="number" placeholder="Phone" {...field} onChange={event => field.onChange(+event.target.value)} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="vendor_email"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Email: </FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Email" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
 
-                        <div>
-                            {submit_complete &&
-                                <div>
-                                    <div className="font-semibold text-green-500">New Vendor added</div>
-                                </div>
+                    <div>
+                        {submit_complete &&
+                            <div>
+                                <div className="font-semibold text-green-500">New Vendor added</div>
+                            </div>
 
-                            }
-                            {submit_error && <div>{submit_error}</div>}
-                        </div>
-                    </form>
-                </Form>
-            </div>
+                        }
+                        {submit_error && <div>{submit_error}</div>}
+                    </div>
+                </form>
+            </Form>
+        </div>
         // </MainLayout>
     )
 }
