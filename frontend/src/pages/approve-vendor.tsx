@@ -920,7 +920,8 @@ export const ApproveVendor = () => {
     }
 
     return (
-        <MainLayout>
+        // <MainLayout>
+        <>
             {page == 'approvequotation' && <div className="flex" >
                 <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                     <div className="flex items-center pt-1  pb-4">
@@ -1297,6 +1298,7 @@ export const ApproveVendor = () => {
             </div>
 
             <div className="py-10"></div>
-        </MainLayout>
+            </>
+        //  </MainLayout>
     )
 }

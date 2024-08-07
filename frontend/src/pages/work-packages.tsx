@@ -106,7 +106,7 @@ export default function Projects() {
         mutate()
     }
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-6">
                 {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
@@ -122,7 +122,7 @@ export default function Projects() {
                 </div> */}
                 <div className="flex items-center justify-between mb-2 space-y-2">
                     <div className="flex">
-                        <ArrowLeft className="mt-1.5" onClick={() => navigate("/")} />
+                        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/")} />
                         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Work Packages Dashboard</h2>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -201,6 +201,6 @@ export default function Projects() {
                     )}
                 </div>
             </div>
-        </MainLayout>
+        // </MainLayout>
     )
 }

@@ -68,7 +68,7 @@ export default function Profile() {
     if (isloading) return <h1>Loading</h1>;
     if (error) return <h1>{error.message}</h1>;
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-6">
                 <div className="flex items-center justify-between mb-2 space-y-2">
                     <div className="flex">
@@ -222,6 +222,6 @@ export default function Profile() {
                     </Card>
                 </div>
             </div>
-        </MainLayout>
+        // </MainLayout>
     )
 }

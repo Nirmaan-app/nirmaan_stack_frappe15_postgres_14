@@ -35,10 +35,10 @@ export default function ListPR() {
     if (procurement_request_list_loading) return <h1>LOADING</h1>;
     if (procurement_request_list_error) return <h1>ERROR</h1>;
     return (
-        <MainLayout>
+        // <MainLayout>
             <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft onClick={() => navigate('/')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate('/prs&milestones')} />
                     <h2 className="text-xl pl-2  font-bold tracking-tight">Procurement Requests</h2>
                 </div>
                 <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
@@ -106,6 +106,6 @@ export default function ListPR() {
                 </div>
                 <div className="pt-10"></div>
             </div>
-        </MainLayout>
+        // </MainLayout>
     );
 }

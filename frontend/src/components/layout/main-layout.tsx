@@ -1,22 +1,26 @@
-import { NavBar } from "../nav/nav-bar";
+
+
+
+import { Outlet } from 'react-router-dom';
 import { Sidebar } from "../sidebar-nav";
 
+import { NavBar } from '../nav/nav-bar';
 
-export function MainLayout({ children }: any) {
+export const MainLayout = () => {
+
     return (
-        <div>
+        <div className="">
             <NavBar />
             <div className="flex">
-                <div className="rounded-lg m-1 p-1 ">
-                    <Sidebar className="" />
+                <Sidebar  className="w-64" />
+                <div className="flex-1">
+                    <main className="">
+                        
+                        <Outlet />
 
+                    </main>
                 </div>
-                <div className="flex-1 space-x-2 md:space-y-1 p-1 md:p-1 pt-1">
-                    {children}
-                </div>
-
             </div>
-
         </div>
     );
-}
+};
