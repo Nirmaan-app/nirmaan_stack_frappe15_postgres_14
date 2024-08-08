@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
 import { ButtonLoading } from "./button-loading"
+import { Skeleton } from "./ui/skeleton"
 
 interface SOWCardProps {
     sow_id: string
@@ -143,10 +144,10 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
             </CardHeader>
             <CardContent>
                 <div>
-                    {(isLoading) && (<p>Loading</p>)}
-                    {error && <p>Error</p>}
-                    {(data || []).map(d =>
-                        <p className="text-xs text-muted-foreground">{d.milestone_name}</p>
+                    {(isLoading) ? (<Skeleton className="w-1/3 h-4" />) : (
+                        (data || []).map(d =>
+                            <p className="text-xs text-muted-foreground">{d.milestone_name}</p>
+                        )
                     )}
                 </div>
                 {/* <p className="text-xs text-muted-foreground">COUNT</p> */}

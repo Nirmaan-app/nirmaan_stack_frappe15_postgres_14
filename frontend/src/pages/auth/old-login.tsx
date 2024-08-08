@@ -18,6 +18,7 @@ import logo from "@/assets/logo-svg.svg"
 import { CardTitle, CardDescription, CardHeader, CardContent, Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { LoginInputs } from "@/types/Auth/Login";
+import { TailSpin } from "react-loader-spinner";
 
 
 
@@ -38,8 +39,10 @@ export default function Login() {
     console.log(error)
 
     return (
-      <div className="w-full h-auto mt-[20%]">
-        {isLoading ? <h1>Loading Loginnnnnnnnnn...</h1> :
+      <div className="w-full max-sm:w-[90%] max-sm:mx-auto h-auto mt-[20%]">
+        {isLoading ? (<div className='w-full h-screen flex items-center justify-center'>
+                    <TailSpin visible={true} height="100" width="100" color="#D03B45" ariaLabel="tail-spin-loading" />
+                </div>) :
 
           <Card className="mx-auto max-w-sm">
             <img src={logo} alt="Nirmaan" className="h-[50px] w-[300px] pl-[40px] md:pl-[80px] pt-2" />

@@ -30,6 +30,7 @@ import { useFrappeCreateDoc } from "frappe-react-sdk"
 import { ButtonLoading } from "@/components/button-loading"
 import { MainLayout } from "@/components/layout/main-layout";
 import { ArrowLeft, CirclePlus } from "lucide-react";
+import { Skeleton, WPSkeleton } from "@/components/ui/skeleton";
 
 
 interface WorkPackage {
@@ -73,6 +74,7 @@ export default function Projects() {
         createDoc('Work Packages', values)
             .then(() => {
                 console.log(values)
+                mutate()
             }).catch(() => {
                 console.log(submit_error)
             })
@@ -137,10 +139,10 @@ export default function Projects() {
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
-                                    <DialogTitle>Add New Work Packages</DialogTitle>
-                                    <DialogDescription>
+                                    <DialogTitle>Add New Work Package</DialogTitle>
+                                    {/* <DialogDescription>
                                         Add New Work Packages.
-                                    </DialogDescription>
+                                    </DialogDescription> */}
                                 </DialogHeader>
                                 <Form {...form}>
                                     <form onSubmit={(event) => {
@@ -167,7 +169,7 @@ export default function Projects() {
                                             {submit_complete &&
                                                 <div>
                                                     {/* <div className="font-semibold text-green-500"> Customer added</div> */}
-                                                    {closewindow()}
+                                                    {/* {closewindow()} */}
                                                 </div>
                                             }
                                             {submit_error && <div>{submit_error}</div>}
@@ -179,26 +181,32 @@ export default function Projects() {
                     </div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-
-                    {isLoading && <h3>LOADING</h3>}
-                    {error && <h3>ERROR</h3>}
+                    {isLoading ? (
+                        [...Array(5)].map((_, index) => (
+                            <WPSkeleton />
+                        ))
+                    ) : (
+                        (data || []).map(d =>
+                            <WPCard wp={d.work_package_name} />
+                            // <Card className="hover:animate-shadow-drop-center" >
+                            //     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            //         <CardTitle className="text-sm font-medium">
+                            //             {d.work_package_name}
+                            //         </CardTitle>
+                            //         <HardHat className="h-4 w-4 text-muted-foreground" />
+                            //     </CardHeader>
+                            //     <CardContent>
+    
+                            //         <p className="text-xs text-muted-foreground">COUNT</p>
+                            //     </CardContent>
+                            // </Card>
+    
+                        )
+                    )
+                
+                }
                     {/*<DataTable columns={columns} data={data || []} /> */}
-                    {(data || []).map(d =>
-                        <WPCard wp={d.work_package_name} />
-                        // <Card className="hover:animate-shadow-drop-center" >
-                        //     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        //         <CardTitle className="text-sm font-medium">
-                        //             {d.work_package_name}
-                        //         </CardTitle>
-                        //         <HardHat className="h-4 w-4 text-muted-foreground" />
-                        //     </CardHeader>
-                        //     <CardContent>
-
-                        //         <p className="text-xs text-muted-foreground">COUNT</p>
-                        //     </CardContent>
-                        // </Card>
-
-                    )}
+                    
                 </div>
             </div>
         // </MainLayout>

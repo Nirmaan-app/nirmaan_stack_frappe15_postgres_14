@@ -13,6 +13,8 @@ import { Link } from "react-router-dom";
 
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { MainLayout } from "@/components/layout/main-layout"
+import { TableSkeleton } from "@/components/ui/skeleton";
+import { TailSpin } from "react-loader-spinner";
 
 export default function Vendors() {
 
@@ -144,18 +146,20 @@ export default function Vendors() {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">
-                                {(isLoading) ? (<p>Loading</p>) : (data?.length)}
-                                {error && <p>Error</p>}
+                                {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (data?.length)}
+                                {/* {error && <p>Error</p>} */}
                             </div>
-                            <p className="text-xs text-muted-foreground">COUNT</p>
+                            {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                         </CardContent>
                     </Card>
                 </div>
-                <div className="mx-auto py-10">
-                    {isLoading && <h3>LOADING</h3>}
-                    {error && <h3>ERROR</h3>}
+                <div className="pl-0 pr-2">
+                    {isLoading ?  (
+                        <TableSkeleton />
+                    ) : (
                     <DataTable columns={columns} data={data || []} />
-                </div>
+                    )}
+            </div>
             </div>
         // </MainLayout>
 

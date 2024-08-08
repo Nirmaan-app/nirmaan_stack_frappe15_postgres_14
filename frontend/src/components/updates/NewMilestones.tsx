@@ -7,6 +7,7 @@ import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappe
 import { useNavigate } from "react-router-dom";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import { useToast } from "../ui/use-toast";
+import { Dialog, DialogContent, DialogTrigger } from "../ui/dialog";
 
 
 interface UpdatedField {
@@ -27,6 +28,9 @@ export default function NewMilestones() {
     const [buttonDescription, setButtonDescription] = useState<string>('');
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [areaName, setAreaName] = useState<string | null>(null)
+    const [status, setStatus] = useState<string | null>(null)
+
+
     
     const {toast} = useToast()
 
@@ -105,12 +109,15 @@ export default function NewMilestones() {
 
     const handleStatusChange = useCallback((name: string, status: string) => {
         setAreaName(name)
+        setStatus(status)
         setUpdatedFields(prev =>
             prev.map(field => 
                 field.name === name ? { ...field, status } : field
             )
         );
     }, []);
+
+    // console.log("updatedFields", updatedFields)
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         if (event.target.files) {
@@ -127,7 +134,7 @@ export default function NewMilestones() {
                     milestone: editingMilestone,
                     project: selectedProject?.value,
                     area_name: areaName,
-                    area_status: overallStatus,
+                    area_status: status,
                 });
 
                 const fileArgs = {
@@ -154,9 +161,17 @@ export default function NewMilestones() {
         }
     };
 
-    const triggerFileInput = () => {
+    const triggerFileInput = (name) => {
+        if(name !== areaName) {
+            return
+        }
         fileInputRef.current?.click();
+        
     }
+
+    // const handleImageSelection = (area, name) => {
+        
+    // }
 
     // console.log("milestoneAttachments", milestone_attachments)
     // // console.log(editingMilestone)
@@ -170,6 +185,8 @@ export default function NewMilestones() {
         setSelectedFile(null)
         setFileName(null)
         setUploadProgress(null)
+        setAreaName(null)
+        setStatus(null)
     }
 
     const handleUpdateMilestone = async () => {
@@ -183,6 +200,7 @@ export default function NewMilestones() {
 
             await handleFileUpload();
             
+            project_work_milestones_list_mutate()
             toast({
                 description: `${editingMilestone} Milestone updated successfully!`
             })
@@ -200,6 +218,8 @@ export default function NewMilestones() {
             setSelectedFile(null)
             setFileName(null)
             setUploadProgress(null)
+            setAreaName(null)
+            setStatus(null)
         }
     };
 
@@ -286,6 +306,7 @@ export default function NewMilestones() {
 
 
                                 {editingMilestone === milestone.name ? (
+                                    <>
                                     <div className="flex flex-col gap-4 transition-opacity duration-500 opacity-100">
                                         {milestone.status_list.list?.map((item) => (
                                             <div key={item.name}>
@@ -324,14 +345,14 @@ export default function NewMilestones() {
                                                         </Button>
                                                     </div>
                                                     <div className="flex gap-2 flex-col">
-                                                    <div className={`text-blue-500 cursor-pointer flex gap-2 items-center justify-center border border-blue-500 rounded-md py-1 px-2 ${selectedFile !== null && "opacity-50 cursor-not-allowed"}`}
-                                                    onClick={triggerFileInput}
+                                                    <div className={`text-blue-500 cursor-pointer flex gap-2 items-center justify-center border border-blue-500 rounded-md py-1 px-2 ${(selectedFile !== null || item.name !== areaName) && "opacity-50 cursor-not-allowed"}`}
+                                                    onClick={() => triggerFileInput(item.name)}
                                                     >
                                                         <Paperclip size="15px" />
                                                         <span>Attach</span>
                                                         <input type="file" disabled={selectedFile !== null} className="hidden" ref={fileInputRef} onChange={handleFileChange}/>
                                                     </div>
-                                                    {fileName && (
+                                                    {(fileName && item.name === areaName) && (
                                                             <div className="flex items-center justify-between border rounded-md p-2 relative">
                                                                 <span className="text-gray-800 max-w-[100px] truncate">{fileName}</span>
                                                                 <button
@@ -356,6 +377,9 @@ export default function NewMilestones() {
                                             </div>
                                         ))}
                                     </div>
+
+                                <div className="flex gap-2 items-center"><p className="font-bold md:text-lg">Note:</p> <span className="md:text-base text-[#3C25A3] font-semibold">Please update only one Area at a time!</span></div>
+                                    </>
                                 ) : (
                                     <div className="flex flex-col gap-4">
                                         {milestone.status_list.list?.map((item) => (
@@ -470,17 +494,23 @@ export default function NewMilestones() {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="flex flex-col gap-4">
+                                    <div className="flex flex-col gap-4 max-sm:pt-10">
                                         {milestone.status_list.list?.map((item) => (
                                             <div key={item.name} className="flex justify-between items-center">
                                                 <CardDescription className="font-semibold text-[#1D2939]">
                                                     {item.name}
                                                 </CardDescription>
-                                                {/* {milestone_attachments?.filter((att) => att.area_name === item.name)?.length && 
-                                                <img src={milestone_attachments?.filter((att) => att.area_name === item.name)[0].image} alt="" />
-                                                } */}
-                                                
-                                                
+                                                {milestone_attachments?.filter((att) => (att.area_name === item.name && att.milestone === milestone.name))?.length !==0 && 
+                                            (<Dialog>
+                                                 <DialogTrigger asChild>
+                                                     <img className="object-contain w-[100px] h-[50px]" src={`http://localhost:8000/${milestone_attachments?.filter((att) => (att.area_name === item.name && att.milestone === milestone.name))[0].image}`} alt="" />
+     
+                                                 </DialogTrigger>
+                                                 <DialogContent className="max-sm:max-w-[425px] p-8">
+                                                     <img src={`http://localhost:8000/${milestone_attachments?.filter((att) => (att.area_name === item.name && att.milestone === milestone.name))[0].image}`} alt="" />
+                                                 </DialogContent>
+                                            </Dialog>)
+                                                }
                                                 <CardDescription className={`font-semibold text-[#1D2939] ${item.status === "Completed" && "text-green-300"}`}>
                                                     {item.status === "Pending" ? "WIP" : item.status}
                                                 </CardDescription>
@@ -592,6 +622,17 @@ export default function NewMilestones() {
                                                 <CardDescription className="font-semibold text-md text-[#1D2939]">
                                                     {item.name}
                                                 </CardDescription>
+                                                {milestone_attachments?.filter((att) => (att.area_name === item.name && att.milestone === milestone.name))?.length !==0 && 
+                                            (<Dialog>
+                                                 <DialogTrigger asChild>
+                                                     <img className="object-contain w-[100px] h-[50px]" src={`http://localhost:8000/${milestone_attachments?.filter((att) => (att.area_name === item.name && att.milestone === milestone.name))[0].image}`} alt="" />
+     
+                                                 </DialogTrigger>
+                                                 <DialogContent className="max-sm:max-w-[425px] p-8">
+                                                     <img src={`http://localhost:8000/${milestone_attachments?.filter((att) => (att.area_name === item.name && att.milestone === milestone.name))[0].image}`} alt="" />
+                                                 </DialogContent>
+                                            </Dialog>)
+                                                }
                                                 <CardDescription className={`font-semibold text-md text-[#1D2939] ${item.status === "Halted" && "text-red-300"}`}>
                                                     {item.status === "Pending" ? "WIP" : item.status}
                                                 </CardDescription>

@@ -36,6 +36,8 @@ interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
     data: TData[]
     project_values?: ProjectOptions[]
+    loading?: boolean
+    error?: any
 }
 
 export function DataTable<TData, TValue>({ columns, data, project_values }: DataTableProps<TData, TValue>) {

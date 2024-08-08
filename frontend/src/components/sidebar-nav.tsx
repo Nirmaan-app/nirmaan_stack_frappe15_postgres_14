@@ -49,7 +49,7 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
 
             <div
                 className={cn(
-                    "pb-4 text-gray-500 transition-transform duration-300 ease-in-out",
+                    "max-md:pb-14 pb-4 text-gray-500 transition-transform duration-300 ease-in-out overflow-x-auto",
                     isSidebarOpen ? "translate-x-0 bg-white" : "-translate-x-full",
                     "fixed md:relative md:translate-x-0 md:w-64 w-64 h-full z-40"
                 )}
@@ -270,7 +270,7 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
             {
                 isSidebarOpen && (
                     <div
-                        className="fixed inset-0 bg-black opacity-50 z-30 md:hidden"
+                        className="fixed inset-0 overflow-hidden bg-black opacity-50 z-30 md:hidden"
                         onClick={toggleSidebar}
                     ></div>
                 )

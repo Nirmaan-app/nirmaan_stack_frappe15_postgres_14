@@ -50,8 +50,7 @@ export const ReleasePO = () => {
             setVendorAddress(address2)
         }
 
-    }, [orderData]);
-
+    }, [orderData, address_list]);
 
     const [isPrinting, setIsPrinting] = useState(false);
     const componentRef = React.useRef();
@@ -106,7 +105,6 @@ export const ReleasePO = () => {
             // afterDelivery: 0  // Initial values need to be set based on your state or props
         }
     });
-
 
     useEffect(() => {
         if (procurement_order_list && orderId) {
@@ -176,7 +174,7 @@ export const ReleasePO = () => {
     // const afterDelivery = totalAmount * (1 - advance / 100);
 
     let count = 1;
-    console.log(advance)
+    // console.log(advance)
 
     const styles = {
         container: {
@@ -340,7 +338,7 @@ export const ReleasePO = () => {
                     </form>
                 </div>
 
-                <div className="w-[50%] p-4 m-4 border rounded-lg">
+                <div className="w-[50%] p-4 m-4 border rounded-lg h-screen overflow-y-scroll">
                     <div ref={componentRef} className="w-full p-4">
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
