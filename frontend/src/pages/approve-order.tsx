@@ -28,11 +28,13 @@ export const ProjectLeadComponent = () => {
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package', 'image_url']
+            fields: ['category_name', 'work_package', 'image_url'],
+            orderBy: { field: 'category_name', order: 'asc' },
+            limit: 100
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
-            fields: ['name', 'item_name', 'unit_name', 'category'],
+            fields: ['name', 'item_name', 'make_name', 'unit_name', 'category'],
             limit: 1000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
@@ -65,6 +67,7 @@ export const ProjectLeadComponent = () => {
     const [quantity, setQuantity] = useState<number>(0)
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
+    const [make, setMake] = useState('');
 
 
     // const [dialogVisible, setDialogVisible] = useState(false)
@@ -85,6 +88,7 @@ export const ProjectLeadComponent = () => {
     const handleCategoryClick = (category: string, value: string) => {
         addCategory(category);
         setPage(value);
+
     };
 
     const [orderData, setOrderData] = useState({
@@ -129,7 +133,7 @@ export const ProjectLeadComponent = () => {
 
     if (curCategory) {
         item_list?.map((item) => {
-            if (item.category === curCategory) item_options.push({ value: item.item_name, label: item.item_name })
+            if (item.category === curCategory) item_options.push({ value: item.item_name, label: `${item.item_name}${item.make_name ? "-" + item.make_name : ""}` })
         })
     }
 
@@ -155,6 +159,7 @@ export const ProjectLeadComponent = () => {
         item_list?.map((item) => {
             if (item.item_name == selectedItem.value) {
                 setUnit(item.unit_name)
+                setMake(item.make_name)
             }
         })
     }
@@ -162,22 +167,24 @@ export const ProjectLeadComponent = () => {
     const handleAdd = () => {
         if (curItem && Number(quantity)) {
             let itemIdToUpdate = null;
+            let itemMake = null;
             item_list.forEach((item) => {
                 if (item.item_name === curItem) {
                     itemIdToUpdate = item.name;
+                    itemMake = item.make_name;
                 }
             });
 
             if (itemIdToUpdate) {
                 const curRequest = [...orderData.procurement_list.list];
                 const curValue = {
-                    item: curItem,
+                    item: `${curItem}${itemMake ? "-" + itemMake : ""}`,
                     name: itemIdToUpdate,
                     unit: unit,
                     quantity: Number(quantity),
                     category: curCategory,
                 };
-                const isDuplicate = curRequest.some((item) => item.item === curItem);
+                const isDuplicate = curRequest.some((item) => item.name === curValue.name);
                 if (isDuplicate) {
                     // setDialogVisible(true)
                     setDialogMessage(`${curItem} Already exists!!!`)
@@ -197,6 +204,7 @@ export const ProjectLeadComponent = () => {
                 setQuantity(0);
                 setItem_id('');
                 setCurItem('');
+                setMake('');
             }
             const categoryIds = categories.list.map((cat) => cat.name);
             const curCategoryIds = orderData.category_list.list.map((cat) => cat.name);
@@ -259,6 +267,7 @@ export const ProjectLeadComponent = () => {
     const handleCreateItem = () => {
         setUnit('')
         setCurItem('')
+        setMake('')
         setPage('additem')
     }
 
@@ -271,7 +280,8 @@ export const ProjectLeadComponent = () => {
         const itemData = {
             category: curCategory,
             unit_name: unit,
-            item_name: curItem
+            item_name: curItem,
+            make_name: make
         }
         console.log("itemData", itemData)
         createDoc('Items', itemData)
@@ -279,6 +289,7 @@ export const ProjectLeadComponent = () => {
                 console.log(itemData)
                 setUnit('')
                 setCurItem('')
+                setMake('')
                 setPage('itemlist')
                 item_list_mutate()
             }).catch(() => {
@@ -293,7 +304,7 @@ export const ProjectLeadComponent = () => {
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-6 pt-6">
                         <div className="flex items-center space-y-2">
-                            {/* <ArrowLeft /> */}
+                            <ArrowLeft onClick={() => setPage('itemlist')} />
                             <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
@@ -363,7 +374,7 @@ export const ProjectLeadComponent = () => {
 
                                 <div className="w-1/2 md:w-2/3">
                                     <h5 className="text-xs text-gray-400">Items</h5>
-                                    <ReactSelect value={{ value: curItem, label: curItem }} options={item_options} onChange={handleChange} />
+                                    <ReactSelect value={{ value: curItem, label: `${curItem}${make ? "-" + make : ""}` }} options={item_options} onChange={handleChange} />
                                 </div>
                                 <div className="flex-1">
                                     <h5 className="text-xs text-gray-400">UOM</h5>
@@ -580,6 +591,14 @@ export const ProjectLeadComponent = () => {
                         onChange={(e) => setCurItem(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
+                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name</label>
+                    <Input
+                        type="text"
+                        id="makeName"
+                        value={make}
+                        onChange={(e) => setMake(e.target.value)}
+                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
                 </div>
                 {/* <div className="mb-4">
                     <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
@@ -656,7 +675,7 @@ export const ProjectLeadComponent = () => {
             </div>}
             {page == 'categorylist2' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">
-                    {/* <ArrowLeft onClick={() => setPage('wplist')} /> */}
+                    <ArrowLeft onClick={() => setPage('additem')} />
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
@@ -677,7 +696,7 @@ export const ProjectLeadComponent = () => {
                     })}
                 </div>
             </div>}
-            </>
+        </>
         // </MainLayout>
     )
 }

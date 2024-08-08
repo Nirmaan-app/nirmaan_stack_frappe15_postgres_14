@@ -115,7 +115,8 @@ export const SelectVendors = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'procurement_executive'],
-            filters: [['name', '=', orderId]]
+            filters: [['name', '=', orderId]],
+            limit: 100
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
@@ -550,7 +551,7 @@ export const SelectVendors = () => {
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => handleEditPrice()}>
                                 Edit Price
                             </Button>
-                        {/* <div className="flex flex-col justify-end items-end"> */}
+                            {/* <div className="flex flex-col justify-end items-end"> */}
                             <Button onClick={() => setPage('approvequotation')}>
                                 Confirm
                             </Button>
@@ -772,7 +773,7 @@ export const SelectVendors = () => {
                         </Dialog>
                     </div>
                 </>}
-        {/* </MainLayout> */}
+            {/* </MainLayout> */}
         </>
     )
 }

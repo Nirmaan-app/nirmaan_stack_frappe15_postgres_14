@@ -87,7 +87,8 @@ export const ReleasePOSelect = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div onClick={() => handleSet(row.getValue("name"))} className="font-medium underline cursor-pointer">
+                        // onClick={() => handleSet(row.getValue("name"))}
+                        <div className="font-medium underline cursor-pointer">
                             <Link className="underline hover:underline-offset-2" to={`/release-po/${row.getValue("name").replaceAll("/", "&=")}`}>
                                 {(row.getValue("name"))?.toUpperCase()}
                             </Link>
@@ -382,7 +383,7 @@ export const ReleasePOSelect = () => {
                     </div>
                 </div>
             </div>
-            </>
+        </>
         // </MainLayout>
     )
 }

@@ -42,6 +42,7 @@ export default function EditItems() {
 
     const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["category_name", "work_package"],
+        orderBy: { field: 'category_name', order: 'asc' },
         limit: 1000
 
     })
@@ -80,66 +81,66 @@ export default function EditItems() {
     return (
 
         // <MainLayout>
-            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                <div className="flex items-center space-x-2">
-                    <Dialog>
-                        <DialogTrigger asChild>
-                            <Button>
-                                <CirclePlus className="w-5 h-5 mt- pr-1 " /><span className="hidden md:flex pl-1">Edit Item</span>
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                            <DialogHeader>
-                                <DialogTitle>Edit Item</DialogTitle>
-                                <DialogDescription>
-                                    Enter Item Details here.
-                                </DialogDescription>
-                                <div className="mb-4">
-                                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
-                                    <Input
-                                        type="text"
-                                        id="itemName"
-                                        placeholder={data?.item_name}
-                                        value={curItem}
-                                        onChange={(e) => setCurItem(e.target.value)}
-                                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                    />
-                                </div>
-                                <div className="mb-4">
-                                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
-                                    <Select onValueChange={(value) => setUnit(value)}>
-                                        <SelectTrigger className="w-[180px]">
-                                            <SelectValue className="text-gray-200" placeholder={data?.unit_name} />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {/* <SelectItem value="PCS">PCS</SelectItem> */}
-                                            <SelectItem value="BOX">BOX</SelectItem>
-                                            <SelectItem value="ROLL">ROLL</SelectItem>
-                                            {/* <SelectItem value="PKT">PKT</SelectItem> */}
-                                            <SelectItem value="LENGTH">LTH</SelectItem>
-                                            <SelectItem value="MTR">MTR</SelectItem>
-                                            <SelectItem value="NOS">NOS</SelectItem>
-                                            <SelectItem value="KGS">KGS</SelectItem>
-                                            <SelectItem value="PAIRS">PAIRS</SelectItem>
-                                            <SelectItem value="PACKS">PACKS</SelectItem>
-                                            <SelectItem value="DRUM">DRUM</SelectItem>
-                                            {/* <SelectItem value="COIL">COIL</SelectItem> */}
-                                            <SelectItem value="SQMTR">SQMTR</SelectItem>
-                                            <SelectItem value="LTR">LTR</SelectItem>
-                                            {/* <SelectItem value="PAC">PAC</SelectItem> */}
-                                            {/* <SelectItem value="BAG">BAG</SelectItem> */}
-                                            <SelectItem value="BUNDLE">BUNDLE</SelectItem>
-                                            <SelectItem value="FEET">FEET</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="mb-4">
-                                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category</label>
-                                    <Select onValueChange={(value) => setCategory(value)}>
-                                        <SelectTrigger className="w-[180px]">
-                                            <SelectValue className="text-gray-200" placeholder={data?.category} />
-                                        </SelectTrigger>
-                                        {/* <SelectContent>
+        <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            <div className="flex items-center space-x-2">
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button>
+                            <CirclePlus className="w-5 h-5 mt- pr-1 " /><span className="hidden md:flex pl-1">Edit Item</span>
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Edit Item</DialogTitle>
+                            <DialogDescription>
+                                Enter Item Details here.
+                            </DialogDescription>
+                            <div className="mb-4">
+                                <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
+                                <Input
+                                    type="text"
+                                    id="itemName"
+                                    placeholder={data?.item_name}
+                                    value={curItem}
+                                    onChange={(e) => setCurItem(e.target.value)}
+                                    className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                />
+                            </div>
+                            <div className="mb-4">
+                                <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
+                                <Select onValueChange={(value) => setUnit(value)}>
+                                    <SelectTrigger className="w-[180px]">
+                                        <SelectValue className="text-gray-200" placeholder={data?.unit_name} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {/* <SelectItem value="PCS">PCS</SelectItem> */}
+                                        <SelectItem value="BOX">BOX</SelectItem>
+                                        <SelectItem value="ROLL">ROLL</SelectItem>
+                                        {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                                        <SelectItem value="LENGTH">LTH</SelectItem>
+                                        <SelectItem value="MTR">MTR</SelectItem>
+                                        <SelectItem value="NOS">NOS</SelectItem>
+                                        <SelectItem value="KGS">KGS</SelectItem>
+                                        <SelectItem value="PAIRS">PAIRS</SelectItem>
+                                        <SelectItem value="PACKS">PACKS</SelectItem>
+                                        <SelectItem value="DRUM">DRUM</SelectItem>
+                                        {/* <SelectItem value="COIL">COIL</SelectItem> */}
+                                        <SelectItem value="SQMTR">SQMTR</SelectItem>
+                                        <SelectItem value="LTR">LTR</SelectItem>
+                                        {/* <SelectItem value="PAC">PAC</SelectItem> */}
+                                        {/* <SelectItem value="BAG">BAG</SelectItem> */}
+                                        <SelectItem value="BUNDLE">BUNDLE</SelectItem>
+                                        <SelectItem value="FEET">FEET</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="mb-4">
+                                <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category</label>
+                                <Select onValueChange={(value) => setCategory(value)}>
+                                    <SelectTrigger className="w-[180px]">
+                                        <SelectValue className="text-gray-200" placeholder={data?.category} />
+                                    </SelectTrigger>
+                                    {/* <SelectContent>
                                             <SelectItem value="Miscellaneous">Miscellaneous</SelectItem>
                                             <SelectItem value="Conduits">Conduits</SelectItem>
                                             <SelectItem value="Wires & Cables">Wires & Cables</SelectItem>
@@ -149,25 +150,25 @@ export default function EditItems() {
                                             <SelectItem value="Raceway & Cabletray">Raceway & Cabletray</SelectItem>
                                             <SelectItem value="Switch Gear">Switch Gear</SelectItem>
                                         </SelectContent> */}
-                                        <SelectContent>
-                                            {category_options?.map((item) => {
-                                                return (
-                                                    <SelectItem value={item.value}>{item.label}</SelectItem>
-                                                )
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </DialogHeader>
-                            <div className="flex">
-                                <DialogClose className="flex-1 right-0">
-                                    <Button className="flex right-0" onClick={() => handleEditItem()}>Submit</Button>
-                                </DialogClose>
+                                    <SelectContent>
+                                        {category_options?.map((item) => {
+                                            return (
+                                                <SelectItem value={item.value}>{item.label}</SelectItem>
+                                            )
+                                        })}
+                                    </SelectContent>
+                                </Select>
                             </div>
-                        </DialogContent>
-                    </Dialog>
-                </div>
+                        </DialogHeader>
+                        <div className="flex">
+                            <DialogClose className="flex-1 right-0">
+                                <Button className="flex right-0" onClick={() => handleEditItem()}>Submit</Button>
+                            </DialogClose>
+                        </div>
+                    </DialogContent>
+                </Dialog>
             </div>
+        </div>
         // </MainLayout>
     )
 }

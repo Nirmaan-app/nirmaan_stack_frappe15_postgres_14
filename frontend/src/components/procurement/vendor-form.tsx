@@ -29,12 +29,12 @@ import { Separator } from "@radix-ui/react-dropdown-menu"
 // 1.a Create Form Schema accordingly
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z
-        .string({
-            required_error: "Must provide type Name"
-        })
+        .string()
         .min(3, {
             message: "Type Name must be at least 3 characters.",
-        }),
+        })
+        .optional()
+        .or(z.literal('')),
     vendor_name: z
         .string({
             required_error: "Must provide type vendor_name"
@@ -44,11 +44,11 @@ const VendorFormSchema = z.object({
         }),
     address_line_1: z
         .string({
-            required_error: "Address Required"
+            required_error: "Address Line 1 Required"
         }),
     address_line_2: z
         .string({
-            required_error: "Address Required"
+            required_error: "Address Line 2 Required"
         }),
     vendor_city: z
         .string({
@@ -67,7 +67,9 @@ const VendorFormSchema = z.object({
         .lte(999999),
     vendor_email: z
         .string()
-        .email(),
+        .email()
+        .optional()
+        .or(z.literal('')),
     vendor_mobile: z
         .number({
             required_error: "Must provide contact"
@@ -77,6 +79,7 @@ const VendorFormSchema = z.object({
         .lte(9999999999),
     vendor_gst: z
         .string({
+            required_error: "Vendor GST Required"
         }),
 })
 
@@ -105,10 +108,11 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package'],
+            orderBy: { field: 'category_name', order: 'asc' },
             limit: 100
         });
 
-        // console.log("category list,", category_list)
+    // console.log("category list,", category_list)
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     // 2. Define a submit handler.
@@ -162,7 +166,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
             value: item.category_name
         })) || [];
 
-        // console.log("categoryoptions", category_options)
+    // console.log("categoryoptions", category_options)
     const [categories, setCategories] = useState()
     const handleChange = (selectedOptions) => {
         setCategories(selectedOptions)
@@ -188,7 +192,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     name="vendor_name"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Vendor Shop Name</FormLabel>
+                            <FormLabel className="flex">Vendor Shop Name <h1 className="text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="Vendor Name" {...field} />
                             </FormControl>
@@ -275,7 +279,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     name="vendor_gst"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>GST Number</FormLabel>
+                            <FormLabel className="flex">GST Number <h1 className="text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="GST Number" {...field} />
                             </FormControl>
@@ -285,7 +289,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     )}
                 />
                 <div>
-                    <label>Add Category</label>
+                    <label className="flex">Add Category <h1 className="text-sm text-red-600">*</h1></label>
                     <ReactSelect options={category_options} onChange={handleChange} isMulti />
                 </div>
                 <Separator className="my-3" />
@@ -295,7 +299,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     name="address_line_1"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Address Line 1: </FormLabel>
+                            <FormLabel className="flex">Address Line 1: <h1 className="text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="Building Name, Floor" {...field} />
                             </FormControl>
@@ -308,7 +312,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     name="address_line_2"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Address Line 2: </FormLabel>
+                            <FormLabel className="flex">Address Line 2: <h1 className="text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="Street name, Area, Landmark" {...field} />
                             </FormControl>
@@ -321,7 +325,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     name="vendor_city"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>City: </FormLabel>
+                            <FormLabel className="flex">City: <h1 className="text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="City Name" {...field} />
                             </FormControl>
@@ -334,7 +338,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     name="vendor_state"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>State: </FormLabel>
+                            <FormLabel className="flex">State: <h1 className="text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="State Name" {...field} />
                             </FormControl>
@@ -348,7 +352,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     name="pin"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Pin Code: </FormLabel>
+                            <FormLabel className="flex">Pin Code: <h1 className="text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input type="number" placeholder="Pincode" {...field} onChange={event => field.onChange(+event.target.value)} />
                             </FormControl>
@@ -361,7 +365,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     name="vendor_mobile"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Phone: </FormLabel>
+                            <FormLabel className="flex">Phone: <h1 className="text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input type="number" placeholder="Phone" {...field} onChange={event => field.onChange(+event.target.value)} />
                             </FormControl>

@@ -39,7 +39,9 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         {
             fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
         });
+
     const { data: is_present,mutate: is_present_mutate } = useFrappeGetDocList("PR Attachments",
+
         {
             filters: [["procurement_request", "=", pr_id], ["vendor", "=", vendor_id]]
         });
@@ -114,7 +116,9 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     const handleFileChange = (event) => {
         setSelectedFile(event.target.files[0]);
         console.log(event.target.files[0])
-        };
+
+    };
+
     const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
     const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
 
@@ -132,45 +136,47 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                 })
         })
 
-        if(selectedFile){
-        createDoc("PR Attachments",{
-            procurement_request: pr_id,
-            vendor: vendor_id
-        })
-        .then((doc)=>{
-            is_present_mutate()
-            const fileArgs = {
-                doctype: "PR Attachments",
-                docname: doc.name,
-                fieldname : "rfq_pdf",
-                isPrivate: true
-              };
-    
-            upload(selectedFile, fileArgs)
-                .then((d) => {
-                    console.log("done",d)
+
+        if (selectedFile) {
+            createDoc("PR Attachments", {
+                procurement_request: pr_id,
+                vendor: vendor_id
+            })
+                .then((doc) => {
                     is_present_mutate()
-                        call({
-                            doctype: 'PR Attachments',
-                            name: doc.name,
-                            fieldname: 'rfq_pdf',
-                            value: d.file_url
-                        }).then(() => {
-                            console.log("done")
-                            const btn = document.getElementById("save-button")
-                            btn?.click()
-                            setSelectedFile(null)
+                    const fileArgs = {
+                        doctype: "PR Attachments",
+                        docname: doc.name,
+                        fieldname: "rfq_pdf",
+                        isPrivate: true
+                    };
+
+                    upload(selectedFile, fileArgs)
+                        .then((d) => {
+                            console.log("done", d)
+                            is_present_mutate()
+                            call({
+                                doctype: 'PR Attachments',
+                                name: doc.name,
+                                fieldname: 'rfq_pdf',
+                                value: d.file_url
+                            }).then(() => {
+                                console.log("done")
+                                const btn = document.getElementById("save-button")
+                                btn?.click()
+                                setSelectedFile(null)
+                            }).catch(() => {
+                                console.log("error", call_error)
+                            })
+
                         }).catch(() => {
-                            console.log("error",call_error)
+                            console.log(upload_error)
                         })
+                    is_present_mutate()
 
-                }).catch(() => {
-                    console.log(upload_error)
                 })
-            is_present_mutate()
-
-        })}
-        else{
+        }
+        else {
             const btn = document.getElementById("save-button")
             btn?.click()
         }
@@ -182,8 +188,8 @@ export default function QuotationForm({ vendor_id, pr_id }) {
             <div className="text-gray-500 text-sm">{address}</div>
             <div className="flex justify-between py-4">
                 <div className="w-[48%]">
-                    <div className="text-gray-500 text-sm">Attach File {is_present?.length>0 && <span className="font-bold">(Already Uploaded)</span>}</div>
-                    <Input type="file" disabled={is_present?.length>0 ? true : false} onChange={handleFileChange} />
+                    <div className="text-gray-500 text-sm">Attach File {is_present?.length > 0 && <span className="font-bold">(Already Uploaded)</span>}</div>
+                    <Input type="file" disabled={is_present?.length > 0 ? true : false} onChange={handleFileChange} />
                 </div>
                 <div className="w-[48%]">
                     <div className="flex justify-between">
@@ -330,12 +336,10 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 //             return updatedList;
 //         });
 //     };
-
 //     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
 //     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
 //     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 //     const { call } = useFrappePostCall('frappe.client.set_value');
-
 //     const vendor = vendorList?.find(v => v.name === vendor_id);
 //     const address = useMemo(() => {
 //         if (vendor) {
@@ -344,16 +348,13 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 //         }
 //         return '';
 //     }, [vendor, addressList]);
-
 //     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 //         if (event.target.files) {
 //             setSelectedFile(event.target.files[0]);
 //         }
 //     };
-
 //     console.log("deliveryTime", deliveryTime)
 //     console.log("rate", quotationData)
-
 //     const handleSubmit = async () => {
 //         // Update quotations
 //         await Promise.all(quotationData.map(async item => {
@@ -366,7 +367,6 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 //                 console.error("Error updating quotation:", error);
 //             }
 //         }));
-
 //         // Handle file upload if any
 //         if (selectedFile) {
 //             try {
@@ -392,12 +392,10 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 //                 console.error("Error handling file upload:", error);
 //             }
 //         }
-
 //         // Trigger save button click
 //         document.getElementById("save-button")?.click();
 //         setSelectedFile(null);
 //     };
-
 //     return (
 //         <div>
 //             <div className="font-bold text-black text-lg">{vendor?.vendor_name}</div>
