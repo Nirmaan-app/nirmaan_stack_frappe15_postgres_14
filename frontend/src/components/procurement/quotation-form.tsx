@@ -39,7 +39,9 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         {
             fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
         });
-    const { data: is_present, mutate: is_present_mutate } = useFrappeGetDocList("PR Attachments",
+
+    const { data: is_present,mutate: is_present_mutate } = useFrappeGetDocList("PR Attachments",
+
         {
             filters: [["procurement_request", "=", pr_id], ["vendor", "=", vendor_id]]
         });
@@ -114,7 +116,9 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     const handleFileChange = (event) => {
         setSelectedFile(event.target.files[0]);
         console.log(event.target.files[0])
+
     };
+
     const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
     const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
 
@@ -131,6 +135,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                     console.log(submit_error)
                 })
         })
+
 
         if (selectedFile) {
             createDoc("PR Attachments", {
@@ -331,12 +336,10 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 //             return updatedList;
 //         });
 //     };
-
 //     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
 //     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
 //     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 //     const { call } = useFrappePostCall('frappe.client.set_value');
-
 //     const vendor = vendorList?.find(v => v.name === vendor_id);
 //     const address = useMemo(() => {
 //         if (vendor) {
@@ -345,13 +348,13 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 //         }
 //         return '';
 //     }, [vendor, addressList]);
-
 //     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 //         if (event.target.files) {
 //             setSelectedFile(event.target.files[0]);
 //         }
 //     };
-
+//     console.log("deliveryTime", deliveryTime)
+//     console.log("rate", quotationData)
 //     const handleSubmit = async () => {
 //         // Update quotations
 //         await Promise.all(quotationData.map(async item => {
@@ -364,7 +367,6 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 //                 console.error("Error updating quotation:", error);
 //             }
 //         }));
-
 //         // Handle file upload if any
 //         if (selectedFile) {
 //             try {
@@ -390,12 +392,10 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 //                 console.error("Error handling file upload:", error);
 //             }
 //         }
-
 //         // Trigger save button click
 //         document.getElementById("save-button")?.click();
 //         setSelectedFile(null);
 //     };
-
 //     return (
 //         <div>
 //             <div className="font-bold text-black text-lg">{vendor?.vendor_name}</div>
