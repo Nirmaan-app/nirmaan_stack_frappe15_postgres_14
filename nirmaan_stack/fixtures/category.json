@@ -1,14 +1,5 @@
 [
  {
-  "category_name": "Wires & Cables",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.876768",
-  "name": "Wires & Cables",
-  "work_package": "Electrical Work"
- },
- {
   "category_name": "Switch & Sockets",
   "docstatus": 0,
   "doctype": "Category",
@@ -60,15 +51,6 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.912843",
   "name": "LT Panels",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "UPS & Inverter",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.917972",
-  "name": "UPS & Inverter",
   "work_package": "Electrical Work"
  },
  {
@@ -519,6 +501,24 @@
   "image_url": null,
   "modified": "2024-07-17 20:19:23.895000",
   "name": "Lighting",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Wires & Cables",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.876768",
+  "name": "Wires & Cables",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "UPS & Inverter",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.917972",
+  "name": "UPS & Inverter",
   "work_package": "Electrical Work"
  }
 ]

@@ -6,6 +6,7 @@ import { useState, useEffect } from "react"
 import { MainLayout } from '../layout/main-layout';
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogDescription,
     DialogHeader,
@@ -21,83 +22,83 @@ type TableRowSelection<T> = TableProps<T>['rowSelection'];
 const { Panel } = Collapse;
 
 interface DataType {
-  key: React.ReactNode;
-  category: string;
-  item: string;
-  unit: string;
-  quantity: number;
-  rate: number;
-  selectedVendor: string;
-  amount: number;
-  lowest2: string;
-  lowest3: string;
-  children?: DataType[];
+    key: React.ReactNode;
+    category: string;
+    item: string;
+    unit: string;
+    quantity: number;
+    rate: number;
+    selectedVendor: string;
+    amount: number;
+    lowest2: string;
+    lowest3: string;
+    children?: DataType[];
 }
 
 const columns: TableColumnsType<DataType> = [
     {
-      title: 'Items',
-      dataIndex: 'item',
-      key: 'item'
+        title: 'Items',
+        dataIndex: 'item',
+        key: 'item'
     },
     {
-      title: 'Unit',
-      dataIndex: 'unit',
-      key: 'unit',
-      width: '7%',
+        title: 'Unit',
+        dataIndex: 'unit',
+        key: 'unit',
+        width: '7%',
     },
     {
-      title: 'Quantity',
-      dataIndex: 'quantity',
-      width: '7%',
-      key: 'quantity',
+        title: 'Quantity',
+        dataIndex: 'quantity',
+        width: '7%',
+        key: 'quantity',
     },
     {
         title: 'Rate',
         dataIndex: 'rate',
         width: '7%',
         key: 'rate',
-      },
+    },
     {
         title: 'Selected Vendor',
         dataIndex: 'selectedVendor',
         width: '15%',
         key: 'selectedVendor',
-      },
-      {
+    },
+    {
         title: 'Amount',
         dataIndex: 'amount',
         width: '9%',
         key: 'amount',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-              {text}
+                {text}
             </span>
-          ),
-      },
-      {
+        ),
+    },
+    {
         title: 'Lowest Quoted Amount',
         dataIndex: 'lowest2',
         width: '10%',
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-              {text}
+                {text}
             </span>
-          ),
-      },
-      {
+        ),
+    },
+    {
         title: '3 months Lowest Amount',
         dataIndex: 'lowest3',
         width: '10%',
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-              {text}
+                {text}
             </span>
-          ),
-      },
-  ];
+        ),
+    },
+];
 
 
 export const SentBackSelectVendor = () => {
@@ -145,7 +146,7 @@ export const SentBackSelectVendor = () => {
     }
 
 
-    
+
     const [selectedVendors, setSelectedVendors] = useState({})
     const [selectedCategories, setSelectedCategories] = useState({})
     const [totals, setTotals] = useState()
@@ -170,7 +171,7 @@ export const SentBackSelectVendor = () => {
         setSelectedCategories(updatedCategories);
     }, [quotation_request_list, orderData]);
 
-    const [data,setData] = useState<DataType>([]) 
+    const [data, setData] = useState<DataType>([])
     const [checkStrictly, setCheckStrictly] = useState(false);
 
     useEffect(() => {
@@ -178,33 +179,33 @@ export const SentBackSelectVendor = () => {
             const newData: DataType[] = [];
             orderData.category_list?.list.forEach((cat) => {
                 const items: DataType[] = [];
-    
+
                 orderData.item_list?.list.forEach((item) => {
                     if (item.category === cat.name) {
-                            const price = Number(getPrice(selectedVendors[item.name], item.name))
-                            const quotesForItem = quote_data
-                                ?.filter(value => value.item === item.name && value.quote)
-                                ?.map(value => value.quote);
-                            let minQuote;
-                            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                            minQuote = (minQuote ? parseFloat(minQuote)*item.quantity : 0)
+                        const price = Number(getPrice(selectedVendors[item.name], item.name))
+                        const quotesForItem = quote_data
+                            ?.filter(value => value.item === item.name && value.quote)
+                            ?.map(value => value.quote);
+                        let minQuote;
+                        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                        minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
 
-                            items.push({
-                                item: item.item,
-                                key: item.name,
-                                unit: item.unit,
-                                quantity: item.quantity,
-                                category: item.category,
-                                rate: selectedVendors[item.name] ? price : "Delayed",
-                                amount: selectedVendors[item.name] ? price*item.quantity : "Delayed",
-                                selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
-                                lowest2: selectedVendors[item.name] ? getLowest2(item.name)*item.quantity : "Delayed",
-                                lowest3: minQuote ? minQuote : "N/A",
-                            });
+                        items.push({
+                            item: item.item,
+                            key: item.name,
+                            unit: item.unit,
+                            quantity: item.quantity,
+                            category: item.category,
+                            rate: selectedVendors[item.name] ? price : "Delayed",
+                            amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
+                            selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
+                            lowest2: selectedVendors[item.name] ? getLowest2(item.name) * item.quantity : "Delayed",
+                            lowest3: minQuote ? minQuote : "N/A",
+                        });
                     }
                 });
-    
-                if(items.length){
+
+                if (items.length) {
                     const node: DataType = {
                         item: cat.name,
                         key: cat.name,
@@ -218,23 +219,23 @@ export const SentBackSelectVendor = () => {
                     newData.push(node);
                 }
             });
-            console.log("newData",newData)
+            console.log("newData", newData)
             setData(newData)
         }
-    }, [orderData,selectedVendors]);
-    console.log("data",data)
+    }, [orderData, selectedVendors]);
+    console.log("data", data)
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
             console.log("onChange")
-          console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
         },
         onSelect: (record, selected, selectedRows) => {
-          console.log(record, selected, selectedRows);
+            console.log(record, selected, selectedRows);
         },
         onSelectAll: (selected, selectedRows, changeRows) => {
-          console.log(selected, selectedRows, changeRows);
+            console.log(selected, selectedRows, changeRows);
         },
-      };
+    };
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
@@ -336,8 +337,10 @@ export const SentBackSelectVendor = () => {
     const getTotal = (cat: string) => {
         let total: number = 0;
         orderData.item_list?.list.map((item) => {
-            if(item.category === cat){const price = getPrice(selectedVendors[item.name], item.name);
-            total += (price ? parseFloat(price) : 0) * item.quantity;}
+            if (item.category === cat) {
+                const price = getPrice(selectedVendors[item.name], item.name);
+                total += (price ? parseFloat(price) : 0) * item.quantity;
+            }
         })
         return total
     }
@@ -428,7 +431,7 @@ export const SentBackSelectVendor = () => {
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                             </div>
                         </Card>
-                        {orderData?.category_list?.list.map((cat)=>{
+                        {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name;
                             return <div>
                                 <Card className="flex w-full shadow-none border border-grey-500">
@@ -464,24 +467,26 @@ export const SentBackSelectVendor = () => {
                                                     let minQuote;
                                                     if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
 
-                                                    if(item.category === curCategory){return <tr>
-                                                        <td className="py-2 text-sm px-2 font-semibold border-b w-[40%]">
-                                                            {item.item}
-                                                        </td>
-                                                        {selectedCategories[curCategory]?.map((value) => {
-                                                            const price = getPrice(value, item.name);
-                                                            // total += (price ? parseFloat(price) : 0)*item.quantity;
-                                                            const isSelected = selectedVendors[item.name] === value;
-                                                            const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                            return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
-                                                                <input className="mr-2" disabled={price === "-" ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
-                                                                {price * item.quantity}
+                                                    if (item.category === curCategory) {
+                                                        return <tr>
+                                                            <td className="py-2 text-sm px-2 font-semibold border-b w-[40%]">
+                                                                {item.item}
                                                             </td>
-                                                        })}
-                                                        <td className="py-2 text-sm px-2 border-b">
-                                                            {minQuote ? minQuote * item.quantity : "N/A"}
-                                                        </td>
-                                                    </tr>}
+                                                            {selectedCategories[curCategory]?.map((value) => {
+                                                                const price = getPrice(value, item.name);
+                                                                // total += (price ? parseFloat(price) : 0)*item.quantity;
+                                                                const isSelected = selectedVendors[item.name] === value;
+                                                                const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
+                                                                return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
+                                                                    <input className="mr-2" disabled={price === "-" ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
+                                                                    {price * item.quantity}
+                                                                </td>
+                                                            })}
+                                                            <td className="py-2 text-sm px-2 border-b">
+                                                                {minQuote ? minQuote * item.quantity : "N/A"}
+                                                            </td>
+                                                        </tr>
+                                                    }
                                                 })}
                                                 <tr>
                                                     <td className="py-4 text-sm px-2 font-semibold">Total</td>
@@ -505,7 +510,7 @@ export const SentBackSelectVendor = () => {
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => navigate(`/sent-back-request/${id}`)}>
                                 Edit Price
                             </Button>
-                        {/* </div>
+                            {/* </div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4"> */}
                             <Button onClick={() => handleUpdateOrderData()}>
                                 Confirm
@@ -607,37 +612,67 @@ export const SentBackSelectVendor = () => {
                                 </CardHeader>
                             </Card> */}
 
-                            
+
 
                         </div>
                     </div>
                 </div>
-                <ConfigProvider
-                    theme={{
-                    token: {
-                        // Seed Token
-                        colorPrimary: '#FF2828',
-                        borderRadius: 4,
+                    <ConfigProvider
+                        theme={{
+                            token: {
+                                // Seed Token
+                                colorPrimary: '#FF2828',
+                                borderRadius: 4,
 
-                        // Alias Token
-                        colorBgContainer: '#FFFFFF',
-                    },
-                    }}
-                >
-                <Table
-                    dataSource={data}
-                    columns={columns}
-                    expandable={{ defaultExpandAllRows: true }}
+                                // Alias Token
+                                colorBgContainer: '#FFFFFF',
+                            },
+                        }}
+                    >
+                        <Table
+                            dataSource={data}
+                            columns={columns}
+                            expandable={{ defaultExpandAllRows: true }}
 
-                />
+                        />
 
-                </ConfigProvider>
-                <div className="flex flex-col justify-end items-end">
-                <Button onClick={()=>handleSubmit()}>Send For Approval</Button>
-                </div>
+                    </ConfigProvider>
+                    <div className="flex flex-col justify-end items-end">
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <Button>
+                                    Send for Approval
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Have you cross-checked your quote selections?</DialogTitle>
+                                    <DialogDescription>
+                                        {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
+                                            <span>You can click confirm to send it for approval</span>
+                                            :
+                                            <span>No item status should be delayed. Go Back and rectify delayed Items with quotes</span>
+                                        }
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <DialogClose>
+                                    <Button>Go Back</Button>
+                                    {console.log("filter:", orderData.item_list?.list.filter((item) => item.vendor === undefined).length)}
+                                    {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
+                                        <Button className="ml-4" onClick={() => handleSubmit()}>Confirm</Button>
+                                        :
+                                        <Button variant="secondary" className="ml-4" disabled={true}>Confirm</Button>
+                                    }
+                                </DialogClose>
+                            </DialogContent>
+                        </Dialog>
+                    </div>
+                    <div className="flex flex-col justify-end items-end">
+                        {/* <Button onClick={()=>handleSubmit()}>Send For Approval</Button> */}
+                    </div>
                 </>
-                }
-                </>
+            }
+        </>
         // </MainLayout>
     )
 }
