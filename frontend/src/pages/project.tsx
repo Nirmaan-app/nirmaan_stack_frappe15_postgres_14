@@ -13,7 +13,8 @@ import { Link, useNavigate, useParams } from "react-router-dom"
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 import React from 'react';
-import { MainLayout } from "@/components/layout/main-layout"
+import {  ProjectSkeleton, TableSkeleton } from "@/components/ui/skeleton"
+import { useToast } from "@/components/ui/use-toast"
 
 interface WPN {
     name: string
@@ -40,6 +41,8 @@ export const Component = Project
 const ProjectView = ({ projectId }: { projectId: string }) => {
 
     const navigate = useNavigate();
+
+    const {toast} = useToast()
 
     const columns: ColumnDef<ScopesMilestones>[] = useMemo(
         () => [
@@ -127,20 +130,27 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
         'Projects',
         `${projectId}`
     );
+
     const today = new Date();
     const formattedDate = today.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric'
     });
-    const componentRef = React.useRef();
+    const componentRef = React.useRef<HTMLDivElement>(null);
     const handlePrint = useReactToPrint({
-        content: () => componentRef.current,
+        content: () => {
+            // console.log("Print Report button Clicked");
+            return componentRef.current || null
+        },
         documentTitle: `${formattedDate}_${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
     });
-    const componentRef2 = React.useRef();
+    const componentRef2 = React.useRef<HTMLDivElement>(null);
     const handlePrint2 = useReactToPrint({
-        content: () => componentRef2.current,
+        content: () => {
+            // console.log("Print Schedule button Clicked");
+            return componentRef.current || null
+        },
         documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
     });
 
@@ -152,10 +162,18 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     })
 
 
-    if (isValidating || mile_isloading) return <h1>Loading...</h1>
-    if (error || mile_error) return <h1>Error</h1>
+    if (isValidating) return <ProjectSkeleton />
+    if (error || mile_error) {
+        console.log("Error in project.tsx", error?.message, mile_error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${error?.message || mile_error?.message}`,
+            variant : "destructive"
+        })   
+    }
+
+    // console.log("data", data)
     return (
-        // <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-4">
                 {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
@@ -172,20 +190,18 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                         </BreadcrumbItem>
                     </Breadcrumb>
                 </div> */}
-                {(isValidating) && (<p>Loading</p>)}
-                {error && <p>Error</p>}
-                {data &&
-                    <>
+                {data ? (
+                        <>
                         <div className="flex items-center justify-between space-y-2">
                             <div className="flex">
                                 <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
                                 <h2 className="pl-1 text-2xl font-bold tracking-tight">{data.project_name}</h2>
                             </div>
                             <div className="flex space-x-2">
-                                <Button onClick={handlePrint}>
+                                <Button className="cursor-pointer" onClick={() => handlePrint()}>
                                     Report
                                 </Button>
-                                <Button onClick={handlePrint2}>
+                                <Button className="cursor-pointer" onClick={() => handlePrint2()}>
                                     Schedule
                                 </Button>
                                 <Button asChild>
@@ -263,7 +279,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                                         <HardHat className="h-4 w-4 text-muted-foreground" />
                                     </CardHeader>
                                     <CardContent>
-                                        {JSON.parse(data.project_work_milestones!).work_packages.map((wp: WPN) => (
+                                        {JSON.parse(data.project_work_milestones).work_packages.map((wp: WPN) => (
                                             <Badge variant="outline">{wp.work_package_name}</Badge>
                                         )) || ""}
                                     </CardContent>
@@ -299,7 +315,8 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                             </div>
                         </div>
                     </>
-                }
+                    ) : <div>No data</div>
+            }
                 <div className="hidden">
                     <div ref={componentRef} className="px-4 pb-1">
                         <div className="overflow-x-auto">
@@ -437,10 +454,13 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                         </div>
                     </div>
                 </div>
-                <div className="mx-auto py-10">
+                <div className="pl-0 pr-2">
+                    {mile_isloading ?  (
+                        <TableSkeleton />
+                    ) : (
                     <DataTable columns={columns} data={mile_data || []} />
+                    )}
                 </div>
             </div >
-        // </MainLayout>
     )
 }

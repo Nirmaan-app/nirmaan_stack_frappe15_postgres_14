@@ -92,7 +92,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values }: Data
         <div className="space-y-4">
             {/* Look for data-table-toolbar in tasks example */}
 
-            <div className="flex items-center py-4 pr-2">
+            <div className="flex gap-2 items-center py-4 pr-2">
                 <DebouncedInput
                     placeholder="Search..."
                     //value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}

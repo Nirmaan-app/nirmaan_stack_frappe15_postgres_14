@@ -1,4 +1,3 @@
-import { MainLayout } from "@/components/layout/main-layout";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { useMemo } from "react";
@@ -7,6 +6,8 @@ import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { useToast } from "@/components/ui/use-toast";
+import { TableSkeleton } from "@/components/ui/skeleton";
 
 type PRTable = {
     name: string
@@ -32,6 +33,8 @@ export const ApprovePR = () => {
             fields: ['item', 'quote'],
             limit: 1000
         });
+
+        const {toast} = useToast()
 
     const getTotal = (order_id: string) => {
         let total: number = 0;
@@ -160,10 +163,15 @@ export const ApprovePR = () => {
         [project_values]
     )
 
-    if (projects_loading || procurement_request_list_loading) return <h1>Loading</h1>
-    if (procurement_request_list_error || projects_error) return <h1>Error</h1>
+    if (procurement_request_list_error || projects_error) {
+        console.log("Error in approve-pr.tsx", procurement_request_list_error?.message, projects_error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${procurement_request_list_error?.message || projects_error?.message}`,
+            variant : "destructive"
+        })   
+    }
     return (
-        // <MainLayout>
             <div className="flex">
 
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
@@ -172,7 +180,11 @@ export const ApprovePR = () => {
                     </div>
                     {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
 
-                    <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
+                    {projects_loading || procurement_request_list_loading ? (<TableSkeleton />) 
+                    : 
+                    (<DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />)}
+
+                    
 
 
                     {/* <div className="overflow-x-auto">
@@ -205,6 +217,5 @@ export const ApprovePR = () => {
                     </div> */}
                 </div>
             </div>
-        // </MainLayout>
     )
 }

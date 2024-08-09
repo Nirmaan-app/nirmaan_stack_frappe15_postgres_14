@@ -96,7 +96,7 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
                 <div className="flex items-center">
                 <Dialog>
                     <DialogTrigger asChild>
-                        <Button className="p-3 pb-4" onClick={()=>{setCurrent(sow_name)}} variant="secondary">+</Button>
+                        <Button className="p-3 pb-4 cursor-pointer hover:bg-gray-300" onClick={()=>{setCurrent(sow_name)}} variant="secondary">+</Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
@@ -146,7 +146,7 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
                 <div>
                     {(isLoading) ? (<Skeleton className="w-1/3 h-4" />) : (
                         (data || []).map(d =>
-                            <p className="text-xs text-muted-foreground">{d.milestone_name}</p>
+                            <p key={d.milestone_name} className="text-xs text-muted-foreground">{d.milestone_name}</p>
                         )
                     )}
                 </div>

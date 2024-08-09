@@ -7,6 +7,8 @@ import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { TableSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/use-toast";
 
 
 type PRTable = {
@@ -141,8 +143,18 @@ export const ApproveSelectVendor = () => {
         ],
         [project_values]
     )
-    if (projects_loading || procurement_request_list_loading) return <h1>Loading</h1>
-    if (procurement_request_list_error || projects_error) return <h1>Error</h1>
+
+    const {toast} = useToast()
+
+    if (procurement_request_list_error || projects_error) {
+        console.log("Error in approve-select-vendor.tsx", procurement_request_list_error?.message, projects_error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${procurement_request_list_error?.message || projects_error?.message}`,
+            variant : "destructive"
+        })   
+    }
+
     return (
         // <MainLayout>
             <div className="flex">
@@ -150,8 +162,9 @@ export const ApproveSelectVendor = () => {
                     <div className="flex items-center justify-between space-y-2 pl-2">
                         <h2 className="text-lg font-bold tracking-tight">Approve Vendors</h2>
                     </div>
+                    {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
-
+                    )}
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">

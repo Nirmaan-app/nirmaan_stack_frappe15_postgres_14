@@ -111,7 +111,6 @@ const columns: TableColumnsType<DataType> = [
     },
 ];
 
-
 export const ApproveVendor = () => {
     const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate()
@@ -265,7 +264,6 @@ export const ApproveVendor = () => {
                 }
             })
             if(allChecked){
-
                 updateDoc('Procurement Requests', orderId, {
                     workflow_state: "Vendor Approved",
                 })
@@ -925,7 +923,7 @@ export const ApproveVendor = () => {
             {page == 'approvequotation' && <div className="flex" >
                 <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                     <div className="flex items-center pt-1  pb-4">
-                        <ArrowLeft onClick={() => navigate("/approve-vendor")} />
+                        <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-vendor")} />
                         <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
                     </div>
                     <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
@@ -1194,9 +1192,9 @@ export const ApproveVendor = () => {
                     } */}
                 </div>
             </div>}
-            <Space className="hidden" align="center" style={{ marginBottom: 16 }}>
+            {/* <Space align="center" style={{ marginBottom: 16 }}>
                 CheckStrictly: <Switch checked={checkStrictly} onChange={setCheckStrictly} />
-            </Space>
+            </Space> */}
             <ConfigProvider
                 theme={{
                     token: {
@@ -1209,17 +1207,21 @@ export const ApproveVendor = () => {
                     },
                 }}
             >
-                {data.length > 0 && <Table
+                {data.length > 0 && 
+                <div className='px-6'>
+                <Table
                     rowSelection={{ ...rowSelection,checkStrictly }}
                     dataSource={data}
                     expandable={{ defaultExpandAllRows: true }}
                     columns={columns}
-                />}
+                />
+                </div>
+                }
             </ConfigProvider>
-            {selectedItems?.length > 0 && <div className="text-right space-x-2">
+            {selectedItems?.length > 0 && <div className="text-right space-x-2 mr-6">
                 <Dialog>
                     <DialogTrigger asChild>
-                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white">
+                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
                             Send Back
                         </Button>
                     </DialogTrigger>
@@ -1245,7 +1247,7 @@ export const ApproveVendor = () => {
                 </Dialog>
                 <Dialog>
                     <DialogTrigger asChild>
-                        <Button>
+                        <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
                             Approve
                         </Button>
                     </DialogTrigger>
@@ -1263,17 +1265,16 @@ export const ApproveVendor = () => {
                 </Dialog>
             </div>}
             <div className="flex items-center pt-1  pb-4">
-                <h2 className="text-base pl-2 font-bold tracking-tight">Delayed Items</h2>
+                <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
             </div>
             <div className="overflow-x-auto">
-
                 <div className="min-w-full inline-block align-middle">
                     {orderData.category_list?.list.map((cat) => {
                         if(isDelayed(cat.name)){return <div className="p-5">
                             <ReactTable>
                                 <TableHeader>
                                     <TableRow className="bg-red-100">
-                                        <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>Items</TableHead>
+                                        <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>(Items)</TableHead>
                                         <TableHead className="w-[25%]">UOM</TableHead>
                                         <TableHead className="w-[15%]">Qty</TableHead>
                                     </TableRow>
@@ -1292,12 +1293,14 @@ export const ApproveVendor = () => {
                                     })}
                                 </TableBody>
                             </ReactTable>
-                        </div>}
+                        </div>} else {
+                            return <div className='flex justify-center text-gray-400 tracking-tight my-4'>No delayed items</div>
+                        }
                     })}
                 </div>
             </div>
 
-            <div className="py-10"></div>
+            {/* <div className="py-10"></div> */}
             </>
         //  </MainLayout>
     )

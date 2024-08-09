@@ -96,7 +96,7 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
                 <div className="flex items-center">
                 <Dialog>
                     <DialogTrigger asChild>
-                        <Button className="p-3 pb-4" onClick={()=>{setCurrent(wp)}} variant="secondary">+</Button>
+                        <Button className="p-3 pb-4 cursor-pointer hover:bg-gray-300" onClick={()=>{setCurrent(wp)}} variant="secondary">+</Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
@@ -147,7 +147,7 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
                     {(isLoading) && (<p>Loading</p>)}
                     {error && <p>Error</p>}
                     {(data || []).map(d =>
-                        <div>
+                        <div key={d.scope_of_work_name}>
                             <SOWCard sow_id={d.name} sow_name={d.scope_of_work_name} />
                         </div>
                     )}

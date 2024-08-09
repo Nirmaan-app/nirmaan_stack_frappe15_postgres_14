@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumb";
-import { NavBar } from "@/components/nav/nav-bar";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import {  useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Select,
@@ -16,8 +15,9 @@ import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useState } from "react";
 import { DialogClose } from "@radix-ui/react-dialog";
-import { MainLayout } from "@/components/layout/main-layout";
 import { ArrowLeft, CirclePlus } from "lucide-react";
+import { UserProfileSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/use-toast";
 
 interface SelectOption {
     label: string;
@@ -27,8 +27,9 @@ interface SelectOption {
 export default function Profile() {
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
+    const { toast} = useToast()
 
-    const { data, isloading, error } = useFrappeGetDoc(
+    const { data, isLoading, error } = useFrappeGetDoc(
         'Nirmaan Users',
         `${id}`
     );
@@ -65,14 +66,20 @@ export default function Profile() {
         })
     }
 
-    if (isloading) return <h1>Loading</h1>;
-    if (error) return <h1>{error.message}</h1>;
+    if (isLoading) return <UserProfileSkeleton />;
+    if (error) {
+        console.log("Error in user-profile.tsx", error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${error?.message}`,
+            variant : "destructive"
+        })   
+    }
     return (
-        // <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-6">
                 <div className="flex items-center justify-between mb-2 space-y-2">
                     <div className="flex">
-                        <ArrowLeft className="mt-1.5" onClick={() => navigate("/users")} />
+                        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} />
                         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">User : {data?.full_name}</h2>
                     </div>
 
@@ -86,10 +93,10 @@ export default function Profile() {
                             <DialogContent>
                                 <DialogHeader>
                                     <DialogTitle>Assign New Projects</DialogTitle>
-                                    <DialogDescription>
+                                    {/* <DialogDescription>
                                         Add Projects here.
-                                    </DialogDescription>
-                                    <div className="flex py-2">
+                                    </DialogDescription> */}
+                                    <div className="flex py-2 pt-4">
                                         <span className="px-2 text-base font-medium pt-1">Assign</span>
                                         <Select onValueChange={(item) => setCurProj(item)}>
                                             <SelectTrigger className="w-[220px]">
@@ -107,9 +114,9 @@ export default function Profile() {
                                         <span className="px-4 text-base font-normal pt-1">to: {`${data?.first_name}`}</span>
                                     </div>
                                 </DialogHeader>
-                                <div className="flex">
-                                    <DialogClose className="flex-1 right-0">
-                                        <Button className="flex right-0" onClick={() => handleSubmit()}>Submit</Button>
+                                <div className="flex justify-end">
+                                    <DialogClose >
+                                        <Button  onClick={() => handleSubmit()}>Submit</Button>
                                     </DialogClose>
                                 </div>
                             </DialogContent>
@@ -145,7 +152,7 @@ export default function Profile() {
                     <Card className="md:col-span-3 hover:animate-shadow-drop-center" >
                         <CardContent className="p-6">
                             <div className="border-b border-gray-300 mb-4 pb-2">
-                                <CardHeader className="text-lg font-semibold mb-2">User Details</CardHeader>
+                                <div className="text-lg font-bold mb-8">User Details</div>
                                 <div className="grid grid-cols-2 gap-x-4">
                                     <div>
                                         <p className="text-md font-medium text-gray-700">Full Name:</p>
@@ -222,6 +229,5 @@ export default function Profile() {
                     </Card>
                 </div>
             </div>
-        // </MainLayout>
     )
 }

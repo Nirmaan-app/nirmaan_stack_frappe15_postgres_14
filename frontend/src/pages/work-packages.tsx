@@ -103,10 +103,10 @@ export default function Projects() {
     //     ],
     //     []
     // )
-    function closewindow() {
-        var button = document.getElementById('dialogClose');
-        mutate()
-    }
+    // function closewindow() {
+    //     var button = document.getElementById('dialogClose');
+    //     mutate()
+    // }
     return (
         // <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-6">
@@ -132,7 +132,7 @@ export default function Projects() {
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button variant="secondary">
-                                    <div className="flex"><CirclePlus className="w-5 h-5 mt- pr-1 " />
+                                    <div className="flex cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />
                                         <span className="pl-1">Add New Work Package</span>
                                     </div>
                                 </Button>
@@ -183,11 +183,15 @@ export default function Projects() {
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
                     {isLoading ? (
                         [...Array(5)].map((_, index) => (
+                            <div key={index}>
                             <WPSkeleton />
+                            </div>
                         ))
                     ) : (
                         (data || []).map(d =>
+                            <div key={d.work_package_name}>
                             <WPCard wp={d.work_package_name} />
+                            </div>
                             // <Card className="hover:animate-shadow-drop-center" >
                             //     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             //         <CardTitle className="text-sm font-medium">

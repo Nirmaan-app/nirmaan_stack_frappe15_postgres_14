@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
 import { DataTableViewOptions } from "./data-table-view-options";
-import { Input } from "../ui/input";
 
 type ProjectOptions = {
     label: string,
@@ -16,8 +15,6 @@ interface DataTableToolbarProps<TData> {
     table: Table<TData>;
     project_values?: ProjectOptions[];
 }
-
-
 
 export function DataTableToolbar<TData>({ table, project_values }: DataTableToolbarProps<TData>) {
 

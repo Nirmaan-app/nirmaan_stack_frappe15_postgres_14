@@ -1,12 +1,13 @@
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { MainLayout } from "../layout/main-layout";
 import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Badge } from "../ui/badge";
+import { useToast } from "../ui/use-toast";
+import { TableSkeleton } from "../ui/skeleton";
 
 
 type PRTable = {
@@ -141,17 +142,26 @@ export const SelectVendorList = () => {
         ],
         [project_values]
     )
-    if (projects_loading || procurement_request_list_loading) return <h1>Loading</h1>
-    if (procurement_request_list_error || projects_error) return <h1>Error</h1>
+    const {toast} = useToast()
+
+    if (procurement_request_list_error || projects_error) {
+        console.log("Error in select-vendor-list.tsx", procurement_request_list_error?.message, projects_error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${procurement_request_list_error?.message || projects_error?.message}`,
+            variant : "destructive"
+        })   
+    }
 
     return (
-        // <MainLayout>
             <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center justify-between space-y-2">
                         <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Select Vendor PR</h2>
                     </div>
+                    {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
+                    )}
 
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
@@ -183,6 +193,5 @@ export const SelectVendorList = () => {
                     </div> */}
                 </div>
             </div>
-        // </MainLayout>
     )
 }

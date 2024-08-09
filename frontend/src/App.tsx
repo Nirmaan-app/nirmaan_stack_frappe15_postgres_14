@@ -51,6 +51,7 @@ import EditItems from './pages/items-edit'
 import { FC } from 'react'
 import { MainLayout } from './components/layout/main-layout'
 import { ProjectManager } from './components/dashboard-pm'
+import { Project } from './pages/project'
 
 // import { NewMilestone } from './components/new-milestone'
 
@@ -106,6 +107,7 @@ const router = createBrowserRouter(
 				// })}
 				// action={(({ params }) => {})}
 				lazy={() => import('@/pages/project')}
+				// element={<Project />}
 			/>
 			<Route path=":projectId/edit" element={<EditProjectForm />} />
 		</Route>
