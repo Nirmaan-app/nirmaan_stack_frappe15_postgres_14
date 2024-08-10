@@ -15,6 +15,14 @@ function Skeleton({
 
 export const TableSkeleton = () => {
   return  (
+    <>
+    <div className="flex items-center justify-between pb-4">
+      <div className="flex gap-2 w-full">
+        <Skeleton className="p-4 w-1/4" />
+        <Skeleton className="p-4 w-[10%]" />
+      </div>
+      <Skeleton className="p-4 w-[10%]" />
+    </div>
     <div className="space-y-4 mt-10 p-4 border rounded-md border-gray-200">
         {/* Skeleton for Table Header */}
         <div className="flex flex-col space-y-2">
@@ -46,6 +54,7 @@ export const TableSkeleton = () => {
           ))}
         </div>
       </div>
+      </>
   )
 }
 

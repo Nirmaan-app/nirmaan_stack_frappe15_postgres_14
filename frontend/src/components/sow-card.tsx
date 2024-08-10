@@ -3,9 +3,7 @@ import React , {useState} from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { useEffect } from "react"
 import {DialogClose} from "@/components/ui/dialog"
-
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { PersonStanding } from "lucide-react"
@@ -23,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
 import { ButtonLoading } from "./button-loading"
 import { Skeleton } from "./ui/skeleton"
+import { useToast } from "./ui/use-toast"
 
 interface SOWCardProps {
     sow_id: string
@@ -85,6 +84,17 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
     function closewindow(){
         var button = document.getElementById('dialogClose');
         mutate()
+    }
+
+    const {toast} = useToast()
+
+    if (error) {
+        console.log("Error in sow-card.tsx", error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${error?.message}`,
+            variant : "destructive"
+        })   
     }
 
     return (

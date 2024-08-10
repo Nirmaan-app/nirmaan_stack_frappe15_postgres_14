@@ -21,9 +21,14 @@ export const ReleasePO = () => {
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
-            fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'advance', 'loading_charges', 'freight_charges'],
+            fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'advance', 'loading_charges', 'freight_charges', 'category'],
             limit: 100
         });
+
+    const {data: category_list, isLoading: category_list_loading, error: category_list_error, mutate: category_list_mutate} = useFrappeGetDocList("Category", 
+        {
+        fields: ['work_package', 'name', 'tax']
+        })
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
             fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode']
@@ -132,6 +137,9 @@ export const ReleasePO = () => {
         }
     }, [procurement_order_list, orderId, reset]);
 
+
+    console.log("procurement_order_list", procurement_order_list)
+    console.log("category_list", category_list)
 
 
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
@@ -403,9 +411,22 @@ export const ReleasePO = () => {
                                             <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                             <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
                                         </tr>
                                     })}
+
+                                    {/* {[...Array(17)].map((_, index) => (
+                                        orderData?.order_list?.list.map((item) => (
+                                             <tr className="">
+                                                <td className="py-2 text-sm whitespace-nowrap w-[7%]">{count++}.</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
+                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
+                                                <td className="px-4 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
+                                            </tr>
+                                        )
+                                    )))} */}
                                     {loadingCharges ?
                                         <tr className="">
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
@@ -431,6 +452,10 @@ export const ReleasePO = () => {
                                         <></>
                                     }
                                     <tr>
+
+                                    </tr>
+                                    <tr>
+                                        <td></td>
                                         <td></td>
                                         <td></td>
                                         <td></td>
@@ -440,12 +465,12 @@ export const ReleasePO = () => {
                                             <div>SGST(9%):</div>
                                             <div>Total:</div>
                                         </td>
-                                        <td></td>
+                                        {/* <td></td> */}
                                         <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                            <div>{getTotal(orderData?.name)}</div>
-                                            <div>{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
-                                            <div>{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
-                                            <div>{(getTotal(orderData?.name) * 1.18).toFixed(2)}</div>
+                                            <div className="ml-4">{getTotal(orderData?.name)}</div>
+                                            <div className="ml-4">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
+                                            <div className="ml-4">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
+                                            <div className="ml-4">{(getTotal(orderData?.name) * 1.18).toFixed(2)}</div>
                                         </td>
                                     </tr>
                                     <tr className="border-none">
@@ -463,7 +488,7 @@ export const ReleasePO = () => {
                                 </tbody>
                             </table>
                         </div>
-                        <div style={{ 'display': 'block', 'page-break-before': 'always' }}></div>
+                        <div style={{ display: 'block', pageBreakBefore: 'always', }}></div>
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
                                 <thead className="border-b border-black">

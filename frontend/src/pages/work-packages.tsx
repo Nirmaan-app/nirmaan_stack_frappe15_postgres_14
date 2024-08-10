@@ -31,6 +31,7 @@ import { ButtonLoading } from "@/components/button-loading"
 import { MainLayout } from "@/components/layout/main-layout";
 import { ArrowLeft, CirclePlus } from "lucide-react";
 import { Skeleton, WPSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/use-toast";
 
 
 interface WorkPackage {
@@ -81,6 +82,16 @@ export default function Projects() {
     }
 
 
+    const {toast} = useToast()
+
+    if (error) {
+        console.log("Error in work-packages.tsx", error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${error?.message}`,
+            variant : "destructive"
+        })   
+    }
     // const columns: ColumnDef<WorkPackage>[] = useMemo(
     //     () => [
     //         {

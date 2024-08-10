@@ -173,6 +173,20 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
                                     <td className="px-2 py-2 text-sm whitespace-nowrap">{ }</td>
                                 </tr>
                             })}
+
+                            {/* {[...Array(30)].map((_, index) => (
+                                quotation_request_list?.map((item) => {
+                                    return <tr className="">
+                                        <td className="px-6 py-2 text-sm">{getItem(item.item)}</td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap">
+                                            {item.category}
+                                        </td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap">meter</td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{ }</td>
+                                    </tr>
+                                })
+                            ))} */}
                             {/* {testQuotationRequestList?.map((item)=>
                                         {return <tr className="">
                                         <td className="px-6 py-2 text-sm whitespace-nowrap">{getItem(item.item)}</td>
