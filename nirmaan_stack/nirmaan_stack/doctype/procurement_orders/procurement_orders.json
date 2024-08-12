@@ -18,6 +18,7 @@
   "vendor_address",
   "vendor_gst",
   "order_list",
+  "category_list",
   "payment_terms_section",
   "advance",
   "loading_charges",
@@ -127,11 +128,17 @@
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
+  },
+  {
+   "fieldname": "category_list",
+   "fieldtype": "JSON",
+   "label": "Category List",
+   "options": "Category"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-08-02 18:16:12.180628",
+ "modified": "2024-08-12 13:19:30.108790",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

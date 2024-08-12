@@ -58,7 +58,7 @@ export const ReleasePO = () => {
     }, [orderData, address_list]);
 
     const [isPrinting, setIsPrinting] = useState(false);
-    const componentRef = React.useRef();
+    const componentRef = useRef<HTMLDivElement>(null);
 
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
@@ -160,7 +160,6 @@ export const ReleasePO = () => {
                 // setOrderData(prev => ({
                 //     ...prev,
                 //     advance: doc.advance
-
                 // }))
                 mutate()
                 console.log("orderData?.name", orderData?.name)
@@ -181,7 +180,7 @@ export const ReleasePO = () => {
 
     // const afterDelivery = totalAmount * (1 - advance / 100);
 
-    let count = 1;
+    // let count = 1;
     // console.log(advance)
 
     const styles = {
@@ -402,23 +401,22 @@ export const ReleasePO = () => {
                                         <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                     </tr>
                                 </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-
-                                    {orderData?.order_list?.list.map((item) => {
-                                        return <tr className="">
-                                            <td className="py-2 text-sm whitespace-nowrap w-[7%]">{count++}.</td>
+                                <tbody className="bg-white  divide-y divide-gray-200">
+                                    {orderData?.order_list?.list.map((item : any, index : number) => {
+                                        return ( <tr key={index} className={`page-break-inside-avoid ${index >= 16 ? 'page-break-before' : ''}`}>
+                                            <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
                                             <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
                                             <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                             <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
-                                        </tr>
+                                        </tr> )
                                     })}
 
-                                    {/* {[...Array(17)].map((_, index) => (
+                                    {/* {[...Array(8)].map((_, index) => (
                                         orderData?.order_list?.list.map((item) => (
                                              <tr className="">
-                                                <td className="py-2 text-sm whitespace-nowrap w-[7%]">{count++}.</td>
+                                                <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index+1}.</td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
@@ -451,21 +449,17 @@ export const ReleasePO = () => {
                                         :
                                         <></>
                                     }
-                                    <tr>
-
-                                    </tr>
-                                    <tr>
+                                    <tr> 
                                         <td></td>
                                         <td></td>
                                         <td></td>
                                         <td></td>
-                                        <td className="space-y-4 py-4 text-sm font-semibold">
+                                        <td className="space-y-4 py-4 text-sm font-semibold page-break-inside-avoid">
                                             <div>Sub Total:</div>
                                             <div>CGST(9%):</div>
                                             <div>SGST(9%):</div>
                                             <div>Total:</div>
                                         </td>
-                                        {/* <td></td> */}
                                         <td className="space-y-4 py-4 text-sm whitespace-nowrap">
                                             <div className="ml-4">{getTotal(orderData?.name)}</div>
                                             <div className="ml-4">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
@@ -473,6 +467,7 @@ export const ReleasePO = () => {
                                             <div className="ml-4">{(getTotal(orderData?.name) * 1.18).toFixed(2)}</div>
                                         </td>
                                     </tr>
+                                    {/*
                                     <tr className="border-none">
                                         <td colSpan={6}>
                                             <div className="text-gray-400 text-sm py-2">Note</div>
@@ -484,6 +479,20 @@ export const ReleasePO = () => {
                                             <img src={Seal} className="w-24 h-24" />
                                             <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
                                         </td>
+                                    </tr> */}
+                                    <tr className="end-of-page" >
+                                       <td colSpan={6}>
+                                         <div className="text-gray-400 text-sm py-2">Note</div>
+                                         <div className="text-sm text-gray-900">Above Sheet to be used of Jindal or Tata</div>
+                     
+                                         <div className="text-gray-400 text-sm py-2">Payment Terms</div>
+                                         <div className="text-sm text-gray-900">
+                                           {orderData?.advance}% advance {orderData?.advance === "100" ? "" : `and remaining ${100 - orderData?.advance}% on material readiness before delivery of material to site`}
+                                         </div>
+                     
+                                         <img src={Seal} className="w-24 h-24" />
+                                         <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
+                                       </td>
                                     </tr>
                                 </tbody>
                             </table>

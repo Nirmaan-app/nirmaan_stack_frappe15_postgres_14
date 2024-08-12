@@ -121,6 +121,9 @@ export const ApproveVendor = () => {
             filters: [['name', '=', orderId]],
             limit: 100
         });
+
+        console.log("procurement_request_list" , procurement_request_list)
+
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'unit_name'],
@@ -153,6 +156,14 @@ export const ApproveVendor = () => {
             limit: 1000
         });
 
+        const {data: category_list, isLoading: category_list_loading, error: category_list_error, mutate: category_list_mutate} = useFrappeGetDocList("Category", 
+            {
+            fields: ['work_package', 'name', 'tax'],
+            limit: 1000
+            })
+
+            console.log("category--list", category_list)
+
     const [page, setPage] = useState<string>('approvequotation')
     const [orderData, setOrderData] = useState({
         project: '',
@@ -175,13 +186,16 @@ export const ApproveVendor = () => {
         }
     }, [procurement_request_list]);
 
+    console.log("orderdata", orderData)
+
+
     const [selectedVendors, setSelectedVendors] = useState({})
     const [comment, setComment] = useState('')
     const [selectedItem, setSelectedItem] = useState({
         list: []
     })
     const [selectAll, setSelectAll] = useState(false);
-    const total_categories = procurement_request_list?.find(item => item.name === orderId)?.category_list.list.length;
+    // const total_categories = procurement_request_list?.find(item => item.name === orderId)?.category_list.list.length;
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
@@ -198,14 +212,14 @@ export const ApproveVendor = () => {
     const getProjectAddress = (projectName: string) => {
         return project_list?.find(project => project.name === projectName)?.project_address;
     }
-    const getItem = (item: string) => {
-        const item_name = item_list?.find(value => value.name === item)?.item_name;
-        return item_name
-    }
-    const getUnit = (item: string) => {
-        const item_unit = item_list?.find(value => value.name === item)?.unit_name;
-        return item_unit
-    }
+    // const getItem = (item: string) => {
+    //     const item_name = item_list?.find(value => value.name === item)?.item_name;
+    //     return item_name
+    // }
+    // const getUnit = (item: string) => {
+    //     const item_unit = item_list?.find(value => value.name === item)?.unit_name;
+    //     return item_unit
+    // }
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
@@ -226,7 +240,7 @@ export const ApproveVendor = () => {
             ? orderData.procurement_list?.list.filter(item => selectedVendors[item.name])
             : [];
         setSelectedItem({ list: updatedSelectedList });
-        console.log("selectedItem", updatedSelectedList)
+        // console.log("selectedItem", updatedSelectedList)
     };
 
     const handleTrigger = () => {
@@ -300,6 +314,7 @@ export const ApproveVendor = () => {
                                 unit: item.unit,
                                 quantity: item.quantity,
                                 category: item.category,
+                                tax: Number(item.tax),
                                 rate: price,
                                 amount: price * item.quantity,
                                 selectedVendor: getVendorName(selectedVendors[item.name]),
@@ -345,81 +360,241 @@ export const ApproveVendor = () => {
         },
     };
 
-    const newHandleApprove = () => {
+    const BATCH_SIZE = 10; // Adjust the batch size based on your needs
 
-        // TODO: Add Quotation request state change to approved 
-
-        const filteredData = selectedItems?.filter(item => {
-            return item.unit !== null && item.quantity !== null
-        });
-
-        const vendorItems = {};
-        filteredData?.forEach((item) => {
-            if (selectedVendors[item.key]) {
-                if (!vendorItems[selectedVendors[item.key]]) {
-                    vendorItems[selectedVendors[item.key]] = [];
-                }
-                const price = Number(getPrice(selectedVendors[item.key], item.key))
-                vendorItems[selectedVendors[item.key]].push({
-                    name: item.key,
-                    quote: price,
-                    quantity: item.quantity,
-                    unit: item.unit,
-                    item: item.item
-                });
-            }
-
-        })
-
-        const createDocPromises = [];
-
-        Object.entries(vendorItems).forEach(([key, value]) => {
-
-            const newProcurementOrder = {
-                procurement_request: orderId,
-                project: orderData.project,
-                project_name: getProjectName(orderData.project),
-                project_address: getProjectAddress(orderData.project),
-                vendor: key,
-                vendor_name: getVendorName(key),
-                vendor_address: getVendorAddress(key),
-                vendor_gst: getVendorGST(key),
-                order_list: {
-                    list: value
-                }
-            };
-
-            if (value?.length > 0) {
-                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
-                    .then(() => {
-                        console.log(newProcurementOrder);
-                    })
-                    .catch((error) => {
-                        console.log("submit_error", error);
-                    });
-
-                createDocPromises.push(createDocPromise);
-            }
-
-        });
-
-        const filteredList = orderData.procurement_list?.list.filter(procItem =>
-            !filteredData.some(selItem => selItem.key === procItem.name)
-        );
-
-        setOrderData(prevOrderData => ({
-            ...prevOrderData,
-            procurement_list: {
-                list: filteredList
-            }
-        }));
+const createDocBatch = async (doctype, docs) => {
+    const results = [];
+    for (const doc of docs) {
+        try {
+            await createDoc(doctype, doc);
+            results.push(doc);
+        } catch (error) {
+            console.error("Error creating document", error);
+        }
     }
+    return results;
+};
+
+const newHandleApprove = async () => {
+    // TODO: Add Quotation request state change to approved 
+
+    const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
+
+    // console.log("selectedItems", selectedItems);
+    // console.log("filteredData", filteredData);
+
+    const vendorItems = {};
+    filteredData?.forEach((item) => {
+        if (selectedVendors[item.key]) {
+            if (!vendorItems[selectedVendors[item.key]]) {
+                vendorItems[selectedVendors[item.key]] = [];
+            }
+            const price = Number(getPrice(selectedVendors[item.key], item.key));
+            vendorItems[selectedVendors[item.key]].push({
+                name: item.key,
+                quote: price,
+                quantity: item.quantity,
+                unit: item.unit,
+                item: item.item,
+                category: item.category,
+                tax: item.tax
+            });
+        }
+    });
+
+    // console.log("vendorItems", vendorItems);
+
+    // Flatten the documents into a single array
+    const docs = Object.entries(vendorItems).flatMap(([key, value]) => {
+        const newProcurementOrder = {
+            procurement_request: orderId,
+            project: orderData.project,
+            project_name: getProjectName(orderData.project),
+            project_address: getProjectAddress(orderData.project),
+            vendor: key,
+            vendor_name: getVendorName(key),
+            vendor_address: getVendorAddress(key),
+            vendor_gst: getVendorGST(key),
+            order_list: {
+                list: value
+            }
+        };
+        return newProcurementOrder;
+    });
+
+    // Process documents in batches
+    for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+        const batch = docs.slice(i, i + BATCH_SIZE);
+        await createDocBatch('Procurement Orders', batch);
+    }
+
+    // Update state
+    const filteredList = orderData.procurement_list?.list.filter(procItem =>
+        !filteredData.some(setItem => setItem.key === procItem.name)
+    );
+
+    // console.log("filteredList", filteredList);
+
+    setOrderData(prevOrderData => ({
+        ...prevOrderData,
+        procurement_list: {
+            list: filteredList
+        }
+    }));
+};
+
+
+
+    // const createDocWithRetry = async (doctype, data, retries = 2) => {
+    //     for (let attempt = 1; attempt <= retries; attempt++) {
+    //         try {
+    //             await createDoc(doctype, data);
+    //             return; // Exit if successful
+    //         } catch (error) {
+    //             if (error.exc_type === 'SerializationFailure' && attempt < retries) {
+    //                 // Optionally add a delay before retrying
+    //                 await new Promise(resolve => setTimeout(resolve, 1000));
+    //             } else {
+    //                 throw error; // Rethrow if it's not a serialization error or max retries reached
+    //             }
+    //         }
+    //     }
+    // };
+
+    // const newHandleApprove =async () => {
+
+    //     // TODO: Add Quotation request state change to approved 
+
+    //     const filteredData = selectedItems?.filter(item => {
+    //         return item.unit !== null && item.quantity !== null
+    //     });
+
+    //     console.log("selectedItems", selectedItems)
+
+    //     console.log("filteredData", filteredData)
+
+    //     const vendorItems = {};
+    //     filteredData?.forEach((item) => {
+    //         if (selectedVendors[item.key]) {
+    //             if (!vendorItems[selectedVendors[item.key]]) {
+    //                 vendorItems[selectedVendors[item.key]] = [];
+    //             }
+    //             const price = Number(getPrice(selectedVendors[item.key], item.key))
+    //             vendorItems[selectedVendors[item.key]].push({
+    //                 name: item.key,
+    //                 quote: price,
+    //                 quantity: item.quantity,
+    //                 unit: item.unit,
+    //                 item: item.item,
+    //                 category: item.category,
+    //                 tax: item.tax
+    //             });
+    //         }
+
+    //     })
+
+    //     console.log("vendorItems", vendorItems)
+
+    //     // const createDocPromises = [];
+
+    //     const createDocPromises = Object.entries(vendorItems).map(([key, value]) => {
+    //         const newProcurementOrder = {
+    //             procurement_request: orderId,
+    //             project: orderData.project,
+    //             project_name: getProjectName(orderData.project),
+    //             project_address: getProjectAddress(orderData.project),
+    //             vendor: key,
+    //             vendor_name: getVendorName(key),
+    //             vendor_address: getVendorAddress(key),
+    //             vendor_gst: getVendorGST(key),
+    //             order_list: {
+    //                 list: value
+    //             }
+    //         };
+
+
+    //         // return createDoc("Procurement Orders", newProcurementOrder).then(() => {
+    //         //     console.log("newProcurementOrder", newProcurementOrder)
+    //         // }).catch((error) => {
+    //         //     console.log("submit_error", error, submit_error)
+    //         // })
+
+    //         // return createDocWithRetry('Procurement Orders', newProcurementOrder)
+
+
+    //     });
+
+    //     try {
+    //         await Promise.all(createDocPromises);
+
+    //         const filteredList = orderData.procurement_list?.list.filter(procItem => 
+    //             !filteredData.some(setItem => setItem.key === procItem.name)
+    //         )
+    //         console.log("filteredList", filteredList)
+
+    //         setOrderData(prevOrderData => ({
+    //             ...prevOrderData,
+    //             procurement_list: {
+    //                 list: filteredList
+    //             }
+    //         }));
+    //     } catch (error) {
+    //         console.error("Error Creating Procurement Orders", error)
+    //     }
+
+        
+
+        // Object.entries(vendorItems).forEach(([key, value]) => {
+
+        //     const newProcurementOrder = {
+        //         procurement_request: orderId,
+        //         project: orderData.project,
+        //         project_name: getProjectName(orderData.project),
+        //         project_address: getProjectAddress(orderData.project),
+        //         vendor: key,
+        //         vendor_name: getVendorName(key),
+        //         vendor_address: getVendorAddress(key),
+        //         vendor_gst: getVendorGST(key),
+        //         order_list: {
+        //             list: value
+        //         }
+        //     };
+
+        //     if (value?.length > 0) {
+        //         const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
+        //             .then(() => {
+        //                 console.log("newProcurementOrder", newProcurementOrder);
+        //             })
+        //             .catch((error) => {
+        //                 console.log("submit_error", error);
+        //             });
+
+        //         createDocPromises.push(createDocPromise);
+        //     }
+
+        // });
+
+        // const filteredList = orderData.procurement_list?.list.filter(procItem =>
+        //     !filteredData.some(selItem => selItem.key === procItem.name)
+        // );
+
+        // console.log("filterredList", filteredList)
+
+        // setOrderData(prevOrderData => ({
+        //     ...prevOrderData,
+        //     procurement_list: {
+        //         list: filteredList
+        //     }
+        // }));
+    // }
 
     const newHandleSentBack = () => {
         const filteredData = selectedItems?.filter(item => {
             return item.unit !== null && item.quantity !== null
         });
 
+        console.log("selectedItems", selectedItems)
+        console.log("filteredData", filteredData)
         const itemlist = [];
         filteredData.map((value) => {
             const price = getPrice(selectedVendors[value.key], value.key);
@@ -427,12 +602,15 @@ export const ApproveVendor = () => {
                 name: value.key,
                 item: value.item,
                 quantity: value.quantity,
+                tax: Number(value.tax),
                 quote: price,
                 unit: value.unit,
                 category: value.category
             })
         })
 
+
+        // console.log("itemlist", itemlist)
         const newCategories = [];
         itemlist.forEach((item) => {
             const isDuplicate = newCategories.some(category => category.name === item.category);
@@ -440,6 +618,8 @@ export const ApproveVendor = () => {
                 newCategories.push({ name: item.category })
             }
         })
+
+        // console.log("newCategories", newCategories)
 
         const newSendBack = {
             procurement_request: orderId,
@@ -453,10 +633,12 @@ export const ApproveVendor = () => {
             comments: comment,
             type: "Rejected"
         }
+
+        // console.log("newSendBack", newSendBack)
         if (itemlist.length > 0) {
             createDoc('Sent Back Category', newSendBack)
                 .then(() => {
-                    console.log(newSendBack);
+                    console.log("newSendBackthen", newSendBack);
                     setComment('')
                 })
                 .catch(() => {
@@ -468,6 +650,8 @@ export const ApproveVendor = () => {
             !filteredData.some(selItem => selItem.key === procItem.name)
         );
 
+        // console.log("filterredList", filteredList)
+
         setOrderData(prevOrderData => ({
             ...prevOrderData,
             procurement_list: {
@@ -475,6 +659,8 @@ export const ApproveVendor = () => {
             }
         }));
     }
+
+    // console.log("setOrderData", orderData)
 
     const handleSendBack = (cat: string) => {
         const itemlist = [];

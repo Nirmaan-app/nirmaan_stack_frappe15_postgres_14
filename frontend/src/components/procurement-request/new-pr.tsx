@@ -32,7 +32,7 @@ export const NewPR = () => {
         });
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package', 'image_url'],
+            fields: ['category_name', 'work_package', 'image_url', 'tax'],
             limit: 100
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
@@ -58,6 +58,7 @@ export const NewPR = () => {
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
+    const [tax, setTax] = useState<number | null>(null)
 
     const addWorkPackage = (wpName: string) => {
         setOrderData(prevData => ({
@@ -67,6 +68,7 @@ export const NewPR = () => {
     };
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
+        setTax(category_list?.find((category) => category.category_name === categoryName ).tax)
         const isDuplicate = categories.list.some(category => category.name === categoryName);
         if (!isDuplicate) {
             setCategories(prevState => ({
@@ -170,6 +172,7 @@ export const NewPR = () => {
                     unit: unit,
                     quantity: Number(quantity),
                     category: curCategory,
+                    tax: Number(tax),
                 };
                 const isDuplicate = curRequest.some((item) => item.name === curValue.name);
                 if (!isDuplicate) {

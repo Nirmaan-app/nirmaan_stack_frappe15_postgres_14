@@ -126,3 +126,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+
+@media print {
+  /* Ensure the specified row appears at the end of the page */
+  .end-of-page {
+    page-break-after: always;
+  }
+  /* Prevent page break inside the specific table row */
+  .page-break-inside-avoid {
+    page-break-inside: avoid;
+  }
+  /* Optionally handle the last two items scenario */
+  .page-break-before {
+    page-break-before: always;
+  }
+}
+
