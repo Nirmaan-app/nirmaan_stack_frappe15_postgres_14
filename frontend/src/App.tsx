@@ -134,7 +134,8 @@ const router = createBrowserRouter(
 					<Route path="vendors">
 						<Route index element={<Vendors />} />
 						<Route path="new" element={<NewVendor />} />
-						<Route path=":id" element={<EditVendor />} />
+						<Route path=":vendorId" lazy={() => import('@/pages/vendor')} />
+						<Route path=":id/edit" element={<EditVendor />} />
 					</Route>
 
 					<Route path="roles">
