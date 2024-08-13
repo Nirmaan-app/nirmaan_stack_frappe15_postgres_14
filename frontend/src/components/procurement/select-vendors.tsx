@@ -562,7 +562,7 @@ export const SelectVendors = () => {
                 <><div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft onClick={() => setPage('updatequotation')} />
+                            <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
                         </div>
                         <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
@@ -710,13 +710,13 @@ export const SelectVendors = () => {
                             </div>
                         })} */}
                         {/* <div className='p-10'></div> */}
-                        <div className="flex flex-col justify-end items-end">
+                        {/* <div className="flex flex-col justify-end items-end">
                             <Dialog>
-                                {/* <DialogTrigger asChild>
+                                <DialogTrigger asChild>
                                     <Button>
                                         Send for Approval
                                     </Button>
-                                </DialogTrigger> */}
+                                </DialogTrigger>
                                 <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>
                                         <DialogTitle>Are you Sure</DialogTitle>
@@ -729,16 +729,18 @@ export const SelectVendors = () => {
                                     </DialogClose>
                                 </DialogContent>
                             </Dialog>
-                        </div>
+                        </div> */}
                     </div>
 
                 </div>
+                <div className='pl-7'>
                     <ConfigProvider
                         theme={{
                             token: {
                                 // Seed Token
                                 colorPrimary: '#FF2828',
                                 borderRadius: 4,
+                                
 
                                 // Alias Token
                                 colorBgContainer: '#FFFFFF',
@@ -752,7 +754,8 @@ export const SelectVendors = () => {
                         />
 
                     </ConfigProvider>
-                    <div className="flex flex-col justify-end items-end">
+                    </div>
+                    <div className="flex flex-col justify-end items-end mr-2">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button>

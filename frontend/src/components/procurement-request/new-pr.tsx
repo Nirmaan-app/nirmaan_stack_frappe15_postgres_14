@@ -381,11 +381,11 @@ export const NewPR = () => {
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">UOM</h5>
-                        <input className="h-[37px] w-full" type="text" placeholder={unit || "Unit"} value={unit} />
+                        <input className="h-[37px] w-[60%] border p-2 rounded-lg" disabled="true" type="text" placeholder={unit || "Unit"} value={unit} />
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">Qty</h5>
-                        <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
+                        <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
                     </div>
                 </div>
                 <div className="flex justify-between md:space-x-0 mt-2">

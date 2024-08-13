@@ -139,7 +139,7 @@ export const ReleasePO = () => {
 
 
     console.log("procurement_order_list", procurement_order_list)
-    console.log("category_list", category_list)
+    // console.log("category_list", category_list)
 
 
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
@@ -351,7 +351,7 @@ export const ReleasePO = () => {
                             <table className="min-w-full divide-gray-200">
                                 <thead className="border-b border-black">
                                     <tr>
-                                        <th colSpan={6}>
+                                        <th colSpan={8}>
                                             <div className="flex justify-between border-gray-600 pb-1">
                                                 <div className="mt-2 flex justify-between">
                                                     <div>
@@ -360,8 +360,8 @@ export const ReleasePO = () => {
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No. :</div>
-                                                    <div className="text-lg text-black">{(orderData?.name)?.toUpperCase()}</div>
+                                                    <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No.</div>
+                                                    <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                 </div>
                                             </div>
 
@@ -385,35 +385,39 @@ export const ReleasePO = () => {
                                                         <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{projectAddress}</div>
                                                     </div>
                                                     <div className="pt-2">
-                                                        <div className="text-sm font-medium text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;{orderData?.creation?.split(" ")[0]}</div>
-                                                        <div className="text-sm font-medium text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;{orderData?.project_name}</div>
+                                                        <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.creation?.split(" ")[0]}</i></div>
+                                                        <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.project_name}</i></div>
                                                     </div>
                                                 </div>
                                             </div>
                                         </th>
                                     </tr>
                                     <tr>
-                                        <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider w-[7%]">S. No.</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
-                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
+                                        <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">S. No.</th>
+                                        <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
+                                        <th scope="col" className="px-2 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
+                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
                                         <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
-                                        <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
+                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">SGST</th>
+                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">CGST</th>
+                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white  divide-y divide-gray-200">
                                     {orderData?.order_list?.list.map((item : any, index : number) => {
-                                        return ( <tr key={index} className={`page-break-inside-avoid ${index >= 16 ? 'page-break-before' : ''}`}>
+                                        return ( <tr key={index} className={`border-b border-black page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
+                                            <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{item.unit}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
                                         </tr> )
                                     })}
 
-                                    {/* {[...Array(8)].map((_, index) => (
+                                    {/* {[...Array(14)].map((_, index) => (
                                         orderData?.order_list?.list.map((item) => (
                                              <tr className="">
                                                 <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index+1}.</td>
@@ -426,46 +430,80 @@ export const ReleasePO = () => {
                                         )
                                     )))} */}
                                     {loadingCharges ?
-                                        <tr className="">
+                                        <tr className="border-b border-black">
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">NOS</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">1</td>
+                                            <td className=" py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">NOS</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">1</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
+                                            <td></td>
+                                            <td></td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
                                         </tr>
                                         :
                                         <></>
                                     }
                                     {freightCharges ?
-                                        <tr className="">
+                                        <tr className="border-b border-black">
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">NOS</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">1</td>
+                                            <td className=" py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">NOS</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">1</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
+                                            <td></td>
+                                            <td></td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
                                         </tr>
                                         :
                                         <></>
                                     }
-                                    <tr> 
+                                    {/* <tr> 
                                         <td></td>
                                         <td></td>
                                         <td></td>
                                         <td></td>
-                                        <td className="space-y-4 py-4 text-sm font-semibold page-break-inside-avoid">
+                                        
+                                        <td className="space-y-4 py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
                                             <div>Sub Total:</div>
                                             <div>CGST(9%):</div>
                                             <div>SGST(9%):</div>
-                                            <div>Total:</div>
+                                            <div className="h-2"></div>
+                                            
                                         </td>
                                         <td className="space-y-4 py-4 text-sm whitespace-nowrap">
                                             <div className="ml-4">{getTotal(orderData?.name)}</div>
                                             <div className="ml-4">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
                                             <div className="ml-4">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
-                                            <div className="ml-4">{(getTotal(orderData?.name) * 1.18).toFixed(2)}</div>
+                                            <div className="h-2"></div>
                                         </td>
+                                    </tr> */}
+                                    <tr className="">
+                                            <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
+                                            <td className=" py-2 whitespace-nowrap font-semibold flex justify-end w-[80%]">Sub-Total</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{getTotal(orderData?.name).toFixed(2)}</td>
+                                        </tr>
+                                    <tr className="border-none">
+                                        <td></td>
+                                        <td></td>
+                                        <td></td>
+                                        <td></td>
+                                        <td></td>
+                                        <td></td>
+                                        <td className="space-y-4 py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
+                                        <div>Round Off:</div>
+                                        <div>Total:</div>
+                                        </td>
+
+                                        <td className="space-y-4 py-4 text-sm whitespace-nowrap">
+                                           <div className="ml-4">-{((getTotal(orderData?.name) * 1.18).toFixed(2) - Math.floor(getTotal(orderData?.name) * 1.18).toFixed(2)).toFixed(2)}</div>
+                                           <div className="ml-4">{Math.floor(getTotal(orderData?.name) * 1.18).toFixed(2)}</div>
+                                        </td>
+
                                     </tr>
                                     {/*
                                     <tr className="border-none">
@@ -480,7 +518,7 @@ export const ReleasePO = () => {
                                             <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
                                         </td>
                                     </tr> */}
-                                    <tr className="end-of-page" >
+                                    <tr className="end-of-page page-break-inside-avoid" >
                                        <td colSpan={6}>
                                          <div className="text-gray-400 text-sm py-2">Note</div>
                                          <div className="text-sm text-gray-900">Above Sheet to be used of Jindal or Tata</div>
@@ -512,7 +550,7 @@ export const ReleasePO = () => {
                                                 </div>
                                                 <div>
                                                     <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No. :</div>
-                                                    <div className="text-lg text-black">{(orderData?.name)?.toUpperCase()}</div>
+                                                    <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                 </div>
                                             </div>
 
