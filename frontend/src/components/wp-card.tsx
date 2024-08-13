@@ -23,6 +23,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
 import { ButtonLoading } from "./button-loading"
+import { useToast } from "./ui/use-toast"
+import { Skeleton } from "./ui/skeleton"
 
 interface WPCardProps {
     wp: string
@@ -87,6 +89,17 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
         mutate()
     }
 
+    const {toast} = useToast()
+
+    if (error) {
+        console.log("Error in wp-card.tsx", error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${error?.message}`,
+            variant : "destructive"
+        })   
+    }
+
     return (
         <Card className="hover:animate-shadow-drop-center" >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -96,7 +109,7 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
                 <div className="flex items-center">
                 <Dialog>
                     <DialogTrigger asChild>
-                        <Button className="p-3 pb-4" onClick={()=>{setCurrent(wp)}} variant="secondary">+</Button>
+                        <Button className="p-3 pb-4 cursor-pointer hover:bg-gray-300" onClick={()=>{setCurrent(wp)}} variant="secondary">+</Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
@@ -144,13 +157,13 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
             </CardHeader>
             <CardContent>
                 <div>
-                    {(isLoading) && (<p>Loading</p>)}
-                    {error && <p>Error</p>}
-                    {(data || []).map(d =>
-                        <div>
+                    {/* {(isLoading) && (<p>Loading</p>)} */}
+
+                    {isLoading ? (<Skeleton className="w-1/3 h-4" />) : (data || []).map(d =>
+                        <div key={d.scope_of_work_name}>
                             <SOWCard sow_id={d.name} sow_name={d.scope_of_work_name} />
                         </div>
-                    )}
+                    ) }
                 </div>
                 {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
             </CardContent>

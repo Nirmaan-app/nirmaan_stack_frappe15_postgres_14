@@ -37,7 +37,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         });
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
-            fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
+            fields: ['name', 'address_title', 'address_line1','address_line2', 'city', 'state', 'pincode']
         });
 
     const { data: is_present,mutate: is_present_mutate } = useFrappeGetDocList("PR Attachments",
@@ -71,11 +71,17 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     }, [quotation_request_list]);
 
     const getItem = (item: string) => {
-        const item_name = item_list?.find(value => value.name === item).item_name;
+        let item_name;
+        if(item_list) {
+            item_name = item_list?.find(value => value.name === item)?.item_name;
+        }
         return item_name
     }
     const getUnit = (item: string) => {
-        const item_unit = item_list?.find(value => value.name === item).unit_name;
+        let item_unit;
+        if(item_list) {
+            item_unit = item_list?.find(value => value.name === item)?.unit_name;
+        }
         return item_unit
     }
     const getQuantity = (item: string) => {
@@ -199,30 +205,33 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                     <Input type="number" value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)} />
                 </div>
             </div>
-            <div className="flex text-gray-500 space-x-2 pt-4 pb-2">
-                <div className="w-1/2 flex-shrink-0">
-                    <div>Added Item</div>
+            <div className="flex text-gray-500 space-x-2 pt-4 pb-2 ml-2">
+                <div className="w-1/2 text-lg text- flex-shrink-0 underline">
+                    <div>Added Items</div>
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 underline">
                     <div>UOM</div>
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 underline">
                     <div>Qty</div>
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 underline">
                     <div>Rate</div>
                 </div>
             </div>
-            {categories.list.map((cat) => {
-                return <div>
-                    <div className="p-2 text-xl font-bold">{cat.name}</div>
+            {categories.list.map((cat, index) => {
+                return <div key={index}>
+                    <div className="py-2 text-xl font-bold">
+                        <span>{index + 1}. </span>
+                        {cat.name}
+                    </div>
                     {quotation_request_list?.map((q) => {
                         if (q.category === cat.name && q.vendor === vendor_id) {
                             return <div className="flex space-x-2">
-                                <div className="mt-2 pl-5 w-1/2 text-black flex-shrink-0">
-                                    <div>{getItem(q.item)}</div>
-                                </div>
-                                <div className="flex-1 p-1">
+                                <ul className="mt-2 pl-5 w-1/2 text-black flex-shrink-0 list-disc">
+                                    <li className="">{getItem(q.item)}</li>
+                                </ul>
+                                <div className="flex-1">
                                     <Input type="text" disabled={true} placeholder={getUnit(q.item)} />
                                 </div>
                                 <div className="flex-1">

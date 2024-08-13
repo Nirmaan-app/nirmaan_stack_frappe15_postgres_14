@@ -195,13 +195,13 @@ export const EditVendor = () => {
         // <MainLayout>
             <div className="p-4">
                 <div className="space-y-0.5">
-                    <div className="flex space-x-2">
-                        <ArrowLeft onClick={() => navigate("/vendors")} />
-                        <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
+                    <div className="flex space-x-2 items-center">
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate("/vendors")} />
+                        <h2 className="text-2xl font-bold tracking-tight">Edit Vendor Categories</h2>
                     </div>
-                    <p className="text-muted-foreground">
+                    {/* <p className="text-muted-foreground">
                         Fill out this to create a new Vendor
-                    </p>
+                    </p> */}
                 </div>
                 <Separator className="my-6" />
                 <Form {...form}>

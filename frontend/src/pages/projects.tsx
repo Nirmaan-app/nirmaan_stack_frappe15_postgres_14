@@ -14,6 +14,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { MainLayout } from "@/components/layout/main-layout";
+import { TailSpin } from "react-loader-spinner";
+import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
 
 
 // NOTE: Modify frappe hooks field to get the data
@@ -153,17 +155,19 @@ export default function Projects() {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">
-                                {(isLoading) ? (<p>Loading</p>) : (data?.length)}
+                                {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (data?.length)}
                                 {error && <p>Error</p>}
                             </div>
-                            <p className="text-xs text-muted-foreground">COUNT</p>
+                            {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                         </CardContent>
                     </Card>
                 </div>
                 <div className="pl-0 pr-2">
-                    {isLoading && <h3>LOADING</h3>}
-                    {error && <h3>ERROR</h3>}
+                    {isLoading ?  (
+                        <TableSkeleton />
+                    ) : (
                     <DataTable columns={columns} data={data || []} />
+                    )}
                 </div>
             </div>
         // </MainLayout>

@@ -591,7 +591,7 @@ export const EditProjectForm = () => {
         scope_of_work_name: item.scope_of_work_name, // Adjust based on your data structure
         work_package: item.work_package
     })) || [];
-    console.log("scope_of_work_list",scope_of_work_list)
+    // console.log("scope_of_work_list",scope_of_work_list)
     
 //     const [workPackagesValue, setWorkPackagesValue] = useState(data?.project_work_milestones.work_packages);
 
@@ -680,12 +680,12 @@ export const EditProjectForm = () => {
                                             <DialogTrigger asChild>
                                                 <Button variant="secondary"> + Add Customer</Button>
                                             </DialogTrigger>
-                                            <DialogContent className="sm:max-w-[425px]">
+                                            <DialogContent className="sm:max-w-[425px] h-[80%] overflow-y-auto">
                                                 <DialogHeader>
                                                     <DialogTitle>Add New Customer</DialogTitle>
-                                                    <DialogDescription>
+                                                    {/* <DialogDescription>
                                                         Add new Customers here.
-                                                    </DialogDescription>
+                                                    </DialogDescription> */}
                                                 </DialogHeader>
                                                 <CustomerForm company_mutate={company_mutate} />
                                             </DialogContent>
@@ -738,9 +738,9 @@ export const EditProjectForm = () => {
                                                 <DialogContent className="sm:max-w-[425px]">
                                                     <DialogHeader>
                                                         <DialogTitle>Add New Project Type</DialogTitle>
-                                                        <DialogDescription>
+                                                        {/* <DialogDescription>
                                                             Add new project types here.
-                                                        </DialogDescription>
+                                                        </DialogDescription> */}
                                                     </DialogHeader>
                                                     <ProjectTypeForm project_types_mutate={project_types_mutate} />
                                                 </DialogContent>
@@ -791,19 +791,19 @@ export const EditProjectForm = () => {
                                                 <Button variant="secondary"> + Add Project Address</Button>
                                             </DialogTrigger>
 
-                                            <DialogContent className="sm:max-w-[425px]">
-                                                <ScrollArea className="h-[600px] w-[350px]">
+                                            <DialogContent className="sm:max-w-[425px] h-[80%] overflow-x-auto">
+                                                {/* <ScrollArea className="h-[600px] w-[350px]"> */}
                                                     <DialogHeader>
                                                         <DialogTitle>Add New Project Address</DialogTitle>
-                                                        <DialogDescription>
+                                                        {/* <DialogDescription>
                                                             Add new project address here.
-                                                        </DialogDescription>
+                                                        </DialogDescription> */}
                                                     </DialogHeader>
-                                                    <Separator className="my-6" />
+                                                    <Separator className="my-2" />
 
                                                     <AddressForm type={"Project"} project_address_mutate={project_address_mutate} />
 
-                                                </ScrollArea>
+                                                {/* </ScrollArea> */}
                                             </DialogContent>
                                         </Dialog>
                                     </div>
@@ -1133,10 +1133,10 @@ export const EditProjectForm = () => {
                         render={() => (
                             <FormItem>
                                 <div className="mb-4">
-                                    <FormLabel className="text-base">Sidebar</FormLabel>
-                                    <FormDescription>
+                                    {/* <FormLabel className="text-base">Sidebar</FormLabel> */}
+                                    <div className="font-semibold">
                                         Select the work packages.
-                                    </FormDescription>
+                                    </div>
                                 </div>
                                 {wp_list.map((item) => (
                                     <Accordion type="single" collapsible className="w-full">

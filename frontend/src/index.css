@@ -2,7 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+::-webkit-scrollbar {
+  cursor: pointer;
+  width: 6px;
+  height: 4px;
+}
 
+::-webkit-scrollbar-track {
+  cursor: pointer;
+  background-color: #d0d0d2;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #d36c73;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #df8d92;
+}
 
 @layer base {
   :root {
@@ -109,4 +127,19 @@
   }
 }
 
+
+@media print {
+  /* Ensure the specified row appears at the end of the page */
+  .end-of-page {
+    page-break-after: always;
+  }
+  /* Prevent page break inside the specific table row */
+  .page-break-inside-avoid {
+    page-break-inside: avoid;
+  }
+  /* Optionally handle the last two items scenario */
+  .page-break-before {
+    page-break-before: always;
+  }
+}
 

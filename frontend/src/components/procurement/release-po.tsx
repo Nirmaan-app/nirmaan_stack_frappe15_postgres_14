@@ -21,9 +21,14 @@ export const ReleasePO = () => {
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
-            fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'advance', 'loading_charges', 'freight_charges'],
+            fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'advance', 'loading_charges', 'freight_charges', 'category'],
             limit: 100
         });
+
+    const {data: category_list, isLoading: category_list_loading, error: category_list_error, mutate: category_list_mutate} = useFrappeGetDocList("Category", 
+        {
+        fields: ['work_package', 'name', 'tax']
+        })
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
             fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode']
@@ -50,11 +55,10 @@ export const ReleasePO = () => {
             setVendorAddress(address2)
         }
 
-    }, [orderData]);
-
+    }, [orderData, address_list]);
 
     const [isPrinting, setIsPrinting] = useState(false);
-    const componentRef = React.useRef();
+    const componentRef = useRef<HTMLDivElement>(null);
 
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
@@ -107,7 +111,6 @@ export const ReleasePO = () => {
         }
     });
 
-
     useEffect(() => {
         if (procurement_order_list && orderId) {
             const curOrder = procurement_order_list.find(item => item.name === orderId);
@@ -135,6 +138,9 @@ export const ReleasePO = () => {
     }, [procurement_order_list, orderId, reset]);
 
 
+    console.log("procurement_order_list", procurement_order_list)
+    // console.log("category_list", category_list)
+
 
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
 
@@ -154,7 +160,6 @@ export const ReleasePO = () => {
                 // setOrderData(prev => ({
                 //     ...prev,
                 //     advance: doc.advance
-
                 // }))
                 mutate()
                 console.log("orderData?.name", orderData?.name)
@@ -175,8 +180,8 @@ export const ReleasePO = () => {
 
     // const afterDelivery = totalAmount * (1 - advance / 100);
 
-    let count = 1;
-    console.log(advance)
+    // let count = 1;
+    // console.log(advance)
 
     const styles = {
         container: {
@@ -340,13 +345,13 @@ export const ReleasePO = () => {
                     </form>
                 </div>
 
-                <div className="w-[50%] p-4 m-4 border rounded-lg">
+                <div className="w-[50%] p-4 m-4 border rounded-lg h-screen overflow-y-scroll">
                     <div ref={componentRef} className="w-full p-4">
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
                                 <thead className="border-b border-black">
                                     <tr>
-                                        <th colSpan={6}>
+                                        <th colSpan={8}>
                                             <div className="flex justify-between border-gray-600 pb-1">
                                                 <div className="mt-2 flex justify-between">
                                                     <div>
@@ -355,8 +360,8 @@ export const ReleasePO = () => {
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No. :</div>
-                                                    <div className="text-lg text-black">{(orderData?.name)?.toUpperCase()}</div>
+                                                    <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No.</div>
+                                                    <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                 </div>
                                             </div>
 
@@ -380,76 +385,127 @@ export const ReleasePO = () => {
                                                         <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{projectAddress}</div>
                                                     </div>
                                                     <div className="pt-2">
-                                                        <div className="text-sm font-medium text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;{orderData?.creation?.split(" ")[0]}</div>
-                                                        <div className="text-sm font-medium text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;{orderData?.project_name}</div>
+                                                        <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.creation?.split(" ")[0]}</i></div>
+                                                        <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.project_name}</i></div>
                                                     </div>
                                                 </div>
                                             </div>
                                         </th>
                                     </tr>
                                     <tr>
-                                        <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider w-[7%]">S. No.</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
-                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
+                                        <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">S. No.</th>
+                                        <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
+                                        <th scope="col" className="px-2 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
+                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
                                         <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
-                                        <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
+                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">SGST</th>
+                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">CGST</th>
+                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                     </tr>
                                 </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-
-                                    {orderData?.order_list?.list.map((item) => {
-                                        return <tr className="">
-                                            <td className="py-2 text-sm whitespace-nowrap w-[7%]">{count++}.</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
+                                <tbody className="bg-white  divide-y divide-gray-200">
+                                    {orderData?.order_list?.list.map((item : any, index : number) => {
+                                        return ( <tr key={index} className={`border-b border-black page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
+                                            <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
+                                            <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{item.unit}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
-                                        </tr>
+                                        </tr> )
                                     })}
+
+                                    {/* {[...Array(14)].map((_, index) => (
+                                        orderData?.order_list?.list.map((item) => (
+                                             <tr className="">
+                                                <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index+1}.</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
+                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
+                                                <td className="px-4 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
+                                            </tr>
+                                        )
+                                    )))} */}
                                     {loadingCharges ?
-                                        <tr className="">
+                                        <tr className="border-b border-black">
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">NOS</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">1</td>
+                                            <td className=" py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">NOS</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">1</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
+                                            <td></td>
+                                            <td></td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
                                         </tr>
                                         :
                                         <></>
                                     }
                                     {freightCharges ?
-                                        <tr className="">
+                                        <tr className="border-b border-black">
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">NOS</td>
-                                            <td className="px-6 py-2 text-sm whitespace-nowrap">1</td>
+                                            <td className=" py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">NOS</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">1</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
+                                            <td></td>
+                                            <td></td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
                                         </tr>
                                         :
                                         <></>
                                     }
-                                    <tr>
+                                    {/* <tr> 
                                         <td></td>
                                         <td></td>
                                         <td></td>
-                                        <td className="space-y-4 py-4 text-sm font-semibold">
+                                        <td></td>
+                                        
+                                        <td className="space-y-4 py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
                                             <div>Sub Total:</div>
                                             <div>CGST(9%):</div>
                                             <div>SGST(9%):</div>
-                                            <div>Total:</div>
+                                            <div className="h-2"></div>
+                                            
                                         </td>
-                                        <td></td>
                                         <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                            <div>{getTotal(orderData?.name)}</div>
-                                            <div>{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
-                                            <div>{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
-                                            <div>{(getTotal(orderData?.name) * 1.18).toFixed(2)}</div>
+                                            <div className="ml-4">{getTotal(orderData?.name)}</div>
+                                            <div className="ml-4">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
+                                            <div className="ml-4">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
+                                            <div className="h-2"></div>
                                         </td>
+                                    </tr> */}
+                                    <tr className="">
+                                            <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
+                                            <td className=" py-2 whitespace-nowrap font-semibold flex justify-end w-[80%]">Sub-Total</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{getTotal(orderData?.name).toFixed(2)}</td>
+                                        </tr>
+                                    <tr className="border-none">
+                                        <td></td>
+                                        <td></td>
+                                        <td></td>
+                                        <td></td>
+                                        <td></td>
+                                        <td></td>
+                                        <td className="space-y-4 py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
+                                        <div>Round Off:</div>
+                                        <div>Total:</div>
+                                        </td>
+
+                                        <td className="space-y-4 py-4 text-sm whitespace-nowrap">
+                                           <div className="ml-4">-{((getTotal(orderData?.name) * 1.18).toFixed(2) - Math.floor(getTotal(orderData?.name) * 1.18).toFixed(2)).toFixed(2)}</div>
+                                           <div className="ml-4">{Math.floor(getTotal(orderData?.name) * 1.18).toFixed(2)}</div>
+                                        </td>
+
                                     </tr>
+                                    {/*
                                     <tr className="border-none">
                                         <td colSpan={6}>
                                             <div className="text-gray-400 text-sm py-2">Note</div>
@@ -461,11 +517,25 @@ export const ReleasePO = () => {
                                             <img src={Seal} className="w-24 h-24" />
                                             <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
                                         </td>
+                                    </tr> */}
+                                    <tr className="end-of-page page-break-inside-avoid" >
+                                       <td colSpan={6}>
+                                         <div className="text-gray-400 text-sm py-2">Note</div>
+                                         <div className="text-sm text-gray-900">Above Sheet to be used of Jindal or Tata</div>
+                     
+                                         <div className="text-gray-400 text-sm py-2">Payment Terms</div>
+                                         <div className="text-sm text-gray-900">
+                                           {orderData?.advance}% advance {orderData?.advance === "100" ? "" : `and remaining ${100 - orderData?.advance}% on material readiness before delivery of material to site`}
+                                         </div>
+                     
+                                         <img src={Seal} className="w-24 h-24" />
+                                         <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
+                                       </td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
-                        <div style={{ 'display': 'block', 'page-break-before': 'always' }}></div>
+                        <div style={{ display: 'block', pageBreakBefore: 'always', }}></div>
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
                                 <thead className="border-b border-black">
@@ -480,7 +550,7 @@ export const ReleasePO = () => {
                                                 </div>
                                                 <div>
                                                     <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No. :</div>
-                                                    <div className="text-lg text-black">{(orderData?.name)?.toUpperCase()}</div>
+                                                    <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                 </div>
                                             </div>
 

@@ -32,7 +32,7 @@ export const NewPR = () => {
         });
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package', 'image_url'],
+            fields: ['category_name', 'work_package', 'image_url', 'tax'],
             limit: 100
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
@@ -58,6 +58,7 @@ export const NewPR = () => {
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
+    const [tax, setTax] = useState<number | null>(null)
 
     const addWorkPackage = (wpName: string) => {
         setOrderData(prevData => ({
@@ -67,6 +68,7 @@ export const NewPR = () => {
     };
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
+        setTax(category_list?.find((category) => category.category_name === categoryName ).tax)
         const isDuplicate = categories.list.some(category => category.name === categoryName);
         if (!isDuplicate) {
             setCategories(prevState => ({
@@ -170,6 +172,7 @@ export const NewPR = () => {
                     unit: unit,
                     quantity: Number(quantity),
                     category: curCategory,
+                    tax: Number(tax),
                 };
                 const isDuplicate = curRequest.some((item) => item.name === curValue.name);
                 if (!isDuplicate) {
@@ -378,11 +381,11 @@ export const NewPR = () => {
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">UOM</h5>
-                        <input className="h-[37px] w-full" type="text" placeholder={unit || "Unit"} value={unit} />
+                        <input className="h-[37px] w-[60%] border p-2 rounded-lg" disabled="true" type="text" placeholder={unit || "Unit"} value={unit} />
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">Qty</h5>
-                        <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
+                        <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
                     </div>
                 </div>
                 <div className="flex justify-between md:space-x-0 mt-2">
