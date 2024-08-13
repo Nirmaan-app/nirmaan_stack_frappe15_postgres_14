@@ -1,17 +1,12 @@
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumb";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { NavBar } from "@/components/nav/nav-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
-
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
-
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { MainLayout } from "@/components/layout/main-layout";
 import { TailSpin } from "react-loader-spinner";
@@ -118,8 +113,8 @@ export default function Projects() {
     return (
 
         // <MainLayout>
-            <div className="flex-1 space-x-2 md:space-y-4 p-6 pt-6">
-                {/* <div className="flex items-center justify-between space-y-2">
+        <div className="flex-1 space-x-2 md:space-y-4 p-6 pt-6">
+            {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
                             <Link to="/" className="md:text-base text-sm">Dashboard</Link>
@@ -131,45 +126,45 @@ export default function Projects() {
                         </BreadcrumbItem>
                     </Breadcrumb>
                 </div> */}
-                <div className="flex items-center justify-between mb-2 space-y-2">
-                    <div className="flex">
-                        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/")} />
-                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                        <Button asChild>
-                            <Link to="new"> <CirclePlus className="w-5 h-5 mt- pr-1 " />Add <span className="hidden md:flex pl-1"> Project</span></Link>
-                        </Button>
-                    </div>
+            <div className="flex items-center justify-between mb-2 space-y-2">
+                <div className="flex">
+                    <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/")} />
+                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2 cursor-pointer">
-                    <Card className="hover:animate-shadow-drop-center" onClick={() => {
 
-                    }}>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">
-                                Total Projects
-                            </CardTitle>
-                            <HardHat className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">
-                                {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (data?.length)}
-                                {error && <p>Error</p>}
-                            </div>
-                            {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
-                        </CardContent>
-                    </Card>
-                </div>
-                <div className="pl-0 pr-2">
-                    {isLoading ?  (
-                        <TableSkeleton />
-                    ) : (
-                    <DataTable columns={columns} data={data || []} />
-                    )}
+                <div className="flex items-center space-x-2">
+                    <Button asChild data-cy="add-project-button">
+                        <Link to="new"> <CirclePlus className="w-5 h-5 mt- pr-1 " />Add <span className="hidden md:flex pl-1"> Project</span></Link>
+                    </Button>
                 </div>
             </div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2 cursor-pointer">
+                <Card className="hover:animate-shadow-drop-center" onClick={() => {
+
+                }}>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">
+                            Total Projects
+                        </CardTitle>
+                        <HardHat className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">
+                            {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (data?.length)}
+                            {error && <p>Error</p>}
+                        </div>
+                        {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
+                    </CardContent>
+                </Card>
+            </div>
+            <div className="pl-0 pr-2">
+                {isLoading ? (
+                    <TableSkeleton />
+                ) : (
+                    <DataTable columns={columns} data={data || []} />
+                )}
+            </div>
+        </div>
         // </MainLayout>
 
     )
