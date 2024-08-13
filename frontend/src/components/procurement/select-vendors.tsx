@@ -318,16 +318,30 @@ export const SelectVendors = () => {
                     console.log("submit_error", submit_error);
                 })
         }
-
-        updateDoc('Procurement Requests', orderId, {
-            workflow_state: "Vendor Selected",
-        })
-            .then(() => {
-                console.log(orderId)
-                navigate("/")
-            }).catch(() => {
-                console.log(update_submit_error)
+        if (itemlist.length === orderData.procurement_list?.list.length) {
+            updateDoc('Procurement Requests', orderId, {
+                workflow_state: "Rejected",
             })
+                .then(() => {
+                    console.log(orderId)
+                    navigate("/")
+                }).catch(() => {
+                    console.log(update_submit_error)
+                })
+        }
+        else {
+            updateDoc('Procurement Requests', orderId, {
+                workflow_state: "Vendor Selected",
+            })
+                .then(() => {
+                    console.log(orderId)
+                    navigate("/")
+                }).catch(() => {
+                    console.log(update_submit_error)
+                })
+        }
+
+
 
     }
 
@@ -552,9 +566,27 @@ export const SelectVendors = () => {
                                 Edit Price
                             </Button>
                             {/* <div className="flex flex-col justify-end items-end"> */}
-                            <Button onClick={() => setPage('approvequotation')}>
-                                Confirm
-                            </Button>
+
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button>
+                                        Confirm
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle>Have you selected quotes for all the items?</DialogTitle>
+                                        <DialogDescription>
+                                            Items whose quotes are not selected will have `Delayed` status attached to them.
+                                            Click on 'Confirm' to continue
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <DialogClose>
+                                        <Button variant="secondary" >Go Back</Button>
+                                        <Button variant="secondary" className="ml-4" onClick={() => setPage('approvequotation')}>Confirm</Button>
+                                    </DialogClose>
+                                </DialogContent>
+                            </Dialog>
                         </div>
                     </div>
                 </div>}
@@ -719,12 +751,13 @@ export const SelectVendors = () => {
                                 </DialogTrigger>
                                 <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>
-                                        <DialogTitle>Are you Sure</DialogTitle>
+                                        <DialogTitle>Have you cross-checked your selections?</DialogTitle>
                                         <DialogDescription>
-                                            Click on Confirm to Approve.
+                                            Remainder: Items whose quotes are not selected will have a delayed status attached to them. If confirmed, Delayed sent back request will be created for those Items.
                                         </DialogDescription>
                                     </DialogHeader>
                                     <DialogClose>
+                                        <Button variant="secondary">Go Back</Button>
                                         <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
                                     </DialogClose>
                                 </DialogContent>
@@ -764,13 +797,14 @@ export const SelectVendors = () => {
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
-                                    <DialogTitle>Are you Sure</DialogTitle>
+                                    <DialogTitle>Have you cross-checked your selections?</DialogTitle>
                                     <DialogDescription>
-                                        Click on Confirm to Approve.
+                                        Remainder: Items whose quotes are not selected will have a delayed status attached to them. If confirmed, Delayed sent back request will be created for those Items.
                                     </DialogDescription>
                                 </DialogHeader>
                                 <DialogClose>
-                                    <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                    <Button variant="secondary">Go Back</Button>
+                                    <Button variant="secondary" className="ml-4" onClick={() => handleSubmit()}>Confirm</Button>
                                 </DialogClose>
                             </DialogContent>
                         </Dialog>
