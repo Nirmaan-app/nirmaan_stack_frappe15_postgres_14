@@ -4,7 +4,7 @@
   "doctype": "Work Packages",
   "modified": "2024-04-13 15:25:21.468791",
   "name": "Data & Networking",
-  "work_package_image": null,
+  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/OL3WOUWH_network.jpg&file_name=network.jpg",
   "work_package_name": "Data & Networking"
  },
  {
@@ -12,7 +12,7 @@
   "doctype": "Work Packages",
   "modified": "2024-04-13 15:25:21.468791",
   "name": "Fire Fighting System",
-  "work_package_image": null,
+  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/AYRE9562_fire.jpeg&file_name=fire.jpeg",
   "work_package_name": "Fire Fighting System"
  },
  {
@@ -20,7 +20,7 @@
   "doctype": "Work Packages",
   "modified": "2024-04-13 15:25:21.468791",
   "name": "Access Control System",
-  "work_package_image": null,
+  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/09VWEZ65_access-control-system.png&file_name=access-control-system.png",
   "work_package_name": "Access Control System"
  },
  {
@@ -28,7 +28,7 @@
   "doctype": "Work Packages",
   "modified": "2024-07-16 12:21:42.904871",
   "name": "HVAC System",
-  "work_package_image": null,
+  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/LRQIVEKI_hvac.jpg&file_name=hvac.jpg",
   "work_package_name": "HVAC System"
  },
  {
@@ -36,7 +36,7 @@
   "doctype": "Work Packages",
   "modified": "2024-07-16 12:22:05.135076",
   "name": "CCTV System",
-  "work_package_image": null,
+  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/RM1H5PBM_cctv.jpg&file_name=cctv.jpg",
   "work_package_name": "CCTV System"
  },
  {
@@ -44,7 +44,7 @@
   "doctype": "Work Packages",
   "modified": "2024-07-16 12:22:21.663535",
   "name": "FA System",
-  "work_package_image": null,
+  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/I1UDA6HG_Fire-alarm-system.jpg&file_name=Fire-alarm-system.jpg",
   "work_package_name": "FA System"
  },
  {
@@ -52,7 +52,7 @@
   "doctype": "Work Packages",
   "modified": "2024-07-16 12:22:29.706806",
   "name": "PA System",
-  "work_package_image": null,
+  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/4CTWZG4R_pa.jpg&file_name=pa.jpg",
   "work_package_name": "PA System"
  },
  {
@@ -60,7 +60,15 @@
   "doctype": "Work Packages",
   "modified": "2024-07-16 12:20:07.962566",
   "name": "Electrical Work",
-  "work_package_image": null,
+  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/9VU82NMW_electrical_work.jpg.webp&file_name=electrical_work.jpg.webp",
   "work_package_name": "Electrical Work"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-08-14 12:09:40.480867",
+  "name": "Tool & Equipments",
+  "work_package_image": null,
+  "work_package_name": "Tool & Equipments"
  }
 ]

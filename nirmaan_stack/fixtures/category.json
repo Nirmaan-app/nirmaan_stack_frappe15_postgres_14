@@ -1,11 +1,122 @@
 [
  {
+  "category_name": "Electrical Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-08-14 12:10:44.354447",
+  "name": "Electrical Services",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "HVAC Hardware & Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:58.978370",
+  "name": "HVAC Hardware & Accessories",
+  "tax": "18",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Sprinkler Piping & Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-07-16 14:54:59.007947",
+  "name": "Sprinkler Piping & Accessories",
+  "tax": "18",
+  "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "HVAC Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-08-14 12:36:36.643959",
+  "name": "HVAC Services",
+  "tax": "18",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Fire Fighting Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-08-14 12:38:00.901239",
+  "name": "Fire Fighting Services",
+  "tax": "18",
+  "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "CCTV Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-08-14 12:38:28.114147",
+  "name": "CCTV Services",
+  "tax": "18",
+  "work_package": "CCTV System"
+ },
+ {
+  "category_name": "FA Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-08-14 12:39:01.503885",
+  "name": "FA Services",
+  "tax": "18",
+  "work_package": "FA System"
+ },
+ {
+  "category_name": "PA Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-08-14 12:39:40.532828",
+  "name": "PA Services",
+  "tax": "18",
+  "work_package": "PA System"
+ },
+ {
+  "category_name": "Access Control Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-08-14 12:39:58.828133",
+  "name": "Access Control Services",
+  "tax": "18",
+  "work_package": "Access Control System"
+ },
+ {
+  "category_name": "Data & Networking Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-08-14 12:41:28.295444",
+  "name": "Data & Networking Services",
+  "tax": "18",
+  "work_package": "Data & Networking"
+ },
+ {
+  "category_name": "Rented Tools & Equipments",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-08-14 12:41:57.301197",
+  "name": "Rented Tools & Equipments",
+  "tax": "18",
+  "work_package": "Tool & Equipments"
+ },
+ {
   "category_name": "Switch & Sockets",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": null,
   "modified": "2024-07-16 14:54:58.892647",
   "name": "Switch & Sockets",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -15,6 +126,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.896989",
   "name": "Raceway",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -24,6 +136,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.901199",
   "name": "Cable Tray & Junction Box",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -33,6 +146,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.904638",
   "name": "Electrical Miscellaneous",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -42,6 +156,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.908610",
   "name": "DB & Switch Gear",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -51,6 +166,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.912843",
   "name": "LT Panels",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -60,6 +176,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.922793",
   "name": "Earthing Material",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -69,6 +186,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.928004",
   "name": "Electrical Accessories",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -78,6 +196,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.932051",
   "name": "Enclosure",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -87,6 +206,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.935756",
   "name": "Conduits",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -96,6 +216,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.940246",
   "name": "Industrial Sockets",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -105,6 +226,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.944749",
   "name": "Copper Piping",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -114,6 +236,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.949871",
   "name": "Drain Pipes",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -123,6 +246,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.953387",
   "name": "Chilled Water Piping",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -132,6 +256,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.958648",
   "name": "GI Ducts & MS Ducts",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -141,6 +266,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.962286",
   "name": "Flexible Ducts",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -150,6 +276,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.966116",
   "name": "Plenum Box",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -159,6 +286,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.969635",
   "name": "Grills, Diffusers and Dampers",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -168,6 +296,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.973798",
   "name": "Fans",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -177,6 +306,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.978370",
   "name": "HVAC Accessories",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -186,6 +316,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.982741",
   "name": "DX Sysetm",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -195,6 +326,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.987778",
   "name": "VRF System",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -204,6 +336,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.992210",
   "name": "Insulation",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -213,6 +346,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.996157",
   "name": "HVAC Miscellaneous",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -222,6 +356,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.000132",
   "name": "AHU & CSU",
+  "tax": "18",
   "work_package": "HVAC System"
  },
  {
@@ -231,6 +366,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.004173",
   "name": "Sprinklers",
+  "tax": "18",
   "work_package": "Fire Fighting System"
  },
  {
@@ -240,6 +376,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.007947",
   "name": "Sprinkler Piping",
+  "tax": "18",
   "work_package": "Fire Fighting System"
  },
  {
@@ -249,6 +386,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.011814",
   "name": "Sprinkler Valves",
+  "tax": "18",
   "work_package": "Fire Fighting System"
  },
  {
@@ -258,6 +396,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.015724",
   "name": "IP Cameras",
+  "tax": "18",
   "work_package": "CCTV System"
  },
  {
@@ -267,6 +406,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.019825",
   "name": "Analog Cameras",
+  "tax": "18",
   "work_package": "CCTV System"
  },
  {
@@ -276,6 +416,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.024007",
   "name": "CCTV Cabling",
+  "tax": "18",
   "work_package": "CCTV System"
  },
  {
@@ -285,6 +426,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.028163",
   "name": "CCTV Network Switches",
+  "tax": "18",
   "work_package": "CCTV System"
  },
  {
@@ -294,6 +436,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.032054",
   "name": "CCTV Accessories",
+  "tax": "18",
   "work_package": "CCTV System"
  },
  {
@@ -303,6 +446,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.035930",
   "name": "NVR & DVR",
+  "tax": "18",
   "work_package": "CCTV System"
  },
  {
@@ -312,6 +456,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.039903",
   "name": "Addressable Detectors",
+  "tax": "18",
   "work_package": "FA System"
  },
  {
@@ -321,6 +466,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.044219",
   "name": "Conventional Detectors",
+  "tax": "18",
   "work_package": "FA System"
  },
  {
@@ -330,6 +476,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.049440",
   "name": "Addressable Module",
+  "tax": "18",
   "work_package": "FA System"
  },
  {
@@ -339,6 +486,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.053248",
   "name": "Conventional Module",
+  "tax": "18",
   "work_package": "FA System"
  },
  {
@@ -348,6 +496,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.056950",
   "name": "Fire Alarm Panel",
+  "tax": "18",
   "work_package": "FA System"
  },
  {
@@ -357,6 +506,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.060654",
   "name": "FA Accessories",
+  "tax": "18",
   "work_package": "FA System"
  },
  {
@@ -366,6 +516,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.064489",
   "name": "FA Cables",
+  "tax": "18",
   "work_package": "FA System"
  },
  {
@@ -375,6 +526,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.068530",
   "name": "PA Cables",
+  "tax": "18",
   "work_package": "PA System"
  },
  {
@@ -384,6 +536,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.072264",
   "name": "Speaker",
+  "tax": "18",
   "work_package": "PA System"
  },
  {
@@ -393,6 +546,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.076288",
   "name": "Mic",
+  "tax": "18",
   "work_package": "PA System"
  },
  {
@@ -402,6 +556,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.080294",
   "name": "Controller",
+  "tax": "18",
   "work_package": "PA System"
  },
  {
@@ -411,6 +566,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.084176",
   "name": "Amplifier",
+  "tax": "18",
   "work_package": "PA System"
  },
  {
@@ -420,6 +576,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.088243",
   "name": "PA Accessories",
+  "tax": "18",
   "work_package": "PA System"
  },
  {
@@ -429,6 +586,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.091963",
   "name": "Controllers",
+  "tax": "18",
   "work_package": "Access Control System"
  },
  {
@@ -438,6 +596,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.095655",
   "name": "Reader",
+  "tax": "18",
   "work_package": "Access Control System"
  },
  {
@@ -447,6 +606,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.099441",
   "name": "Data Cabling",
+  "tax": "18",
   "work_package": "Data & Networking"
  },
  {
@@ -456,6 +616,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.103381",
   "name": "Terminations",
+  "tax": "18",
   "work_package": "Data & Networking"
  },
  {
@@ -465,6 +626,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.107298",
   "name": "Jack Panel",
+  "tax": "18",
   "work_package": "Data & Networking"
  },
  {
@@ -474,6 +636,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.111545",
   "name": "Rack & Accessories",
+  "tax": "18",
   "work_package": "Data & Networking"
  },
  {
@@ -483,6 +646,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.115397",
   "name": "Switches",
+  "tax": "18",
   "work_package": "Data & Networking"
  },
  {
@@ -492,6 +656,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:59.119932",
   "name": "Data Accessories",
+  "tax": "18",
   "work_package": "Data & Networking"
  },
  {
@@ -501,6 +666,7 @@
   "image_url": null,
   "modified": "2024-07-17 20:19:23.895000",
   "name": "Lighting",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -510,6 +676,7 @@
   "image_url": null,
   "modified": "2024-07-16 14:54:58.876768",
   "name": "Wires & Cables",
+  "tax": "18",
   "work_package": "Electrical Work"
  },
  {
@@ -517,8 +684,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": null,
-  "modified": "2024-07-16 14:54:58.917972",
+  "modified": "2024-08-14 13:51:34.770897",
   "name": "UPS & Inverter",
+  "tax": "18",
   "work_package": "Electrical Work"
  }
 ]
