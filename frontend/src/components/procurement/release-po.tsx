@@ -34,9 +34,7 @@ export const ReleasePO = () => {
             fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode']
         });
 
-    const [orderData, setOrderData] = useState({
-        name: ''
-    });
+    const [orderData, setOrderData] = useState(null);
     const [projectAddress, setProjectAddress] = useState()
     const [vendorAddress, setVendorAddress] = useState()
 
@@ -138,7 +136,7 @@ export const ReleasePO = () => {
     }, [procurement_order_list, orderId, reset]);
 
 
-    console.log("procurement_order_list", procurement_order_list)
+    // console.log("procurement_order_list", procurement_order_list)
     // console.log("category_list", category_list)
 
 
@@ -168,15 +166,31 @@ export const ReleasePO = () => {
             })
     };
 
-    const getTotal = (order_id: string) => {
+    // console.log("orderData", orderData)
+
+    const getTotal = () => {
         let total: number = 0;
-        const orderData = procurement_order_list?.find(item => item.name === order_id)?.order_list;
-        orderData?.list.map((item) => {
+        let totalGst = 0;
+        // const orderDataa = procurement_order_list?.find(item => item.name === order_id)?.order_list;
+        orderData?.order_list?.list?.map((item) => {
             const price = item.quote;
+            const gst = (price) * (item.quantity) * (item.tax / 100)
+
+            totalGst += gst
             total += (price ? parseFloat(price) : 0) * (item.quantity ? parseFloat(item.quantity) : 1);
         })
-        return total + loadingCharges + freightCharges;
+
+        total += loadingCharges + freightCharges
+        totalGst += ((orderData?.loading_charges) * 0.18) + ((orderData?.freight_charges) * 0.18)
+
+        return {total, totalGst : totalGst , totalAmt : total + totalGst};
     }
+
+    // console.log("total", getTotal().total)
+    // console.log("gst", getTotal().totalGst)
+
+
+
 
     // const afterDelivery = totalAmount * (1 - advance / 100);
 
@@ -207,11 +221,10 @@ export const ReleasePO = () => {
 
     return (
         <>
-            {/* <MainLayout> */}
-            <div className="flex">
-                <div className="w-[30%] mx-auto mt-10">
+            <div className="flex justify-between">
+                <div className="mt-10 pl-24">
                     <div className="flex py-4">
-                        <ArrowLeft className="mt-1" onClick={() => navigate("/release-po")} />
+                        <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
                         <div className="font-semibold text-xl pl-2"><span className="text-red-700 text-2xl">Selected PO:</span> {(orderData?.name)?.toUpperCase()}</div>
                     </div>
 
@@ -392,7 +405,7 @@ export const ReleasePO = () => {
                                             </div>
                                         </th>
                                     </tr>
-                                    <tr>
+                                    <tr className="border-t border-black">
                                         <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">S. No.</th>
                                         <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
                                         <th scope="col" className="px-2 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
@@ -403,9 +416,9 @@ export const ReleasePO = () => {
                                         <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                     </tr>
                                 </thead>
-                                <tbody className="bg-white  divide-y divide-gray-200">
+                                <tbody className="bg-white ">
                                     {orderData?.order_list?.list.map((item : any, index : number) => {
-                                        return ( <tr key={index} className={`border-b border-black page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
+                                        return ( <tr key={index} className={`${(!loadingCharges && !freightCharges) && "border-b border-black"} page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
                                             <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{item.unit}</td>
@@ -413,10 +426,9 @@ export const ReleasePO = () => {
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity)).toFixed(2)}</td>
                                         </tr> )
                                     })}
-
                                     {/* {[...Array(14)].map((_, index) => (
                                         orderData?.order_list?.list.map((item) => (
                                              <tr className="">
@@ -430,29 +442,29 @@ export const ReleasePO = () => {
                                         )
                                     )))} */}
                                     {loadingCharges ?
-                                        <tr className="border-b border-black">
+                                        <tr className={`${!freightCharges && "border-b border-black"}`}>
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
                                             <td className=" py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">NOS</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">1</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
-                                            <td></td>
-                                            <td></td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((orderData?.loading_charges) * 0.09).toFixed(2)}(9%)</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((orderData?.loading_charges) * 0.09).toFixed(2)}(9%)</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{(orderData?.loading_charges * 1).toFixed(2)}</td>
                                         </tr>
                                         :
                                         <></>
                                     }
                                     {freightCharges ?
-                                        <tr className="border-b border-black">
+                                        <tr className={`border-b border-black`}>
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
                                             <td className=" py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">NOS</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">1</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
-                                            <td></td>
-                                            <td></td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((orderData?.freight_charges) * 0.09).toFixed(2)}(9%)</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((orderData?.freight_charges) * 0.09).toFixed(2)}(9%)</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{(orderData?.freight_charges * 1).toFixed(2)}</td>
                                         </tr>
                                         :
                                         <></>
@@ -471,21 +483,21 @@ export const ReleasePO = () => {
                                             
                                         </td>
                                         <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                            <div className="ml-4">{getTotal(orderData?.name)}</div>
-                                            <div className="ml-4">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
-                                            <div className="ml-4">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</div>
+                                            <div className="ml-4">{getTotal().total}</div>
+                                            <div className="ml-4">{(getTotal().total * 0.09).toFixed(2)}</div>
+                                            <div className="ml-4">{(getTotal().total * 0.09).toFixed(2)}</div>
                                             <div className="h-2"></div>
                                         </td>
                                     </tr> */}
                                     <tr className="">
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
-                                            <td className=" py-2 whitespace-nowrap font-semibold flex justify-end w-[80%]">Sub-Total</td>
+                                            <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]">Sub-Total</td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
                                             <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{(getTotal(orderData?.name) * 0.09).toFixed(2)}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{getTotal(orderData?.name).toFixed(2)}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td>
+                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{getTotal().total.toFixed(2)}</td>
                                         </tr>
                                     <tr className="border-none">
                                         <td></td>
@@ -500,8 +512,8 @@ export const ReleasePO = () => {
                                         </td>
 
                                         <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                           <div className="ml-4">-{((getTotal(orderData?.name) * 1.18).toFixed(2) - Math.floor(getTotal(orderData?.name) * 1.18).toFixed(2)).toFixed(2)}</div>
-                                           <div className="ml-4">{Math.floor(getTotal(orderData?.name) * 1.18).toFixed(2)}</div>
+                                           <div className="ml-4">- {((getTotal().totalAmt).toFixed(2) - (Math.floor(getTotal().totalAmt)).toFixed(2)).toFixed(2)}</div>
+                                           <div className="ml-4">{(Math.floor(getTotal().totalAmt)).toFixed(2)}</div>
                                         </td>
 
                                     </tr>
@@ -625,8 +637,6 @@ export const ReleasePO = () => {
                     </div>
                 </div>
             </div>
-            {/* </MainLayout> */}
-
             {/* <button onClick={handlePrint} className="m-8 p-2 bg-blue-500 text-white">Print</button> */}
         </>
     )

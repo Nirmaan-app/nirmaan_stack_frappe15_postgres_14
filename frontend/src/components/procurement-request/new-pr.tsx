@@ -173,6 +173,7 @@ export const NewPR = () => {
                     quantity: Number(quantity),
                     category: curCategory,
                     tax: Number(tax),
+                    status: "Pending"
                 };
                 const isDuplicate = curRequest.some((item) => item.name === curValue.name);
                 if (!isDuplicate) {
