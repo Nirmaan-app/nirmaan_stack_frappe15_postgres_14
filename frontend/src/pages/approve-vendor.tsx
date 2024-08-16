@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
     Dialog,
     DialogContent,
@@ -17,7 +17,6 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 import { Table as ReactTable } from "@/components/ui/table";
 import {  Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
-
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
 interface DataType {
@@ -103,36 +102,28 @@ export const ApproveVendor = () => {
     const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate()
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
             filters: [['name', '=', orderId]],
             limit: 100
         });
-
-        // console.log("procurement_request_list" , procurement_request_list)
-
-    const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
-        {
-            fields: ['name', 'item_name', 'unit_name'],
-            limit: 1000
-        });
-    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
+    const { data: vendor_list } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst'],
             limit: 1000
         });
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
+    const { data: project_list } = useFrappeGetDocList("Projects",
         {
             fields: ['name', 'project_name', 'project_address', 'procurement_lead']
         });
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
+    const { data: quotation_request_list } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["status", "=", "Selected"], ["procurement_task", "=", orderId]],
             limit: 1000
         });
-    const { data: quotation_request_list2, isLoading: quotation_request_list2_loading, error: quotation_request_list2_error } = useFrappeGetDocList("Quotation Requests",
+    const { data: quotation_request_list2 } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["procurement_task", "=", orderId]],
@@ -144,13 +135,8 @@ export const ApproveVendor = () => {
             limit: 1000
         });
 
-        const {data: category_list, isLoading: category_list_loading, error: category_list_error, mutate: category_list_mutate} = useFrappeGetDocList("Category", 
-            {
-            fields: ['work_package', 'name', 'tax'],
-            limit: 1000
-            })
-
-            // console.log("category--list", category_list)
+    const { createDoc: createDoc, error: submit_error } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc, error: update_submit_error } = useFrappeUpdateDoc()
 
     const [page, setPage] = useState<string>('approvequotation')
     const [orderData, setOrderData] = useState({
@@ -163,70 +149,134 @@ export const ApproveVendor = () => {
             list: []
         }
     })
-
     const [data, setData] = useState<DataType>([])
+    const [checkStrictly, setCheckStrictly] = useState(false);
     const [selectedVendors, setSelectedVendors] = useState({})
     const [comment, setComment] = useState('')
-    const [checkStrictly, setCheckStrictly] = useState(false);
+    const [selectedItems, setSelectedItems] = useState()
+    const [priceMap, setPriceMap] = useState(new Map<string, string>());
 
+    const getPrice = (vendor: string, item: string): string | undefined => {
+        const key = generateVendorItemKey(vendor, item);
+        return priceMap.get(key);
+    };
     useEffect(() => {
-        // const foundItem = procurement_request_list?.find(item => item.name === orderId );
 
-        // if (foundItem && !orderData.project) {
-        //     setOrderData(foundItem)
-        // }
-        if(procurement_request_list) setOrderData(procurement_request_list[0])
-
-    }, [procurement_request_list]);
-
-    useEffect(() => {
-        const newCategories = [];
-        const newList = []
-        orderData.procurement_list.list.map((item) => {
-            if(item.status === "Pending") newList.push(item)
-            const isDuplicate = newCategories.some(category => category.name === item.category);
-            if (!isDuplicate) {
-                newCategories.push({ name: item.category })
-            }
-        })
-        setOrderData((prevState) => ({
-            ...prevState,
-            procurement_list: {
-                list: newList
-            },
-            category_list: {
-                list: newCategories
-            },
-        }));
-    }, [orderData.procurement_list]);
-
-
-    // Updating Selected Vendors based on quotation requests
-    useEffect(() => {
-        const vendorsMap: { [key: string]: string } = {};
-        quotation_request_list?.forEach(item => {
-            vendorsMap[item.item] = item.vendor;
-        });
-        setSelectedVendors(vendorsMap);
-    }, [quotation_request_list]);
-
-
-    // Price Map state
-    useEffect(() => {
+        console.log("calling useEffect 1, priceMap")
         const newPriceMap = new Map<string, string>();
         quotation_request_list?.forEach((item) => {
-            const key = `${item.vendor} - ${item.item}`;
+            const key = generateVendorItemKey(item.vendor, item.item);
             newPriceMap.set(key, item.quote);
         });
         setPriceMap(newPriceMap);
     }, [quotation_request_list]);
 
-        
-    // console.log("quote_data", quote_data)
 
+     // Setting initial data
+     useEffect(() => {
+        console.log("calling useEffect 2, settingOrderData and updating procurement_list and category_list");
+    
+        if (procurement_request_list) {
+            // Initial setup of orderData
+            const newOrderData = procurement_request_list[0];
+    
+            // Compute new procurement list and categories
+            const newCategories: { name: string }[] = [];
+            const newList: DataType[] = [];
+            newOrderData.procurement_list.list.forEach((item) => {
+                if (item.status === "Pending") newList.push(item);
+                if (!newCategories.some(category => category.name === item.category)) {
+                    newCategories.push({ name: item.category });
+                }
+            });
+    
+            // Update orderData with computed lists
+            setOrderData((prevState) => ({
+                ...newOrderData,
+                procurement_list: {
+                    list: newList
+                },
+                category_list: {
+                    list: newCategories
+                }
+            }));
+        }
+    }, [procurement_request_list]);
+    
 
     useEffect(() => {
-        if (orderData.project) {
+        let updatedVendors = { ...selectedVendors };
+        quotation_request_list?.forEach((item) => {
+            const curVendor = item.vendor;
+            updatedVendors[item.item] = curVendor;
+        });
+        setSelectedVendors(updatedVendors);
+    }, [quotation_request_list]);
+
+
+    const getVendorName = (vendorName: string) => {
+        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
+    }
+    const getVendorAddress = (vendorName: string) => {
+        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_address;
+    }
+    const getVendorGST = (vendorName: string) => {
+        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_gst;
+    }
+    const getProjectName = (projectName: string) => {
+        return project_list?.find(project => project.name === projectName)?.project_name;
+    }
+    const getProjectAddress = (projectName: string) => {
+        return project_list?.find(project => project.name === projectName)?.project_address;
+    }
+    const getTotal = (cat: string) => {
+        return orderData.procurement_list?.list
+            .filter(item => item.category === cat)
+            .reduce((total, item) => {
+                const price = Number(priceMap.get(`${selectedVendors[item.name]}-${item.name}`) || 0);
+                return total + (price * item.quantity);
+            }, 0);
+    }
+
+    const getLowest = (cat: string) => {
+        let price: number = 0;
+        let vendor: string = 'vendor';
+        orderData.procurement_list?.list.map((item) => {
+            if (item.category === cat && selectedVendors[item.name]) {
+                const quotesForItem = quotation_request_list2
+                    ?.filter(q => q.item === item.name && q.quote)
+                    ?.map(q => q.quote);
+                const minQuote = quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
+                price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+            }
+        })
+        return { quote: price, vendor: vendor }
+    }
+
+    const getLowest2 = useCallback((item: string) => {
+        const quotesForItem = quotation_request_list2
+            ?.filter(q => q.item === item && q.quote)
+            ?.map(q => q.quote);
+        return quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
+    }, [quotation_request_list2]);
+    
+    const getLowest3 = useCallback((cat: string) => {
+        let total: number = 0;
+        orderData.procurement_list?.list.forEach((item) => {
+            if (item.category === cat && selectedVendors[item.name]) {
+                const quotesForItem = quote_data
+                    ?.filter(q => q.item === item.name && q.quote)
+                    ?.map(q => q.quote);
+                const minQuote = quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
+                total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+            }
+        })
+        return total;
+    }, [quote_data, selectedVendors, orderData.procurement_list]);
+
+    useEffect(() => {
+        console.log("calling useEffect 5, setting column data for table")
+        if (!orderData.project) return;
             const newData: DataType[] = [];
             orderData.category_list?.list.forEach((cat) => {
                 const items: DataType[] = [];
@@ -236,12 +286,9 @@ export const ApproveVendor = () => {
                         if (selectedVendors[item.name]) {
                             const price = Number(getPrice(selectedVendors[item.name], item.name))
                             const quotesForItem = quote_data
-                                ?.filter(value => value.item === item.name && value.quote)
-                                ?.map(value => value.quote);
-
-                                console.log("quotesForItem", quotesForItem)
-                            let minQuote;
-                            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                                ?.filter(q => q.item === item.name && q.quote)
+                                ?.map(q => q.quote);
+                            let minQuote = quotesForItem?.length ? Math.min(...quotesForItem) : 0;
                             minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
 
                             items.push({
@@ -260,7 +307,6 @@ export const ApproveVendor = () => {
                         }
                     }
                 });
-                // console.log("items",items)
 
                 if (items.length) {
                     const node: DataType = {
@@ -277,56 +323,21 @@ export const ApproveVendor = () => {
                 }
             });
             setData(newData)
-        }
-    }, [orderData, selectedVendors, vendor_list, quote_data, quotation_request_list2]);
+    }, [orderData, selectedVendors, quote_data]);
 
-
-    const getVendorName = (vendorName: string) => {
-        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
-    }
-    const getVendorAddress = (vendorName: string) => {
-        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_address;
-    }
-    const getVendorGST = (vendorName: string) => {
-        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_gst;
-    }
-    const getProjectName = (projectName: string) => {
-        return project_list?.find(project => project.name === projectName)?.project_name;
-    }
-    const getProjectAddress = (projectName: string) => {
-        return project_list?.find(project => project.name === projectName)?.project_address;
-    }
-
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-
-    
-
-    const generateVendorItemKey = (vendor: string, item: string): string => {
-        return `${vendor}-${item}`;
-    };
-    const [priceMap, setPriceMap] = useState(new Map<string, string>());
-
-    const getPrice = (vendor: string, item: string): string | undefined => {
-        const key = `${vendor}-${item}`;
-        return priceMap.get(key);
-    };
-
-    const [selectedItems, setSelectedItems] = useState()
 
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
-            console.log("onChange")
-            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+            console.log(`selectedRowKeys : ${selectedRowKeys}, selectedRows: ${selectedRows}`)
             setSelectedItems(selectedRows)
         },
-        onSelect: (record, selected, selectedRows) => {
-            console.log(`record : ${record}, selected:  ${selected},selectedRows: ${selectedRows}`);
-        },
-        onSelectAll: (selected, selectedRows, changeRows) => {
-            console.log(`changeRows : ${changeRows}, selected:  ${selected},selectedRows: ${selectedRows}`);
-        },
+        onSelect: (record, selected, selectedRows) => {},
+        onSelectAll: (selected, selectedRows, changeRows) => {},
     };
-    
+
+    // console.log("orderData", orderData)
+    // console.log("selectedItems", selectedItems)
+
 const BATCH_SIZE = 10; // Adjust the batch size based on your needs
 
 const createDocBatch = async (doctype, docs) => {
@@ -342,25 +353,21 @@ const createDocBatch = async (doctype, docs) => {
     return results;
 };
 
-console.log("selectedItems", selectedItems)
-
-console.log("selectedVendors", selectedVendors)
-
     const newHandleApprove = async () => {
         // TODO: Add Quotation request state change to approved 
-    
         const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
     
         // Group items by vendor
         const vendorItems = {};
-
         filteredData?.forEach((item) => {
-            if (selectedVendors[item.key]) {
-                if (!vendorItems[selectedVendors[item.key]]) {
-                    vendorItems[selectedVendors[item.key]] = [];
+            const currentVendor =  selectedVendors[item.key]
+            if (currentVendor) {
+                if (!vendorItems[currentVendor]) {
+                    vendorItems[currentVendor] = [];
                 }
                 const price = Number(getPrice(selectedVendors[item.key], item.key));
-                vendorItems[selectedVendors[item.key]].push({
+
+                vendorItems[currentVendor].push({
                     name: item.key,
                     quote: price,
                     quantity: item.quantity,
@@ -396,35 +403,43 @@ console.log("selectedVendors", selectedVendors)
             await createDocBatch('Procurement Orders', batch);
         }
     
-        // Determine workflow state
-        // let workflowState = "Partially Approved";
-        // if (orderData.procurement_list?.list.length === filteredData.length) {
-        //     workflowState = "Vendor Approved";
-        // }
+        const currentState = procurement_request_list?.[0]?.workflow_state;
+        const allItemsApproved = filteredData.length === orderData.procurement_list.list.length;
+        let newWorkflowState = currentState;
     
-        // // Update procurement request
-        // await updateDoc('Procurement Requests', orderId, {
-        //     workflow_state: workflowState,
-        // }).catch((error) => {
-        //     console.log("update_submit_error", error);
-        // });
+        if (currentState === "Vendor Selected") {
+            newWorkflowState = allItemsApproved ? "Vendor Approved" : "Partially Approved";
+        }
     
-        // Update state
+        // Update item statuses to "Approved"
+        const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map(item => {
+            if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
+                return { ...item, status: "Approved" };
+            }
+            return item;
+        });
 
-        const filteredList = orderData.procurement_list?.list.filter(procItem =>
-            !filteredData.some(setItem => setItem.key === procItem.name)
+        const filteredList = orderData.procurement_list?.list.filter(item =>
+            !filteredData.some(selectedItem => selectedItem.key === item.name)
         );
     
+        // Update the procurement request document
+        await updateDoc('Procurement Requests', orderId, {
+            procurement_list: { list: updatedProcurementList },
+            workflow_state: newWorkflowState
+        }).catch((error) => console.log("update_error", error));
+    
+        // Update state
         setOrderData(prevOrderData => ({
             ...prevOrderData,
-            procurement_list: {
-                list: filteredList
-            }
+            procurement_list: { list: filteredList }
         }));
+
     };
     
 
     const newHandleSentBack = async () => {
+
         const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
     
         const itemlist = filteredData.map(value => {
@@ -440,12 +455,8 @@ console.log("selectedVendors", selectedVendors)
             };
         });
     
-        const newCategories = [];
-        itemlist.forEach(item => {
-            if (!newCategories.some(category => category.name === item.category)) {
-                newCategories.push({ name: item.category });
-            }
-        });
+        const newCategories = Array.from(new Set(itemlist.map(item => item.category)))
+            .map(name => ({ name }));
     
         const newSendBack = {
             procurement_request: orderId,
@@ -461,138 +472,56 @@ console.log("selectedVendors", selectedVendors)
         };
     
         if (itemlist.length > 0) {
-            await createDoc('Sent Back Category', newSendBack).catch((error) => {
-                console.log("submit_error", error);
-            });
+            await createDoc('Sent Back Category', newSendBack)
         }
     
-        // Determine workflow state
-        // let workflowState = "Partially Approved";
-        // if (selectedItems.length === filteredData.length) {
-        //     workflowState = "Sent Back All";
-        // }
+        // Update procurement request status
+    const currentState = procurement_request_list?.[0]?.workflow_state;
+    let newWorkflowState = currentState;
+
+    if (currentState === "Vendor Selected" && itemlist.length > 0) {
+        newWorkflowState = "Partially Approved";
+    }
+
+    // Update item statuses to "Sent Back"
+    const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map(item => {
+        if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
+            return { ...item, status: "Sent Back" };
+        }
+        return item;
+    });
+
+    const filteredList = orderData.procurement_list?.list.filter(item =>
+        !filteredData.some(selectedItem => selectedItem.key === item.name)
+    );
+
+    // Update the procurement request document
+    await updateDoc('Procurement Requests', orderId, {
+        procurement_list: { list: updatedProcurementList },
+        workflow_state: newWorkflowState
+    }).catch((error) => console.log("update_error", error));
+
+    // Update state
+    setOrderData(prevOrderData => ({
+        ...prevOrderData,
+        procurement_list: { list: filteredList }
+    }));
+
+    // Clear comment after sending back
+    setComment('');
+
+    };
     
-        // // Update procurement request
-        // await updateDoc('Procurement Requests', orderId, {
-        //     workflow_state: workflowState,
-        // }).catch((error) => {
-        //     console.log("update_submit_error", error);
-        // });
-    
-        // Update state
-        const filteredList = orderData.procurement_list?.list.filter(procItem =>
-            !filteredData.some(selItem => selItem.key === procItem.name)
-        );
-    
-        setOrderData(prevOrderData => ({
-            ...prevOrderData,
-            procurement_list: {
-                list: filteredList
-            }
-        }));
-    
-        // Clear comment after sending back
-        setComment('');
+    const generateVendorItemKey = (vendor: string, item: string): string => {
+        return `${vendor}-${item}`;
     };
 
-    const getTotal = (cat: string) => {
-        let total: number = 0;
-        orderData?.procurement_list.list.map((item) => {
-            if (item.category === cat) {
-                const price = getPrice(selectedVendors[item.name], item.name);
-                total += (price ? parseFloat(price) : 0) * item.quantity;
-            }
-        })
-        return total
-    }
-
-    const [selectedCategories, setSelectedCategories] = useState({})
-
-    useEffect(() => {
-        const updatedCategories = { ...selectedCategories };
-        orderData?.category_list.list.map((cat) => {
-            const newVendorsSet = new Set();
-            const curCategory = cat.name
-            quotation_request_list2?.forEach((item) => {
-                if (item.category === cat.name) {
-                    if (!Array.isArray(updatedCategories[curCategory])) {
-                        updatedCategories[curCategory] = [];
-                    }
-                    newVendorsSet.add(item.vendor);
-                }
-            });
-            const newVendors = Array.from(newVendorsSet);
-            updatedCategories[curCategory] = newVendors;
-        })
-        setSelectedCategories(updatedCategories);
-    }, [quotation_request_list2, orderData]);
-
-    const getLowest = (cat: string) => {
-        let price: number = 0;
-        let vendor: string = 'vendor';
-
-        orderData.procurement_list?.list.map((item) => {
-            if (item.category === cat && selectedVendors[item.name]) {
-                const quotesForItem = quotation_request_list2
-                    ?.filter(value => value.item === item.name && value.quote)
-                    ?.map(value => value.quote);
-                let minQuote;
-                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
-            }
-        })
-
-        return { quote: price, vendor: vendor }
-    }
-
-    const getLowest2 = (item: string) => {
-        const quotesForItem = quotation_request_list2
-            ?.filter(value => value.item === item && value.quote)
-            ?.map(value => value.quote);
-        let minQuote;
-        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-        return minQuote;
-    }
-
-    const getLowest3 = (cat: string) => {
-        let total: number = 0;
-        orderData.procurement_list?.list.map((item) => {
-            if (item.category === cat && selectedVendors[item.name]) {
-                const quotesForItem = quote_data
-                    ?.filter(value => value.item === item.name && value.quote)
-                    ?.map(value => value.quote);
-                let minQuote;
-                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
-            }
-        })
-        return total;
-    }
-
     const isDelayed = (cat: string) => {
-        let isPresent = false;
-        orderData.procurement_list?.list.forEach((item)=>{
-            if(item.category === cat){
-                if(!selectedVendors[item.name]){
-                    isPresent = true;
-                } 
-            }
-        })
-        return isPresent
-    }
-
-    const getPercentdiff = (a: number, b: number) => {
-        if (a === 0 && b === 0) {
-            return 0;
-        }
-        const difference: number = Math.abs(a - b);
-        const percentDiff: number = (difference / a) * 100;
-
-        return percentDiff.toFixed(2);
+        return orderData.procurement_list?.list
+            .some(item => item.category === cat && !selectedVendors[item.name]);
     }
 
     return (
-        // <MainLayout>
         <>
             {page == 'approvequotation' && <div className="flex" >
                 <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
@@ -974,9 +903,6 @@ console.log("selectedVendors", selectedVendors)
                     })}
                 </div>
             </div>
-
-            {/* <div className="py-10"></div> */}
             </>
-        //  </MainLayout>
     )
 }

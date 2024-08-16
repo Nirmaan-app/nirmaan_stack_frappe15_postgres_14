@@ -1,4 +1,3 @@
-import { MainLayout } from "@/components/layout/main-layout";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { useMemo } from "react";
@@ -23,7 +22,9 @@ export const ApproveSelectVendor = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
-            filters: [["workflow_state", "=", "Vendor Selected"]],
+            filters: [
+                ["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]
+            ],
             limit: 100
         });
 
@@ -32,7 +33,6 @@ export const ApproveSelectVendor = () => {
     })
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
-
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -110,7 +110,7 @@ export const ApproveSelectVendor = () => {
                 }
             },
             {
-                accessorKey: "category_list",
+                accessorKey: "procurement_list",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Categories" />
@@ -119,7 +119,7 @@ export const ApproveSelectVendor = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="max-w-fit gap-0.5 grid grid-cols-2">
-                            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+                            {row.getValue("procurement_list").list.map((obj) => obj.status === "Pending" && <Badge className="inline-block">{obj["category"]}</Badge>)}
                         </div>
                     )
                 }
@@ -131,7 +131,7 @@ export const ApproveSelectVendor = () => {
                         <DataTableColumnHeader column={column} title="Estimated Price" />
                     )
                 },
-                cell: ({ row }) => {
+                cell: () => {
                     return (
                         <div className="font-medium">
                             N/A
@@ -156,7 +156,6 @@ export const ApproveSelectVendor = () => {
     }
 
     return (
-        // <MainLayout>
             <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center justify-between space-y-2 pl-2">
@@ -195,6 +194,5 @@ export const ApproveSelectVendor = () => {
                     </div> */}
                 </div>
             </div>
-        // </MainLayout>
     )
 }
