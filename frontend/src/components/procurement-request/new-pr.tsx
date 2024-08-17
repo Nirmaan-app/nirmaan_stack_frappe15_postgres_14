@@ -1,8 +1,7 @@
 import { Card, CardHeader, CardTitle, CardContent } from "../ui/card";
-import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { HardHat, UserRound, PersonStanding, PackagePlus, Workflow } from "lucide-react";
-import { TailSpin } from "react-loader-spinner";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import {  useFrappeGetDocList,  useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import {  PackagePlus } from "lucide-react";
+import {  useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 
 import { ArrowLeft } from 'lucide-react';
@@ -14,10 +13,8 @@ import { Pencil } from 'lucide-react';
 
 
 import imageUrl from "@/assets/user-icon.jpeg"
-import { MainLayout } from "../layout/main-layout";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
 import { useUserData } from "@/hooks/useUserData";
 
 export const NewPR = () => {
@@ -173,6 +170,7 @@ export const NewPR = () => {
                     quantity: Number(quantity),
                     category: curCategory,
                     tax: Number(tax),
+                    status: "Pending"
                 };
                 const isDuplicate = curRequest.some((item) => item.name === curValue.name);
                 if (!isDuplicate) {

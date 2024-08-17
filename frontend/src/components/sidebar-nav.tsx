@@ -1,4 +1,3 @@
-import { useState, useContext } from "react";
 import {
     Building2,
     LayoutGrid,
@@ -21,13 +20,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSidebar } : SidebarProps) {
-    // const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const location = useLocation()
     const userData = useUserData()
-
-    // const toggleSidebar = () => {
-    //     setIsSidebarOpen(!isSidebarOpen);
-    // };
 
     const isActive = (path: string) => {
         return location.pathname === path;
@@ -47,16 +41,6 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
 
     return (
         <>
-            {/* <Button
-                variant="secondary"
-                size="sm"
-                className="md:hidden p-2 top-4 left-4 z-50"
-                onClick={toggleSidebar}
-                aria-label="Toggle Menu"
-            >
-                {isSidebarOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-            </Button> */}
-
             <div
                 className={cn(
                     " pb-4 max-md:pt-16 md:pb-10 text-gray-500 transition-transform duration-300 ease-in-out overflow-auto",
@@ -85,16 +69,15 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                         </div>
                         <Accordion type="multiple" defaultValue={["admin-actions", "pl-actions", "pe-actions"]} >
                             {(userData.user_id == "Administrator" || userData.role == "Nirmaan Admin Profile") && <AccordionItem value="admin-actions">
-                                {/* <Link to="/admin"> */}
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="sm" className="mb-2 px-2 text-xs w-full justify-start">
                                         <Shapes className="mr-2 h-4 w-4" />
                                         Admin Options
                                     </Button>
                                 </AccordionTrigger>
-                                {/* </Link> */}
                                 <AccordionContent>
-                                    <Link to="/projects">
+                                    <Link to="/projects"
+                                    >
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -124,9 +107,6 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                                             <span className={cn({ "text-white": isActive("/wp") })}>Work Packages</span>
                                         </Button>
                                     </Link>
-                                    {/* <Button variant="ghost" size="sm" className="w-full justify-start">
-                                        Procurement Requests
-                                    </Button> */}
                                     <Link to="/items">
                                         <Button
                                             variant="ghost"
@@ -249,15 +229,6 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                                             <span className={cn({ "text-white": isActive("/release-po") })}>Release PO</span>
                                         </Button>
                                     </Link>
-                                    {/* <Button variant="ghost" size="sm" className="w-full justify-start">
-                                        Advance Payment
-                                    </Button> */}
-                                    {/* <Button variant="ghost" size="sm" className="w-full justify-start">
-                                        Track Delivery
-                                    </Button> */}
-                                    {/* <Button variant="ghost" size="sm" className="w-full justify-start">
-                                        Order Delivered
-                                    </Button> */}
                                     <Separator className="m-4" />
                                     <Link to="/sent-back-request">
                                         <Button
@@ -288,6 +259,8 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
         </>
     );
 }
+
+
 
 
 // import { useState } from "react";

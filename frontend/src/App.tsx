@@ -190,7 +190,6 @@ const App: FC = () => {
 			<UserProvider>
 				<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
 					<RouterProvider router={router} />
-
 				</ThemeProvider>
 			</UserProvider>
 		</FrappeProvider>
