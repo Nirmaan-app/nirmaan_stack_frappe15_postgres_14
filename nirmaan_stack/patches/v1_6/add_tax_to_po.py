@@ -1,4 +1,5 @@
 import frappe
+import json
 
 def execute():
    """
@@ -15,5 +16,5 @@ def execute():
               obj['category']=cat.name
               obj['tax'] = int(cat.tax)
               new_list['list'].append(obj)
-         frappe.db.set_value("Procurement Orders", po, "order_list", str(new_list).replace('\'','\"'))
+         frappe.db.set_value("Procurement Orders", po, "order_list", json.dumps(new_list))
    frappe.db.commit()
