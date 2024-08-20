@@ -51,6 +51,8 @@ import EditItems from './pages/items-edit'
 import { FC } from 'react'
 import { MainLayout } from './components/layout/main-layout'
 import { ProjectManager } from './components/dashboard-pm'
+
+import { Project } from './pages/project'
 import { DelayedPRSelect } from './pages/delayed-pr-select'
 import { DelayedPR } from './pages/delayed-pr'
 
@@ -132,7 +134,8 @@ const router = createBrowserRouter(
 					<Route path="vendors">
 						<Route index element={<Vendors />} />
 						<Route path="new" element={<NewVendor />} />
-						<Route path=":id" element={<EditVendor />} />
+						<Route path=":vendorId" lazy={() => import('@/pages/vendor')} />
+						<Route path=":id/edit" element={<EditVendor />} />
 					</Route>
 
 					<Route path="roles">
@@ -158,8 +161,6 @@ const router = createBrowserRouter(
 				{/* <Route path="testlogin" element={<AuthenticationPage />} /> */}
 			</Route >
 		</>
-
-
 	), {
 	basename: `/${import.meta.env.VITE_BASE_NAME}` ?? "",
 }
@@ -189,7 +190,6 @@ const App: FC = () => {
 			<UserProvider>
 				<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
 					<RouterProvider router={router} />
-
 				</ThemeProvider>
 			</UserProvider>
 		</FrappeProvider>

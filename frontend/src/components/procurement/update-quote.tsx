@@ -6,7 +6,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Handshake } from 'lucide-react';
 import QuotationForm from "./quotation-form"
 
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
@@ -173,7 +173,10 @@ export const UpdateQuote = () => {
                                             <SheetContent>
                                                 <ScrollArea className="h-[90%] w-[600px] p-2">
                                                     <SheetHeader>
-                                                        <SheetTitle>Enter Price</SheetTitle>
+                                                        <div className="flex items-center gap-1">
+                                                            <SheetTitle className="text-xl">Enter Price</SheetTitle>
+                                                            <Handshake className="w-5 h-5 text-primary" />
+                                                        </div>
                                                         <SheetDescription>
                                                             <Card className="p-5">
                                                                 <QuotationForm vendor_id={item} pr_id={orderData.name} />
@@ -200,8 +203,8 @@ export const UpdateQuote = () => {
                                 </Sheet> */}
                             </div>
                         })}
-                        <div className="p-10"></div>
-                        <div className="flex flex-col justify-end items-end">
+                        {/* <div className="p-10"></div> */}
+                        <div className="flex pt-10 pr-6 flex-col justify-end items-end">
                             <Button onClick={handleUpdateQuote}>
                                 Update Quote
                             </Button>

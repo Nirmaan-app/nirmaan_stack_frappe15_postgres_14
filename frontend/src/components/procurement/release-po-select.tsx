@@ -13,6 +13,8 @@ import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 import React from 'react';
 import { BadgeIndianRupee } from 'lucide-react';
+import { useToast } from "../ui/use-toast";
+import { TableSkeleton } from "../ui/skeleton";
 
 
 type PRTable = {
@@ -222,15 +224,27 @@ export const ReleasePOSelect = () => {
     const afterDelivery = totalAmount * (1 - advance / 100);
     let count = 1;
 
+    const {toast} = useToast()
+
+    if (procurement_order_list_error || projects_error || address_list_error) {
+        console.log("Error in release-po-select.tsx", procurement_order_list_error?.message, projects_error?.message, address_list_error?.error)
+        toast({
+            title: "Error!",
+            description: `Error ${procurement_order_list_error?.message || projects_error?.message || address_list_error?.message}`,
+            variant : "destructive"
+        })   
+    }
+
     return (
-        // <MainLayout>
         <>
             <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center justify-between space-y-2">
                         <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Release PO</h2>
                     </div>
+                    {(procurement_order_list_loading || projects_loading || address_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list || []} project_values={project_values} />
+                    )}
                     {orderData &&
 
                         <div className="max-w-md mx-auto mt-10">
@@ -267,7 +281,7 @@ export const ReleasePOSelect = () => {
                     }
                 </div>
             </div>
-            <div className="hidden">
+            {/* <div className="hidden">
                 <div ref={componentRef} className="w-full p-4">
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
@@ -337,7 +351,7 @@ export const ReleasePOSelect = () => {
                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
                                     </tr>
                                 })}
-                                {/* {Array.from({ length: 10 }).map((_, index) => (
+                                {Array.from({ length: 10 }).map((_, index) => (
                                     orderData?.order_list?.list.map((item, itemIndex) => (
                                     <tr key={`${index}-${itemIndex}`} className="">
                                         <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
@@ -347,7 +361,7 @@ export const ReleasePOSelect = () => {
                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote * item.quantity}</td>
                                     </tr>
                                 ))
-                                ))} */}
+                                ))}
                                 <tr>
                                     <td></td>
                                     <td></td>
@@ -382,9 +396,8 @@ export const ReleasePOSelect = () => {
                         </table>
                     </div>
                 </div>
-            </div>
+            </div> */}
         </>
-        // </MainLayout>
     )
 }
 

@@ -15,12 +15,12 @@ export const NavBar = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     const toggleSidebar = () => {
-        setIsSidebarOpen(!isSidebarOpen);
+        setIsSidebarOpen(prev => !prev);
     };
     return (
         <>
             {/* NAVBAR */}
-            <div className="">
+            <div className="fixed w-full z-[50] bg-white">
                 <div className="border-b">
                     <div className="flex h-16 items-center px-2 md:px-4">
                       <div className="flex items-center justify-center">

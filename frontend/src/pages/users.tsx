@@ -6,11 +6,13 @@ import { NavBar } from "@/components/nav/nav-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowLeft, Building2, CirclePlus } from "lucide-react";
 import { useMemo } from "react";
+import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
 
 export default function Users() {
@@ -155,18 +157,20 @@ export default function Users() {
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
-                                    {(isLoading) ? (<p>Loading</p>) : data?.length}
+                                    {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : data?.length}
                                     {error && <p>Error</p>}
                                 </div>
-                                <p className="text-xs text-muted-foreground">COUNT</p>
+                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                             </CardContent>
                         </Link>
                     </Card>
                 </div>
-                <div className="mx-auto py-10">
-                    {isLoading && <h3>LOADING</h3>}
-                    {error && <h3>ERROR</h3>}
+                <div className="pl-0 pr-2">
+                {isLoading ?  (
+                        <TableSkeleton />
+                    ) : (
                     <DataTable columns={columns} data={data || []} />
+                    )}
                 </div>
             </div>
     //    </MainLayout>

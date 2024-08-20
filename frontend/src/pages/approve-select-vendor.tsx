@@ -1,4 +1,3 @@
-import { MainLayout } from "@/components/layout/main-layout";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { useMemo } from "react";
@@ -7,6 +6,8 @@ import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { TableSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/use-toast";
 
 
 type PRTable = {
@@ -21,7 +22,9 @@ export const ApproveSelectVendor = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
-            filters: [["workflow_state", "=", "Vendor Selected"]],
+            filters: [
+                ["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]
+            ],
             limit: 100
         });
 
@@ -30,7 +33,6 @@ export const ApproveSelectVendor = () => {
     })
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
-
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -108,7 +110,7 @@ export const ApproveSelectVendor = () => {
                 }
             },
             {
-                accessorKey: "category_list",
+                accessorKey: "procurement_list",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Categories" />
@@ -117,7 +119,7 @@ export const ApproveSelectVendor = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="max-w-fit gap-0.5 grid grid-cols-2">
-                            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+                            {row.getValue("procurement_list").list.map((obj) => obj.status === "Pending" && <Badge className="inline-block">{obj["category"]}</Badge>)}
                         </div>
                     )
                 }
@@ -129,7 +131,7 @@ export const ApproveSelectVendor = () => {
                         <DataTableColumnHeader column={column} title="Estimated Price" />
                     )
                 },
-                cell: ({ row }) => {
+                cell: () => {
                     return (
                         <div className="font-medium">
                             N/A
@@ -141,17 +143,27 @@ export const ApproveSelectVendor = () => {
         ],
         [project_values]
     )
-    if (projects_loading || procurement_request_list_loading) return <h1>Loading</h1>
-    if (procurement_request_list_error || projects_error) return <h1>Error</h1>
+
+    const {toast} = useToast()
+
+    if (procurement_request_list_error || projects_error) {
+        console.log("Error in approve-select-vendor.tsx", procurement_request_list_error?.message, projects_error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${procurement_request_list_error?.message || projects_error?.message}`,
+            variant : "destructive"
+        })   
+    }
+
     return (
-        // <MainLayout>
             <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center justify-between space-y-2 pl-2">
                         <h2 className="text-lg font-bold tracking-tight">Approve Vendors</h2>
                     </div>
+                    {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
-
+                    )}
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
@@ -182,6 +194,5 @@ export const ApproveSelectVendor = () => {
                     </div> */}
                 </div>
             </div>
-        // </MainLayout>
     )
 }

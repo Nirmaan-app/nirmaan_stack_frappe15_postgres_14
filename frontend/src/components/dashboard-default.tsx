@@ -1,10 +1,8 @@
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "./breadcrumb";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount } from "frappe-react-sdk";
-import { HardHat, UserRound, PersonStanding, Briefcase, WalletCards } from "lucide-react";
+import { HardHat, UserRound, Briefcase, WalletCards } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
-import { MainLayout } from "./layout/main-layout";
 
 export const Default = () => {
 
@@ -12,17 +10,17 @@ export const Default = () => {
 
     const { data: user_count, isLoading: user_count_loading, error: user_count_error } = useFrappeGetDocCount("Nirmaan Users");
 
-    const { data: role_count, isLoading: role_count_loading, error: role_count_error } = useFrappeGetDocCount("Nirmaan Roles");
+    // const { data: role_count, isLoading: role_count_loading, error: role_count_error } = useFrappeGetDocCount("Nirmaan Roles");
 
     const { data: wp_count, isLoading: wp_count_loading, error: wp_count_error } = useFrappeGetDocCount("Work Packages");
 
-    const { data: pr_count, isLoading: pr_count_loading, error: pr_count_error } = useFrappeGetDocCount("Procurement Requests");
+    // const { data: pr_count, isLoading: pr_count_loading, error: pr_count_error } = useFrappeGetDocCount("Procurement Requests");
 
     const { data: items_count, isLoading: items_count_loading, error: items_count_error } = useFrappeGetDocCount("Items");
 
     const { data: vendors_count, isLoading: vendors_count_loading, error: vendors_count_error } = useFrappeGetDocCount("Vendors");
 
-
+    
 
     return (
         <>
@@ -38,10 +36,10 @@ export const Default = () => {
                     </Breadcrumb>
                 </div> */}
                 <div className="flex items-center justify-between space-y-2 pl-2">
-                    <h2 className="text-3xl font-bold tracking-tight">Modules List</h2>
+                    <h2 className="text-3xl text-[#D03B45] font-bold tracking-tight">Modules List</h2>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-                    <Card className="hover:animate-shadow-drop-center" >
+                    <Card className="hover:animate-shadow-drop-center" data-cy="admin-dashboard-project-card" >
                         <Link to="/projects">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
@@ -51,11 +49,11 @@ export const Default = () => {
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
-                                    {(project_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#9C33FF" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    {(project_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                                         : (project_count)}
                                     {project_count_error && <p>Error</p>}
                                 </div>
-                                <p className="text-xs text-muted-foreground">COUNT</p>
+                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                             </CardContent>
                         </Link>
                     </Card>
@@ -69,10 +67,10 @@ export const Default = () => {
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
-                                    {(user_count_loading) ? (<p>Loading</p>) : (user_count)}
+                                    {(user_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (user_count)}
                                     {user_count_error && <p>Error</p>}
                                 </div>
-                                <p className="text-xs text-muted-foreground">COUNT</p>
+                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                             </CardContent>
                         </Link>
                     </Card>
@@ -103,10 +101,10 @@ export const Default = () => {
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
-                                    {(wp_count_loading) ? (<p>Loading</p>) : (wp_count)}
+                                    {(wp_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (wp_count)}
                                     {wp_count_error && <p>Error</p>}
                                 </div>
-                                <p className="text-xs text-muted-foreground">COUNT</p>
+                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                             </CardContent>
                         </Link>
                     </Card>
@@ -120,7 +118,7 @@ export const Default = () => {
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
-                                    {(pr_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#9C33FF" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    {(pr_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                                         : (pr_count)}
                                     {pr_count_error && <p>Error</p>}
                                 </div>
@@ -138,11 +136,11 @@ export const Default = () => {
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
-                                    {(items_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#9C33FF" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    {(items_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                                         : (items_count)}
                                     {items_count_error && <p>Error</p>}
                                 </div>
-                                <p className="text-xs text-muted-foreground">COUNT</p>
+                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                             </CardContent>
                         </Link>
                     </Card>
@@ -156,11 +154,11 @@ export const Default = () => {
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
-                                    {(vendors_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#9C33FF" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    {(vendors_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                                         : (vendors_count)}
                                     {vendors_count_error && <p>Error</p>}
                                 </div>
-                                <p className="text-xs text-muted-foreground">COUNT</p>
+                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                             </CardContent>
                         </Link>
                     </Card>

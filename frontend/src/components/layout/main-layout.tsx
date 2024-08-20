@@ -1,9 +1,5 @@
-
-
-
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from "../sidebar-nav";
-
 import { NavBar } from '../nav/nav-bar';
 
 export const MainLayout = () => {
@@ -11,15 +7,11 @@ export const MainLayout = () => {
     return (
         <div className="">
             <NavBar />
-            <div className="flex">
+            <div className="flex pt-16">
                 <Sidebar  className="w-64" />
-                <div className="flex-1">
-                    <main className="">
-                        
+                    <main className="flex-1 md:ml-64">
                         <Outlet />
-
                     </main>
-                </div>
             </div>
         </div>
     );

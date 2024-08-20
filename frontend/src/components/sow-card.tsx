@@ -3,9 +3,7 @@ import React , {useState} from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { useEffect } from "react"
 import {DialogClose} from "@/components/ui/dialog"
-
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { PersonStanding } from "lucide-react"
@@ -22,6 +20,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
 import { ButtonLoading } from "./button-loading"
+import { Skeleton } from "./ui/skeleton"
+import { useToast } from "./ui/use-toast"
 
 interface SOWCardProps {
     sow_id: string
@@ -86,6 +86,17 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
         mutate()
     }
 
+    const {toast} = useToast()
+
+    if (error) {
+        console.log("Error in sow-card.tsx", error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${error?.message}`,
+            variant : "destructive"
+        })   
+    }
+
     return (
         <Card className="hover:animate-shadow-drop-center" >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -95,7 +106,7 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
                 <div className="flex items-center">
                 <Dialog>
                     <DialogTrigger asChild>
-                        <Button className="p-3 pb-4" onClick={()=>{setCurrent(sow_name)}} variant="secondary">+</Button>
+                        <Button className="p-3 pb-4 cursor-pointer hover:bg-gray-300" onClick={()=>{setCurrent(sow_name)}} variant="secondary">+</Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
@@ -143,10 +154,10 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
             </CardHeader>
             <CardContent>
                 <div>
-                    {(isLoading) && (<p>Loading</p>)}
-                    {error && <p>Error</p>}
-                    {(data || []).map(d =>
-                        <p className="text-xs text-muted-foreground">{d.milestone_name}</p>
+                    {(isLoading) ? (<Skeleton className="w-1/3 h-4" />) : (
+                        (data || []).map(d =>
+                            <p key={d.milestone_name} className="text-xs text-muted-foreground">{d.milestone_name}</p>
+                        )
                     )}
                 </div>
                 {/* <p className="text-xs text-muted-foreground">COUNT</p> */}

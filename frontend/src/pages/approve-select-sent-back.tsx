@@ -6,6 +6,8 @@ import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { useToast } from "@/components/ui/use-toast";
+import { TableSkeleton } from "@/components/ui/skeleton";
 
 
 type PRTable = {
@@ -133,15 +135,27 @@ export const ApproveSelectSentBack = () => {
         [project_values, sent_back_list]
     )
 
+    const {toast} = useToast()
+
+    if (sent_back_list_error || projects_error) {
+        console.log("Error in approve-select-sent-back.tsx", sent_back_list_error?.message, projects_error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${sent_back_list_error?.message || projects_error?.message}`,
+            variant : "destructive"
+        })   
+    }
+
+
     return (
-        // <MainLayout>
             <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center justify-between space-y-2 pl-2">
                         <h2 className="text-lg font-bold tracking-tight">Approve Sent Back Vendors</h2>
                     </div>
-
+                    {(sent_back_list_loading || projects_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
+                    )}
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
@@ -175,6 +189,5 @@ export const ApproveSelectSentBack = () => {
                     </div> */}
                 </div>
             </div>
-        // </MainLayout>
     )
 }

@@ -176,6 +176,7 @@ export const ApproveSentBack = () => {
                             unit: item.unit,
                             quantity: item.quantity,
                             category: item.category,
+                            tax: Number(item.tax),
                             rate: item.quote,
                             amount: item.vendor ? item.quote * item.quantity : "Delayed",
                             selectedVendor: item.vendor ? getVendorName(item.vendor) : "Delayed",
@@ -273,7 +274,24 @@ export const ApproveSentBack = () => {
         return orderData?.item_list?.list.find(item => item.name === itemName)?.quote
     }
 
-    const newHandleApprove = () => {
+
+    const BATCH_SIZE = 10;
+    
+    const createDocBatch = async (doctype, docs) => {
+        const results = [];
+        for (const doc of docs) {
+            try {
+                await createDoc(doctype, doc);
+                results.push(doc);
+            } catch (error) {
+                console.error("Error creating document", error);
+            }
+        }
+        return results;
+    };
+
+
+    const newHandleApprove =async () => {
 
         const filteredData = selectedItems?.filter(item => {
             return item.unit !== null && item.quantity !== null
@@ -291,6 +309,8 @@ export const ApproveSentBack = () => {
                     name: item.key,
                     quote: Number(item.rate),
                     quantity: item.quantity,
+                    category: item.category,
+                    tax: item.tax,
                     unit: item.unit,
                     item: item.item
                 });
@@ -298,9 +318,9 @@ export const ApproveSentBack = () => {
 
         })
 
-        const createDocPromises = [];
+        // const createDocPromises = [];
 
-        Object.entries(vendorItems)?.forEach(([key, value]) => {
+        const docs = Object.entries(vendorItems)?.flatMap(([key, value]) => {
 
             const newProcurementOrder = {
                 procurement_request: orderData.procurement_request,
@@ -316,22 +336,17 @@ export const ApproveSentBack = () => {
                 }
             };
 
-            if (value?.length > 0) {
-                const createDocPromise = createDoc('Procurement Orders', newProcurementOrder)
-                    .then(() => {
-                        console.log(newProcurementOrder);
-                    })
-                    .catch((error) => {
-                        console.log("submit_error", error);
-                    });
-
-                createDocPromises.push(createDocPromise);
-            }
+            return newProcurementOrder
 
         });
 
+        for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+            const batch = docs.slice(i, i + BATCH_SIZE);
+            await createDocBatch('Procurement Orders', batch);
+        }
+
         const filteredList = orderData.item_list?.list.filter(procItem =>
-            !filteredData.some(selItem => selItem.key === procItem.name)
+            !filteredData.some(setItem => setItem.key === procItem.name)
         );
 
         setOrderData(prevOrderData => ({

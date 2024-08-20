@@ -1,12 +1,13 @@
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { MainLayout } from "../layout/main-layout";
 import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { useToast } from "../ui/use-toast";
+import { TableSkeleton } from "../ui/skeleton";
 
 
 type PRTable = {
@@ -159,11 +160,18 @@ export const PRList = () => {
         ],
         [project_values]
     )
-    if (projects_loading || procurement_request_list_loading) return <h1>Loading</h1>
-    if (procurement_request_list_error || projects_error) return <h1>Error</h1>
+    const {toast} = useToast()
+
+    if (procurement_request_list_error || projects_error) {
+        console.log("Error in Procurement-approved.tsx", procurement_request_list_error?.message, projects_error?.message)
+        toast({
+            title: "Error!",
+            description: `Error ${procurement_request_list_error?.message || projects_error?.message}`,
+            variant : "destructive"
+        })   
+    }
 
     return (
-        // <MainLayout>
         <>
             {console.log("FROM PR LIST: ", procurement_request_list)}
             <div className="flex">
@@ -171,7 +179,10 @@ export const PRList = () => {
                     <div className="flex items-center justify-between space-y-2">
                         <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">New PR Request</h2>
                     </div>
+
+                    {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
+                    )}
 
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
@@ -204,6 +215,5 @@ export const PRList = () => {
                 </div>
             </div>
             </>
-        // </MainLayout>
     )
 }

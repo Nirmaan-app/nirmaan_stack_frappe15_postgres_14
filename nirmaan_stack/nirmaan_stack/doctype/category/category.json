@@ -10,7 +10,8 @@
   "category_details_section",
   "category_name",
   "work_package",
-  "image_url"
+  "image_url",
+  "tax"
  ],
  "fields": [
   {
@@ -38,11 +39,17 @@
    "fieldname": "image_url",
    "fieldtype": "Attach Image",
    "label": "Image Url"
+  },
+  {
+   "default": "18",
+   "fieldname": "tax",
+   "fieldtype": "Data",
+   "label": "Tax"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-07-16 12:23:34.910491",
+ "modified": "2024-08-14 12:12:46.044663",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Category",

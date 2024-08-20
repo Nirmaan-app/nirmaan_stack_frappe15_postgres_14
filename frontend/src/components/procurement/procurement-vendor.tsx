@@ -217,7 +217,7 @@ export const ProcurementOrder = () => {
             console.error("Error in creating documents:", error);
         }
     };
-    console.log("selectedCategories", Object.keys(selectedCategories).length)
+    // console.log("selectedCategories", Object.keys(selectedCategories).length)
 
     const [block, setBlock] = useState(false);
 

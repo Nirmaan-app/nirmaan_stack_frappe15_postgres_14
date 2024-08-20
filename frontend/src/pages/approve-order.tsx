@@ -304,7 +304,7 @@ export const ProjectLeadComponent = () => {
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-6 pt-6">
                         <div className="flex items-center space-y-2">
-                            <ArrowLeft onClick={() => setPage('itemlist')} />
+                            <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
                             <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
@@ -328,7 +328,7 @@ export const ProjectLeadComponent = () => {
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center pt-1  pb-4 ">
-                            <ArrowLeft onClick={() => navigate("/approve-order")} />
+                            <ArrowLeft className="cursor-pointer" onClick={() => navigate("/approve-order")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                         </div>
                         <div className="flex justify-between md:justify-normal md:space-x-40 md:hidden">
@@ -440,20 +440,20 @@ export const ProjectLeadComponent = () => {
                                                                         <DialogDescription className="flex flex-row">
                                                                             <div className="flex space-x-2">
                                                                                 <div className="w-1/2 md:w-2/3">
-                                                                                    <h5 className="text-xs text-gray-400 text-left">Items</h5>
-                                                                                    <div className=" w-full border rounded-lg px-1 pt-1 text-left">
+                                                                                    <h5 className="text-base text-gray-400 text-left mb-1">Item Name</h5>
+                                                                                    <div className="w-full  p-1 text-left">
                                                                                         {item.item}
                                                                                     </div>
                                                                                 </div>
                                                                                 <div className="w-[30%]">
-                                                                                    <h5 className="text-xs text-gray-400 text-left">UOM</h5>
-                                                                                    <div className="h-[37px] w-full pt-1 text-left">
+                                                                                    <h5 className="text-base text-gray-400 text-left mb-1">UOM</h5>
+                                                                                    <div className=" w-full  p-2 text-center justify-left flex">
                                                                                         {item.unit}
                                                                                     </div>
                                                                                 </div>
                                                                                 <div className="w-[25%]">
-                                                                                    <h5 className="text-xs text-gray-400 text-left">Qty</h5>
-                                                                                    <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
+                                                                                    <h5 className="text-base text-gray-400 text-left mb-1">Qty</h5>
+                                                                                    <input type="number" placeholder={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
                                                                                 </div>
                                                                             </div>
                                                                         </DialogDescription>
@@ -559,13 +559,13 @@ export const ProjectLeadComponent = () => {
                                 </DialogTrigger>
                                 <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>
-                                        <DialogTitle>Are you Sure</DialogTitle>
+                                        <DialogTitle>Are you Sure?</DialogTitle>
                                         <DialogDescription>
                                             Click on Confirm to Approve.
                                         </DialogDescription>
                                     </DialogHeader>
                                     <DialogClose>
-                                        <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                                        <Button variant="default" onClick={() => handleSubmit()}>Confirm</Button>
                                     </DialogClose>
                                 </DialogContent>
                             </Dialog>
@@ -575,7 +575,7 @@ export const ProjectLeadComponent = () => {
             {page == 'additem' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft onClick={() => setPage('itemlist')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
                 </div>
                 <div className="mb-4">
