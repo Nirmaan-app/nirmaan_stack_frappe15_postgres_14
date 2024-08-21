@@ -8,10 +8,8 @@ import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { MainLayout } from "@/components/layout/main-layout";
 import { TailSpin } from "react-loader-spinner";
-import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
-
+import { TableSkeleton } from "@/components/ui/skeleton";
 
 // NOTE: Modify frappe hooks field to get the data
 
@@ -111,8 +109,6 @@ export default function Projects() {
     })
 
     return (
-
-        // <MainLayout>
         <div className="flex-1 space-x-2 md:space-y-4 p-6 pt-6">
             {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
@@ -165,7 +161,5 @@ export default function Projects() {
                 )}
             </div>
         </div>
-        // </MainLayout>
-
     )
 }

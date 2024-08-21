@@ -45,7 +45,7 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                 className={cn(
                     " pb-4 max-md:pt-16 md:pb-10 text-gray-500 transition-transform duration-300 ease-in-out overflow-auto",
                     isSidebarOpen ? "translate-x-0 bg-white" : "-translate-x-full",
-                    "fixed md:translate-x-0 w-64 h-full z-40"
+                    "fixed md:translate-x-0 w-64 h-full z-40 bg-white"
                 )}
             >
                 <div className="py-2">
@@ -125,6 +125,17 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                                             disabled={isActive("/vendors")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/vendors") })}>
                                             <span className={cn({ "text-white": isActive("/vendors") })}>Vendors</span>
+                                        </Button>
+                                    </Link>
+
+                                    <Link to="/customers">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleSetSidebarOpen(false)}
+                                            disabled={isActive("/customers")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/customers") })}>
+                                            <span className={cn({ "text-white": isActive("/customers") })}>Customers</span>
                                         </Button>
                                     </Link>
 

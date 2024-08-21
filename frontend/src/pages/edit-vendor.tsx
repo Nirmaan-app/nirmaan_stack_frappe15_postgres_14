@@ -1,20 +1,14 @@
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk"
+import {  useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MainLayout } from "@/components/layout/main-layout"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ButtonLoading } from "@/components/button-loading"
 import ReactSelect from 'react-select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { AddressForm } from "../components/address-form"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { useState } from "react"
-import { Navigate, useNavigate, useParams } from "react-router-dom"
+import {  useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 
 const VendorFormSchema = z.object({
@@ -186,13 +180,13 @@ export const EditVendor = () => {
     console.log(default_options)
 
     const [categories, setCategories] = useState(default_options)
+
     const handleChange = (selectedOptions) => {
         setCategories(selectedOptions)
         console.log(categories)
     }
 
     return (
-        // <MainLayout>
             <div className="p-4">
                 <div className="space-y-0.5">
                     <div className="flex space-x-2 items-center">
@@ -411,6 +405,5 @@ export const EditVendor = () => {
                     </form>
                 </Form>
             </div>
-        // </MainLayout>
     )
 }
