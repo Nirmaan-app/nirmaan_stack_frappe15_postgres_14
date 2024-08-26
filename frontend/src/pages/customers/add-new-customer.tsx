@@ -11,12 +11,14 @@ import {
     FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { useFrappeCreateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
 import { Separator } from "@/components/ui/separator"
 import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+// import { useQueryClient } from "@tanstack/react-query";
+import useCustomFetchHook from "@/reactQuery/customFunctions";
+// import { exampleFunction } from "@/reactQuery/customFunctions";
 
 const customerFormSchema = z.object({
     company_name: z
@@ -85,43 +87,59 @@ export default function NewCustomer() {
     } = useFrappeCreateDoc();
     const {toast} = useToast()
     const navigate = useNavigate()
-    const queryClient = useQueryClient()
+    // const queryClient = useQueryClient()
+    const {mutate} = useSWRConfig()
 
-    function onSubmit(values: CustomerFormValues) {
-        createDoc("Address", {
-            address_title: values.company_name,
-            address_type: "Office",
-            address_line1: values.company_address_line_1,
-            address_line2: values.company_address_line_2,
-            city: values.company_city,
-            state: values.company_state,
-            country: "India",
-            pincode: values.company_pin,
-            email_id: values.email,
-            phone: values.phone,
-        })
-            .then((doc) => {
-                createDoc("Customers", {
-                    company_name: values.company_name,
-                    company_address: doc.name,
-                    company_contact_person: values.company_contact_person,
-                    company_phone: values.phone,
-                    company_email: values.email,
-                    company_gst: values.company_gst,
-                }).then(() => {
-                    toast({
-                        title: "Success",
-                        description: `${values.company_name} Customer Created Successfully!`,
-                        variant: "success"
-                    })
-                    queryClient.invalidateQueries({ queryKey: ["docList", "Customers"], refetchType: "active" })
-                });
-                    form.reset()
-                    navigate("/customers")
+    const {fetchDocList} = useCustomFetchHook()
+    
+    const onSubmit = async (values: CustomerFormValues) => {
+        try {
+
+            const addressDoc = await createDoc("Address", {
+                address_title: values.company_name,
+                address_type: "Office",
+                address_line1: values.company_address_line_1,
+                address_line2: values.company_address_line_2,
+                city: values.company_city,
+                state: values.company_state,
+                country: "India",
+                pincode: values.company_pin,
+                email_id: values.email,
+                phone: values.phone,
+            });
+    
+            await createDoc("Customers", {
+                company_name: values.company_name,
+                company_address: addressDoc.name,
+                company_contact_person: values.company_contact_person,
+                company_phone: values.phone,
+                company_email: values.email,
+                company_gst: values.company_gst,
+            });
+
+            await mutate("Customers", async () => {
+                const data = await fetchDocList("Customers")
+                return data
+            },{
+                rollbackOnError: true, 
+                populateCache: (newData, currentData) => newData || currentData,
+                revalidate: true,
+                throwOnError: true,
             })
-            .catch((err) => console.log("error while creating new customer", err, submitError));
+    
+            toast({
+                title: "Success",
+                description: `${values.company_name} Customer Created Successfully!`,
+                variant: "success",
+            });
+            // await queryClient.invalidateQueries({ queryKey: ["docList", "Customers"], refetchType: "active" });
+            form.reset();
+            navigate("/customers");
+        } catch (err) {
+            console.log("Error while creating new customer:", err, submitError);
+        }
     }
-
+    
     return (
         <div className="p-4">
             <div className="space-y-0.5">

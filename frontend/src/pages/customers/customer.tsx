@@ -1,7 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { fetchDoc } from "@/reactQuery/customFunctions";
-import { useQuery } from "@tanstack/react-query";
+// import { fetchDoc } from "@/reactQuery/customFunctions";
+// import { useQuery } from "@tanstack/react-query";
+import { useFrappeGetDoc } from "frappe-react-sdk";
 import { ArrowLeft } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -16,30 +17,31 @@ export const Component = Customer;
 const CustomerView = ({ customerId }: { customerId: string }) => {
   const navigate = useNavigate();
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["doc", "Customers", customerId],
-    queryFn: () => fetchDoc("Customers", customerId),
-    staleTime: 1000 * 60 * 5,
-  });
+  // const { data, isLoading, error } = useQuery({
+  //   queryKey: ["doc", "Customers", customerId],
+  //   queryFn: () => fetchDoc({doctype: "Customers", name: customerId}),
+  //   staleTime: 1000 * 60 * 5,
+  // });
 
-  const companyAddress = data?.data?.company_address;
+  const {data, isLoading, error} = useFrappeGetDoc("Customers", customerId, `Customers ${customerId}`, {
+    revalidateIfStale: false
+  })
 
-  const { data: addressData } = useQuery({
-    queryKey: ["doc", "Address", companyAddress],
-    queryFn: () => fetchDoc("Address", companyAddress),
-    enabled: !!companyAddress,
-    staleTime: 1000 * 60 * 5,
-  });
+  const companyAddress = data?.company_address;
+
+  const {data: addressData} = useFrappeGetDoc("Address", companyAddress, `${companyAddress ? `Address ${companyAddress}`: ""}`, {
+    revalidateIfStale: false,
+  })
 
   if (isLoading) return <h1>Loading...</h1>;
   if (error) return <h1 className="text-red-700">{error.message}</h1>;
 
-  const customer = data?.data;
-  const address = addressData?.data;
+  // const customer = data?.data;
+  // const address = addressData?.data;
 
   return (
     <div className="p-8">
-      {customer && (
+      {data && (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
@@ -48,7 +50,7 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
                 onClick={() => navigate("/customers")}
               />
               <h2 className="pl-4 text-3xl font-bold tracking-tight">
-                {customer.company_name}
+                {data.company_name}
               </h2>
             </div>
             <Button asChild>
@@ -68,36 +70,36 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
                 <div className="flex flex-col gap-2 md:border-r-2 border-gray-200">
                   <p>
                     <span className="font-semibold">Contact Person:</span>{" "}
-                    {customer.company_contact_person}
+                    {data.company_contact_person}
                   </p>
                   <p>
-                    <span className="font-semibold">Phone:</span> {customer.company_phone}
+                    <span className="font-semibold">Phone:</span> {data.company_phone}
                   </p>
                   <p>
-                    <span className="font-semibold">Email:</span> {customer.company_email}
+                    <span className="font-semibold">Email:</span> {data.company_email}
                   </p>
                   <p>
-                    <span className="font-semibold">GST:</span> {customer.company_gst}
+                    <span className="font-semibold">GST:</span> {data.company_gst}
                   </p>
                 </div>
-                {address && (
+                {addressData && (
                   <div className="flex flex-col gap-2">
                     <p>
                       <span className="font-semibold">Address Line 1:</span>{" "}
-                      {address.address_line1}
+                      {addressData.address_line1}
                     </p>
                     <p>
                       <span className="font-semibold">Address Line 2:</span>{" "}
-                      {address.address_line2}
+                      {addressData.address_line2}
                     </p>
                     <p>
-                      <span className="font-semibold">City:</span> {address.city}
+                      <span className="font-semibold">City:</span> {addressData.city}
                     </p>
                     <p>
-                      <span className="font-semibold">State:</span> {address.state}
+                      <span className="font-semibold">State:</span> {addressData.state}
                     </p>
                     <p>
-                      <span className="font-semibold">Pincode:</span> {address.pincode}
+                      <span className="font-semibold">Pincode:</span> {addressData.pincode}
                     </p>
                   </div>
                 )}

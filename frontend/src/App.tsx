@@ -38,13 +38,12 @@ import Debug from './pages/debug'
 import { ApproveSelectVendor } from './pages/approve-select-vendor'
 import { ApproveVendor } from './pages/approve-vendor'
 import { NewPR } from './components/procurement-request/new-pr'
-import { PRSummary } from './components/pr-summary'
+// import { PRSummary } from './components/pr-summary'
 import { UserForm } from './pages/user-form'
 import Items from './pages/items'
 
 import Vendors from './pages/vendors'
 
-import { NewVendor } from './pages/new-vendor'
 import ListPR from './components/procurement-request/list-pr'
 import { EditVendor } from './pages/edit-vendor'
 import EditItems from './pages/items-edit'
@@ -52,12 +51,12 @@ import { FC } from 'react'
 import { MainLayout } from './components/layout/main-layout'
 import { ProjectManager } from './components/dashboard-pm'
 
-import { Project } from './pages/project'
+// import { Project } from './pages/project'
 import { DelayedPRSelect } from './pages/delayed-pr-select'
 import { DelayedPR } from './pages/delayed-pr'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import NewCustomer from './pages/customers/add-new-customer'
 import EditCustomer from './pages/customers/edit-customer'
+import { NewVendor } from './pages/new-vendor'
 
 // import { NewMilestone } from './components/new-milestone'
 
@@ -186,7 +185,7 @@ const App: FC = () => {
 
 	}
 
-	const queryClient = new QueryClient()
+	// const queryClient = new QueryClient()
 
 	return (
 		<FrappeProvider
@@ -195,11 +194,11 @@ const App: FC = () => {
 			//@ts-ignore
 			siteName={getSiteName()}>
 			<UserProvider>
-				<QueryClientProvider client={queryClient}>
+				{/* <QueryClientProvider client={queryClient}> */}
 				<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
 					<RouterProvider router={router} />
 				</ThemeProvider>
-				</QueryClientProvider>
+				{/* </QueryClientProvider> */}
 			</UserProvider>
 		</FrappeProvider>
 	)

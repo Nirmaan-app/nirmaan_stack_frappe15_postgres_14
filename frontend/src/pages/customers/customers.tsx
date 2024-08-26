@@ -67,8 +67,9 @@ import { Link } from "react-router-dom";
 import { Customers as CustomersType } from "@/types/NirmaanStack/Customers";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { TailSpin } from "react-loader-spinner";
-import { useQuery } from "@tanstack/react-query";
-import { fetchDocList } from "@/reactQuery/customFunctions";
+// import { useQuery } from "@tanstack/react-query";
+// import { fetchDocList } from "@/reactQuery/customFunctions";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 
 export default function Customers() {
     const columns: ColumnDef<CustomersType>[] = useMemo(
@@ -154,11 +155,23 @@ export default function Customers() {
     //     limit: 1000,
     // });
 
-    const { data, isLoading, error, refetch } = useQuery({
-      queryKey: ['docList', "Customers"], 
-      queryFn: () => fetchDocList("Customers"),
-      staleTime: 1000 * 60 * 5
-    });
+    // const { data, isLoading, error, refetch } = useQuery({
+    //   queryKey: ['docList', "Customers"], 
+    //   queryFn: () => fetchDocList({doctype: "Customers", fields : ["name", "company_name", "company_contact_person", "company_phone", "company_email", "creation"]}),
+    //   staleTime: 1000 * 60 * 5
+    // }); 
+
+
+    const { data, isLoading, error } = useFrappeGetDocList("Customers",
+        {
+        fields: ["*"],
+        limit: 1000
+        },
+        "Customers",
+        {
+            revalidateIfStale: false
+        }
+    )
 
     return (
         <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
@@ -200,7 +213,7 @@ export default function Customers() {
                                     wrapperClass=""
                                 />
                             ) : (
-                                data?.data.length
+                                data?.length
                             )}
                         </div>
                     </CardContent>
@@ -208,7 +221,7 @@ export default function Customers() {
             </div>
 
             <div className="pl-0 pr-2">
-                {isLoading ? <TableSkeleton /> : <DataTable columns={columns} data={data?.data || []} />}
+                {isLoading ? <TableSkeleton /> : <DataTable columns={columns} data={data || []} />}
             </div>
         </div>
     );

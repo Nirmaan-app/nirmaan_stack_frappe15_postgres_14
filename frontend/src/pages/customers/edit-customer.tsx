@@ -1,4 +1,4 @@
-import {  useFrappeUpdateDoc } from "frappe-react-sdk";
+import {  FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -7,12 +7,10 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import {  useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchDoc } from "@/reactQuery/customFunctions";
+import useCustomFetchHook from "@/reactQuery/customFunctions";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect } from "react";
-
+import {  useEffect } from "react";
 const CustomerFormSchema = z.object({
     company_name: z.string().min(1, "Company Name is required"),
     company_email: z.string().email("Invalid email address").min(1, "Company Email is required"),
@@ -32,41 +30,51 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
  const EditCustomer = () => {
 
     const navigate = useNavigate();
+
     const { id } = useParams<{ id: string }>();
 
-    const { data, refetch } = useQuery({
-        queryKey: ["doc", "Customers", id],
-        queryFn: () => fetchDoc("Customers", id),
-        staleTime: 1000 * 60 * 5,
-    });
+    // const { data, refetch } = useQuery({
+    //     queryKey: ["doc", "Customers", id],
+    //     queryFn: () => fetchDoc({doctype: "Customers", name: id}),
+    //     staleTime: 1000 * 60 * 5,
+    // });
 
-    const companyAddress = data?.data?.company_address;
+    const {data, mutate : customerMutate} = useFrappeGetDoc("Customers", id, `Customers ${id}`, {
+        revalidateIfStale: false
+    })
 
-    const { data: addressData, refetch: addressRefetch } = useQuery({
-        queryKey: ["doc","Address", companyAddress],
-        queryFn: () => fetchDoc("Address", companyAddress),
-        enabled: !!companyAddress,
-        staleTime: 1000 * 60 * 5,
-    });
+    const companyAddress = data?.company_address;
 
-    const queryClient = useQueryClient()
+    // const { data: addressData, refetch: addressRefetch } = useQuery({
+    //     queryKey: ["doc","Address", companyAddress],
+    //     queryFn: () => fetchDoc({doctype: "Address", name: companyAddress}),
+    //     enabled: !!companyAddress,
+    //     staleTime: 1000 * 60 * 5,
+    // });
+
+    const {data: addressData, mutate: addressMutate} = useFrappeGetDoc("Address", companyAddress, `Address ${companyAddress}`, {
+        revalidateIfStale: false
+    })
+
+    // const queryClient = useQueryClient()
     const { updateDoc, loading, error: submit_error } = useFrappeUpdateDoc();
     const {toast} = useToast()
+    const {mutate} = useSWRConfig()
 
 
     const form = useForm<CustomerFormValues>({
         resolver: zodResolver(CustomerFormSchema),
         defaultValues: {
-            company_name: data?.data.company_name || "",
-            company_email: data?.data.company_email || "",
-            company_phone: data?.data.company_phone || 0,
-            company_contact_person: data?.data.company_contact_person || "",
-            company_gst: data?.data.company_gst || "",
-            address_line1: addressData?.data.address_line1 || "",
-            address_line2: addressData?.data.address_line2 || "",
-            city: addressData?.data.city || "",
-            state: addressData?.data.state || "",
-            pin_code: addressData?.data.pincode || 0,
+            company_name: data?.company_name || "",
+            company_email: data?.company_email || "",
+            company_phone: data?.company_phone || 0,
+            company_contact_person: data?.company_contact_person || "",
+            company_gst: data?.company_gst || "",
+            address_line1: addressData?.address_line1 || "",
+            address_line2: addressData?.address_line2 || "",
+            city: addressData?.city || "",
+            state: addressData?.state || "",
+            pin_code: addressData?.pincode || 0,
         },
         mode: "all",
     });
@@ -74,16 +82,16 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
     useEffect(() => {
         if (data && addressData) {
             form.reset({
-                company_name: data.data.company_name,
-                company_email: data.data.company_email,
-                company_phone: data.data.company_phone,
-                company_contact_person: data.data.company_contact_person,
-                company_gst: data.data.company_gst,
-                address_line1: addressData.data.address_line1,
-                address_line2: addressData.data.address_line2,
-                city: addressData.data.city,
-                state: addressData.data.state,
-                pin_code: addressData.data.pincode,
+                company_name: data.company_name,
+                company_email: data.company_email,
+                company_phone: data.company_phone,
+                company_contact_person: data.company_contact_person,
+                company_gst: data.company_gst,
+                address_line1: addressData.address_line1,
+                address_line2: addressData.address_line2,
+                city: addressData.city,
+                state: addressData.state,
+                pin_code: addressData.pincode,
             });
         }
     }, [data, addressData, form]);
@@ -91,27 +99,27 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
     const hasChanges = () => {
         const values = form.getValues();
         const originalValues = {
-            company_name: data?.data.company_name || "",
-            company_email: data?.data.company_email || "",
-            company_phone: data?.data.company_phone || "",
-            company_contact_person: data?.data.company_contact_person || "",
-            company_gst: data?.data.company_gst || "",
-            address_line1: addressData?.data.address_line1 || "",
-            address_line2: addressData?.data.address_line2 || "",
-            city: addressData?.data.city || "",
-            state: addressData?.data.state || "",
-            pin_code: addressData?.data.pincode || "",
+            company_name: data?.company_name || "",
+            company_email: data?.company_email || "",
+            company_phone: data?.company_phone || "",
+            company_contact_person: data?.company_contact_person || "",
+            company_gst: data?.company_gst || "",
+            address_line1: addressData?.address_line1 || "",
+            address_line2: addressData?.address_line2 || "",
+            city: addressData?.city || "",
+            state: addressData?.state || "",
+            pin_code: addressData?.pincode || "",
         };
         return JSON.stringify(values) !== JSON.stringify(originalValues);
     };
 
     const updateCustomerDetails = async (values: CustomerFormValues) => {
         const hasCustomerChanged = (
-            data?.data.company_name !== values.company_name ||
-            data?.data.company_email !== values.company_email ||
-            data?.data.company_phone !== values.company_phone ||
-            data?.data.company_contact_person !== values.company_contact_person ||
-            data?.data.company_gst !== values.company_gst
+            data?.company_name !== values.company_name ||
+            data?.company_email !== values.company_email ||
+            data?.company_phone !== values.company_phone ||
+            data?.company_contact_person !== values.company_contact_person ||
+            data?.company_gst !== values.company_gst
         );
 
         if (hasCustomerChanged) {
@@ -122,17 +130,17 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                 company_contact_person: values.company_contact_person,
                 company_gst: values.company_gst
             });
-            refetch()
+            customerMutate()
         }
     };
 
     const updateAddressDetails = async (values: CustomerFormValues) => {
         const hasAddressChanged = (
-            addressData?.data.address_line1 !== values.address_line1 ||
-            addressData?.data.address_line2 !== values.address_line2 ||
-            addressData?.data.city !== values.city ||
-            addressData?.data.state !== values.state ||
-            addressData?.data.pincode !== values.pin_code
+            addressData?.address_line1 !== values.address_line1 ||
+            addressData?.address_line2 !== values.address_line2 ||
+            addressData?.city !== values.city ||
+            addressData?.state !== values.state ||
+            addressData?.pincode !== values.pin_code
         );
 
         if (hasAddressChanged) {
@@ -146,22 +154,34 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                 email_id: values.company_email,
                 phone: values.company_phone
             });
-            addressRefetch()
+            addressMutate()
         }
     };
+
+    const {fetchDocList} = useCustomFetchHook()
 
     const onSubmit = async (values: CustomerFormValues) => {
         try {
             await updateCustomerDetails(values);
             await updateAddressDetails(values);
 
+            await mutate("Customers", async () => {
+                const data = await fetchDocList("Customers")
+                return data
+            }, {
+                rollbackOnError: true, 
+                populateCache: (newData, currentData) => newData || currentData,
+                revalidate: true,
+                throwOnError: true,
+            })
+
             toast({
                 title: "Success",
                 description: `${values.company_name} details updated successfully!`,
                 variant: "success"
             });
-            await queryClient.invalidateQueries({ queryKey: ["docList", "Customers"], refetchType: "active" })
             navigate(`/customers/${id}`);
+            
         } catch (error) {
             console.error("Error updating customer:", submit_error, error);
         }

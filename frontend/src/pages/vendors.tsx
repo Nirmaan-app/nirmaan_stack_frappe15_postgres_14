@@ -97,9 +97,16 @@ export default function Vendors() {
     )
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList("Vendors", {
-        fields: ["name", "vendor_name", "vendor_type", "vendor_city", "vendor_email", "creation"],
+        fields: ["*"],
         limit: 1000
-    })
+    },
+    "vendors",
+    {
+        revalidateIfStale: false,
+    }
+)
+
+console.log("data", data)
 
     return (
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
