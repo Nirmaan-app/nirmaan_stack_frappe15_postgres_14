@@ -17,6 +17,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 import { Table as ReactTable } from "@/components/ui/table";
 import {  Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
+import { useToast } from '@/components/ui/use-toast';
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
 interface DataType {
@@ -162,7 +163,7 @@ export const ApproveVendor = () => {
     };
     useEffect(() => {
 
-        console.log("calling useEffect 1, priceMap")
+        // console.log("calling useEffect 1, priceMap")
         const newPriceMap = new Map<string, string>();
         quotation_request_list?.forEach((item) => {
             const key = generateVendorItemKey(item.vendor, item.item);
@@ -174,12 +175,11 @@ export const ApproveVendor = () => {
 
      // Setting initial data
      useEffect(() => {
-        console.log("calling useEffect 2, settingOrderData and updating procurement_list and category_list");
+        // console.log("calling useEffect 2, settingOrderData and updating procurement_list and category_list");
     
         if (procurement_request_list) {
             // Initial setup of orderData
             const newOrderData = procurement_request_list[0];
-    
             // Compute new procurement list and categories
             const newCategories: { name: string }[] = [];
             const newList: DataType[] = [];
@@ -275,7 +275,7 @@ export const ApproveVendor = () => {
     }, [quote_data, selectedVendors, orderData.procurement_list]);
 
     useEffect(() => {
-        console.log("calling useEffect 5, setting column data for table")
+        // console.log("calling useEffect 5, setting column data for table")
         if (!orderData.project) return;
             const newData: DataType[] = [];
             orderData.category_list?.list.forEach((cat) => {
@@ -353,6 +353,8 @@ const createDocBatch = async (doctype, docs) => {
     return results;
 };
 
+const {toast} = useToast()
+
     const newHandleApprove = async () => {
         // TODO: Add Quotation request state change to approved 
         const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
@@ -427,7 +429,17 @@ const createDocBatch = async (doctype, docs) => {
         await updateDoc('Procurement Requests', orderId, {
             procurement_list: { list: updatedProcurementList },
             workflow_state: newWorkflowState
+        }).then(() => {
+            toast({
+                title : "Success!",
+                description: "New PO created Successfully!",
+                variant: "success"
+            })
         }).catch((error) => console.log("update_error", error));
+
+        if(filteredList.length === 0 ) {
+            navigate('/approve-vendor')
+        }
     
         // Update state
         setOrderData(prevOrderData => ({
@@ -499,7 +511,17 @@ const createDocBatch = async (doctype, docs) => {
     await updateDoc('Procurement Requests', orderId, {
         procurement_list: { list: updatedProcurementList },
         workflow_state: newWorkflowState
+    }).then(() => {
+        toast({
+            title : "Success!",
+            description: "New Sent Back created Successfully!",
+            variant: "success"
+        })
     }).catch((error) => console.log("update_error", error));
+
+    if(filteredList.length === 0 ) {
+        navigate('/approve-vendor')
+    }
 
     // Update state
     setOrderData(prevOrderData => ({
@@ -515,11 +537,6 @@ const createDocBatch = async (doctype, docs) => {
     const generateVendorItemKey = (vendor: string, item: string): string => {
         return `${vendor}-${item}`;
     };
-
-    const isDelayed = (cat: string) => {
-        return orderData.procurement_list?.list
-            .some(item => item.category === cat && !selectedVendors[item.name]);
-    }
 
     return (
         <>
@@ -872,18 +889,19 @@ const createDocBatch = async (doctype, docs) => {
             </div>
             <div className="overflow-x-auto">
                 <div className="min-w-full inline-block align-middle">
-                    {orderData.category_list?.list.map((cat) => {
-                        if(isDelayed(cat.name)){return <div className="p-5">
+                    {procurement_request_list?.[0].procurement_list?.list.map(item => {
+                        if(item.status === "Delayed"){
+                            return <div className="p-5">
                             <ReactTable>
                                 <TableHeader>
                                     <TableRow className="bg-red-100">
-                                        <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>(Items)</TableHead>
+                                        <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{item.category}</span>(Items)</TableHead>
                                         <TableHead className="w-[25%]">UOM</TableHead>
                                         <TableHead className="w-[15%]">Qty</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {orderData.procurement_list?.list.map((item) => {
+                                    {/* {orderData.procurement_list?.list.map((item) => {
                                         if (item.category === cat.name) {
                                             if(!selectedVendors[item.name]){return (
                                                 <TableRow key={item.item}>
@@ -893,7 +911,13 @@ const createDocBatch = async (doctype, docs) => {
                                                 </TableRow>
                                             )}
                                         }
-                                    })}
+                                    })} */}
+                                                <TableRow key={item.item}>
+                                                    <TableCell>{item.item}</TableCell>
+                                                    <TableCell>{item.unit}</TableCell>
+                                                    <TableCell>{item.quantity}</TableCell>
+                                                </TableRow>
+                                    
                                 </TableBody>
                             </ReactTable>
                         </div>} 

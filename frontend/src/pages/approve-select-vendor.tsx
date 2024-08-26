@@ -110,7 +110,7 @@ export const ApproveSelectVendor = () => {
                 }
             },
             {
-                accessorKey: "procurement_list",
+                accessorKey: "category_list",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Categories" />
@@ -119,7 +119,7 @@ export const ApproveSelectVendor = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="max-w-fit gap-0.5 grid grid-cols-2">
-                            {row.getValue("procurement_list").list.map((obj) => obj.status === "Pending" && <Badge className="inline-block">{obj["category"]}</Badge>)}
+                            {row.getValue("category_list").list.map((obj) =>  <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }
