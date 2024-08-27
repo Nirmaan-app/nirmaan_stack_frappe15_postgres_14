@@ -135,7 +135,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
             <div className="flex justify-between py-4">
                 <div className="w-[48%]">
                     <div className="text-gray-500 text-sm">Attach File</div>
-                    <Input />
+                    <Input type="file" />
                 </div>
                 <div className="w-[48%]">
                     <div className="flex justify-between">

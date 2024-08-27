@@ -1,30 +1,49 @@
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount } from "frappe-react-sdk";
-import { HardHat, UserRound, Briefcase, WalletCards } from "lucide-react";
+import { HardHat, UserRound, Briefcase, WalletCards, HandPlatter } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
 export const Default = () => {
 
-    const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
+    const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects", undefined, true, false, "Projects Count", {
+        revalidateIfStale: false
+    } );
 
-    const { data: user_count, isLoading: user_count_loading, error: user_count_error } = useFrappeGetDocCount("Nirmaan Users");
+    const { data: user_count, isLoading: user_count_loading, error: user_count_error } = useFrappeGetDocCount("Nirmaan Users", undefined, true, false, "NirmaanUsers Count", {
+        revalidateIfStale: false
+    } );
 
     // const { data: role_count, isLoading: role_count_loading, error: role_count_error } = useFrappeGetDocCount("Nirmaan Roles");
 
-    const { data: wp_count, isLoading: wp_count_loading, error: wp_count_error } = useFrappeGetDocCount("Work Packages");
+    const { data: wp_count, isLoading: wp_count_loading, error: wp_count_error } = useFrappeGetDocCount("Work Packages", undefined, true, false, "WorkPackages Count", {
+        revalidateIfStale: false
+    } );
 
     // const { data: pr_count, isLoading: pr_count_loading, error: pr_count_error } = useFrappeGetDocCount("Procurement Requests");
 
-    const { data: items_count, isLoading: items_count_loading, error: items_count_error } = useFrappeGetDocCount("Items");
+    const { data: items_count, isLoading: items_count_loading, error: items_count_error } = useFrappeGetDocCount("Items", undefined, true, false, "Items Count", {
+        revalidateIfStale: false
+    } );
 
-    const { data: vendors_count, isLoading: vendors_count_loading, error: vendors_count_error } = useFrappeGetDocCount("Vendors");
+    const { data: vendors_count, isLoading: vendors_count_loading, error: vendors_count_error } = useFrappeGetDocCount("Vendors", undefined, true, false, "Vendors Count", {
+        revalidateIfStale: false
+    } );
+
+    // const {data : customers_count, isLoading: customers_count_loading, error: customers_count_error} = useQuery({
+    //     queryKey: ["docCount", "Customers"],
+    //     queryFn: () => fetchDocCount("Customers"),
+    //     staleTime: 1000 * 60 * 5,
+    // })
+
+    const {data: customers_count, isLoading: customers_count_loading, error : customers_count_error} = useFrappeGetDocCount("Customers", undefined, true, false, "Customers Count", {
+        revalidateIfStale: false
+    } )
 
     
 
     return (
         <>
-            {/* <MainLayout> */}
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
@@ -162,9 +181,25 @@ export const Default = () => {
                             </CardContent>
                         </Link>
                     </Card>
+                    <Card className="hover:animate-shadow-drop-center" >
+                        <Link to="/customers">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium">
+                                    Total Customers
+                                </CardTitle>
+                                <HandPlatter className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">
+                                    {(customers_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (customers_count)}
+                                    {customers_count_error && <p>Error</p>}
+                                </div>
+                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
+                            </CardContent>
+                        </Link>
+                    </Card>
                 </div>
             </div>
-            {/* </MainLayout> */}
         </>
     )
 }

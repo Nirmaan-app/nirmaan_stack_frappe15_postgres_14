@@ -110,7 +110,7 @@ export const ApproveSelectVendor = () => {
                 }
             },
             {
-                accessorKey: "procurement_list",
+                accessorKey: "category_list",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Categories" />
@@ -119,7 +119,7 @@ export const ApproveSelectVendor = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="max-w-fit gap-0.5 grid grid-cols-2">
-                            {row.getValue("procurement_list").list.map((obj) => obj.status === "Pending" && <Badge className="inline-block">{obj["category"]}</Badge>)}
+                            {row.getValue("category_list").list.map((obj) =>  <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }
@@ -144,6 +144,12 @@ export const ApproveSelectVendor = () => {
         [project_values]
     )
 
+    let filteredList;
+
+    if(procurement_request_list) {
+        filteredList = procurement_request_list.filter((item) => item.procurement_list?.list?.some((i) => i.status === "Pending"))
+    }
+    
     const {toast} = useToast()
 
     if (procurement_request_list_error || projects_error) {
@@ -162,7 +168,7 @@ export const ApproveSelectVendor = () => {
                         <h2 className="text-lg font-bold tracking-tight">Approve Vendors</h2>
                     </div>
                     {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
+                    <DataTable columns={columns} data={filteredList || []} project_values={project_values} />
                     )}
                     {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">

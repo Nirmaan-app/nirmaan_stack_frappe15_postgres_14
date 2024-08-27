@@ -1,10 +1,8 @@
-import { ArrowLeft, TrendingUp } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-
+import { ArrowLeft } from 'lucide-react';
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
-import { MainLayout } from '../layout/main-layout';
 import {
     Dialog,
     DialogClose,
@@ -15,13 +13,10 @@ import {
     DialogTrigger
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { TrendingDown, CheckCheck } from 'lucide-react';
-import { Space, Switch, Table, ConfigProvider, Collapse, Checkbox } from 'antd';
+import {  Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 
-type TableRowSelection<T> = TableProps<T>['rowSelection'];
-
-const { Panel } = Collapse;
+// type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
 interface DataType {
     key: React.ReactNode;
@@ -103,10 +98,10 @@ const columns: TableColumnsType<DataType> = [
 ];
 
 
-interface VendorItem {
-    vendor: string;
-    item: string;
-}
+// interface VendorItem {
+//     vendor: string;
+//     item: string;
+// }
 
 export const SelectVendors = () => {
     const { orderId } = useParams<{ orderId: string }>()
@@ -159,7 +154,7 @@ export const SelectVendors = () => {
     const [selectedCategories, setSelectedCategories] = useState({})
 
     const [data, setData] = useState<DataType>([])
-    const [checkStrictly, setCheckStrictly] = useState(false);
+    // const [checkStrictly, setCheckStrictly] = useState(false);
 
     useEffect(() => {
         if (orderData.project) {
@@ -210,19 +205,20 @@ export const SelectVendors = () => {
             setData(newData)
         }
     }, [orderData, selectedVendors, vendor_list]);
+
     console.log("data", data)
-    const rowSelection: TableRowSelection<DataType> = {
-        onChange: (selectedRowKeys, selectedRows) => {
-            console.log("onChange")
-            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
-        },
-        onSelect: (record, selected, selectedRows) => {
-            console.log(record, selected, selectedRows);
-        },
-        onSelectAll: (selected, selectedRows, changeRows) => {
-            console.log(selected, selectedRows, changeRows);
-        },
-    };
+    // const rowSelection: TableRowSelection<DataType> = {
+    //     onChange: (selectedRowKeys, selectedRows) => {
+    //         console.log("onChange")
+    //         console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+    //     },
+    //     onSelect: (record, selected, selectedRows) => {
+    //         console.log(record, selected, selectedRows);
+    //     },
+    //     onSelectAll: (selected, selectedRows, changeRows) => {
+    //         console.log(selected, selectedRows, changeRows);
+    //     },
+    // };
 
     useEffect(() => {
         const updatedCategories = { ...selectedCategories };
@@ -261,9 +257,9 @@ export const SelectVendors = () => {
     };
 
     const handleSubmit = () => {
+        const delayedItems = [];
         quotation_request_list?.map((item) => {
             if (selectedVendors[item.item] === item.vendor) {
-                console.log(item)
                 updateDoc('Quotation Requests', item.name, {
                     status: "Selected",
                 })
@@ -286,7 +282,16 @@ export const SelectVendors = () => {
                     unit: value.unit,
                     category: value.category
                 })
+
+                delayedItems.push(value.name);
             }
+        })
+
+        const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map((item) => {
+            if(delayedItems.some((i) => i === item.name)){
+                return {...item, status: "Delayed"}
+            }
+            return item
         })
 
         const newCategories = [];
@@ -321,6 +326,7 @@ export const SelectVendors = () => {
         if (itemlist.length === orderData.procurement_list?.list.length) {
             updateDoc('Procurement Requests', orderId, {
                 workflow_state: "Rejected",
+                procurement_list : {list : updatedProcurementList}
             })
                 .then(() => {
                     console.log(orderId)
@@ -332,6 +338,7 @@ export const SelectVendors = () => {
         else {
             updateDoc('Procurement Requests', orderId, {
                 workflow_state: "Vendor Selected",
+                procurement_list : {list : updatedProcurementList}
             })
                 .then(() => {
                     console.log(orderId)
@@ -340,9 +347,6 @@ export const SelectVendors = () => {
                     console.log(update_submit_error)
                 })
         }
-
-
-
     }
 
     const generateVendorItemKey = (vendor: string, item: string): string => {
@@ -445,18 +449,17 @@ export const SelectVendors = () => {
             })
     }
 
-    const getPercentdiff = (a: number, b: number) => {
-        if (a === 0 && b === 0) {
-            return 0;
-        }
-        const difference: number = Math.abs(a - b);
-        const percentDiff: number = (difference / a) * 100;
+    // const getPercentdiff = (a: number, b: number) => {
+    //     if (a === 0 && b === 0) {
+    //         return 0;
+    //     }
+    //     const difference: number = Math.abs(a - b);
+    //     const percentDiff: number = (difference / a) * 100;
 
-        return percentDiff.toFixed(2);
-    }
+    //     return percentDiff.toFixed(2);
+    // }
 
     return (
-        // <MainLayout>
         <>
             {page == 'updatequotation' &&
                 <div className="flex">
@@ -591,7 +594,8 @@ export const SelectVendors = () => {
                     </div>
                 </div>}
             {page == 'approvequotation' &&
-                <><div className="flex">
+                <>
+                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
@@ -810,7 +814,6 @@ export const SelectVendors = () => {
                         </Dialog>
                     </div>
                 </>}
-            {/* </MainLayout> */}
         </>
     )
 }

@@ -2,19 +2,14 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MainLayout } from "@/components/layout/main-layout"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ButtonLoading } from "@/components/button-loading"
 import ReactSelect from 'react-select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { AddressForm } from "../components/address-form"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { useState } from "react"
-import { Navigate, useNavigate } from "react-router-dom"
+import {  useNavigate } from "react-router-dom"
 
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z
@@ -154,10 +149,10 @@ export const NewVendor = () => {
 
     }
 
-    const options: SelectOption[] = address?.map(item => ({
-        label: item.name,
-        value: item.name
-    })) || [];
+    // const options: SelectOption[] = address?.map(item => ({
+    //     label: item.name,
+    //     value: item.name
+    // })) || [];
 
     const category_options: SelectOption[] = category_list
         ?.map(item => ({
@@ -171,7 +166,6 @@ export const NewVendor = () => {
     }
 
     return (
-        // <MainLayout>
         <div className="p-4">
             <div className="space-y-0.5">
                 <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
@@ -385,6 +379,5 @@ export const NewVendor = () => {
                 </form>
             </Form>
         </div>
-        // </MainLayout>
     )
 }
