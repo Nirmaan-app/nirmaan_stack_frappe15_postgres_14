@@ -17,7 +17,7 @@ import { ScrollArea } from "./ui/scroll-area"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 import { cn } from "@/lib/utils"
-import { CalendarIcon } from "lucide-react"
+import { ArrowLeft, CalendarIcon } from "lucide-react"
 import { Calendar } from "./ui/calendar"
 import { format } from "date-fns"
 // import EmployeeForm from "./employee-form"
@@ -363,6 +363,8 @@ export const EditProjectForm = () => {
         'Projects',
         `${projectId}`
     );
+
+    const navigate = useNavigate()
     // console.log(data);
     const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
         {
@@ -609,7 +611,10 @@ export const EditProjectForm = () => {
             }} className="flex flex-col space-y-8">
                 
                 <div className="flex flex-col">
-                    <p className="text-sky-600 font-semibold pb-9">Project Details</p>
+                    <div className="flex items-center pb-9 gap-1">
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${projectId}`)} />
+                        <p className="text-sky-600 font-semibold ">Project Details</p>
+                    </div>
                     <FormField
                         control={form.control}
                         name="project_name"

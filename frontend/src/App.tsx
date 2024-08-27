@@ -4,10 +4,10 @@ import { FrappeProvider } from 'frappe-react-sdk'
 import { Routes, Route, RouterProvider, createBrowserRouter, createHashRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
 import Login from './pages/auth/old-login'
-import Projects from './pages/projects'
+import Projects from './pages/projects/projects'
 import Customers from './pages/customers/customers'
 import WorkPackages from './pages/work-packages'
-import EditProject from './pages/edit-project'
+import EditProject from './pages/projects/edit-project'
 import Profile from './pages/user-profile'
 import { EditProjectForm } from './components/edit-project-form'
 import { ApprovePR } from './pages/approve-pr'
@@ -115,7 +115,7 @@ const router = createBrowserRouter(
 							// 	console.log(params.projectId)
 							// })}
 							// action={(({ params }) => {})}
-							lazy={() => import('@/pages/project')}
+							lazy={() => import('@/pages/projects/project')}
 						/>
 						<Route path=":projectId/edit" element={<EditProjectForm />} />
 					</Route>
