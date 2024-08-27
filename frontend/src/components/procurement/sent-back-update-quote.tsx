@@ -8,11 +8,10 @@ import {
 } from "@/components/ui/sheet"
 import { ArrowLeft, CirclePlus } from 'lucide-react';
 import SentBackQuotationForm from "./sent-back-quotation-form"
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
-import { Link, useNavigate } from "react-router-dom";
-import { MainLayout } from '../layout/main-layout';
+import {  useNavigate } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "../ui/button";
 import SentBackVendorForm from "./sent-back-vendor-form";
@@ -99,13 +98,12 @@ export const SentBackUpdateQuote = () => {
     }
 
     return (
-        // <MainLayout>
         <>
             {page == 'summary' &&
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft onClick={() => navigate('/sent-back-request')} />
+                            <ArrowLeft className="cursor-pointer" onClick={() => navigate('/sent-back-request')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Select Vendor</h2>
                         </div>
                         <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
@@ -178,7 +176,7 @@ export const SentBackUpdateQuote = () => {
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1  pb-4">
-                            <ArrowLeft onClick={() => setPage('summary')} />
+                            <ArrowLeft className="cursor-pointer" onClick={() => setPage('summary')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Update Quote</h2>
                         </div>
                         <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
@@ -243,6 +241,5 @@ export const SentBackUpdateQuote = () => {
                 </div>
             }
             </>
-        // </MainLayout >
     )
 }

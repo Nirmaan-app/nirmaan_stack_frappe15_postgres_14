@@ -5,7 +5,7 @@ import { Routes, Route, RouterProvider, createBrowserRouter, createHashRouter, c
 import Dashboard from './pages/dashboard'
 import Login from './pages/auth/old-login'
 import Projects from './pages/projects'
-import Customers from './pages/customers'
+import Customers from './pages/customers/customers'
 import WorkPackages from './pages/work-packages'
 import EditProject from './pages/edit-project'
 import Profile from './pages/user-profile'
@@ -38,13 +38,12 @@ import Debug from './pages/debug'
 import { ApproveSelectVendor } from './pages/approve-select-vendor'
 import { ApproveVendor } from './pages/approve-vendor'
 import { NewPR } from './components/procurement-request/new-pr'
-import { PRSummary } from './components/pr-summary'
+// import { PRSummary } from './components/pr-summary'
 import { UserForm } from './pages/user-form'
 import Items from './pages/items'
 
 import Vendors from './pages/vendors'
 
-import { NewVendor } from './pages/new-vendor'
 import ListPR from './components/procurement-request/list-pr'
 import { EditVendor } from './pages/edit-vendor'
 import EditItems from './pages/items-edit'
@@ -52,9 +51,12 @@ import { FC } from 'react'
 import { MainLayout } from './components/layout/main-layout'
 import { ProjectManager } from './components/dashboard-pm'
 
-import { Project } from './pages/project'
+// import { Project } from './pages/project'
 import { DelayedPRSelect } from './pages/delayed-pr-select'
 import { DelayedPR } from './pages/delayed-pr'
+import NewCustomer from './pages/customers/add-new-customer'
+import EditCustomer from './pages/customers/edit-customer'
+import { NewVendor } from './pages/new-vendor'
 
 // import { NewMilestone } from './components/new-milestone'
 
@@ -143,7 +145,9 @@ const router = createBrowserRouter(
 					</Route>
 					<Route path="customers" >
 						<Route index element={<Customers />} />
-						{/* <Route path="edit" element={<EditCustomer />} /> */}
+						<Route path="new" element={<NewCustomer />} />
+						<Route path=":customerId" lazy={() => import('@/pages/customers/customer')} />
+						<Route path=":id/edit" element={<EditCustomer />} />
 					</Route>
 
 					{/* Procurement Request Paths */}
@@ -181,6 +185,8 @@ const App: FC = () => {
 
 	}
 
+	// const queryClient = new QueryClient()
+
 	return (
 		<FrappeProvider
 			url={import.meta.env.VITE_FRAPPE_PATH ?? ""}
@@ -188,9 +194,11 @@ const App: FC = () => {
 			//@ts-ignore
 			siteName={getSiteName()}>
 			<UserProvider>
+				{/* <QueryClientProvider client={queryClient}> */}
 				<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
 					<RouterProvider router={router} />
 				</ThemeProvider>
+				{/* </QueryClientProvider> */}
 			</UserProvider>
 		</FrappeProvider>
 	)

@@ -1,4 +1,4 @@
-import { Card, CardHeader, CardTitle, CardContent } from "../ui/card";
+import { Card, CardHeader, CardTitle } from "../ui/card";
 import {  useFrappeGetDocList,  useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import {  PackagePlus } from "lucide-react";
 import {  useNavigate, useParams } from "react-router-dom";
@@ -307,7 +307,6 @@ export const NewPR = () => {
     }
 
     return (
-        // <MainLayout>
         <>
             {page == 'wplist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center pt-1 pb-4">
@@ -330,7 +329,7 @@ export const NewPR = () => {
             </div>}
             {page == 'categorylist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft onClick={() => setPage('wplist')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('wplist')} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Select Category</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
@@ -354,7 +353,7 @@ export const NewPR = () => {
             {page == 'itemlist' && <div className="flex-1 space-x-2 space-y-2.5 md:space-y-4 p-2 md:p-12 pt-6">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft onClick={() => setPage('categorylist')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('categorylist')} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                 </div>
                 <div className="flex justify-between md:justify-normal md:space-x-40">
@@ -488,7 +487,7 @@ export const NewPR = () => {
             {page == 'additem' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft onClick={() => setPage('itemlist')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
                 </div>
                 <div className="mb-4">
@@ -610,6 +609,5 @@ export const NewPR = () => {
                 </div>
             </div>}
         </>
-        // </MainLayout>
     )
 }

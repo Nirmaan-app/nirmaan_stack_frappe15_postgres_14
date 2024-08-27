@@ -1,16 +1,16 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MainLayout } from "@/components/layout/main-layout"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ButtonLoading } from "@/components/button-loading"
 import { useNavigate } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
 
 const UserFormSchema = z.object({
     first_name: z
@@ -67,32 +67,37 @@ export const UserForm = () => {
     const form = useForm<UserFormValues>({
         resolver: zodResolver(UserFormSchema),
         mode: "onChange",
-        defaultValues: {},
     })
 
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
 
-    function onSubmit(values: z.infer<typeof UserFormSchema>) {
-        createDoc('User', {
-            ...values,
-        }).then(() => {
-            console.log(values)
-        }).catch(() => {
-            console.log(submit_error)
-        })
+    const {toast} = useToast()
+
+    const onSubmit = async (values: UserFormValues) => {
+        try {
+            await createDoc("User", values);
+            toast({
+                title: "Success",
+                description: `${values.first_name} ${values.last_name} created successfully!`
+            })
+            form.reset({
+                first_name: "",
+                last_name: "",
+                mobile_no: "",
+                email: "",
+                role_profile_name: "Select the Role",
+            });
+        } catch (error : any) {
+            toast({
+                  title: "Error",
+                  description: `${error?.message}`,
+                  variant: "destructive"
+            })
     }
 
-    const handleRedirect = () => {
-        navigate("/users")
-    }
-
-    const handleRefresh = () => {
-        window.location.reload()
-    }
-
+}
 
     return (
-        // <MainLayout>
             <div className="flex-1 space-y-4 p-8 pt-6">
                 <div className="flex items-center justify-between mb-2 space-y-2">
                     <div className="flex">
@@ -259,11 +264,18 @@ export const UserForm = () => {
                                 )}
                             />
                             <div className="pt-2 pb-2 ">
-                                {(loading) ? (<ButtonLoading />)
+                                {/* {(loading) ? (<ButtonLoading />)
                                     : (submit_complete) ? (<div className="flex"><Button onClick={() => handleRedirect()}>Go Back</Button><div className="pl-3"><Button onClick={() => handleRefresh()} >Add new</Button></div></div>)
-                                        : (<Button type="submit">Submit</Button>)}
+                                        : (<Button type="submit">Submit</Button>)} */}
+                                        {loading ? (
+                                            <Button disabled>
+                                                <ButtonLoading />
+                                            </Button>
+                                        ) : (
+                                            <Button type="submit">Submit</Button>
+                                        )}
                             </div>
-                            <div>
+                            {/* <div>
                                 {submit_complete &&
                                     <div>
                                         <div className="font-semibold text-green-500"> User Added successfully</div>
@@ -275,11 +287,10 @@ export const UserForm = () => {
                                         <div className="font-slim text-red-500">{submit_error.exception}</div>
                                     </div>
                                 }
-                            </div>
+                            </div> */}
                         </div>
                     </form>
                 </Form>
             </div>
-        // </MainLayout>
     )
 }

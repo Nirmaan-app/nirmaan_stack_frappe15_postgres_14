@@ -65,6 +65,8 @@ export default function Projects() {
         mode: "onChange",
     })
 
+    const {toast} = useToast()
+
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     // 2. Define a submit handler.
     function onSubmit(values: z.infer<typeof SOWFormSchema>) {
@@ -75,14 +77,19 @@ export default function Projects() {
         createDoc('Work Packages', values)
             .then(() => {
                 console.log(values)
+                toast({
+                    title: "Success!",
+                    description: `${values.work_package_name} created successfully!`,
+                    variant : "success"
+                })
+                form.reset({
+                    work_package_name: ""
+                })
                 mutate()
             }).catch(() => {
                 console.log(submit_error)
             })
     }
-
-
-    const {toast} = useToast()
 
     if (error) {
         console.log("Error in work-packages.tsx", error?.message)
