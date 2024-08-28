@@ -531,7 +531,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     };
     }
 
-    type MenuItem = Required<MenuProps>['items'][number];
+  type MenuItem = Required<MenuProps>['items'][number];
 
   const items: MenuItem[] = [
   {
@@ -546,7 +546,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     label: 'Status',
     key: 'status',
   },
-];
+ ];
 
 const [areaNames, setAreaNames] = useState(null)
 
@@ -637,7 +637,7 @@ const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
    const [current, setCurrent] = useState('overview')
    
    const onClick: MenuProps['onClick'] = (e) => {
-       console.log('click ', e);
+      //  console.log('click ', e);
        setCurrent(e.key);
      };
 
@@ -689,8 +689,8 @@ return (
                 <CardContent>
                     <Card className="bg-[#F9FAFB]">
                       <CardHeader>
-                        <CardContent className="flex justify-between max-lg:flex-col max-lg:gap-10">
-                            <div className="space-y-4">
+                        <CardContent className="flex max-lg:flex-col max-lg:gap-10">
+                            <div className="space-y-4 lg:w-[50%]">
                               <CardDescription className="space-y-2">
                                   <span>Name</span>
                                   <p className="font-bold text-black">{data?.name}</p>
@@ -708,7 +708,7 @@ return (
                               <CardDescription className="space-y-2">
                                   <span>Work Package</span>
                                   {JSON.parse(data?.project_work_milestones).work_packages?.map((item : any) => (
-                                        <div className=" max-lg:w-[70%] flex items-center justify-center rounded-full p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
+                                        <div className=" max-w-[70%] flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
                                   ))}
                                   
                               </CardDescription>

@@ -1,10 +1,10 @@
-import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 // import { fetchDoc } from "@/reactQuery/customFunctions";
 // import { useQuery } from "@tanstack/react-query";
 import { useFrappeGetDoc } from "frappe-react-sdk";
-import { ArrowLeft } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, FilePenLine } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
 
 const Customer = () => {
   const { customerId } = useParams<{ customerId: string }>();
@@ -27,86 +27,89 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
     revalidateIfStale: false
   })
 
-  const companyAddress = data?.company_address;
+  const customerAddressID = data?.company_address;
 
-  const {data: addressData} = useFrappeGetDoc("Address", companyAddress, `${companyAddress ? `Address ${companyAddress}`: ""}`, {
+  const {data: customerAddress, isLoading: customerAddressLoading, error: customerAddressError} = useFrappeGetDoc("Address", customerAddressID, `${customerAddressID ? `Address ${customerAddressID}`: ""}`, {
     revalidateIfStale: false,
   })
 
-  if (isLoading) return <h1>Loading...</h1>;
-  if (error) return <h1 className="text-red-700">{error.message}</h1>;
-
-  // const customer = data?.data;
-  // const address = addressData?.data;
+  if (error || customerAddressError) return <h1 className="text-red-700">There is an Error while fetching the account</h1>;
 
   return (
-    <div className="p-8">
-      {data && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <ArrowLeft
-                className="cursor-pointer"
-                onClick={() => navigate("/customers")}
-              />
-              <h2 className="pl-4 text-3xl font-bold tracking-tight">
-                {data.company_name}
-              </h2>
-            </div>
-            <Button asChild>
-              <Link to={`/customers/${customerId}/edit`}>Edit Customer</Link>
-            </Button>
+    <div className="flex-1 space-y-4 p-12 pt-8">
+      <div className="flex items-center">
+                <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/customers")} />
+                {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
+                <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.company_name}</h2>}
+                <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
           </div>
-
-          <Card>
+      {(isLoading || customerAddressLoading) ? <OverviewSkeleton /> : (
+        <div>
+        <Card>
             <CardHeader>
-              <CardTitle>Company Details</CardTitle>
-              <CardDescription>
-                Here you can find all the details about the company.
-              </CardDescription>
+              <CardTitle>
+                  {data?.company_name}
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2 md:border-r-2 border-gray-200">
-                  <p>
-                    <span className="font-semibold">Contact Person:</span>{" "}
-                    {data.company_contact_person}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Phone:</span> {data.company_phone}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Email:</span> {data.company_email}
-                  </p>
-                  <p>
-                    <span className="font-semibold">GST:</span> {data.company_gst}
-                  </p>
-                </div>
-                {addressData && (
-                  <div className="flex flex-col gap-2">
-                    <p>
-                      <span className="font-semibold">Address Line 1:</span>{" "}
-                      {addressData.address_line1}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Address Line 2:</span>{" "}
-                      {addressData.address_line2}
-                    </p>
-                    <p>
-                      <span className="font-semibold">City:</span> {addressData.city}
-                    </p>
-                    <p>
-                      <span className="font-semibold">State:</span> {addressData.state}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Pincode:</span> {addressData.pincode}
-                    </p>
-                  </div>
-                )}
-              </div>
+                <Card className="bg-[#F9FAFB]">
+                  <CardHeader>
+                    <CardContent className="flex max-lg:flex-col max-lg:gap-10">
+                        <div className="space-y-4 lg:w-[50%]">
+                          <CardDescription className="space-y-2">
+                              <span>Company Id</span>
+                              <p className="font-bold text-black">{data?.name}</p>
+                          </CardDescription>
+
+                          <CardDescription className="space-y-2">
+                              <span>Contact Person</span>
+                              <p className="font-bold text-black">{data?.company_contact_person}</p>
+                          </CardDescription>
+
+                          <CardDescription className="space-y-2">
+                              <span>Contact Number</span>
+                              <p className="font-bold text-black">{data?.company_phone}</p>
+                          </CardDescription>
+                          <CardDescription className="space-y-2">
+                              <span>Gmail Address</span>
+                              <p className="font-bold text-black">{data?.company_email}</p>
+                          </CardDescription>
+                          <CardDescription className="space-y-2">
+                              <span>GST Number</span>
+                              <p className="font-bold text-black">{data?.company_gst}</p>
+                          </CardDescription>
+                          
+                        </div>
+                          
+                        <div className="space-y-4">
+                          <CardDescription className="space-y-2">
+                              <span>Address</span>
+                              <p className="font-bold text-black">{customerAddress?.address_line1}, {customerAddress?.address_line2}, {customerAddress?.city}, {customerAddress?.state}, {customerAddress?.pincode}</p>
+                          </CardDescription>
+                          
+                          <CardDescription className="space-y-2">
+                              <span>City</span>
+                              <p className="font-bold text-black">{customerAddress?.city}</p>
+                          </CardDescription>
+                          
+                          <CardDescription className="space-y-2">
+                              <span>State</span>
+                              <p className="font-bold text-black">{customerAddress?.state}</p>
+                          </CardDescription>
+                          
+                          <CardDescription className="space-y-2">
+                              <span>Country</span>
+                              <p className="font-bold text-black">{customerAddress?.country}</p>
+                          </CardDescription>
+                          
+                        </div>
+                    </CardContent>
+                  </CardHeader>
+                </Card>
             </CardContent>
-          </Card>
-        </div>
+                          
+        </Card>
+    </div>
       )}
     </div>
   );

@@ -9,31 +9,32 @@ import { Button } from "@/components/ui/button"
 import { ButtonLoading } from "@/components/button-loading"
 import ReactSelect from 'react-select';
 import { useState } from "react"
-import {  useNavigate } from "react-router-dom"
+import {  Link, useNavigate } from "react-router-dom"
+import { ArrowLeft } from "lucide-react"
 
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z
         .string()
         .min(3, {
-            message: "Type Name must be at least 3 characters.",
+            message: "Must be at least 3 characters.",
         })
         .optional()
-        .or(z.literal('')),
+        .default(''),
     vendor_name: z
         .string({
-            required_error: "Must provide type vendor_name"
+            required_error: "Must provide Vendor Name"
         })
         .min(3, {
-            message: "Type Name must be at least 3 characters.",
+            message: "Must be at least 3 characters.",
         }),
     address_line_1: z
         .string({
             required_error: "Address Line 1 Required"
         }),
     address_line_2: z
-        .string({
-            required_error: "Address Line 2Required"
-        }),
+        .string()
+        .optional()
+        .default(''),
     vendor_city: z
         .string({
             required_error: "Must provide city"
@@ -43,17 +44,16 @@ const VendorFormSchema = z.object({
             required_error: "Must provide state"
         }),
     pin: z
-        .number({
-            required_error: "Must provide pincode"
-        })
+        .number()
         .positive()
         .gte(100000)
-        .lte(999999),
+        .lte(999999)
+        .optional(),
     vendor_email: z
         .string()
         .email()
         .optional()
-        .or(z.literal('')),
+        .default(''),
     vendor_mobile: z
         .number({
             required_error: "Must provide contact"
@@ -80,16 +80,10 @@ export const NewVendor = () => {
     const navigate = useNavigate()
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
-        defaultValues: {
-            name: ""
-        },
-        mode: "onChange",
+        defaultValues: {},
+        mode: "all",
     })
-    const { data: address, isLoading: address_isLoading, error: address_error, mutate: project_address_mutate } = useFrappeGetDocList('Address', {
-        fields: ["name", "address_title"],
-        filters: [["address_type", "=", "Shop"]],
-        limit: 1000
-    });
+    
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package'],
@@ -100,18 +94,9 @@ export const NewVendor = () => {
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
 
     function onSubmit(values: z.infer<typeof VendorFormSchema>) {
-        // Do something with the form values.
-        // ✅ This will be type-safe and validated.
-        let category_json = Object.values(categories).map((object) => { return object["value"] })
-        console.log(category_json)
-        // createDoc('Vendors', { ...values, vendor_category: { "categories": category_json } })
-        //     .then((doc) => {
-
-        //     })
-        //     .catch(() => {
-        //         console.log(submit_error)
-        //     })
-
+    
+        let category_json = categories.map((cat) => cat["value"])
+        
         createDoc('Address', {
             address_title: values.vendor_name,
             address_type: "Shop",
@@ -149,29 +134,32 @@ export const NewVendor = () => {
 
     }
 
-    // const options: SelectOption[] = address?.map(item => ({
-    //     label: item.name,
-    //     value: item.name
-    // })) || [];
+    const [categories, setCategories] = useState<SelectOption[]>([])
 
     const category_options: SelectOption[] = category_list
         ?.map(item => ({
             label: `${item.category_name}-(${item.work_package})`,
             value: item.category_name
         })) || [];
-    const [categories, setCategories] = useState()
-    const handleChange = (selectedOptions) => {
+        
+    const handleChange = (selectedOptions : SelectOption[]) => {
+
+        console.log("selectedOptions", selectedOptions)
         setCategories(selectedOptions)
-        console.log(categories)
     }
 
+    console.log(categories)
+
     return (
-        <div className="p-4">
-            <div className="space-y-0.5">
+        <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            <div className="flex gap-1">
+                <Link to="/vendors"><ArrowLeft className="mt-1.5" /></Link>
+                <div>
                 <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
                 <p className="text-muted-foreground">
                     Fill out to create a new Vendor
                 </p>
+                </div>
             </div>
             <Separator className="my-6" />
             <Form {...form}>
@@ -184,9 +172,9 @@ export const NewVendor = () => {
                         name="vendor_name"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Vendor Shop Name <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">Vendor Shop Name<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input placeholder="Vendor Name" {...field} />
+                                    <Input placeholder="enter shop name..." {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -245,7 +233,7 @@ export const NewVendor = () => {
                             <FormItem>
                                 <FormLabel>Vendor Contact Person Name</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="Name" {...field} />
+                                    <Input placeholder="enter person name..." {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -258,9 +246,9 @@ export const NewVendor = () => {
                         name="vendor_gst"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">GST Number <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">GST Number<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input placeholder="GST Number" {...field} />
+                                    <Input placeholder="enter gst..." {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -268,7 +256,7 @@ export const NewVendor = () => {
                         )}
                     />
                     <div>
-                        <label className="flex">Add Category <h1 className="text-sm text-red-600">*</h1></label>
+                        <label className="flex items-center">Add Category<sup className="text-sm text-red-600">*</sup></label>
                         <ReactSelect options={category_options} onChange={handleChange} isMulti />
                     </div>
                     <Separator className="my-3" />
@@ -278,7 +266,7 @@ export const NewVendor = () => {
                         name="address_line_1"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Address Line 1: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">Address Line 1: <sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="Building name, floor" {...field} />
                                 </FormControl>
@@ -291,7 +279,7 @@ export const NewVendor = () => {
                         name="address_line_2"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Address Line 2: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">Address Line 2:</FormLabel>
                                 <FormControl>
                                     <Input placeholder="Street name, area, landmark" {...field} />
                                 </FormControl>
@@ -304,7 +292,7 @@ export const NewVendor = () => {
                         name="vendor_city"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">City: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">City: <sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="City Name" {...field} />
                                 </FormControl>
@@ -317,7 +305,7 @@ export const NewVendor = () => {
                         name="vendor_state"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">State: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">State: <sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="State Name" {...field} />
                                 </FormControl>
@@ -331,7 +319,7 @@ export const NewVendor = () => {
                         name="pin"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Pin Code: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">Pin Code:</FormLabel>
                                 <FormControl>
                                     <Input type="number" placeholder="Pincode" {...field} onChange={event => field.onChange(+event.target.value)} />
                                 </FormControl>
@@ -344,7 +332,7 @@ export const NewVendor = () => {
                         name="vendor_mobile"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Phone: <h1 className="text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">Phone: <sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input type="number" placeholder="Phone" {...field} onChange={event => field.onChange(+event.target.value)} />
                                 </FormControl>
