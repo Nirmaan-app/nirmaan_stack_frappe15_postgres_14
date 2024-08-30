@@ -433,6 +433,7 @@ import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { ButtonLoading } from "../button-loading"
 import { AddressForm } from "../address-form"
 import { Separator } from "@radix-ui/react-dropdown-menu"
+import { SheetClose } from "../ui/sheet"
 
 // Define form schema
 const VendorFormSchema = z.object({
@@ -687,8 +688,8 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                     )}
                 />
                 {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
-                <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose>
-                <div>
+                <SheetClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></SheetClose>
+                {/* <div>
                     {submit_complete &&
                         <div>
                             <div className="font-semibold text-green-500">New Vendor added</div>
@@ -696,7 +697,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
                         </div>
                     }
                     {submit_error && <div>{submit_error.message}</div>}
-                </div>
+                </div> */}
             </form>
         </Form>
     )
