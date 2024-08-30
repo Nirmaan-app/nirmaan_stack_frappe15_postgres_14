@@ -110,18 +110,6 @@ console.log("data", data)
 
     return (
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                {/* <div className="flex items-center justify-between space-y-2">
-                    <Breadcrumb>
-                        <BreadcrumbItem>
-                            <Link to="/" className="md:text-base text-sm">Dashboard</Link>
-                        </BreadcrumbItem>
-                        <BreadcrumbItem isCurrentPage>
-                            <Link to="/vendors" className="text-gray-400 md:text-base text-sm">
-                                Vendors
-                            </Link>
-                        </BreadcrumbItem>
-                    </Breadcrumb>
-                </div> */}
                 <div className="flex items-center justify-between mb-2 space-y-2">
                     <div className="flex">
                         <Link to="/"><ArrowLeft className="mt-1.5" /></Link>

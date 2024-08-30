@@ -327,11 +327,11 @@ export const ProjectForm = () => {
                 procurement_lead: values.procurement_lead,
                 design_lead: values.design_lead,
                 project_manager: values.project_manager,
-                project_work_milestones: values.project_work_milestones,
-                project_scopes: values.project_scopes,
+                project_work_milestones: JSON.stringify(values.project_work_milestones),
+                project_scopes: JSON.stringify(values.project_scopes),
                 subdivisions: values.subdivisions,
                 subdivision_list: {
-                    list: areaNames
+                    list: JSON.stringify(areaNames)
                 }
             }).then((doc) => console.log(doc)).catch(() => console.log(submit_error))
         }).catch(() => {

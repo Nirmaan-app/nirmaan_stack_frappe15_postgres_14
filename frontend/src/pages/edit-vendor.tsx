@@ -190,7 +190,7 @@ export const EditVendor = () => {
             <div className="p-4">
                 <div className="space-y-0.5">
                     <div className="flex space-x-2 items-center">
-                        <ArrowLeft className="cursor-pointer" onClick={() => navigate("/vendors")} />
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/vendors/${id}`)} />
                         <h2 className="text-2xl font-bold tracking-tight">Edit Vendor Categories</h2>
                     </div>
                     {/* <p className="text-muted-foreground">
