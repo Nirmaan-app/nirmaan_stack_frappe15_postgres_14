@@ -8,17 +8,15 @@ import {
     SheetTrigger,
 } from "@/components/ui/sheet"
 import { ArrowLeft, CirclePlus } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import VendorForm from "./vendor-form"
-import QuotationForm from "./quotation-form"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { Card } from "@/components/ui/card";
+
 
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
-import { Link, useNavigate } from "react-router-dom";
-import { MainLayout } from '../layout/main-layout';
+import {  useNavigate } from "react-router-dom";
 import { Button } from '@/components/ui/button'
+import { NewVendor } from '@/pages/new-vendor';
 
 interface VendorItem {
     vendor: string;
@@ -29,21 +27,6 @@ export const ProcurementOrder = () => {
     const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate();
 
-    const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
-        {
-            fields: ['category_name', 'work_package'],
-            orderBy: { field: 'category_name', order: 'asc' },
-            limit: 100
-        });
-    const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
-        {
-            fields: ['name', 'item_name', 'unit_name', 'category'],
-            limit: 1000
-        });
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-        {
-            fields: ['name', 'project_name', 'project_address']
-        });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
@@ -60,12 +43,7 @@ export const ProcurementOrder = () => {
             fields: ['name', 'vendor_name', 'vendor_address'],
             limit: 1000
         });
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
-        {
-            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
-            filters: [["procurement_task", "=", orderId]],
-            limit: 1000
-        });
+
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['item', 'quote'],
@@ -91,6 +69,15 @@ export const ProcurementOrder = () => {
             list: []
         }
     })
+
+    const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
+        {
+            fields: ['category_name', 'work_package'],
+            orderBy: { field: 'category_name', order: 'asc' },
+            limit: 100,
+            filters: [['work_package', '=', orderData.work_package]]
+        });
+
     if (!orderData.project) {
         procurement_request_list?.map(item => {
             if (item.name === orderId) {
@@ -217,17 +204,14 @@ export const ProcurementOrder = () => {
             console.error("Error in creating documents:", error);
         }
     };
-    // console.log("selectedCategories", Object.keys(selectedCategories).length)
 
     const [block, setBlock] = useState(false);
 
     return (
-        // <MainLayout>
         <>
             {page == 'approve' &&
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
-                        {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => navigate("/procure-request")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Order Summary </h2>
@@ -298,7 +282,6 @@ export const ProcurementOrder = () => {
             {page == 'vendors' &&
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
-                        {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage("approve")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Select Vendors</h2>
@@ -339,15 +322,14 @@ export const ProcurementOrder = () => {
                                                     <CirclePlus className="w-5 h-5 mr-2" />Add Vendor</div>
                                             </div>
                                         </SheetTrigger>
-                                        <SheetContent>
-                                            <ScrollArea className="h-[90%] w-[600px]  p-4">
+                                        <SheetContent className='overflow-auto'>
                                                 <SheetHeader>
                                                     <SheetTitle>Add Vendor for {cat.name}</SheetTitle>
-                                                    <SheetDescription>
-                                                        <VendorForm work_package={orderData.work_package} vendor_category_mutate={vendor_category_mutate} vendor_list_mutate={vendor_list_mutate} />
-                                                    </SheetDescription>
+                                                    {/* <SheetDescription> */}
+                                                        {/* <VendorForm work_package={orderData.work_package} vendor_category_mutate={vendor_category_mutate} vendor_list_mutate={vendor_list_mutate} /> */}
+                                                        <NewVendor dynamicCategories={category_list || []} renderCategorySelection={true} navigation={false} />
+                                                    {/* </SheetDescription> */}
                                                 </SheetHeader>
-                                            </ScrollArea>
                                         </SheetContent>
                                     </Sheet>
                                 </div>
@@ -361,9 +343,6 @@ export const ProcurementOrder = () => {
                         </div>
                     </div>
                 </div>}
-
         </>
-
-        // </MainLayout>
     )
 }

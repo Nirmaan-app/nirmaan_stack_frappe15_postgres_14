@@ -172,8 +172,9 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
        setCurrent(e.key);
      };
 
-     const getWorkPackage = (pr : any) => {
-        return procurementRequests?.find((proc) => proc.name === pr)?.work_package
+     const getWorkPackage = (pr : any, procRequests : any) => {
+        return procRequests?.find((proc) => proc.name === pr)?.work_package
+        
      }
 
      const getCategories = (ol : any) => {
@@ -283,7 +284,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                 },
             },
             {
-                accessorKey: "procurement_request",
+                id: "pr",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader className="text-black font-bold" column={column} title="PR Number" />
@@ -299,7 +300,8 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
             },
             
             {
-                id: "package",
+                accessorKey: "procurement_request",
+                id: "wp",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader className="text-black font-bold" column={column} title="Package" />
@@ -308,7 +310,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                 cell: ({ row }) => {
                     return (
                         <div className="text-[#11050599]">
-                            {getWorkPackage(row.getValue("procurement_request"))}
+                            {getWorkPackage(row.getValue("procurement_request"), procurementRequests)}
                         </div>
                     )
                 }
@@ -347,7 +349,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                 }
             }
         ],
-        [procurementOrders]
+        [procurementOrders, procurementRequests]
     )
 
     if (error || vendorAddressError || procurementOrdersError || procurementRequestsError) return <h1 className="text-red-700">There is an error while fetching the document, please check!</h1>

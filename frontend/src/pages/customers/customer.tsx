@@ -8,7 +8,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 const Customer = () => {
   const { customerId } = useParams<{ customerId: string }>();
-
+  
   return <div>{customerId && <CustomerView customerId={customerId} />}</div>;
 };
 

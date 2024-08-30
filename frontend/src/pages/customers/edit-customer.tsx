@@ -76,7 +76,7 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
             state: addressData?.state || "",
             pin_code: addressData?.pincode || 0,
         },
-        mode: "all",
+        mode: "onBlur",
     });
 
     useEffect(() => {

@@ -14,17 +14,13 @@ import { useState, useEffect } from "react"
 import {  useNavigate } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "../ui/button";
-import SentBackVendorForm from "./sent-back-vendor-form";
 import { Card } from '@/components/ui/card';
+import { NewVendor } from "@/pages/new-vendor";
 
 export const SentBackUpdateQuote = () => {
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate();
 
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-        {
-            fields: ['name', 'project_name', 'project_address']
-        });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
@@ -72,7 +68,6 @@ export const SentBackUpdateQuote = () => {
 
     useEffect(() => {
         if (orderData.project) {
-            console.log(orderData, quotation_request_list)
             const vendors = uniqueVendors.list;
             quotation_request_list?.map((item) => {
                 const isPresent = orderData.category_list.list.find(cat => cat.name === item.category)
@@ -96,6 +91,8 @@ export const SentBackUpdateQuote = () => {
     const handleUpdateQuote = () => {
         navigate(`/sent-back-request/select-vendor/${id}`);
     }
+
+    console.log("category", orderData)
 
     return (
         <>
@@ -221,15 +218,14 @@ export const SentBackUpdateQuote = () => {
                         })}
                         <Sheet>
                             <SheetTrigger className="text-blue-500"><div className="flex pl-5"><CirclePlus className="w-4 mr-2" />Add New Vendor</div></SheetTrigger>
-                            <SheetContent>
-                                <ScrollArea className="h-[90%] w-[600px] p-4">
+                            <SheetContent className="overflow-auto">
                                     <SheetHeader>
-                                        <SheetTitle>Add New Vendor for {orderData.category}</SheetTitle>
+                                        <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
                                         <SheetDescription>
-                                            <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} />
+                                            {/* <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} /> */}
+                                            <NewVendor dynamicCategories={orderData?.category_list?.list?.map(item => item.name) || []} renderCategorySelection={false} navigation={false} />
                                         </SheetDescription>
                                     </SheetHeader>
-                                </ScrollArea>
                             </SheetContent>
                         </Sheet>
                         <div className="flex flex-col justify-end items-end">

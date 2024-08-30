@@ -182,7 +182,6 @@ const App: FC = () => {
 			return window.frappe?.boot?.sitename ?? import.meta.env.VITE_SITE_NAME
 		}
 		return import.meta.env.VITE_SITE_NAME
-
 	}
 
 	// const queryClient = new QueryClient()

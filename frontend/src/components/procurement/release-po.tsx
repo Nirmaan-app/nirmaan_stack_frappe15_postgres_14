@@ -408,25 +408,27 @@ export const ReleasePO = () => {
                                     <tr className="border-t border-black">
                                         <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">S. No.</th>
                                         <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
-                                        <th scope="col" className="px-2 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
-                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
-                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
-                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">SGST</th>
-                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">CGST</th>
-                                        <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
+                                        <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
+                                        <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
+                                        <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
+                                        {/* <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">SGST</th>
+                                        <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">CGST</th> */}
+                                        <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
+                                        <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                     </tr>
                                 </thead>
-                                <tbody className="bg-white ">
+                                <tbody className={`bg-white`}>
                                     {orderData?.order_list?.list.map((item : any, index : number) => {
-                                        return ( <tr key={index} className={`${(!loadingCharges && !freightCharges) && "border-b border-black"} page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
+                                        return ( <tr key={index} className={`${(!loadingCharges && !freightCharges && index === orderData?.order_list?.list.length - 1) && "border-b border-black"} page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
                                             <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{item.unit}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity)).toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quote}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{item.tax}%</td>
+                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td> */}
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity)).toFixed(2)}</td>
                                         </tr> )
                                     })}
                                     {/* {[...Array(14)].map((_, index) => (
@@ -436,7 +438,7 @@ export const ReleasePO = () => {
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
-                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quote}</td>
+                                                <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quote}</td>
                                                 <td className="px-4 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
                                             </tr>
                                         )
@@ -445,12 +447,13 @@ export const ReleasePO = () => {
                                         <tr className={`${!freightCharges && "border-b border-black"}`}>
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
                                             <td className=" py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">NOS</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">1</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((orderData?.loading_charges) * 0.09).toFixed(2)}(9%)</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((orderData?.loading_charges) * 0.09).toFixed(2)}(9%)</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{(orderData?.loading_charges * 1).toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
+                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.loading_charges) * 0.09).toFixed(2)}(9%)</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.loading_charges) * 0.09).toFixed(2)}(9%)</td> */}
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{(orderData?.loading_charges * 1).toFixed(2)}</td>
                                         </tr>
                                         :
                                         <></>
@@ -459,12 +462,13 @@ export const ReleasePO = () => {
                                         <tr className={`border-b border-black`}>
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">-</td>
                                             <td className=" py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">NOS</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">1</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((orderData?.freight_charges) * 0.09).toFixed(2)}(9%)</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{((orderData?.freight_charges) * 0.09).toFixed(2)}(9%)</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap">{(orderData?.freight_charges * 1).toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
+                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.freight_charges) * 0.09).toFixed(2)}(9%)</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.freight_charges) * 0.09).toFixed(2)}(9%)</td> */}
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{(orderData?.freight_charges * 1).toFixed(2)}</td>
                                         </tr>
                                         :
                                         <></>
@@ -491,13 +495,15 @@ export const ReleasePO = () => {
                                     </tr> */}
                                     <tr className="">
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
-                                            <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]">Sub-Total</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap"></td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td>
-                                            <td className="px-2 py-2 text-sm whitespace-nowrap font-semibold">{getTotal().total.toFixed(2)}</td>
+                                            <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td> */}
+                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{(getTotal().totalGst).toFixed(2)}</td>  */}
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{getTotal().total.toFixed(2)}</td>
                                         </tr>
                                     <tr className="border-none">
                                         <td></td>
@@ -505,13 +511,15 @@ export const ReleasePO = () => {
                                         <td></td>
                                         <td></td>
                                         <td></td>
-                                        <td></td>
-                                        <td className="space-y-4 py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
-                                        <div>Round Off:</div>
-                                        <div>Total:</div>
+                                        {/* <td></td> */}
+                                        <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
+                                            <div>Total Tax(GST):</div>
+                                            <div>Round Off:</div>
+                                            <div>Total:</div>
                                         </td>
 
                                         <td className="space-y-4 py-4 text-sm whitespace-nowrap">
+                                            <div className="ml-4">{(getTotal().totalGst).toFixed(2)}</div>
                                            <div className="ml-4">- {((getTotal().totalAmt).toFixed(2) - (Math.floor(getTotal().totalAmt)).toFixed(2)).toFixed(2)}</div>
                                            <div className="ml-4">{(Math.floor(getTotal().totalAmt)).toFixed(2)}</div>
                                         </td>
