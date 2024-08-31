@@ -301,7 +301,6 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
             
             {
                 accessorKey: "procurement_request",
-                id: "wp",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader className="text-black font-bold" column={column} title="Package" />
@@ -325,8 +324,8 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                 cell: ({ row }) => {
                     return (
                         <ul className="text-[#11050599] list-disc">
-                            {getCategories(row.getValue("order_list")).map((cat) => (
-                                <li>{cat}</li>
+                            {getCategories(row.getValue("order_list")).map((cat, index) => (
+                                <li key={index}>{cat}</li>
                             ))}
                         </ul>
                     )

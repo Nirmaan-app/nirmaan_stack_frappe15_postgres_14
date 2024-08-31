@@ -28,21 +28,23 @@ export const SentBackUpdateQuote = () => {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address'],
+            fields: ['name', 'vendor_name', 'vendor_address', "vendor_category"],
             limit: 1000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error, mutate: quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
+            fields: ["*"],
             limit: 1000
-        });
+        },
+    "Quotation Requests"
+    );
+
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category_list', 'project', 'creation', 'item_list', 'comments'],
             filters: [["workflow_state", "=", "Pending"]],
             limit: 100
         });
-
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
@@ -66,9 +68,12 @@ export const SentBackUpdateQuote = () => {
         })
     }, [sent_back_list]);
 
+    console.log("uniqueVendors", uniqueVendors)
+
     useEffect(() => {
         if (orderData.project) {
             const vendors = uniqueVendors.list;
+            // vendor_list?.map((item) => (item.vendor_category.categories)[0] === (orderData.category_list.list)[0].name && vendors.push(item.name))
             quotation_request_list?.map((item) => {
                 const isPresent = orderData.category_list.list.find(cat => cat.name === item.category)
                 if (orderData.procurement_request === item.procurement_task && isPresent) {
@@ -80,20 +85,16 @@ export const SentBackUpdateQuote = () => {
                 return Array.from(new Set(array));
             };
             const uniqueList = removeDuplicates(vendors);
-            setUniqueVendors(prevState => ({
-                ...prevState,
+            setUniqueVendors({
                 list: uniqueList
-            }));
+            });
         }
-    }, [quotation_request_list, orderData]);
+    }, [quotation_request_list, orderData, vendor_list]);
     // console.log(orderData)
 
     const handleUpdateQuote = () => {
         navigate(`/sent-back-request/select-vendor/${id}`);
     }
-
-    console.log("category", orderData)
-
     return (
         <>
             {page == 'summary' &&
@@ -223,7 +224,7 @@ export const SentBackUpdateQuote = () => {
                                         <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
                                         <SheetDescription>
                                             {/* <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} /> */}
-                                            <NewVendor dynamicCategories={orderData?.category_list?.list?.map(item => item.name) || []} renderCategorySelection={false} navigation={false} />
+                                            <NewVendor dynamicCategories={orderData?.category_list?.list?.map(item => item.name) || []} sentBackData = {orderData} renderCategorySelection={false} navigation={false} />
                                         </SheetDescription>
                                     </SheetHeader>
                             </SheetContent>
