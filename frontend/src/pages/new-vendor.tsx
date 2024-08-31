@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
@@ -12,15 +12,12 @@ import { useState } from "react"
 import {  Link, useNavigate } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 import { SheetClose } from "@/components/ui/sheet"
+import { useToast } from "@/components/ui/use-toast"
 
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z
         .string()
-        .min(3, {
-            message: "Must be at least 3 characters.",
-        })
-        .optional()
-        .default(''),
+        .optional(),
     vendor_name: z
         .string({
             required_error: "Must provide Vendor Name"
@@ -34,8 +31,7 @@ const VendorFormSchema = z.object({
         }),
     address_line_2: z
         .string()
-        .optional()
-        .default(''),
+        .optional(),
     vendor_city: z
         .string({
             required_error: "Must provide city"
@@ -54,8 +50,7 @@ const VendorFormSchema = z.object({
     vendor_email: z
         .string()
         .email()
-        .optional()
-        .default(''),
+        .optional(),
     vendor_mobile: z
         .number({
             required_error: "Must provide contact"
@@ -80,78 +75,27 @@ interface SelectOption {
     value: string;
 }
 
-export const NewVendor = ({dynamicCategories = [], navigation = true, renderCategorySelection = true}) => {
+export const NewVendor = ({dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined}) => {
     const navigate = useNavigate()
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
-        defaultValues: {
-            vendor_contact_person_name: "",
-            vendor_city: "",
-            vendor_email: "",
-            vendor_gst: "",
-            vendor_mobile: "",
-            vendor_name: "",
-            vendor_state: "",
-            pin: "",
-            address_line_1: "",
-            address_line_2: ""
-        }
+        defaultValues: {}
         ,
         mode: "onBlur",
     })
     
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package'],
+            fields: ["*"],
             orderBy: { field: 'work_package', order: 'asc' },
             limit: 1000
-        });
+        },
+        "Category"
+    );
 
+    const {mutate} = useSWRConfig()
+    const {toast} = useToast()
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-
-    function onSubmit(values: z.infer<typeof VendorFormSchema>) {
-    
-        let category_json = categories.map((cat) => cat["value"])
-        
-        createDoc('Address', {
-            address_title: values.vendor_name,
-            address_type: "Shop",
-            address_line1: values.address_line_1,
-            address_line2: values.address_line_2,
-            city: values.vendor_city,
-            state: values.vendor_state,
-            country: "India",
-            pincode: values.pin,
-            email_id: values.vendor_email,
-            phone: values.vendor_mobile
-        }).then(doc => {
-            createDoc('Vendors', {
-                vendor_name: values.vendor_name,
-                vendor_type: "Material",
-                vendor_address: doc.name,
-                vendor_city: doc.city,
-                vendor_state: doc.state,
-                vendor_contact_person_name: values.vendor_contact_person_name,
-                vendor_mobile: values.vendor_mobile,
-                vendor_email: values.vendor_email,
-                vendor_gst: values.vendor_gst,
-                vendor_category: { "categories": (!renderCategorySelection && dynamicCategories.length) ? dynamicCategories : category_json }
-            })
-                .then(() => {
-                    if(navigation) {
-                        navigate("/vendors")
-                    } else {
-                        closewindow()
-                    }
-                })
-                .catch(() => {
-                    console.log(submit_error)
-                })
-        })
-            .catch(() => {
-                console.log("address_error", submit_error)
-            })
-    }
 
     const [categories, setCategories] = useState<SelectOption[]>([])
 
@@ -160,7 +104,7 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
             label: `${!dynamicCategories.length ? `${item.category_name}-(${item.work_package})` : item.category_name}`,
             value: item.category_name
         })) || [];
-        
+
     const handleChange = (selectedOptions : SelectOption[]) => {
         setCategories(selectedOptions)
     }
@@ -170,6 +114,90 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
         button?.click();
     };
 
+    const resetForm = () => {
+        form.reset({
+            vendor_contact_person_name: "",
+            vendor_name: "",
+            address_line_1: "",
+            address_line_2: "",
+            vendor_city: "",
+            vendor_state: "",
+            pin: "",
+            vendor_email: "",
+            vendor_mobile: "",
+            vendor_gst: "",
+        });
+        setCategories([]);
+        form.clearErrors();
+    }
+    
+
+    const onSubmit = async (values: VendorFormValues) => {
+        let category_json = categories.map((cat) => cat["value"])
+
+        try {
+            const addressDoc = await createDoc('Address', {
+                address_title: values.vendor_name,
+                address_type: "Shop",
+                address_line1: values.address_line_1,
+                address_line2: values.address_line_2,
+                city: values.vendor_city,
+                state: values.vendor_state,
+                country: "India",
+                pincode: values.pin,
+                email_id: values.vendor_email,
+                phone: values.vendor_mobile,
+            })
+
+            const vendorDoc = await createDoc('Vendors', {
+                vendor_name: values.vendor_name,
+                vendor_type: "Material",
+                vendor_address: addressDoc.name,
+                vendor_city: addressDoc.city,
+                vendor_state: addressDoc.state,
+                vendor_contact_person_name: values.vendor_contact_person_name,
+                vendor_mobile: values.vendor_mobile,
+                vendor_email: values.vendor_email,
+                vendor_gst: values.vendor_gst,
+                vendor_category: { "categories": (!renderCategorySelection && dynamicCategories.length) ? dynamicCategories : category_json }
+            })
+            const promises = []
+            sentBackData && sentBackData.item_list?.list.map((item) => {
+                const newItem = {
+                    procurement_task: sentBackData.procurement_request,
+                    category: item.category,
+                    item: item.name,
+                    vendor: vendorDoc.name,
+                    quantity: item.quantity
+                }
+                promises.push(createDoc("Quotation Requests", newItem))
+            })
+            
+            await Promise.all(promises)
+            await mutate("Vendors")
+            await mutate("Quotation Requests")
+            
+            toast({
+                title: "Success!",
+                description: "Vendor Created Successfully!",
+                variant: "success"
+            })
+
+            if (navigation) {
+                navigate("/vendors")
+            } else {
+                closewindow()
+            }
+        } catch (error) {
+            toast({
+                title: "Failed!",
+                description: `${error?.message}`,
+                variant: "destructive"
+            })
+            console.error("Submit Error", error)
+        }
+    }
+        
     return (
         <div className={`flex-1 space-x-2 ${navigation ? " md:space-y-4 p-4 md:p-8 pt-6" : ""} `}>
             {navigation && (
@@ -301,7 +329,7 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
                             <FormItem>
                                 <FormLabel className="flex">Pin Code:</FormLabel>
                                 <FormControl>
-                                    <Input type="number" placeholder="Pincode" {...field} onChange={event => field.onChange(+event.target.value)} />
+                                    <Input type="number" placeholder="6 digit PIN" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -314,7 +342,7 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
                             <FormItem>
                                 <FormLabel className="flex">Phone: <sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input type="number" placeholder="Phone" {...field} onChange={event => field.onChange(+event.target.value)} />
+                                    <Input type="number" placeholder="Contact No" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -327,7 +355,7 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
                             <FormItem>
                                 <FormLabel>Email: </FormLabel>
                                 <FormControl>
-                                    <Input placeholder="Email" {...field} />
+                                    <Input placeholder="Enter Email ID" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -336,8 +364,8 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
                     {(loading) ? (<ButtonLoading />) : (
                         
                         <div className="flex space-x-2 items-center justify-end">
-                            <Button variant="outline" onClick={() => form.reset()}>Cancel</Button>
-                            <Button type="submit">Submit</Button>
+                            <Button type="button" variant="outline" onClick={() => resetForm()}>Cancel</Button>
+                            <Button type="submit" >Submit</Button>
                         </div>
                         
                         )}
