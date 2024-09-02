@@ -17,6 +17,7 @@ import { useState, useEffect } from "react"
 import {  useNavigate } from "react-router-dom";
 import { Button } from '@/components/ui/button'
 import { NewVendor } from '@/pages/new-vendor';
+import { ButtonLoading } from '../button-loading';
 
 interface VendorItem {
     vendor: string;
@@ -90,7 +91,7 @@ export const ProcurementOrder = () => {
         value: string;
     }
     const [categories, setCategories] = useState({})
-    const [selectedCategories, setSelectedCategories] = useState({})
+    const [selectedCategories, setSelectedCategories] = useState(null)
     const [selectedVendors, setSelectedVendors] = useState({})
     const [uniqueCategories, setUniqueCategories] = useState({
         list: []
@@ -167,10 +168,9 @@ export const ProcurementOrder = () => {
                     return Array.from(new Set(array));
                 };
                 const uniqueList = removeDuplicates(vendors);
-                setUniqueVendors(prevState => ({
-                    ...prevState,
+                setUniqueVendors({
                     list: uniqueList
-                }));
+                });
 
                 promises.push(
                     createDoc('Quotation Requests', quotation_request)
@@ -204,8 +204,6 @@ export const ProcurementOrder = () => {
             console.error("Error in creating documents:", error);
         }
     };
-
-    const [block, setBlock] = useState(false);
 
     return (
         <>
@@ -337,9 +335,13 @@ export const ProcurementOrder = () => {
                             </div>
                         })}
                         <div className="flex flex-col justify-end items-end">
-                            {block ? <div>loading...</div> : <Button onClick={() => { handleSubmit(); setBlock(true) }}>
+                            {/* {block ? <div>loading...</div> : <Button onClick={() => { handleSubmit(); setBlock(true) }}>
                                 Send RFQ
-                            </Button>}
+                            </Button>} */}
+                            {(loading || update_loading) ? <ButtonLoading /> : (
+                                <Button disabled={selectedCategories === null} onClick={handleSubmit}>Send RFQ</Button>
+                            )}
+
                         </div>
                     </div>
                 </div>}

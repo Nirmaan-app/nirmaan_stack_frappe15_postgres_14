@@ -364,7 +364,7 @@ export default function NewMilestones() {
                                         ))}
                                     </div>
 
-                                <div className="flex gap-2 items-center"><p className="font-bold md:text-lg">Note:</p> <span className="md:text-base text-[#3C25A3] font-semibold">Please update only one Area at a time!</span></div>
+                                {/* <div className="flex gap-2 items-center"><p className="font-bold md:text-lg">Note:</p> <span className="md:text-base text-[#3C25A3] font-semibold">Please update only one Area at a time!</span></div> */}
                                     </>
                                 ) : (
                                     <div className="flex flex-col gap-4">
@@ -512,7 +512,7 @@ export default function NewMilestones() {
                                         ))}
                                     </div>
 
-                                <div className="flex gap-2 items-center"><p className="font-bold md:text-lg">Note:</p> <span className="md:text-base text-[#3C25A3] font-semibold">Please update only one Area at a time!</span></div>
+                                {/* <div className="flex gap-2 items-center"><p className="font-bold md:text-lg">Note:</p> <span className="md:text-base text-[#3C25A3] font-semibold">Please update only one Area at a time!</span></div> */}
                                     </>
                                 ) : (
                                     <div className="flex flex-col gap-4">
