@@ -57,6 +57,7 @@ import { DelayedPR } from './pages/delayed-pr'
 import NewCustomer from './pages/customers/add-new-customer'
 import EditCustomer from './pages/customers/edit-customer'
 import { NewVendor } from './pages/new-vendor'
+import NewMilestones from './components/updates/NewMilestones'
 
 // import { NewMilestone } from './components/new-milestone'
 
@@ -83,6 +84,7 @@ const router = createBrowserRouter(
 
 
 					<Route path='/prs&milestones' element={<ProjectManager />} />
+					<Route path='/milestone-update' element={<NewMilestones />} />
 
 					<Route path="approve-order" element={<ApprovePR />} />
 					<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />

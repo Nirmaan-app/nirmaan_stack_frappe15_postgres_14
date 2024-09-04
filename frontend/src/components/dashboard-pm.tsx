@@ -134,16 +134,16 @@ export const ProjectManager = () => {
             {page == 'dashboard' && <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                     <div className="flex items-center space-y-2">
-                        <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
-                        <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">PRs & MileStones</h2>
+                        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
+                        <h2 className="text-xl pt-1 pl-2 pb-4 font-bold tracking-tight">Dashboard</h2>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 border border-gray-100 rounded-lg p-4">
-                        <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer" onClick={() => navigate("/procurement-request")}>
-                            <p className="text-center py-6 font-bold text-gray-500">Procurement Requests</p>
+                    <div className="grid grid-cols-2 gap-4 -lg p-4">
+                        <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer" onClick={() => navigate("/procurement-request")}>
+                            <p className="p-4 text-center py-6 font-bold text-white">Create Procurement Request</p>
                             {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p> */}
                         </div>
-                        <div className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer" onClick={() => setPage("milestonelist")}>
-                            <p className="text-center py-6 font-bold text-gray-500">Milestones</p>
+                        <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer" onClick={() => navigate("/milestone-update")}>
+                            <p className="text-center py-6 font-bold text-white">Update Milestones</p>
                             {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p> */}
                         </div>
                     </div>
@@ -156,7 +156,6 @@ export const ProjectManager = () => {
                 </div>
                 <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
                     {/* <DropdownMenu2 items={project_lists} onSelect={handleProjectSelect} /> */}
-
                     <ReactSelect options={project_options} onChange={handleChange} placeholder="Select Project" />
                     {orderData.project && <div className="container mx-0 px-0 pt-4">
 
@@ -260,8 +259,8 @@ export const ProjectManager = () => {
             </div>
             } */}
 
-             {page == 'milestonelist' && <NewMilestones />}
-            {page == 'milestone' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            {/* {page == 'milestonelist' && <NewMilestones />} */}
+            {/* {page == 'milestone' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">
                     <ArrowLeft onClick={() => setPage("milestonelist")} />
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Milestone Details</h2>
@@ -321,7 +320,7 @@ export const ProjectManager = () => {
                                 <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
                             </div>
                         </div>
-                        {/* <div className="font-semibold text-sm my-2">Area 1</div>
+                        <div className="font-semibold text-sm my-2">Area 1</div>
                             <div className="flex justify-between border rounded-lg text-sm px-2 relative">
                                 <div className="flex-1 text-center py-2">
                                 <label  className="flex items-center justify-center">
@@ -414,7 +413,7 @@ export const ProjectManager = () => {
                                 </label>
                                     <span className="absolute left-0 top-0 bottom-0 w-px bg-gray-300"></span>
                                 </div>
-                            </div> */}
+                            </div>
                     </div>
                 </div>
                 <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
@@ -422,7 +421,7 @@ export const ProjectManager = () => {
                         Save
                     </button>
                 </div>
-            </div>}
+            </div>} */}
             {/* </MainLayout> */}
         </>
     )
