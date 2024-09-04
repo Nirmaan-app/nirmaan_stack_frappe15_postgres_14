@@ -176,6 +176,7 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
             await Promise.all(promises)
             await mutate("Vendors")
             await mutate("Quotation Requests")
+            await mutate("Vendor Category")
             
             toast({
                 title: "Success!",

@@ -28,6 +28,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
 import { Button } from "@/components/ui/button"
 import { useReactToPrint } from "react-to-print"
+import { formatDate } from "@/utils/FormatDate"
 
 // interface WPN {
 //     name: string
@@ -501,7 +502,8 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList("Project Work Milestones", {
                 fields: ["*"],
                 filters: [["project", "=", `${projectId}`]],
-                limit: 1000
+                limit: 1000,
+                orderBy: {field: "start_date", order: "asc"}
         },
         `Project Work MileStones ${projectId}`,
         {
@@ -509,9 +511,9 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
         }
     )
 
-        console.log("mile_data", mile_data)
+        // console.log("mile_data", mile_data)
 
-        console.log("data", data)
+        // console.log("data", data)
 
     const navigate = useNavigate();
 
@@ -616,7 +618,7 @@ const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
           return <DataTableColumnHeader className="text-black font-bold" column={column} title="Start Date" />;
         },
         cell: ({ row }) => {
-          return <div className="text-[#11050599]">{row.getValue("start_date")}</div>;
+          return <div className="text-[#11050599]">{formatDate(row.getValue("start_date"))}</div>;
         },
       },
       {
@@ -625,7 +627,7 @@ const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
           return <DataTableColumnHeader className="text-black font-bold" column={column} title="End Date" />;
         },
         cell: ({ row }) => {
-          return <div className="text-[#11050599]">{row.getValue("end_date")}</div>;
+          return <div className="text-[#11050599]">{formatDate(row.getValue("end_date"))}</div>;
         },
       },
     ];
@@ -664,7 +666,6 @@ const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
         },
         documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
     });
-
    
    if(isLoading) return <div>Loading...</div>
 
@@ -672,7 +673,7 @@ return (
         <div className="flex-1 space-y-4 p-12 pt-8">
             <div className="flex items-center">
                 <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-                <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.name}</h2>
+                <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
                 <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
             </div>
             <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items}/>
@@ -683,27 +684,32 @@ return (
             <Card>
                 <CardHeader>
                   <CardTitle>
-                      {data?.name}
+                      {data?.project_name}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                    <Card className="bg-[#F9FAFB]">
+                <CardContent className="flex max-lg:flex-col max-lg:gap-10">
+                    {/* <Card className="bg-[#F9FAFB]">
                       <CardHeader>
-                        <CardContent className="flex max-lg:flex-col max-lg:gap-10">
+                        <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
                             <div className="space-y-4 lg:w-[50%]">
                               <CardDescription className="space-y-2">
-                                  <span>Name</span>
+                                  <span>Project Id</span>
                                   <p className="font-bold text-black">{data?.name}</p>
                               </CardDescription>
 
                               <CardDescription className="space-y-2">
-                                  <span>Start Date & End Date</span>
-                                  <p className="font-bold text-black">{data?.project_start_date} to {data?.project_end_date}</p>
+                                  <span>Start Date</span>
+                                  <p className="font-bold text-black">{formatDate(data?.project_start_date)}</p>
+                              </CardDescription>
+
+                              <CardDescription className="space-y-2">
+                                  <span>End Date</span>
+                                  <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
                               </CardDescription>
 
                               <CardDescription className="space-y-2">
                                   <span>Estimated Completion Date</span>
-                                  <p className="font-bold text-black">{data?.project_end_date}</p>
+                                  <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
                               </CardDescription>
                               <CardDescription className="space-y-2">
                                   <span>Work Package</span>
@@ -738,9 +744,9 @@ return (
                               
                             </div>
                         </CardContent>
-                      </CardHeader>
+                      {/* </CardHeader>
                     </Card>
-                </CardContent>
+                </CardContent> */}
                 
             </Card>
         </div>
@@ -811,7 +817,7 @@ return (
                                   </div>
                                   <div className="border-0 flex flex-col col-span-2">
                                       <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
-                                      <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_start_date} to {data?.project_end_date}</p>
+                                      <p className="text-left font-bold font-semibold text-sm text-black">{formatDate(data?.project_start_date)} to {formatDate(data?.project_end_date)}</p>
                                   </div>
                                   <div className="border-0 flex flex-col col-span-2">
                                       <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
@@ -842,8 +848,8 @@ return (
                                   {item.scope_of_work}
                               </td>
                               <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
-                              <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.start_date}</td>
-                              <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.end_date}</td>
+                              <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{formatDate(item.start_date)}</td>
+                              <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{formatDate(item.end_date)}</td>
                               {
                                 item.status_list?.list.map((area) => (
                               <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{area.status}</td>

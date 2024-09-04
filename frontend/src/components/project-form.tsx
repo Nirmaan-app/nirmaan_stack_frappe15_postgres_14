@@ -69,14 +69,16 @@ const projectFormSchema = z.object({
         .lte(999999),
     email: z
         .string()
-        .email(),
+        .email()
+        .optional(),
     phone: z
         .number({
             required_error: "Must provide contact"
         })
         .positive()
         .gte(1000000000)
-        .lte(9999999999),
+        .lte(9999999999)
+        .optional(),
     project_start_date: z
         .date({
             //required_error: "A start date is required.",
@@ -180,13 +182,13 @@ export const ProjectForm = () => {
             limit: 100,
         });
 
-    const valueChange = (e) => {
-        console.log(e);
-    }
+    // const valueChange = (e) => {
+    //     console.log(e);
+    // }
 
     const form = useForm<ProjectFormValues>({
         resolver: zodResolver(projectFormSchema),
-        mode: "onChange",
+        mode: "onBlur",
         defaultValues: {
             project_name: "",
             project_start_date: new Date(),
@@ -295,9 +297,11 @@ export const ProjectForm = () => {
     // 2. Define a submit handler.
     const [areaNames, setAreaNames] = useState([]);
 
+
     function onSubmit(values: z.infer<typeof projectFormSchema>) {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
+        // console.log("values", values)
         const formatted_start_date = values.project_start_date.toISOString().replace('T', ' ').slice(0, 19)
         const formatted_end_date = values.project_end_date.toISOString().replace('T', ' ').slice(0, 19)
         //const scopes = values.project_scopes.toString()
@@ -327,15 +331,15 @@ export const ProjectForm = () => {
                 procurement_lead: values.procurement_lead,
                 design_lead: values.design_lead,
                 project_manager: values.project_manager,
-                project_work_milestones: JSON.stringify(values.project_work_milestones),
-                project_scopes: JSON.stringify(values.project_scopes),
+                project_work_milestones: values.project_work_milestones,
+                project_scopes: values.project_scopes,
                 subdivisions: values.subdivisions,
                 subdivision_list: {
-                    list: JSON.stringify(areaNames)
+                    list: areaNames
                 }
-            }).then((doc) => console.log(doc)).catch(() => console.log(submit_error))
-        }).catch(() => {
-            console.log(submit_error)
+            }).then((doc) => console.log(doc)).catch((error) => console.log("projects error", error))
+        }).catch((error) => {
+            console.log("address error", error)
         })
 
         // if (!mile_loading && !mile_error) {
@@ -432,7 +436,6 @@ export const ProjectForm = () => {
     }
 
     const handleSubdivisionChange = (e) => {
-        console.log("e",e)
         let n = e;
         setAreaNames(Array.from({ length: Number(n) }, (_, i) => ({
             name: `Area ${i + 1}`,
@@ -445,7 +448,6 @@ export const ProjectForm = () => {
         newAreaNames[index].name = event.target.value;
         setAreaNames(newAreaNames);
     }
-    console.log(form.getValues(),areaNames)
 
     return (
         <Form {...form}>
@@ -1295,7 +1297,7 @@ export const ProjectForm = () => {
                                             form.setValue(("project_scopes.scopes"), [])
                                             form.setValue(("project_work_milestones.work_packages"), [])
                                         }
-                                        console.log(form.getValues())
+                                        // console.log(form.getValues())
                                     }}
 
                                 /> <span className="text-sm text-red-600 font-bold">Select All</span>
@@ -1334,7 +1336,7 @@ export const ProjectForm = () => {
                                                                                 form.setValue(("project_scopes.scopes"), filteredSow)
 
                                                                             }
-                                                                            console.log(form.getValues());
+                                                                            // console.log(form.getValues());
                                                                             return checked
                                                                                 ? field.onChange([...field.value, { work_package_name: item.work_package_name }])
                                                                                 : field.onChange(
