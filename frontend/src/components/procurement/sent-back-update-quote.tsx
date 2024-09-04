@@ -95,6 +95,8 @@ export const SentBackUpdateQuote = () => {
     const handleUpdateQuote = () => {
         navigate(`/sent-back-request/select-vendor/${id}`);
     }
+
+    console.log("unique Vendors", uniqueVendors)
     return (
         <>
             {page == 'summary' &&

@@ -2,12 +2,13 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Select from "react-select";
 import { Button } from "../ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "../ui/card";
-import { ArrowLeft, FilePenLine, Paperclip, SaveAll, SquareX } from "lucide-react";
+import { ArrowLeft, Check, FilePenLine, Paperclip, SaveAll, SquareX, X } from "lucide-react";
 import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import { useToast } from "../ui/use-toast";
 import { Dialog, DialogContent, DialogTrigger } from "../ui/dialog";
+import { formatDate } from "@/utils/FormatDate";
 
 
 interface UpdatedField {
@@ -88,24 +89,40 @@ export default function NewMilestones() {
         validateSaveButton(updatedFields.map(field => field.status))
     }, [updatedFields, selectedFiles])
 
+    // const determineOverallStatus = (fields: UpdatedField[]) => {
+    //     const statuses = fields.map(field => field.status);
+    //     if (statuses.includes("WIP")) {
+    //         setOverallStatus("WIP");
+    //     } else if (statuses.every(status => status === "Completed")) {
+    //         setOverallStatus("Completed");
+    //     } else if (statuses.every(status => status === "Halted")) {
+    //         setOverallStatus("Halted");
+    //     } else if (statuses.some(status => status === "Completed") && statuses.some(status => status === "Halted") && !statuses.includes("WIP") && !statuses.includes("Pending")) {
+    //         setOverallStatus("Completed");
+    //     } else if (statuses.includes("Completed") && statuses.includes("Pending") && !statuses.includes("WIP")) {
+    //         setOverallStatus("WIP")
+    //     } else if (statuses.includes("Halted") && statuses.includes("Pending") && !statuses.includes("WIP")) {
+    //         setOverallStatus("WIP")
+    //     } else {
+    //         setOverallStatus("Pending")
+    //     }
+    // };
+
     const determineOverallStatus = (fields: UpdatedField[]) => {
         const statuses = fields.map(field => field.status);
-        if (statuses.includes("WIP")) {
-            setOverallStatus("WIP");
-        } else if (statuses.every(status => status === "Completed")) {
+    
+        // Check if all statuses are the same
+        if (statuses.every(status => status === "Completed")) {
             setOverallStatus("Completed");
         } else if (statuses.every(status => status === "Halted")) {
             setOverallStatus("Halted");
-        } else if (statuses.some(status => status === "Completed") && statuses.some(status => status === "Halted") && !statuses.includes("WIP") && !statuses.includes("Pending")) {
-            setOverallStatus("Completed");
-        } else if (statuses.includes("Completed") && statuses.includes("Pending") && !statuses.includes("WIP")) {
-            setOverallStatus("WIP")
-        } else if (statuses.includes("Halted") && statuses.includes("Pending") && !statuses.includes("WIP")) {
-            setOverallStatus("WIP")
+        } else if (statuses.every(status => status === "Pending")) {
+            setOverallStatus("Pending");
         } else {
-            setOverallStatus("Pending")
+            setOverallStatus("WIP");
         }
     };
+    
 
     const validateSaveButton = (statuses : string[]) => {
         const initialStatuses = initialFields.map(field => field.status);
@@ -215,6 +232,10 @@ export default function NewMilestones() {
         }
     };
 
+    const todayDate = new Date()
+
+    const today = new Date().toISOString().split("T")[0];
+
     return (
         <div className="w-full h-auto p-4 flex flex-col space-y-4">
             <div className="flex flex-col space-y-4 md:mb-6">
@@ -242,15 +263,28 @@ export default function NewMilestones() {
                 <AccordionItem value="Pending">
                     <AccordionTrigger>
                         <Button variant="ghost" size="lg" className="md:mb-2 text-base md:text-lg px-2  w-full justify-start">
-                            Pending
+                            {formatDate(todayDate)}
                         </Button>
                     </AccordionTrigger>
 
                     <AccordionContent className="space-y-2">
-                    {project_work_milestones_list.some((milestone) => milestone.status === "Pending")
-                        ? (
-                      project_work_milestones_list.map((milestone) => ( 
-                         milestone.status === "Pending" && ( 
+                    {
+                    // project_work_milestones_list.some((milestone) => milestone.status === "Pending")
+                    //     ? (
+                    //   project_work_milestones_list.map((milestone) => ( 
+                    //      (milestone.status !== "Completed") && ( 
+                        (project_work_milestones_list
+                        .filter(milestone => 
+                            milestone.status !== "Completed" && 
+                            new Date(milestone.start_date) <= new Date(today)
+                        )).length !== 0 ? (
+
+                        project_work_milestones_list
+                        .filter(milestone => 
+                            milestone.status !== "Completed" && 
+                            new Date(milestone.start_date) <= new Date(today)
+                        )
+                        .map(milestone => (
                         <Card className="w-full" key={milestone.name}>
                             <CardHeader className="p-4 flex flex-col gap-2 w-full">
                                 <div className="flex justify-between items-center">
@@ -259,12 +293,13 @@ export default function NewMilestones() {
                                         {milestone.work_package}
                                     </CardDescription>
                                     {editingMilestone === milestone.name ? (
-                                            <div className="flex gap-2 items-center mr-1 md:mr-2">
+                                            <div className="flex gap-2 items-center mr-1 md:mr-2 h-10">
                                                <button
                                                className="text-red-500"
                                                onClick={handleCancelMilestone}
                                                >
-                                                   <SquareX className="md:w-8 md:h-8" />
+                                                   {/* <SquareX className="md:w-8 md:h-8" /> */}
+                                                   <X className="md:w-8 md:h-8" />
                                                </button>
                                                <span>|</span>
                                                <button
@@ -272,13 +307,15 @@ export default function NewMilestones() {
                                                onClick={handleUpdateMilestone}
                                                disabled={disableSaveButton}
                                                >
-                                                   <SaveAll className="md:w-8 md:h-8" />
+                                                   {/* <div className="md:w-8 md:h-8">✔</div> */}
+                                                   <Check className="md:w-8 md:h-8" />
                                                </button>
                                         </div>
                                         
                                     ) : (
                                         
                                         <button
+                                        className="h-10"
                                             onClick={() => setEditingMilestone(milestone.name)}
                                         >
                                         <FilePenLine className="md:w-8 md:h-8 mr-1 md:mr-2 text-blue-300 hover:text-blue-600 cursor-pointer" />
@@ -291,7 +328,7 @@ export default function NewMilestones() {
                                     {/* <CardTitle className={`transition-all max-w-[30%] duration-300 ${editingMilestone === milestone.name ? 'relative pt-[10px] max-md:text-sm text-base font-normal break-words' : 'absolute top-0 left-[45%] max-md:text-base text-lg break-words'}`}>
                                         {milestone.work_package}
                                     </CardTitle> */}
-                                    <div className={`text-lg font-medium max-md:text-[15px] ${editingMilestone === milestone.name ? "opacity-0" : "opacity-100"}`}>
+                                    <div className={`text-lg font-medium max-md:text-[15px] ${editingMilestone === milestone.name ? "hidden" : "block"}`}>
                                         {milestone.status}
                                     </div>
                                 </div>
@@ -310,14 +347,14 @@ export default function NewMilestones() {
                                                         <Button
                                                         size="sm"
                                                             onClick={() => handleStatusChange(item.name, "WIP")}
-                                                            variant={updatedFields.some(field => field.name === item.name && field.status ==="WIP" ) ? "default" : "outline"}
+                                                            variant={updatedFields.some(field => field.name === item.name && field.status ==="WIP" ) ? "wip" : "outline"}
                                                         >
                                                             WIP
                                                         </Button>
                                                         <Button
                                                         size="sm"
                                                             onClick={() => handleStatusChange(item.name, "Completed")}
-                                                            variant={updatedFields.some(field => field.name === item.name && field.status === "Completed") ? "default" : "outline"}
+                                                            variant={updatedFields.some(field => field.name === item.name && field.status === "Completed") ? "completed" : "outline"}
                                                         >
                                                             Completed
                                                         </Button>
@@ -381,12 +418,14 @@ export default function NewMilestones() {
                                     </div>
                                 )}
                             </CardHeader>
-                        </Card> ) 
-                    ) )) : (<div>No Pending Milestones found</div>)
-                    }
+                        </Card> 
+                    // ) )) : (<div>No Pending Milestones found</div>)
+                    ))) : (
+                        <div>No Pending Milestones till today</div>
+                    )}
                     </AccordionContent>
                 </AccordionItem>
-                
+                {/* 
                 <AccordionItem value="WIP">
                     <AccordionTrigger>
                         <Button variant="ghost" size="lg" className="md:mb-2 text-[#D9502C] hover:text-[#D9502C] text-base md:text-lg px-2  w-full justify-start">
@@ -403,7 +442,7 @@ export default function NewMilestones() {
                             <CardHeader className="p-4 flex flex-col gap-2 w-full">
                                 <div className="flex justify-between items-center">
                                     <CardDescription>
-                                        {/* {milestone.start_date} to {milestone.end_date} */}
+                                        //  {milestone.start_date} to {milestone.end_date} 
                                         {milestone.work_package}
                                     </CardDescription>
                                     {editingMilestone === milestone.name ? (
@@ -438,7 +477,7 @@ export default function NewMilestones() {
                                     <div className="text-lg font-semibold max-md:text-[15px] max-w-[80%]">{milestone.milestone}</div>
                                     {/* <CardTitle className={`transition-all max-w-[30%] duration-300 ${editingMilestone === milestone.name ? 'relative pt-[10px] max-md:text-sm text-base font-normal break-words' : 'absolute top-0 left-[45%] max-md:text-base text-lg break-words'}`}>
                                         {milestone.work_package}
-                                    </CardTitle> */}
+                                    </CardTitle> 
                                     <div className={`text-lg font-medium max-md:text-[15px] text-[#D9502C] ${editingMilestone === milestone.name ? "opacity-0" : "opacity-100"}`}>
                                         {milestone.status}
                                     </div>
@@ -512,7 +551,7 @@ export default function NewMilestones() {
                                         ))}
                                     </div>
 
-                                {/* <div className="flex gap-2 items-center"><p className="font-bold md:text-lg">Note:</p> <span className="md:text-base text-[#3C25A3] font-semibold">Please update only one Area at a time!</span></div> */}
+                                {/* <div className="flex gap-2 items-center"><p className="font-bold md:text-lg">Note:</p> <span className="md:text-base text-[#3C25A3] font-semibold">Please update only one Area at a time!</span></div> 
                                     </>
                                 ) : (
                                     <div className="flex flex-col gap-4">
@@ -553,7 +592,7 @@ export default function NewMilestones() {
                             <CardHeader className="p-4 flex flex-col gap-2 w-full">
                                 <div className="flex justify-between items-center">
                                     <CardDescription>
-                                        {/* {milestone.start_date} to {milestone.end_date} */}
+                                        {/* {milestone.start_date} to {milestone.end_date} 
                                         {milestone.work_package}
                                     </CardDescription>
                                     {/* {editingMilestone === milestone.name ? (
@@ -571,14 +610,14 @@ export default function NewMilestones() {
                                         >
                                             Update
                                         </button>
-                                    )} */}
+                                    )} 
                                 </div>
 
                                 <div className={` ${editingMilestone === milestone.name ? "flex-col" : "flex justify-between"} w-full relative`}>
                                     <div className="text-lg font-semibold max-md:text-[15px] max-w-[80%]">{milestone.milestone}</div>
                                     {/* <CardTitle className={`transition-all max-w-[30%] duration-300 ${editingMilestone === milestone.name ? 'relative pt-[10px] max-md:text-sm text-base font-normal break-words' : 'absolute top-0 left-[45%] max-md:text-base text-lg break-words'}`}>
                                         {milestone.work_package}
-                                    </CardTitle> */}
+                                    </CardTitle> 
                                     <div className={`text-lg font-medium max-md:text-[15px] text-green-800 ${editingMilestone === milestone.name ? "opacity-0" : "opacity-100"}`}>
                                         {milestone.status}
                                     </div>
@@ -676,7 +715,7 @@ export default function NewMilestones() {
                             <CardHeader className="p-4 flex flex-col gap-2 w-full">
                                 <div className="flex justify-between items-center">
                                     <CardDescription>
-                                        {/* {milestone.start_date} to {milestone.end_date} */}
+                                        {/* {milestone.start_date} to {milestone.end_date} 
                                         {milestone.work_package}
                                     </CardDescription>
                                     {/* {editingMilestone === milestone.name ? (
@@ -694,14 +733,14 @@ export default function NewMilestones() {
                                         >
                                             Update
                                         </button>
-                                    )} */}
+                                    )} 
                                 </div>
 
                                 <div className={` ${editingMilestone === milestone.name ? "flex-col" : "flex justify-between"} w-full relative`}>
                                     <div className="text-lg font-semibold max-md:text-[15px] max-w-[80%]">{milestone.milestone}</div>
                                     {/* <CardTitle className={`transition-all max-w-[30%] duration-300 ${editingMilestone === milestone.name ? 'relative pt-[10px] max-md:text-sm text-base font-normal break-words' : 'absolute top-0 left-[45%] max-md:text-base text-lg break-words'}`}>
                                         {milestone.work_package}
-                                    </CardTitle> */}
+                                    </CardTitle> 
                                     <div className={`text-lg font-medium max-md:text-[15px] text-red-500 ${editingMilestone === milestone.name ? "opacity-0" : "opacity-100"}`}>
                                         {milestone.status}
                                     </div>
@@ -781,6 +820,9 @@ export default function NewMilestones() {
                     }
                     </AccordionContent>
                 </AccordionItem>
+
+                */}
+                
 
             </Accordion>
                     
