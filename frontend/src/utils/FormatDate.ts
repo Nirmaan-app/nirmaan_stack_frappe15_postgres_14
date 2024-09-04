@@ -6,3 +6,7 @@ export const formatDate = (dateString : string) => {
         year: 'numeric',
     }).format(new Date(dateString));
 };
+
+export const convertDate = (dateString : string) => {
+    return new Date(dateString)
+}
