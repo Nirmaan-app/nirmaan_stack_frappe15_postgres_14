@@ -40,7 +40,7 @@ export default function Projects() {
                     return (
                         <div className="font-medium">
                             <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
-                                {row.getValue("name")}
+                                {row.getValue("name")?.slice(-4)}
                             </Link>
                         </div>
                     )
@@ -50,14 +50,17 @@ export default function Projects() {
                 accessorKey: "project_name",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Projects" />
+
+                        <DataTableColumnHeader column={column} title="Project Name" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="font-medium">
-                            {row.getValue("project_name")}
-                        </div>
+                        <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
+                            <div className="font-medium">
+                                {row.getValue("project_name")}
+                            </div>
+                        </Link>
                     )
                 }
             },
