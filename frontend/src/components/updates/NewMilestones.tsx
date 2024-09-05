@@ -1,15 +1,14 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import Select from "react-select";
 import { Button } from "../ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "../ui/card";
-import { ArrowLeft, Check, Construction, FilePenLine, Paperclip, SaveAll, SquareX, X } from "lucide-react";
-import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { Card, CardDescription, CardHeader } from "../ui/card";
+import { ArrowLeft, Check, Construction, FilePenLine, Milestone, Paperclip, X } from "lucide-react";
+import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import { useToast } from "../ui/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { convertDate, formatDate } from "@/utils/FormatDate";
-import { Badge } from "../ui/badge";
 import { DialogClose } from "@radix-ui/react-dialog";
 
 
@@ -41,31 +40,36 @@ export default function NewMilestones() {
         limit: 1000,
         filters: [['project', 'like', `%${selectedProject?.value}`]],
         orderBy: { field: "modified", order: "desc" }
-    });
-    console.log("project_work_milestones_list", project_work_milestones_list)
+    },
+        `Project Work Milestones ${selectedProject?.value}`
+    );
 
     const { data: project_list, isLoading: project_list_loading, error: project_list_error, mutate: project_list_mutate } = useFrappeGetDocList("Projects", {
-        fields: ['name', 'project_name', "project_start_date", "project_end_date"],
-    });
+        fields: ["*"],
+    },
+    "Projects"
+    );
 
-    const { data: milestone_attachments } = useFrappeGetDocList("Milestone Attachments", {
-        fields: ["milestone", "project", "area_name", "image"],
-        limit: 1000
-    })
-
+    const [project, setProject] = useState(null)
+    const [defaultValues, setDefaultValues] = useState<null | string[]>(null)
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
     const { updateDoc, loading: updateLoading, error: updateError, isCompleted: updateCompleted } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     const { call } = useFrappePostCall('frappe.client.set_value');
 
-    // Handle project selection
     const projectOptions = project_list?.map(project => ({
         label: project.project_name,
         value: project.name
     }));
 
-    console.log("selectedFiles", selectedFiles)
-
+    useEffect(() => {
+        if(selectedProject) {
+            const project = project_list?.find((project) => project.name === selectedProject.value)
+            setProject(project)
+            const list : string[] = project.project_work_milestones.work_packages.map((wp) => wp.work_package_name)
+            setDefaultValues(list)
+        }
+    }, [selectedProject])
     useEffect(() => {
         if (editingMilestone) {
             const milestone = project_work_milestones_list?.find((milestone) => milestone.name === editingMilestone);
@@ -91,29 +95,8 @@ export default function NewMilestones() {
         validateSaveButton(updatedFields.map(field => field.status))
     }, [updatedFields, selectedFiles])
 
-    // const determineOverallStatus = (fields: UpdatedField[]) => {
-    //     const statuses = fields.map(field => field.status);
-    //     if (statuses.includes("WIP")) {
-    //         setOverallStatus("WIP");
-    //     } else if (statuses.every(status => status === "Completed")) {
-    //         setOverallStatus("Completed");
-    //     } else if (statuses.every(status => status === "Halted")) {
-    //         setOverallStatus("Halted");
-    //     } else if (statuses.some(status => status === "Completed") && statuses.some(status => status === "Halted") && !statuses.includes("WIP") && !statuses.includes("Pending")) {
-    //         setOverallStatus("Completed");
-    //     } else if (statuses.includes("Completed") && statuses.includes("Pending") && !statuses.includes("WIP")) {
-    //         setOverallStatus("WIP")
-    //     } else if (statuses.includes("Halted") && statuses.includes("Pending") && !statuses.includes("WIP")) {
-    //         setOverallStatus("WIP")
-    //     } else {
-    //         setOverallStatus("Pending")
-    //     }
-    // };
-
     const determineOverallStatus = (fields: UpdatedField[]) => {
         const statuses = fields.map(field => field.status);
-
-        // Check if all statuses are the same
         if (statuses.every(status => status === "Completed")) {
             setOverallStatus("Completed");
         } else if (statuses.every(status => status === "Halted")) {
@@ -142,7 +125,6 @@ export default function NewMilestones() {
 
     const triggerFileInput = (name: string) => {
         if (name !== areaName) {
-            console.warn(`Trying to upload file for ${name}, but current areaName is ${areaName}`);
             return;
         }
         if (fileInputRefs.current[name]) {
@@ -155,8 +137,7 @@ export default function NewMilestones() {
         if (file) {
             setSelectedFiles(prev => ({ ...prev, [name]: file }));
             setFileNames(prev => ({ ...prev, [name]: file.name }));
-            setUploadProgress(null); // Reset progress
-            console.log(`File selected for ${name}:`, file.name);
+            setUploadProgress(null);
         }
     };
 
@@ -211,7 +192,6 @@ export default function NewMilestones() {
                 status_list: { list: updatedFields },
                 status: overallStatus
             });
-            // Upload files for all areas with changes
             await Promise.all(
                 Object.keys(selectedFiles).map(area => handleFileUpload(area))
             );
@@ -233,7 +213,7 @@ export default function NewMilestones() {
             handleCancelMilestone();
         }
     };
-
+    
     const todayDate = new Date()
 
     const today = new Date().toISOString().split("T")[0];
@@ -274,11 +254,12 @@ export default function NewMilestones() {
             <div className="flex flex-col gap-2 w-full">
                 {project_work_milestones_list?.length ? (
                     <>
-                        <Accordion type="multiple" defaultValue={["Pending", "WIP", "Completed", "Halted"]}>
-                            <AccordionItem value="Pending">
+                        <Accordion type="multiple" defaultValue={defaultValues}>
+                        {project?.project_work_milestones?.work_packages?.map((wp) => (
+                            <AccordionItem key={wp.work_package_name} value={wp.work_package_name}>
                                 <AccordionTrigger>
                                     <Button variant="ghost" size="lg" className="md:mb-2 text-base md:text-lg px-2  w-full justify-start">
-                                        <span className="text-red-700 text-base mb-0.5 md:text-lg font-slim">Electrical Work</span>
+                                        <span className="text-red-700 text-base mb-0.5 md:text-lg font-slim">{wp.work_package_name}</span>
                                     </Button>
                                 </AccordionTrigger>
 
@@ -291,21 +272,27 @@ export default function NewMilestones() {
                                         (project_work_milestones_list
                                             .filter(milestone =>
                                                 milestone.status !== "Completed" &&
-                                                new Date(milestone.start_date) <= new Date(today)
+                                                new Date(milestone.start_date) <= new Date(today) &&
+                                                milestone.work_package === wp.work_package_name
                                             )).length !== 0 ? (
 
                                             project_work_milestones_list
                                                 .filter(milestone =>
                                                     milestone.status !== "Completed" &&
-                                                    new Date(milestone.start_date) <= new Date(today)
+                                                    new Date(milestone.start_date) <= new Date(today) &&
+                                                    milestone.work_package === wp.work_package_name
                                                 )
                                                 .map(milestone => (
                                                     <Card className="w-full" key={milestone.name}>
                                                         <CardHeader className="p-4 flex flex-col gap-2 w-full">
                                                             <div className="flex justify-between items-center">
-                                                                <CardDescription>
+                                                                <CardDescription className="flex flex-col">
                                                                     {/* {milestone.start_date} to {milestone.end_date} */}
-                                                                    {milestone.work_package}
+                                                                    <div className="text-lg font-semibold max-md:text-[15px] text-black">
+                                                                    {milestone.milestone}
+                                                                </div>
+                                                                <p>{milestone.work_package}</p>
+                                                                    
                                                                 </CardDescription>
                                                                 {editingMilestone === milestone.name ? (
                                                                     <div className="flex gap-2 items-center mr-1 md:mr-2 h-10">
@@ -340,17 +327,17 @@ export default function NewMilestones() {
                                                                 )}
                                                             </div>
 
-                                                            <div className={` ${editingMilestone === milestone.name ? "" : "flex justify-between items-center"} w-full relative`}>
+                                                            {/* <div className={` ${editingMilestone === milestone.name ? "" : "flex justify-between items-center"} w-full relative`}>
                                                                 <div className="text-lg font-semibold max-md:text-[15px] max-w-[80%]">
                                                                     {milestone.milestone}
                                                                 </div>
-                                                                {/* <CardTitle className={`transition-all max-w-[30%] duration-300 ${editingMilestone === milestone.name ? 'relative pt-[10px] max-md:text-sm text-base font-normal break-words' : 'absolute top-0 left-[45%] max-md:text-base text-lg break-words'}`}>
+                                                                <CardTitle className={`transition-all max-w-[30%] duration-300 ${editingMilestone === milestone.name ? 'relative pt-[10px] max-md:text-sm text-base font-normal break-words' : 'absolute top-0 left-[45%] max-md:text-base text-lg break-words'}`}>
                                         {milestone.work_package}
-                                    </CardTitle> */}
+                                    </CardTitle>
                                                                 <div className={`text-lg font-medium max-md:text-[15px] ${editingMilestone === milestone.name ? "hidden" : "block"} ${(milestone.status === "WIP") ? "text-yellow-500" : milestone.status === "Completed" ? "text-green-800" : milestone.status === "Halted" ? "text-red-500" : ""}`}>
                                                                     {milestone.status === "Pending" ? "--" : milestone.status}
                                                                 </div>
-                                                            </div>
+                                                            </div> */}
 
 
                                                             {editingMilestone === milestone.name ? (
@@ -440,10 +427,11 @@ export default function NewMilestones() {
                                                     </Card>
                                                     // ) )) : (<div>No Pending Milestones found</div>)
                                                 ))) : (
-                                            <div>No Pending Milestones till today</div>
+                                            <div>No Pending Milestones till today for this work package</div>
                                         )}
                                 </AccordionContent>
                             </AccordionItem>
+                            ))} 
                             {/* 
                 <AccordionItem value="WIP">
                     <AccordionTrigger>
@@ -844,6 +832,8 @@ export default function NewMilestones() {
 
 
                         </Accordion>
+
+                    
                         <div className="flex justify-center">
                             <Dialog>
                                 <DialogTrigger asChild>
@@ -891,9 +881,7 @@ export default function NewMilestones() {
 
 
                         </div>
-                    </>
-
-
+                        </>
                 ) : (
                     <div className="text-center text-gray-500 pt-[100px]">Please select a project to display the milestones</div>
                 )}
