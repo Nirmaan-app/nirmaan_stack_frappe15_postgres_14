@@ -22,6 +22,7 @@ import { Checkbox } from "./ui/checkbox"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet"
 import { useNavigate } from "react-router-dom"
 import { useState } from "react"
+import { formatLocalDateTime } from "@/utils/FormatDate"
 
 
 // 1.a Create Form Schema accordingly
@@ -302,8 +303,10 @@ export const ProjectForm = () => {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
         // console.log("values", values)
-        const formatted_start_date = values.project_start_date.toISOString().replace('T', ' ').slice(0, 19)
-        const formatted_end_date = values.project_end_date.toISOString().replace('T', ' ').slice(0, 19)
+        const formatted_start_date = formatLocalDateTime(values.project_start_date)
+        const formatted_end_date = formatLocalDateTime(values.project_end_date)
+
+        // console.log("formatedd dtes", formatted_start_date, formatted_end_date)
         //const scopes = values.project_scopes.toString()
         //const formatted_project_milestone = values.project_work_milestones.
         createDoc('Address', {
