@@ -213,10 +213,48 @@ export default function NewMilestones() {
             handleCancelMilestone();
         }
     };
+
+    function isMoreThanSixHours(modified : string) {
+        const modifiedDate = new Date(modified);
+        const currentTime = new Date();
+        const timeDifference = currentTime - modifiedDate;
+        const hoursDifference = timeDifference / (1000 * 60 * 60);
+        return hoursDifference > 6;
+    }
     
     const todayDate = new Date()
 
     const today = new Date().toISOString().split("T")[0];
+
+    const [
+        isSaveDisabled, setIsSaveDisabled] = useState(false);
+
+    useEffect(() => {
+
+        const today = new Date().toISOString().split("T")[0];
+        const todayDate = new Date()
+        if(project_work_milestones_list) {
+        const filteredMilestones = project_work_milestones_list.filter(milestone =>
+            milestone.status !== "Completed" &&
+            new Date(milestone.start_date) <= new Date(today) &&
+            milestone.modified !== milestone.creation
+        );
+
+        if(filteredMilestones.length) {
+            const isAnyMilestoneRecent = filteredMilestones.some(milestone => {
+                const modifiedDate = new Date(milestone.modified);
+                const timeDifference = todayDate - modifiedDate;
+                const hoursDifference = timeDifference / (1000 * 60 * 60);
+                return hoursDifference > 6;
+            });
+    
+            setIsSaveDisabled(isAnyMilestoneRecent);
+        }  else {
+            setIsSaveDisabled(true)
+        }
+        }
+    }, [project_work_milestones_list]);
+
 
     return (
         <div className="w-full h-auto p-4 flex flex-col space-y-4">
@@ -253,6 +291,7 @@ export default function NewMilestones() {
 
             <div className="flex flex-col gap-2 w-full">
                 {project_work_milestones_list?.length ? (
+                    defaultValues !== null && (
                     <>
                         <Accordion type="multiple" defaultValue={defaultValues}>
                         {project?.project_work_milestones?.work_packages?.map((wp) => (
@@ -291,7 +330,7 @@ export default function NewMilestones() {
                                                                     <div className="text-lg font-semibold max-md:text-[15px] text-black">
                                                                     {milestone.milestone}
                                                                 </div>
-                                                                <p>{milestone.work_package}</p>
+                                                                {/* <p>{milestone.work_package}</p> */}
                                                                     
                                                                 </CardDescription>
                                                                 {editingMilestone === milestone.name ? (
@@ -353,7 +392,7 @@ export default function NewMilestones() {
                                                                                         <Button
                                                                                             size="sm"
                                                                                             onClick={() => handleStatusChange(item.name, "WIP")}
-                                                                                            variant={updatedFields.some(field => field.name === item.name && field.status === "WIP") ? "wip" : "outline"}
+                                                                                            variant={(updatedFields.some(field => field.name === item.name && field.status === "WIP") && !isMoreThanSixHours(milestone.modified)) ? "wip" : "outline"}
                                                                                         >
                                                                                             WIP
                                                                                         </Button>
@@ -367,7 +406,7 @@ export default function NewMilestones() {
                                                                                         <Button
                                                                                             size="sm"
                                                                                             onClick={() => handleStatusChange(item.name, "Halted")}
-                                                                                            variant={updatedFields.some(field => field.name === item.name && field.status === "Halted") ? "default" : "outline"}
+                                                                                            variant={(updatedFields.some(field => field.name === item.name && field.status === "Halted") && !isMoreThanSixHours(milestone.modified)) ? "default" : "outline"}
                                                                                         >
                                                                                             Halted
                                                                                         </Button>
@@ -417,7 +456,7 @@ export default function NewMilestones() {
                                                                                 {item.name}
                                                                             </div>
                                                                             <div className={`font-medium text-[13px]  ${(item.status === "WIP") ? "text-yellow-500" : item.status === "Completed" ? "text-green-800" : item.status === "Halted" ? "text-red-500" : ""}`}>
-                                                                                {item.status === "Pending" ? "--" : item.status}
+                                                                                {(item.status === "Pending" || isMoreThanSixHours(milestone.modified)) ? "--" : item.status}
                                                                             </div>
                                                                         </div>
                                                                     ))}
@@ -837,7 +876,7 @@ export default function NewMilestones() {
                         <div className="flex justify-center">
                             <Dialog>
                                 <DialogTrigger asChild>
-                                    <Button className="mr-2" variant="completed">Save</Button>
+                                    <Button disabled={isSaveDisabled} className="mr-2" variant="completed">Save</Button>
                                 </DialogTrigger>
                                 <DialogContent>
                                     <DialogHeader>
@@ -882,6 +921,7 @@ export default function NewMilestones() {
 
                         </div>
                         </>
+                    )
                 ) : (
                     <div className="text-center text-gray-500 pt-[100px]">Please select a project to display the milestones</div>
                 )}

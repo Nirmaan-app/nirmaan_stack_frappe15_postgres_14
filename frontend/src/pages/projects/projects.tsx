@@ -10,6 +10,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { formatDate } from "@/utils/FormatDate";
 
 // NOTE: Modify frappe hooks field to get the data
 
@@ -74,7 +75,7 @@ export default function Projects() {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("creation")?.split(" ")[0]}
+                            {formatDate(row.getValue("creation")?.split(" ")[0])}
                         </div>
                     )
                 }

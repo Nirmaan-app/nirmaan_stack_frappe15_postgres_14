@@ -21,6 +21,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescript
 import { Pencil } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectValue, SelectTrigger } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/use-toast";
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
@@ -248,6 +249,8 @@ export const ProjectLeadComponent = () => {
         setQuantity(0)
         setCurItem('')
     }
+
+    const {toast} = useToast()
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
     const handleSubmit = () => {
 
@@ -258,8 +261,18 @@ export const ProjectLeadComponent = () => {
         })
             .then(() => {
                 console.log("orderData2", orderData)
+                toast({
+                    title: "Success!",
+                    description: `PR ${orderData.name} is successfully approved!`,
+                    variant: "success"
+                })
                 navigate("/")
             }).catch(() => {
+                toast({
+                    title: "Failed!",
+                    description: `${submit_error.message}`,
+                    variant: "destructive"
+                })
                 console.log("submit_error", submit_error)
             })
     }

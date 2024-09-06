@@ -7,6 +7,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
+import { formatDate } from "@/utils/FormatDate";
 
 
 type PRTable = {
@@ -99,7 +100,7 @@ export const SentBackRequest = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("creation")?.split(" ")[0]}
+                            {formatDate(row.getValue("creation")?.split(" ")[0])}
                         </div>
                     )
                 }

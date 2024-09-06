@@ -695,16 +695,16 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
         <div>
           <Card>
             <CardHeader>
-              <CardTitle className="flex flex-col gap-2">
-                <p>{data?.project_name}</p>
-                <p>Customer: {projectCustomer?.company_name}</p>
+              <CardTitle>
+                {data?.project_name}
               </CardTitle>
             </CardHeader>
-            <CardContent className="flex max-lg:flex-col max-lg:gap-10">
+            <CardContent className="flex flex-col gap-10 w-full">
               {/* <Card className="bg-[#F9FAFB]">
                       <CardHeader>
                         <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
-              <div className="space-y-4 lg:w-[50%]">
+              <div className="flex max-md:flex-col max-md:gap-10">
+              <div className="space-y-4 lg:w-[50%] md:w-[60%]">
                 <CardDescription className="space-y-2">
                   <span>Project Id</span>
                   <p className="font-bold text-black">{data?.name}</p>
@@ -724,7 +724,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                   <span>Estimated Completion Date</span>
                   <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
                 </CardDescription>
-                <CardDescription className="space-y-2">
+                {/* <CardDescription className="space-y-2">
                   <span>Work Package</span>
                   <div className="flex gap-1">
                   {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
@@ -732,11 +732,15 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                   ))}
                   </div>
 
-                </CardDescription>
+                </CardDescription> */}
 
               </div>
 
               <div className="space-y-4">
+              <CardDescription className="space-y-2">
+                  <span>Customer</span>
+                  <p className="font-bold text-black">{projectCustomer?.company_name}</p>
+                </CardDescription>
                 <CardDescription className="space-y-2">
                   <span>Location</span>
                   <p className="font-bold text-black">{data?.project_city}, {data?.project_state}</p>
@@ -752,12 +756,28 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                   <p className="font-bold text-black">{data?.subdivisions}</p>
                 </CardDescription>
 
+                {/* <CardDescription className="space-y-2">
+                  <span>Health Score</span>
+                  <StatusBar currentValue={6} totalValue={10} />
+                </CardDescription> */}
+
+              </div>
+              </div>
+              <div className="space-y-4 w-full">
+              <CardDescription className="space-y-2">
+                  <span>Work Package</span>
+                  <div className="flex gap-1">
+                  {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
+                    <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
+                  ))}
+                  </div>
+
+                </CardDescription>
                 <CardDescription className="space-y-2">
                   <span>Health Score</span>
                   <StatusBar currentValue={6} totalValue={10} />
                 </CardDescription>
-
-              </div>
+                </div>
             </CardContent>
             {/* </CardHeader>
                     </Card>
@@ -1034,7 +1054,8 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
               {mile_data?.filter(item => {
                 const today = new Date().toISOString().split("T")[0];
                 const modifiedDate = new Date(item.modified).toISOString().split("T")[0];
-                return modifiedDate === today;
+                const equal = item.modified !== item.creation
+                return modifiedDate === today && equal;
               }).length > 0 ? (
                 mile_data.map((item, index) => {
                   const today = new Date().toISOString().split("T")[0];
