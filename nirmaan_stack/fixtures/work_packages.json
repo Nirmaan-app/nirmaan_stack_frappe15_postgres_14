@@ -2,73 +2,73 @@
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-04-13 15:25:21.468791",
+  "modified": "2024-09-06 13:22:32.392375",
   "name": "Data & Networking",
-  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/OL3WOUWH_network.jpg&file_name=network.jpg",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/network.jpg",
   "work_package_name": "Data & Networking"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-04-13 15:25:21.468791",
+  "modified": "2024-09-06 13:21:42.309285",
   "name": "Fire Fighting System",
-  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/AYRE9562_fire.jpeg&file_name=fire.jpeg",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/fire.jpg",
   "work_package_name": "Fire Fighting System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-04-13 15:25:21.468791",
+  "modified": "2024-09-06 13:20:00.409305",
   "name": "Access Control System",
-  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/09VWEZ65_access-control-system.png&file_name=access-control-system.png",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/access_control.jpg",
   "work_package_name": "Access Control System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-07-16 12:21:42.904871",
+  "modified": "2024-09-06 13:22:12.397520",
   "name": "HVAC System",
-  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/LRQIVEKI_hvac.jpg&file_name=hvac.jpg",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/hvac.jpg",
   "work_package_name": "HVAC System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-07-16 12:22:05.135076",
+  "modified": "2024-09-06 13:20:44.378005",
   "name": "CCTV System",
-  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/RM1H5PBM_cctv.jpg&file_name=cctv.jpg",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/cctv.jpg",
   "work_package_name": "CCTV System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-07-16 12:22:21.663535",
+  "modified": "2024-09-06 13:16:55.788393",
   "name": "FA System",
-  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/I1UDA6HG_Fire-alarm-system.jpg&file_name=Fire-alarm-system.jpg",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/Fire-alarm-system.jpg",
   "work_package_name": "FA System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-07-16 12:22:29.706806",
+  "modified": "2024-09-06 13:22:55.720371",
   "name": "PA System",
-  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/4CTWZG4R_pa.jpg&file_name=pa.jpg",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/pa.jpg",
   "work_package_name": "PA System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-07-16 12:20:07.962566",
-  "name": "Electrical Work",
-  "work_package_image": "/api/method/frappe_s3_attachment.controller.generate_file?key=attachments/2024/08/14/Work Packages/9VU82NMW_electrical_work.jpg.webp&file_name=electrical_work.jpg.webp",
-  "work_package_name": "Electrical Work"
+  "modified": "2024-09-06 13:27:48.812294",
+  "name": "Tool & Equipments",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/tool.jpg",
+  "work_package_name": "Tool & Equipments"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-08-14 12:09:40.480867",
-  "name": "Tool & Equipments",
-  "work_package_image": null,
-  "work_package_name": "Tool & Equipments"
+  "modified": "2024-09-06 13:21:13.121793",
+  "name": "Electrical Work",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/electrical_work.jpg.jpg",
+  "work_package_name": "Electrical Work"
  }
 ]

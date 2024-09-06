@@ -1,15 +1,5 @@
 [
  {
-  "category_name": "Electrical Services",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-08-14 12:10:44.354447",
-  "name": "Electrical Services",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
   "category_name": "HVAC Hardware & Accessories",
   "docstatus": 0,
   "doctype": "Category",
@@ -108,116 +98,6 @@
   "name": "Rented Tools & Equipments",
   "tax": "18",
   "work_package": "Tool & Equipments"
- },
- {
-  "category_name": "Switch & Sockets",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.892647",
-  "name": "Switch & Sockets",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Raceway",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.896989",
-  "name": "Raceway",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Cable Tray & Junction Box",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.901199",
-  "name": "Cable Tray & Junction Box",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Electrical Miscellaneous",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.904638",
-  "name": "Electrical Miscellaneous",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "DB & Switch Gear",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.908610",
-  "name": "DB & Switch Gear",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "LT Panels",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.912843",
-  "name": "LT Panels",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Earthing Material",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.922793",
-  "name": "Earthing Material",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Electrical Accessories",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.928004",
-  "name": "Electrical Accessories",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Enclosure",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.932051",
-  "name": "Enclosure",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Conduits",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.935756",
-  "name": "Conduits",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Industrial Sockets",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.940246",
-  "name": "Industrial Sockets",
-  "tax": "18",
-  "work_package": "Electrical Work"
  },
  {
   "category_name": "Copper Piping",
@@ -660,11 +540,141 @@
   "work_package": "Data & Networking"
  },
  {
+  "category_name": "Electrical Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-services.jpg",
+  "modified": "2024-09-06 13:35:28.584914",
+  "name": "Electrical Services",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Raceway",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/raceway.jpg",
+  "modified": "2024-09-06 13:36:29.477178",
+  "name": "Raceway",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Cable Tray & Junction Box",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/cable-tray-jb.jpg",
+  "modified": "2024-09-06 13:31:46.997543",
+  "name": "Cable Tray & Junction Box",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Electrical Miscellaneous",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-misc.jpg",
+  "modified": "2024-09-06 13:35:02.118574",
+  "name": "Electrical Miscellaneous",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "DB & Switch Gear",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/db_switch_gear.jpg",
+  "modified": "2024-09-06 13:32:51.130797",
+  "name": "DB & Switch Gear",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "LT Panels",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/lt-panel.jpg",
+  "modified": "2024-09-06 13:36:02.929877",
+  "name": "LT Panels",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Earthing Material",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/earthing.jpg",
+  "modified": "2024-09-06 13:33:26.357348",
+  "name": "Earthing Material",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Electrical Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-accessories.jpg",
+  "modified": "2024-09-06 13:34:16.694668",
+  "name": "Electrical Accessories",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Industrial Sockets",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/industrial-sockets.jpg",
+  "modified": "2024-09-06 13:35:44.263994",
+  "name": "Industrial Sockets",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "UPS & Inverter",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/ups.jpg",
+  "modified": "2024-09-06 13:37:17.613600",
+  "name": "UPS & Inverter",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Enclosure",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electric-enclousers.jpg",
+  "modified": "2024-09-06 13:33:53.262876",
+  "name": "Enclosure",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Switch & Sockets",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/sockets-switches.jpg",
+  "modified": "2024-09-06 13:36:48.043994",
+  "name": "Switch & Sockets",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Conduits",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/conduits.jpg",
+  "modified": "2024-09-06 13:32:22.761673",
+  "name": "Conduits",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
   "category_name": "Lighting",
   "docstatus": 0,
   "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-17 20:19:23.895000",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-lighting-fixtures.jpg",
+  "modified": "2024-09-06 13:34:33.866734",
   "name": "Lighting",
   "tax": "18",
   "work_package": "Electrical Work"
@@ -673,19 +683,9 @@
   "category_name": "Wires & Cables",
   "docstatus": 0,
   "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-07-16 14:54:58.876768",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/wires_cables.png",
+  "modified": "2024-09-06 13:37:49.808857",
   "name": "Wires & Cables",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "UPS & Inverter",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": null,
-  "modified": "2024-08-14 13:51:34.770897",
-  "name": "UPS & Inverter",
   "tax": "18",
   "work_package": "Electrical Work"
  }
