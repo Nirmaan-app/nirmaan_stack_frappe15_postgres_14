@@ -12,16 +12,18 @@ import { Button } from "@/components/ui/button"
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, SquareArrowDown } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
 import { MainLayout } from "@/components/layout/main-layout";
 import ReactSelect from 'react-select';
 import { CirclePlus } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Pencil } from 'lucide-react';
+import { Pencil, X } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectValue, SelectTrigger } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
+
+import { formatDate } from "@/utils/FormatDate";
 
 export const ProjectLeadComponent = () => {
     const { id } = useParams<{ id: string }>()
@@ -35,7 +37,8 @@ export const ProjectLeadComponent = () => {
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
-            fields: ['name', 'item_name', 'make_name', 'unit_name', 'category'],
+            fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
+            orderBy: { field: 'creation', order: 'desc' },
             limit: 1000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
@@ -355,34 +358,46 @@ export const ProjectLeadComponent = () => {
                             </div>
                         </div>
 
-                        <Card className="md:grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4 hidden ">
+                        <Card className="md:grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4 hidden">
                             <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                                <p className="text-left py-1 font-semibold text-sm text-red-300">Date</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
+                                <p className="text-left py-1 font-semibold text-sm text-red-300">Project</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{project_list?.find(item => item.name === orderData?.project)?.project_name}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
+                                <p className="text-left py-1 font-semibold text-sm text-red-300">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
+                                <p className="text-left py-1 font-semibold text-sm text-red-300">Project Lead</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
                             </div>
                             <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                                <p className="text-left py-1 font-semibold text-sm text-red-300">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div>
 
                         </Card>
 
-                        <button className="text-lg text-blue-400 flex p-2" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1" /> Add Missing Items</button>
+                        {curCategory === '' && <button className="text-lg text-blue-400 flex p-2" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1" /> Add Missing Items</button>}
 
-                        {curCategory && <Card className="p-5">
-                            <h3 className="font-bold pb-2">{curCategory}</h3>
+                        {curCategory && <Card className="p-5 border border-gray-100 rounded-lg">
+                            <div className="flex justify-between">
+
+                                <button onClick={() => setPage("categorylist")} className="text-blue-400 underline ml-2 mb-2">
+                                    <div className="flex">
+                                        <h3 className="font-bold pb-2">{curCategory}</h3>
+                                        <Pencil className="md:w-4 md:h-4 ml-1 mt-1" />
+                                    </div>
+                                </button>
+
+
+                                <button className="text-red-600 mb-1" onClick={() => setCurCategory('')}><X className="md:w-6 md:h-6 " /></button>
+                            </div>
+
                             <div className="flex space-x-2">
 
                                 <div className="w-1/2 md:w-2/3">
@@ -403,7 +418,7 @@ export const ProjectLeadComponent = () => {
                                     <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button>
                                     :
                                     <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8" >Add</Button>}
-                                <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt-1 pr-1" />Create new item</button></div>
+                                <div><button className="text-sm py-2 md:text-lg text-blue-400 flex mt-3" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt-1 pr-1" />Create New Item</button></div>
                             </div>
                         </Card>
                         }
@@ -423,8 +438,8 @@ export const ProjectLeadComponent = () => {
                                 </AlertDialogFooter>
                             </AlertDialogContent>
                         </AlertDialog>
-                        <Card className="p-4">
-                            <div className="text-sm text-gray-700">Added Items</div>
+                        <Card className="p-4 border border-gray-100 rounded-lg">
+                            <div className="text-xs text-red-700 pb-2">Added Items</div>
                             {orderData.category_list.list?.map((cat) => {
                                 return <div key={cat.name} className="">
                                     <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
@@ -592,9 +607,15 @@ export const ProjectLeadComponent = () => {
                     <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
                 </div>
                 <div className="mb-4">
-                    <div className="flex justify-between">
-                        <div className="text-lg font-bold py-2">Category: {curCategory}</div>
-                        <button onClick={() => setPage("categorylist2")} className="text-blue-500 underline">Change Category</button>
+                    <div className="flex">
+                        <div className="text-lg font-bold py-2">Category: </div>
+                        <button onClick={() => setPage("categorylist2")} className="text-blue-500 underline ml-1">
+                            <div className="flex">
+                                <div className="text-lg font-bold">{curCategory}</div>
+                                <Pencil className="md:w-4 md:h-4 ml-1 mt-1.5" />
+                            </div>
+                        </button>
+
                     </div>
                     <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
                     <Input

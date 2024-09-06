@@ -47,7 +47,7 @@ export default function NewMilestones() {
     const { data: project_list, isLoading: project_list_loading, error: project_list_error, mutate: project_list_mutate } = useFrappeGetDocList("Projects", {
         fields: ["*"],
     },
-    "Projects"
+        "Projects"
     );
 
     const [project, setProject] = useState(null)
@@ -63,10 +63,10 @@ export default function NewMilestones() {
     }));
 
     useEffect(() => {
-        if(selectedProject) {
+        if (selectedProject) {
             const project = project_list?.find((project) => project.name === selectedProject.value)
             setProject(project)
-            const list : string[] = project.project_work_milestones.work_packages.map((wp) => wp.work_package_name)
+            const list: string[] = project.project_work_milestones.work_packages.map((wp) => wp.work_package_name)
             setDefaultValues(list)
         }
     }, [selectedProject])
@@ -214,14 +214,14 @@ export default function NewMilestones() {
         }
     };
 
-    function isMoreThanSixHours(modified : string) {
+    function isMoreThanSixHours(modified: string) {
         const modifiedDate = new Date(modified);
         const currentTime = new Date();
         const timeDifference = currentTime - modifiedDate;
         const hoursDifference = timeDifference / (1000 * 60 * 60);
         return hoursDifference > 6;
     }
-    
+
     const todayDate = new Date()
 
     const today = new Date().toISOString().split("T")[0];
@@ -233,25 +233,25 @@ export default function NewMilestones() {
 
         const today = new Date().toISOString().split("T")[0];
         const todayDate = new Date()
-        if(project_work_milestones_list) {
-        const filteredMilestones = project_work_milestones_list.filter(milestone =>
-            milestone.status !== "Completed" &&
-            new Date(milestone.start_date) <= new Date(today) &&
-            milestone.modified !== milestone.creation
-        );
+        if (project_work_milestones_list) {
+            const filteredMilestones = project_work_milestones_list.filter(milestone =>
+                milestone.status !== "Completed" &&
+                new Date(milestone.start_date) <= new Date(today) &&
+                milestone.modified !== milestone.creation
+            );
 
-        if(filteredMilestones.length) {
-            const isAnyMilestoneRecent = filteredMilestones.some(milestone => {
-                const modifiedDate = new Date(milestone.modified);
-                const timeDifference = todayDate - modifiedDate;
-                const hoursDifference = timeDifference / (1000 * 60 * 60);
-                return hoursDifference > 6;
-            });
-    
-            setIsSaveDisabled(isAnyMilestoneRecent);
-        }  else {
-            setIsSaveDisabled(true)
-        }
+            if (filteredMilestones.length) {
+                const isAnyMilestoneRecent = filteredMilestones.some(milestone => {
+                    const modifiedDate = new Date(milestone.modified);
+                    const timeDifference = todayDate - modifiedDate;
+                    const hoursDifference = timeDifference / (1000 * 60 * 60);
+                    return hoursDifference > 6;
+                });
+
+                setIsSaveDisabled(isAnyMilestoneRecent);
+            } else {
+                setIsSaveDisabled(true)
+            }
         }
     }, [project_work_milestones_list]);
 
@@ -292,81 +292,81 @@ export default function NewMilestones() {
             <div className="flex flex-col gap-2 w-full">
                 {project_work_milestones_list?.length ? (
                     defaultValues !== null && (
-                    <>
-                        <Accordion type="multiple" defaultValue={defaultValues}>
-                        {project?.project_work_milestones?.work_packages?.map((wp) => (
-                            <AccordionItem key={wp.work_package_name} value={wp.work_package_name}>
-                                <AccordionTrigger>
-                                    <Button variant="ghost" size="lg" className="md:mb-2 text-base md:text-lg px-2  w-full justify-start">
-                                        <span className="text-red-700 text-base mb-0.5 md:text-lg font-slim">{wp.work_package_name}</span>
-                                    </Button>
-                                </AccordionTrigger>
+                        <>
+                            <Accordion type="multiple" defaultValue={defaultValues}>
+                                {project?.project_work_milestones?.work_packages?.map((wp) => (
+                                    <AccordionItem key={wp.work_package_name} value={wp.work_package_name}>
+                                        <AccordionTrigger>
+                                            <Button variant="ghost" size="lg" className="md:mb-2 text-base md:text-lg px-2  w-full justify-start">
+                                                <span className="text-red-700 text-base mb-0.5 md:text-lg font-slim">{wp.work_package_name}</span>
+                                            </Button>
+                                        </AccordionTrigger>
 
-                                <AccordionContent className="space-y-2">
-                                    {
-                                        // project_work_milestones_list.some((milestone) => milestone.status === "Pending")
-                                        //     ? (
-                                        //   project_work_milestones_list.map((milestone) => ( 
-                                        //      (milestone.status !== "Completed") && ( 
-                                        (project_work_milestones_list
-                                            .filter(milestone =>
-                                                milestone.status !== "Completed" &&
-                                                new Date(milestone.start_date) <= new Date(today) &&
-                                                milestone.work_package === wp.work_package_name
-                                            )).length !== 0 ? (
+                                        <AccordionContent className="space-y-2">
+                                            {
+                                                // project_work_milestones_list.some((milestone) => milestone.status === "Pending")
+                                                //     ? (
+                                                //   project_work_milestones_list.map((milestone) => ( 
+                                                //      (milestone.status !== "Completed") && ( 
+                                                (project_work_milestones_list
+                                                    .filter(milestone =>
+                                                        milestone.status !== "Completed" &&
+                                                        new Date(milestone.start_date) <= new Date(today) &&
+                                                        milestone.work_package === wp.work_package_name
+                                                    )).length !== 0 ? (
 
-                                            project_work_milestones_list
-                                                .filter(milestone =>
-                                                    milestone.status !== "Completed" &&
-                                                    new Date(milestone.start_date) <= new Date(today) &&
-                                                    milestone.work_package === wp.work_package_name
-                                                )
-                                                .map(milestone => (
-                                                    <Card className="w-full" key={milestone.name}>
-                                                        <CardHeader className="p-4 flex flex-col gap-2 w-full">
-                                                            <div className="flex justify-between items-center">
-                                                                <CardDescription className="flex flex-col">
-                                                                    {/* {milestone.start_date} to {milestone.end_date} */}
-                                                                    <div className="text-lg font-semibold max-md:text-[15px] text-black">
-                                                                    {milestone.milestone}
-                                                                </div>
-                                                                {/* <p>{milestone.work_package}</p> */}
-                                                                    
-                                                                </CardDescription>
-                                                                {editingMilestone === milestone.name ? (
-                                                                    <div className="flex gap-2 items-center mr-1 md:mr-2 h-10">
-                                                                        <button
-                                                                            className="text-red-500"
-                                                                            onClick={handleCancelMilestone}
-                                                                        >
-                                                                            {/* <SquareX className="md:w-8 md:h-8" /> */}
-                                                                            <X className="md:w-8 md:h-8" />
-                                                                        </button>
-                                                                        <span>|</span>
-                                                                        <button
-                                                                            className={`text-blue-800 disabled:opacity-50 disabled:cursor-not-allowed ${updateLoading || createLoading && "animate-pulse"}`}
-                                                                            onClick={handleUpdateMilestone}
-                                                                            disabled={disableSaveButton}
-                                                                        >
-                                                                            {/* <div className="md:w-8 md:h-8">✔</div> */}
-                                                                            <Check className="md:w-8 md:h-8" />
-                                                                        </button>
+                                                    project_work_milestones_list
+                                                        .filter(milestone =>
+                                                            milestone.status !== "Completed" &&
+                                                            new Date(milestone.start_date) <= new Date(today) &&
+                                                            milestone.work_package === wp.work_package_name
+                                                        )
+                                                        .map(milestone => (
+                                                            <Card className="w-full" key={milestone.name}>
+                                                                <CardHeader className="p-4 flex flex-col gap-2 w-full">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <CardDescription className="flex flex-col">
+                                                                            {/* {milestone.start_date} to {milestone.end_date} */}
+                                                                            <div className="text-lg font-semibold max-md:text-[15px] text-black">
+                                                                                {milestone.milestone}
+                                                                            </div>
+                                                                            {/* <p>{milestone.work_package}</p> */}
+
+                                                                        </CardDescription>
+                                                                        {editingMilestone === milestone.name ? (
+                                                                            <div className="flex gap-2 items-center mr-1 md:mr-2 h-10">
+                                                                                <button
+                                                                                    className="text-red-500"
+                                                                                    onClick={handleCancelMilestone}
+                                                                                >
+                                                                                    {/* <SquareX className="md:w-8 md:h-8" /> */}
+                                                                                    <X className="md:w-8 md:h-8" />
+                                                                                </button>
+                                                                                <span>|</span>
+                                                                                <button
+                                                                                    className={`text-blue-800 disabled:opacity-50 disabled:cursor-not-allowed ${updateLoading || createLoading && "animate-pulse"}`}
+                                                                                    onClick={handleUpdateMilestone}
+                                                                                    disabled={disableSaveButton}
+                                                                                >
+                                                                                    {/* <div className="md:w-8 md:h-8">✔</div> */}
+                                                                                    <Check className="md:w-8 md:h-8" />
+                                                                                </button>
+                                                                            </div>
+
+                                                                        ) : (
+                                                                            <div className="flex">
+                                                                                <div className={`mt-3.5 w-3 h-3 border rounded-lg mr-3 bg-green-500 hover:bg-green-500 ${(((Date.now() - convertDate(milestone.modified)) / (1000 * 60 * 60)) <= 6 && ((Date.now() - convertDate(milestone.modified)) / (1000 * 60 * 60)) >= 0 && milestone.creation !== milestone.modified) ? "block" : "hidden"}`}></div>
+                                                                                <button
+                                                                                    className="h-10"
+                                                                                    onClick={() => setEditingMilestone(milestone.name)}
+                                                                                >
+                                                                                    <FilePenLine className="md:w-8 md:h-8 mr-1 md:mr-2 text-blue-300 hover:text-blue-600 cursor-pointer" />
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
                                                                     </div>
 
-                                                                ) : (
-                                                                    <div className="flex">
-                                                                        <div className={`mt-3.5 w-3 h-3 border rounded-lg mr-3 bg-green-500 hover:bg-green-500 ${(((Date.now() - convertDate(milestone.modified)) / (1000 * 60 * 60)) <= 6 && ((Date.now() - convertDate(milestone.modified)) / (1000 * 60 * 60)) >= 0 && milestone.creation !== milestone.modified) ? "block" : "hidden"}`}></div>
-                                                                        <button
-                                                                            className="h-10"
-                                                                            onClick={() => setEditingMilestone(milestone.name)}
-                                                                        >
-                                                                            <FilePenLine className="md:w-8 md:h-8 mr-1 md:mr-2 text-blue-300 hover:text-blue-600 cursor-pointer" />
-                                                                        </button>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-
-                                                            {/* <div className={` ${editingMilestone === milestone.name ? "" : "flex justify-between items-center"} w-full relative`}>
+                                                                    {/* <div className={` ${editingMilestone === milestone.name ? "" : "flex justify-between items-center"} w-full relative`}>
                                                                 <div className="text-lg font-semibold max-md:text-[15px] max-w-[80%]">
                                                                     {milestone.milestone}
                                                                 </div>
@@ -379,99 +379,99 @@ export default function NewMilestones() {
                                                             </div> */}
 
 
-                                                            {editingMilestone === milestone.name ? (
-                                                                <>
-                                                                    <div className="flex flex-col gap-4 transition-opacity duration-500 opacity-100">
-                                                                        {milestone.status_list.list?.map((item) => (
-                                                                            <div key={item.name}>
-                                                                                <div className="font-medium text-[13px] text-[#1D2939]">
-                                                                                    {item.name}
-                                                                                </div>
-                                                                                <div className="flex justify-between mt-2 items-center">
-                                                                                    <div className="flex gap-2 items-center flex-wrap">
-                                                                                        <Button
-                                                                                            size="sm"
-                                                                                            onClick={() => handleStatusChange(item.name, "WIP")}
-                                                                                            variant={(updatedFields.some(field => field.name === item.name && field.status === "WIP") && !isMoreThanSixHours(milestone.modified)) ? "wip" : "outline"}
-                                                                                        >
-                                                                                            WIP
-                                                                                        </Button>
-                                                                                        <Button
-                                                                                            size="sm"
-                                                                                            onClick={() => handleStatusChange(item.name, "Completed")}
-                                                                                            variant={updatedFields.some(field => field.name === item.name && field.status === "Completed") ? "completed" : "outline"}
-                                                                                        >
-                                                                                            Completed
-                                                                                        </Button>
-                                                                                        <Button
-                                                                                            size="sm"
-                                                                                            onClick={() => handleStatusChange(item.name, "Halted")}
-                                                                                            variant={(updatedFields.some(field => field.name === item.name && field.status === "Halted") && !isMoreThanSixHours(milestone.modified)) ? "default" : "outline"}
-                                                                                        >
-                                                                                            Halted
-                                                                                        </Button>
-                                                                                    </div>
-                                                                                    <div className="flex gap-2 flex-col">
-                                                                                        <div className={`text-blue-500 cursor-pointer flex gap-2 items-center justify-center border border-blue-500 rounded-md py-1 px-2 ${((selectedFiles[item.name] !== undefined || null) || item.name !== areaName) && "opacity-50 cursor-not-allowed"}`}
-                                                                                            onClick={() => triggerFileInput(item.name)}
-                                                                                        >
-                                                                                            <Paperclip size="15px" />
-                                                                                            <span>Attach</span>
-                                                                                            <input type="file" disabled={(selectedFiles[item.name] !== undefined || null) || item.name !== areaName} className="hidden"
-                                                                                                ref={(el) => (fileInputRefs.current[item.name] = el)}
-                                                                                                onChange={(event) => handleFileChange(event, item.name)} />
+                                                                    {editingMilestone === milestone.name ? (
+                                                                        <>
+                                                                            <div className="flex flex-col gap-4 transition-opacity duration-500 opacity-100">
+                                                                                {milestone.status_list.list?.map((item) => (
+                                                                                    <div key={item.name}>
+                                                                                        <div className="font-medium text-[13px] text-[#1D2939]">
+                                                                                            {item.name}
                                                                                         </div>
-                                                                                        {(fileNames[item.name]) && (
-                                                                                            <div className="flex items-center justify-between border rounded-md p-2 relative">
-                                                                                                <span className="text-gray-800 max-w-[100px] truncate">{fileNames[item.name]}</span>
-                                                                                                <button
-                                                                                                    className="text-red-500 rounded-3xl px-1 font-semibold absolute -top-1 -right-2 bg-black "
-                                                                                                    onClick={() => {
-                                                                                                        setSelectedFiles(prev => ({ ...prev, [item.name]: null }));
-                                                                                                        setFileNames(prev => ({ ...prev, [item.name]: null }));
-                                                                                                    }}
+                                                                                        <div className="flex justify-between mt-2 items-center">
+                                                                                            <div className="flex gap-2 items-center flex-wrap">
+                                                                                                <Button
+                                                                                                    size="sm"
+                                                                                                    onClick={() => handleStatusChange(item.name, "WIP")}
+                                                                                                    variant={(updatedFields.some(field => field.name === item.name && field.status === "WIP") && !isMoreThanSixHours(milestone.modified)) ? "wip" : "outline"}
                                                                                                 >
-                                                                                                    x
-                                                                                                </button>
+                                                                                                    WIP
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                    size="sm"
+                                                                                                    onClick={() => handleStatusChange(item.name, "Completed")}
+                                                                                                    variant={updatedFields.some(field => field.name === item.name && field.status === "Completed") ? "completed" : "outline"}
+                                                                                                >
+                                                                                                    Completed
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                    size="sm"
+                                                                                                    onClick={() => handleStatusChange(item.name, "Halted")}
+                                                                                                    variant={(updatedFields.some(field => field.name === item.name && field.status === "Halted") && !isMoreThanSixHours(milestone.modified)) ? "default" : "outline"}
+                                                                                                >
+                                                                                                    Halted
+                                                                                                </Button>
                                                                                             </div>
-                                                                                        )}
-                                                                                        {uploadProgress !== null && (
-                                                                                            <div className="mt-2 text-gray-600">
-                                                                                                Upload Progress: {uploadProgress}%
+                                                                                            <div className="flex gap-2 flex-col">
+                                                                                                <div className={`text-blue-500 cursor-pointer flex gap-2 items-center justify-center border border-blue-500 rounded-md py-1 px-2 ${((selectedFiles[item.name] !== undefined || null) || item.name !== areaName) && "opacity-50 cursor-not-allowed"}`}
+                                                                                                    onClick={() => triggerFileInput(item.name)}
+                                                                                                >
+                                                                                                    <Paperclip size="15px" />
+                                                                                                    <span>Attach</span>
+                                                                                                    <input type="file" disabled={(selectedFiles[item.name] !== undefined || null) || item.name !== areaName} className="hidden"
+                                                                                                        ref={(el) => (fileInputRefs.current[item.name] = el)}
+                                                                                                        onChange={(event) => handleFileChange(event, item.name)} />
+                                                                                                </div>
+                                                                                                {(fileNames[item.name]) && (
+                                                                                                    <div className="flex items-center justify-between border rounded-md p-2 relative">
+                                                                                                        <span className="text-gray-800 max-w-[100px] truncate">{fileNames[item.name]}</span>
+                                                                                                        <button
+                                                                                                            className="text-red-500 rounded-3xl px-1 font-semibold absolute -top-1 -right-2 bg-black "
+                                                                                                            onClick={() => {
+                                                                                                                setSelectedFiles(prev => ({ ...prev, [item.name]: null }));
+                                                                                                                setFileNames(prev => ({ ...prev, [item.name]: null }));
+                                                                                                            }}
+                                                                                                        >
+                                                                                                            x
+                                                                                                        </button>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                                {uploadProgress !== null && (
+                                                                                                    <div className="mt-2 text-gray-600">
+                                                                                                        Upload Progress: {uploadProgress}%
+                                                                                                    </div>
+                                                                                                )}
                                                                                             </div>
-                                                                                        )}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+
+                                                                            {/* <div className="flex gap-2 items-center"><p className="font-bold md:text-lg">Note:</p> <span className="md:text-base text-[#3C25A3] font-semibold">Please update only one Area at a time!</span></div> */}
+                                                                        </>
+                                                                    ) : (
+                                                                        <div className="flex flex-col gap-4">
+                                                                            {milestone.status_list.list?.map((item) => (
+                                                                                <div key={item.name} className="flex justify-between items-center">
+                                                                                    <div className="font-medium text-[13px] text-[#1D2939]">
+                                                                                        {item.name}
+                                                                                    </div>
+                                                                                    <div className={`font-medium text-[13px]  ${(item.status === "WIP") ? "text-yellow-500" : item.status === "Completed" ? "text-green-800" : item.status === "Halted" ? "text-red-500" : ""}`}>
+                                                                                        {(item.status === "Pending" || isMoreThanSixHours(milestone.modified)) ? "--" : item.status}
                                                                                     </div>
                                                                                 </div>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-
-                                                                    {/* <div className="flex gap-2 items-center"><p className="font-bold md:text-lg">Note:</p> <span className="md:text-base text-[#3C25A3] font-semibold">Please update only one Area at a time!</span></div> */}
-                                                                </>
-                                                            ) : (
-                                                                <div className="flex flex-col gap-4">
-                                                                    {milestone.status_list.list?.map((item) => (
-                                                                        <div key={item.name} className="flex justify-between items-center">
-                                                                            <div className="font-medium text-[13px] text-[#1D2939]">
-                                                                                {item.name}
-                                                                            </div>
-                                                                            <div className={`font-medium text-[13px]  ${(item.status === "WIP") ? "text-yellow-500" : item.status === "Completed" ? "text-green-800" : item.status === "Halted" ? "text-red-500" : ""}`}>
-                                                                                {(item.status === "Pending" || isMoreThanSixHours(milestone.modified)) ? "--" : item.status}
-                                                                            </div>
+                                                                            ))}
                                                                         </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </CardHeader>
-                                                    </Card>
-                                                    // ) )) : (<div>No Pending Milestones found</div>)
-                                                ))) : (
-                                            <div>No Pending Milestones till today for this work package</div>
-                                        )}
-                                </AccordionContent>
-                            </AccordionItem>
-                            ))} 
-                            {/* 
+                                                                    )}
+                                                                </CardHeader>
+                                                            </Card>
+                                                            // ) )) : (<div>No Pending Milestones found</div>)
+                                                        ))) : (
+                                                    <div>No Pending Milestones till today for this work package</div>
+                                                )}
+                                        </AccordionContent>
+                                    </AccordionItem>
+                                ))}
+                                {/* 
                 <AccordionItem value="WIP">
                     <AccordionTrigger>
                         <Button variant="ghost" size="lg" className="md:mb-2 text-[#D9502C] hover:text-[#D9502C] text-base md:text-lg px-2  w-full justify-start">
@@ -870,56 +870,56 @@ export default function NewMilestones() {
                 */}
 
 
-                        </Accordion>
-
-                    
-                        <div className="flex justify-center">
-                            <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button disabled={isSaveDisabled} className="mr-2" variant="completed">Save</Button>
-                                </DialogTrigger>
-                                <DialogContent>
-                                    <DialogHeader>
-                                        <DialogTitle>Are you sure?</DialogTitle>
-                                        <DialogDescription>
-                                            Once submitted, these updates will be shared with project lead.
+                            </Accordion>
 
 
-                                        </DialogDescription>
-
-                                    </DialogHeader>
-                                    <div className="flex justify-center">
-                                        <Button className="mr-2" variant="completed" onClick={() => navigate("/prs&milestones")}>Yes</Button>
-                                        <DialogClose><Button>No</Button></DialogClose>
-                                    </div>
-
-                                </DialogContent>
-                            </Dialog>
-
-                            <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button>Cancel</Button>
-                                </DialogTrigger>
-                                <DialogContent>
-                                    <DialogHeader>
-                                        <DialogTitle>Are you sure?</DialogTitle>
-                                        <DialogDescription>
-                                            If you cancel now, all the unsaved updates will be lost
+                            <div className="flex justify-center">
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                        <Button disabled={isSaveDisabled} className="mr-2" variant="completed">Save</Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                        <DialogHeader>
+                                            <DialogTitle>Are you sure?</DialogTitle>
+                                            <DialogDescription>
+                                                Once submitted, these updates will be shared with project lead.
 
 
-                                        </DialogDescription>
+                                            </DialogDescription>
 
-                                    </DialogHeader>
-                                    <div className="flex justify-center">
-                                        <Button className="mr-2" variant="completed" onClick={() => navigate("/prs&milestones")}>Yes</Button>
-                                        <DialogClose><Button>No</Button></DialogClose>
-                                    </div>
+                                        </DialogHeader>
+                                        <div className="flex justify-center">
+                                            <Button className="mr-2" variant="completed" onClick={() => navigate("/prs&milestones")}>Yes</Button>
+                                            <DialogClose><Button>No</Button></DialogClose>
+                                        </div>
 
-                                </DialogContent>
-                            </Dialog>
+                                    </DialogContent>
+                                </Dialog>
+
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                        <Button>Cancel</Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                        <DialogHeader>
+                                            <DialogTitle>Are you sure?</DialogTitle>
+                                            <DialogDescription>
+                                                If you cancel now, all the unsaved updates will be lost
 
 
-                        </div>
+                                            </DialogDescription>
+
+                                        </DialogHeader>
+                                        <div className="flex justify-center">
+                                            <Button className="mr-2" variant="completed" onClick={() => navigate("/prs&milestones")}>Yes</Button>
+                                            <DialogClose><Button>No</Button></DialogClose>
+                                        </div>
+
+                                    </DialogContent>
+                                </Dialog>
+
+
+                            </div>
                         </>
                     )
                 ) : (
