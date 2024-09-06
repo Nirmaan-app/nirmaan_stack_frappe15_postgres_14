@@ -449,7 +449,6 @@ const {toast} = useToast()
 
     };
     
-
     const newHandleSentBack = async () => {
 
         const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);

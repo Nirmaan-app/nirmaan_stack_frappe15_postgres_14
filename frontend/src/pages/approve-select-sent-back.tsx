@@ -8,6 +8,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { formatDate } from "@/utils/FormatDate";
 
 
 type PRTable = {
@@ -85,7 +86,7 @@ export const ApproveSelectSentBack = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("creation")?.split(" ")[0]}
+                            {formatDate(row.getValue("creation")?.split(" ")[0])}
                         </div>
                     )
                 }

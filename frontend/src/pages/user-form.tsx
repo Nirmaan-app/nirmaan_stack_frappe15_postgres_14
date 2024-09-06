@@ -57,8 +57,10 @@ export const UserForm = () => {
 
     const { data: role_profile_list, isLoading: role_profile_list_loading, error: role_profile_list_error } = useFrappeGetDocList("Role Profile",
         {
-            fields: ['name', 'role_profile'],
-        });
+            fields: ["*"],
+        },
+        "Role Profile"
+    );
     const options: SelectOption[] = role_profile_list?.map(item => ({
         label: item.role_profile,
         value: item.name
@@ -66,7 +68,7 @@ export const UserForm = () => {
 
     const form = useForm<UserFormValues>({
         resolver: zodResolver(UserFormSchema),
-        mode: "onChange",
+        mode: "onBlur",
     })
 
     const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
@@ -75,10 +77,10 @@ export const UserForm = () => {
 
     const onSubmit = async (values: UserFormValues) => {
         try {
-            await createDoc("User", values);
+            const userDoc = await createDoc("User", values);
             toast({
                 title: "Success",
-                description: `${values.first_name} ${values.last_name} created successfully!`
+                description: `${userDoc.first_name} ${userDoc.last_name} created successfully!`
             })
             form.reset({
                 first_name: "",
@@ -87,15 +89,17 @@ export const UserForm = () => {
                 email: "",
                 role_profile_name: "Select the Role",
             });
+            navigate("/users")
         } catch (error : any) {
             toast({
                   title: "Error",
                   description: `${error?.message}`,
                   variant: "destructive"
             })
-    }
 
-}
+            console.log("error", error)
+        }
+    }
 
     return (
             <div className="flex-1 space-y-4 p-8 pt-6">
@@ -268,9 +272,7 @@ export const UserForm = () => {
                                     : (submit_complete) ? (<div className="flex"><Button onClick={() => handleRedirect()}>Go Back</Button><div className="pl-3"><Button onClick={() => handleRefresh()} >Add new</Button></div></div>)
                                         : (<Button type="submit">Submit</Button>)} */}
                                         {loading ? (
-                                            <Button disabled>
                                                 <ButtonLoading />
-                                            </Button>
                                         ) : (
                                             <Button type="submit">Submit</Button>
                                         )}
