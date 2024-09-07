@@ -333,7 +333,24 @@ export const NewPR = () => {
             </div>}
             {page == 'categorylist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('wplist')} />
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            <ArrowLeft className="cursor-pointer" />
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[425px]">
+                            <DialogHeader>
+                                <DialogTitle>Reset Order List?</DialogTitle>
+                                <DialogDescription>
+                                    Going back to work package selection will clear your current order list. Are you sure?
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogClose>
+                                <Button onClick={() => setPage('wplist')}>Yes</Button>
+                                <Button variant="secondary" className="ml-3">No</Button>
+                            </DialogClose>
+                        </DialogContent>
+                    </Dialog>
+
                     <h2 className="text-base pl-2 font-bold tracking-tight">Select Category</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
@@ -392,9 +409,9 @@ export const NewPR = () => {
                 <div className="flex justify-between md:space-x-0 mt-2">
                     <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt- pr-1" />Create new item</button></div>
                     {(curItem && quantity) ?
-                        <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button>
+                        <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
                         :
-                        <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8" >Add</Button>}
+                        <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>}
                     {/* <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button> */}
                 </div>
                 <div className="text-xs font-thin text-rose-700">Added Items</div>

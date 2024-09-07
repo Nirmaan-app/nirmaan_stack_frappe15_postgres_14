@@ -253,7 +253,7 @@ export const ProjectLeadComponent = () => {
         setCurItem('')
     }
 
-    const {toast} = useToast()
+    const { toast } = useToast()
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
     const handleSubmit = () => {
 
@@ -415,9 +415,9 @@ export const ProjectLeadComponent = () => {
                             </div>
                             <div className="flex-1 space-x-48 md:space-x-0 mt-2">
                                 {(curItem && quantity) ?
-                                    <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button>
+                                    <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
                                     :
-                                    <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8" >Add</Button>}
+                                    <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>}
                                 <div><button className="text-sm py-2 md:text-lg text-blue-400 flex mt-3" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt-1 pr-1" />Create New Item</button></div>
                             </div>
                         </Card>

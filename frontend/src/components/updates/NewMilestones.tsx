@@ -262,11 +262,11 @@ export default function NewMilestones() {
                 <div className="flex justify-between">
                     <div className="flex items-center gap-2">
                         {selectedProject !== null ?
-                            <Construction /> : <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
+                            <div className="pl-6" /> : <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
                         }
 
 
-                        <h1 className="text-xl max-md:text-lg font-bold">Project Status Details</h1>
+                        <h1 className="text-xl max-md:text-lg font-bold">Update Milestones</h1>
 
                     </div>
                     <span className="mt-0.5 text-red-700">{formatDate(todayDate)}</span>
