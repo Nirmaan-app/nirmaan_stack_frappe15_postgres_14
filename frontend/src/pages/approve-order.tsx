@@ -68,7 +68,7 @@ export const ProjectLeadComponent = () => {
     const [curItem, setCurItem] = useState<string>('')
     const [curCategory, setCurCategory] = useState<string>('')
     const [unit, setUnit] = useState<string>('')
-    const [quantity, setQuantity] = useState<number>(0)
+    const [quantity, setQuantity] = useState<number | string>('')
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
@@ -205,7 +205,7 @@ export const ProjectLeadComponent = () => {
                     },
                 }));
                 setUnit('');
-                setQuantity(0);
+                setQuantity('');
                 setItem_id('');
                 setCurItem('');
                 setMake('');
@@ -237,9 +237,11 @@ export const ProjectLeadComponent = () => {
                 list: curRequest,
             },
         }));
-        setQuantity(0)
+        setQuantity('')
         setCurItem('')
     };
+
+    console.log("orderData", orderData)
     const handleDelete = (item: string) => {
         let curRequest = orderData.procurement_list.list;
         curRequest = curRequest.filter(curValue => curValue.item !== item);
@@ -249,7 +251,7 @@ export const ProjectLeadComponent = () => {
                 list: curRequest
             }
         }));
-        setQuantity(0)
+        setQuantity('')
         setCurItem('')
     }
 
@@ -440,6 +442,7 @@ export const ProjectLeadComponent = () => {
                         </AlertDialog>
                         <Card className="p-4 border border-gray-100 rounded-lg">
                             <div className="text-xs text-red-700 pb-2">Added Items</div>
+                            {!orderData?.procurement_list?.list.length && <div className="text-sm">No Items to display, please reload the page to recover the deleted items or add at least an item to enable the "Next" button</div>}
                             {orderData.category_list.list?.map((cat) => {
                                 return <div key={cat.name} className="">
                                     <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
@@ -506,7 +509,7 @@ export const ProjectLeadComponent = () => {
                         </Card>
                         <div className="pt-10"></div>
                         <div className="flex flex-col justify-end items-end">
-                            <Button className="" onClick={() => setPage('approve')}>
+                            <Button disabled={!orderData.procurement_list.list.length} className="" onClick={() => setPage('approve')}>
                                 Next
                             </Button>
                         </div>

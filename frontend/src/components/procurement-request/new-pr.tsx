@@ -55,7 +55,7 @@ export const NewPR = () => {
     const [curItem, setCurItem] = useState<string>('')
     const [curCategory, setCurCategory] = useState<string>('')
     const [unit, setUnit] = useState<string>('')
-    const [quantity, setQuantity] = useState<number>()
+    const [quantity, setQuantity] = useState<number | string>('')
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
@@ -186,9 +186,9 @@ export const NewPR = () => {
                         list: curRequest,
                     },
                 }));
+                setQuantity('');
                 setCurItem('');
                 setUnit('');
-                setQuantity(0);
                 setItem_id('');
                 setMake('');
             }
@@ -294,7 +294,7 @@ export const NewPR = () => {
                 },
             }));
         }
-        setQuantity(0)
+        setQuantity('')
         setCurItem('')
     };
     const handleDelete = (item: string) => {
@@ -306,7 +306,7 @@ export const NewPR = () => {
                 list: curRequest
             }
         }));
-        setQuantity(0)
+        setQuantity('')
         setCurItem('')
     }
 

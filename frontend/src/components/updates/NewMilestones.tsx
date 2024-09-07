@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import Select from "react-select";
 import { Button } from "../ui/button";
 import { Card, CardDescription, CardHeader } from "../ui/card";
-import { ArrowLeft, Check, Construction, FilePenLine, Milestone, Paperclip, X } from "lucide-react";
+import { ArrowLeft, Check, Construction, FilePenLine, Milestone, Paperclip, Pencil, X } from "lucide-react";
 import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
@@ -360,7 +360,11 @@ export default function NewMilestones() {
                                                                                     className="h-10"
                                                                                     onClick={() => setEditingMilestone(milestone.name)}
                                                                                 >
-                                                                                    <FilePenLine className="md:w-8 md:h-8 mr-1 md:mr-2 text-blue-300 hover:text-blue-600 cursor-pointer" />
+                                                                                    <Button className="max-md:p-1 flex items-center justify-center gap-1">
+                                                                                        <p>Update</p>
+                                                                                    {/* <FilePenLine className="md:w-8 md:h-8 mr-1 md:mr-2 text-blue-300 hover:text-blue-600 cursor-pointer" /> */}
+                                                                                    <Pencil className=" w-4 h-4"  />
+                                                                                    </Button>
                                                                                 </button>
                                                                             </div>
                                                                         )}
@@ -377,11 +381,9 @@ export default function NewMilestones() {
                                                                     {milestone.status === "Pending" ? "--" : milestone.status}
                                                                 </div>
                                                             </div> */}
-
-
                                                                     {editingMilestone === milestone.name ? (
                                                                         <>
-                                                                            <div className="flex flex-col gap-4 transition-opacity duration-500 opacity-100">
+                                                                            <div className={`flex flex-col gap-4`}>
                                                                                 {milestone.status_list.list?.map((item) => (
                                                                                     <div key={item.name}>
                                                                                         <div className="font-medium text-[13px] text-[#1D2939]">
@@ -466,7 +468,7 @@ export default function NewMilestones() {
                                                             </Card>
                                                             // ) )) : (<div>No Pending Milestones found</div>)
                                                         ))) : (
-                                                    <div>No Pending Milestones till today for this work package</div>
+                                                    <div>No Pending Milestones as of today for this work package</div>
                                                 )}
                                         </AccordionContent>
                                     </AccordionItem>
