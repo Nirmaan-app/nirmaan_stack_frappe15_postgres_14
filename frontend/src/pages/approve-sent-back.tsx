@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/dialog"
 import { Space, Switch, Table, ConfigProvider, Collapse, Checkbox } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
+import { useToast } from '@/components/ui/use-toast';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -275,6 +277,9 @@ export const ApproveSentBack = () => {
     }
 
 
+    const {toast} = useToast()
+    const [isLoading, setIsLoading] = useState<string | null>(null);
+
     const BATCH_SIZE = 10;
     
     const createDocBatch = async (doctype, docs) => {
@@ -293,131 +298,172 @@ export const ApproveSentBack = () => {
 
     const newHandleApprove =async () => {
 
-        const filteredData = selectedItems?.filter(item => {
-            return item.unit !== null && item.quantity !== null
-        });
-        console.log(filteredData)
-
-        const vendorItems = {};
-        filteredData?.forEach((item) => {
-            if (item.selectedVendor) {
-                if (!vendorItems[item.selectedVendor]) {
-                    vendorItems[item.selectedVendor] = [];
+        try {
+            setIsLoading('newHandleApprove');
+            const filteredData = selectedItems?.filter(item => {
+                return item.unit !== null && item.quantity !== null
+            });
+            console.log(filteredData)
+    
+            const vendorItems = {};
+            filteredData?.forEach((item) => {
+                if (item.selectedVendor) {
+                    if (!vendorItems[item.selectedVendor]) {
+                        vendorItems[item.selectedVendor] = [];
+                    }
+                    // const price = Number(getPrice(item.selectedVendor, item.key))
+                    vendorItems[item.selectedVendor].push({
+                        name: item.key,
+                        quote: Number(item.rate),
+                        quantity: item.quantity,
+                        category: item.category,
+                        tax: item.tax,
+                        unit: item.unit,
+                        item: item.item
+                    });
                 }
-                // const price = Number(getPrice(item.selectedVendor, item.key))
-                vendorItems[item.selectedVendor].push({
-                    name: item.key,
-                    quote: Number(item.rate),
-                    quantity: item.quantity,
-                    category: item.category,
-                    tax: item.tax,
-                    unit: item.unit,
-                    item: item.item
-                });
+    
+            })
+                const docs = Object.entries(vendorItems)?.flatMap(([key, value]) => {
+    
+                const newProcurementOrder = {
+                    procurement_request: orderData.procurement_request,
+                    project: orderData.project,
+                    project_name: getProjectName(orderData.project),
+                    project_address: getProjectAddress(orderData.project),
+                    vendor: getVendorId(key),
+                    vendor_name: key,
+                    vendor_address: getVendorAddress(getVendorId(key)),
+                    vendor_gst: getVendorGST(getVendorId(key)),
+                    order_list: {
+                        list: value
+                    }
+                };
+    
+                return newProcurementOrder
+    
+            });
+    
+            for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+                const batch = docs.slice(i, i + BATCH_SIZE);
+                await createDocBatch('Procurement Orders', batch);
             }
+            const filteredList = orderData.item_list?.list.filter(procItem =>
+                !filteredData.some(setItem => setItem.key === procItem.name)
+            );
 
-        })
-
-        // const createDocPromises = [];
-
-        const docs = Object.entries(vendorItems)?.flatMap(([key, value]) => {
-
-            const newProcurementOrder = {
-                procurement_request: orderData.procurement_request,
-                project: orderData.project,
-                project_name: getProjectName(orderData.project),
-                project_address: getProjectAddress(orderData.project),
-                vendor: getVendorId(key),
-                vendor_name: key,
-                vendor_address: getVendorAddress(getVendorId(key)),
-                vendor_gst: getVendorGST(getVendorId(key)),
-                order_list: {
-                    list: value
+            if(filteredList.length === 0) {
+                await updateDoc('Sent Back Category', id, {
+                    workflow_state: "Approved",
+                })
+            }
+            toast({
+                title: "Success!",
+                description: "PO(s) created Successfully!",
+                variant: "success"
+            });
+    
+            
+    
+            setOrderData(prevOrderData => ({
+                ...prevOrderData,
+                item_list: {
+                    list: filteredList
                 }
-            };
+            }));
 
-            return newProcurementOrder
-
-        });
-
-        for (let i = 0; i < docs.length; i += BATCH_SIZE) {
-            const batch = docs.slice(i, i + BATCH_SIZE);
-            await createDocBatch('Procurement Orders', batch);
+            if(filteredList.length === 0) {
+                navigate("/approve-sent-back")
+            }
+        } catch (error) {
+            console.log("error in newHandleApprove", error)
+            toast({
+                title: "Failed!",
+                description: "Approving Items Failed!",
+                variant: "destructive"
+            });
+        } finally {
+            setIsLoading(null);
         }
-
-        const filteredList = orderData.item_list?.list.filter(procItem =>
-            !filteredData.some(setItem => setItem.key === procItem.name)
-        );
-
-        setOrderData(prevOrderData => ({
-            ...prevOrderData,
-            item_list: {
-                list: filteredList
-            }
-        }));
+        
     }
 
-    const newHandleSentBack = () => {
-        const filteredData = selectedItems?.filter(item => {
-            return item.unit !== null && item.quantity !== null
-        });
-        console.log(filteredData)
-
-        const itemlist = [];
-        filteredData?.map((value) => {
-            // const price = getPrice(value.selectedVendor, value.key);
-            itemlist.push({
-                name: value.key,
-                item: value.item,
-                quantity: value.quantity,
-                quote: value.rate,
-                unit: value.unit,
-                category: value.category
+    const newHandleSentBack =async () => {
+        try {
+            setIsLoading('newHandleSentBack');
+            const filteredData = selectedItems?.filter(item => {
+                return item.unit !== null && item.quantity !== null
+            });
+            console.log(filteredData)
+    
+            const itemlist = [];
+            filteredData?.map((value) => {
+                // const price = getPrice(value.selectedVendor, value.key);
+                itemlist.push({
+                    name: value.key,
+                    item: value.item,
+                    quantity: value.quantity,
+                    quote: value.rate,
+                    unit: value.unit,
+                    category: value.category
+                })
             })
-        })
-
-        const newCategories = [];
-        itemlist?.forEach((item) => {
-            const isDuplicate = newCategories.some(category => category.name === item.category);
-            if (!isDuplicate) {
-                newCategories.push({ name: item.category })
+    
+            const newCategories = [];
+            itemlist?.forEach((item) => {
+                const isDuplicate = newCategories.some(category => category.name === item.category);
+                if (!isDuplicate) {
+                    newCategories.push({ name: item.category })
+                }
+            })
+    
+            const newSendBack = {
+                procurement_request: orderData.procurement_request,
+                project: orderData.project,
+                category_list: {
+                    list: newCategories
+                },
+                item_list: {
+                    list: itemlist
+                },
+                comments: comment,
+                type: "Rejected"
             }
-        })
 
-        const newSendBack = {
-            procurement_request: orderData.procurement_request,
-            project: orderData.project,
-            category_list: {
-                list: newCategories
-            },
-            item_list: {
-                list: itemlist
-            },
-            comments: comment,
-            type: "Rejected"
-        }
-        if (itemlist.length > 0) {
-            createDoc('Sent Back Category', newSendBack)
-                .then(() => {
-                    console.log(newSendBack);
-                    setComment('')
-                })
-                .catch(() => {
-                    console.log("submit_error", submit_error);
-                })
-        }
+            await createDoc("Sent Back Category", newSendBack)
 
-        const filteredList = orderData.item_list?.list.filter(procItem =>
-            !filteredData.some(selItem => selItem.key === procItem.name)
-        );
+            toast({
+                    title: "Success!",
+                    description: "New Sent Back created Successfully!",
+                    variant: "success"
+                });
+    
+            const filteredList = orderData.item_list?.list.filter(procItem =>
+                !filteredData.some(selItem => selItem.key === procItem.name)
+            );
+    
+            setOrderData(prevOrderData => ({
+                ...prevOrderData,
+                item_list: {
+                    list: filteredList
+                }
+            }));
 
-        setOrderData(prevOrderData => ({
-            ...prevOrderData,
-            item_list: {
-                list: filteredList
+            if(filteredData.length === 0) {
+                navigate("/approve-sent-back")
             }
-        }));
-
+        } catch (error) {
+            console.log("error in newHandleSentBack", error)
+            toast({
+                title: "Failed!",
+                description: "Rejecting Items Failed!",
+                variant: "destructive"
+            });
+        } finally {
+            setComment('');
+            setIsLoading(null);
+        }
+        
     }
 
     useEffect(() => {
@@ -436,19 +482,19 @@ export const ApproveSentBack = () => {
         }));
     }, [orderData]);
 
-    useEffect(() => {
-        if (orderData.project && orderData.item_list?.list.length === 0) {
-            updateDoc('Sent Back Category', id, {
-                workflow_state: "Approved",
-            })
-                .then(() => {
-                    console.log("item", id)
-                    navigate("/")
-                }).catch(() => {
-                    console.log("update_submit_error", update_submit_error)
-                })
-        }
-    }, [orderData]);
+    // useEffect(() => {
+    //     if (orderData.project && orderData.item_list?.list.length === 0) {
+    //         updateDoc('Sent Back Category', id, {
+    //             workflow_state: "Approved",
+    //         })
+    //             .then(() => {
+    //                 console.log("item", id)
+    //                 navigate("/")
+    //             }).catch(() => {
+    //                 console.log("update_submit_error", update_submit_error)
+    //             })
+    //     }
+    // }, [orderData]);
 
     const handleSendBack = (cat: string) => {
         if (selectedItem.list?.length > 0) {
@@ -848,7 +894,53 @@ export const ApproveSentBack = () => {
 
             </ConfigProvider>
             {selectedItems?.length > 0 && <div className="text-right space-x-2">
-                <Dialog>
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
+                            {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="sm:max-w-[425px]">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Add Comments and Send Back the Selected Items.
+                                <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
+                                <textarea
+                                    id="textarea"
+                                    className="w-full border rounded-lg p-2"
+                                    value={comment}
+                                    placeholder="Type your comments here"
+                                    onChange={(e) => setComment(e.target.value)}
+                                />
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleSentBack()}>Send Back</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
+                        {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="sm:max-w-[425px]">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Click on Confirm to Approve the Selected Items.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleApprove()}>Approve</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+                {/* <Dialog>
                     <DialogTrigger asChild>
                         <Button className="text-red-500 bg-white border border-red-500 hover:text-white">
                             Send Back
@@ -891,7 +983,7 @@ export const ApproveSentBack = () => {
                             <Button className="text-white bg-red-500" onClick={() => newHandleApprove()}>Approve</Button>
                         </DialogClose>
                     </DialogContent>
-                </Dialog>
+                </Dialog> */}
             </div>}
             </>
         // </MainLayout>
