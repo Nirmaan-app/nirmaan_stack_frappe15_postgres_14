@@ -1,7 +1,7 @@
 import { Card, CardHeader, CardTitle } from "../ui/card";
-import {  useFrappeGetDocList,  useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
-import {  PackagePlus } from "lucide-react";
-import {  useNavigate, useParams } from "react-router-dom";
+import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { PackagePlus } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 
 import { ArrowLeft } from 'lucide-react';
@@ -25,21 +25,25 @@ export const NewPR = () => {
 
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
         {
-            fields: ['work_package_name', "work_package_image"]
+            fields: ['work_package_name', "work_package_image"],
+            orderBy: { field: 'work_package_name', order: 'asc' }
         });
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package', 'image_url', 'tax'],
+            orderBy: { field: 'category_name', order: 'asc' },
             limit: 100
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
-            fields: ['name', 'item_name', 'make_name', 'unit_name', 'category'],
+            fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
+            orderBy: { field: 'creation', order: 'desc' },
             limit: 1000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ['name', 'project_name', 'project_address', 'project_lead', 'procurement_lead']
+            fields: ['name', 'project_name', 'project_address', 'project_lead', 'procurement_lead', 'creation'],
+            orderBy: { field: 'creation', order: 'desc' }
         });
 
     interface Category {
@@ -51,7 +55,7 @@ export const NewPR = () => {
     const [curItem, setCurItem] = useState<string>('')
     const [curCategory, setCurCategory] = useState<string>('')
     const [unit, setUnit] = useState<string>('')
-    const [quantity, setQuantity] = useState<number>()
+    const [quantity, setQuantity] = useState<number | string>('')
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
@@ -65,7 +69,7 @@ export const NewPR = () => {
     };
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
-        setTax(category_list?.find((category) => category.category_name === categoryName ).tax)
+        setTax(category_list?.find((category) => category.category_name === categoryName).tax)
         const isDuplicate = categories.list.some(category => category.name === categoryName);
         if (!isDuplicate) {
             setCategories(prevState => ({
@@ -182,9 +186,9 @@ export const NewPR = () => {
                         list: curRequest,
                     },
                 }));
+                setQuantity('');
                 setCurItem('');
                 setUnit('');
-                setQuantity(0);
                 setItem_id('');
                 setMake('');
             }
@@ -290,7 +294,7 @@ export const NewPR = () => {
                 },
             }));
         }
-        setQuantity(0)
+        setQuantity('')
         setCurItem('')
     };
     const handleDelete = (item: string) => {
@@ -302,7 +306,7 @@ export const NewPR = () => {
                 list: curRequest
             }
         }));
-        setQuantity(0)
+        setQuantity('')
         setCurItem('')
     }
 
@@ -329,7 +333,24 @@ export const NewPR = () => {
             </div>}
             {page == 'categorylist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('wplist')} />
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            <ArrowLeft className="cursor-pointer" />
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[425px]">
+                            <DialogHeader>
+                                <DialogTitle>Reset Order List?</DialogTitle>
+                                <DialogDescription>
+                                    Going back to work package selection will clear your current order list. Are you sure?
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogClose>
+                                <Button onClick={() => setPage('wplist')}>Yes</Button>
+                                <Button variant="secondary" className="ml-3">No</Button>
+                            </DialogClose>
+                        </DialogContent>
+                    </Dialog>
+
                     <h2 className="text-base pl-2 font-bold tracking-tight">Select Category</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
@@ -388,9 +409,9 @@ export const NewPR = () => {
                 <div className="flex justify-between md:space-x-0 mt-2">
                     <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt- pr-1" />Create new item</button></div>
                     {(curItem && quantity) ?
-                        <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button>
+                        <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
                         :
-                        <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8" >Add</Button>}
+                        <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>}
                     {/* <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button> */}
                 </div>
                 <div className="text-xs font-thin text-rose-700">Added Items</div>
@@ -491,9 +512,14 @@ export const NewPR = () => {
                     <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
                 </div>
                 <div className="mb-4">
-                    <div className="flex justify-between">
-                        <div className="text-lg font-bold py-2">Category: {curCategory}</div>
-                        <button onClick={() => setPage("categorylist2")} className="text-blue-500 underline">Change Category</button>
+                    <div className="flex">
+                        <div className="text-lg font-bold py-2">Category: </div>
+                        <button onClick={() => setPage("categorylist2")} className="text-blue-400 underline ml-1">
+                            <div className="flex">
+                                <div className="text-lg font-bold mt-0.5">{curCategory}</div>
+                                <Pencil className="w-4 h-4 md:w-6 md:h-6 ml-1 mt-1.5" />
+                            </div>
+                        </button>
                     </div>
                     <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
                     <Input

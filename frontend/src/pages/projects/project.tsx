@@ -28,6 +28,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
 import { Button } from "@/components/ui/button"
 import { useReactToPrint } from "react-to-print"
+import { formatDate } from "@/utils/FormatDate"
 
 // interface WPN {
 //     name: string
@@ -481,77 +482,81 @@ import { useReactToPrint } from "react-to-print"
 
 
 const Project = () => {
-    const { projectId } = useParams<{ projectId: string }>()
+  const { projectId } = useParams<{ projectId: string }>()
 
-    return (
-        <div>
-            {projectId && <ProjectView projectId={projectId} />}
-        </div>
-    )
+  return (
+    <div>
+      {projectId && <ProjectView projectId={projectId} />}
+    </div>
+  )
 }
 
 export const Component = Project
 
 const ProjectView = ({ projectId }: { projectId: string }) => {
 
-    const {data, isLoading} = useFrappeGetDoc("Projects", projectId, `Projects ${projectId}`, {
-        revalidateIfStale: false
-    })
+  const { data, isLoading } = useFrappeGetDoc("Projects", projectId, `Projects ${projectId}`, {
+    revalidateIfStale: false
+  })
 
-    const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList("Project Work Milestones", {
-                fields: ["*"],
-                filters: [["project", "=", `${projectId}`]],
-                limit: 1000
-        },
-        `Project Work MileStones ${projectId}`,
-        {
-            revalidateIfStale: false
-        }
-    )
+  const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList("Project Work Milestones", {
+    fields: ["*"],
+    filters: [["project", "=", `${projectId}`]],
+    limit: 1000,
+    orderBy: { field: "start_date", order: "asc" }
+  },
+    `Project Work MileStones ${projectId}`,
+    {
+      revalidateIfStale: false
+    }
+  )
 
-        console.log("mile_data", mile_data)
+  const {data: projectCustomer} = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
 
-        console.log("data", data)
+  console.log("customerData", projectCustomer)
+  // console.log("mile_data", mile_data)
 
-    const navigate = useNavigate();
+  // console.log("data", data)
 
-    // const { toast } = useToast()
+  const navigate = useNavigate();
 
-    type ScopesMilestones = {
+  // const { toast } = useToast()
+
+  type ScopesMilestones = {
     work_package: string;
     scope_of_work: string;
     milestone: string;
     start_date: string;
     end_date: string;
     status_list: {
-        list: {
-            name: string;
-            status: string;
-        }[];
+      list: {
+        name: string;
+        status: string;
+      }[];
     };
-    }
+  }
 
   type MenuItem = Required<MenuProps>['items'][number];
 
   const items: MenuItem[] = [
-  {
-    label: 'Overview',
-    key: 'overview',
-  },
-  {
-    label: 'Project Tracking',
-    key: 'projectTracking',
-  },
-  {
-    label: 'Status',
-    key: 'status',
-  },
- ];
+    {
+      label: 'Overview',
+      key: 'overview',
+    },
+    {
+      label: 'Project Tracking',
+      key: 'projectTracking',
+    },
+    {
+      label: 'Status',
+      key: 'status',
+    },
+  ];
 
-const [areaNames, setAreaNames] = useState(null)
+  const [areaNames, setAreaNames] = useState(null)
 
 
-const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
+  const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
     const statusNames = Array.from(
       new Set(
         mile_data.flatMap((row) =>
@@ -560,7 +565,7 @@ const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
       )
     );
     setAreaNames(statusNames)
-  
+
     return statusNames.map((statusName) => ({
       accessorKey: `status_${statusName}`,
       header: ({ column }) => {
@@ -570,11 +575,11 @@ const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
         const statusObj = row.original.status_list.list.find(
           (statusObj) => statusObj.name === statusName
         );
-        return <div className={`text-[#11050599] ${statusObj?.status === "Halted" && "text-[#FF4433]"} ${statusObj?.status === "Completed" && "text-[#17B26A]"}`}>{statusObj?.status || "-"}</div>;
+        return <div className={`text-[#11050599] ${statusObj?.status === "WIP" && "text-yellow-500"} ${statusObj?.status === "Halted" && "text-red-500"} ${statusObj?.status === "Completed" && "text-green-800"}`}>{(statusObj?.status  && statusObj.status !== "Pending") ? statusObj?.status : "--"}</div>;
       },
     }));
   };
-  
+
   const columns: ColumnDef<ScopesMilestones>[] = useMemo(() => {
     const staticColumns: ColumnDef<ScopesMilestones>[] = [
       {
@@ -616,7 +621,7 @@ const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
           return <DataTableColumnHeader className="text-black font-bold" column={column} title="Start Date" />;
         },
         cell: ({ row }) => {
-          return <div className="text-[#11050599]">{row.getValue("start_date")}</div>;
+          return <div className="text-[#11050599]">{formatDate(row.getValue("start_date"))}</div>;
         },
       },
       {
@@ -625,306 +630,491 @@ const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
           return <DataTableColumnHeader className="text-black font-bold" column={column} title="End Date" />;
         },
         cell: ({ row }) => {
-          return <div className="text-[#11050599]">{row.getValue("end_date")}</div>;
+          return <div className="text-[#11050599]">{formatDate(row.getValue("end_date"))}</div>;
         },
       },
     ];
-  
+
     const dynamicColumns = mile_data ? getStatusListColumns(mile_data) : [];
-      return [...staticColumns, ...dynamicColumns];
-    }, [mile_data]);
-   
-   const [current, setCurrent] = useState('overview')
-   
-   const onClick: MenuProps['onClick'] = (e) => {
-      //  console.log('click ', e);
-       setCurrent(e.key);
-     };
+    return [...staticColumns, ...dynamicColumns];
+  }, [mile_data]);
 
-     const today = new Date();
+  const [current, setCurrent] = useState('overview')
 
-    const formattedDate = today.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
-    const componentRef = React.useRef<HTMLDivElement>(null);
-    const handlePrint = useReactToPrint({
-        content: () => {
-            // console.log("Print Report button Clicked");
-            return componentRef.current || null
-        },
-        documentTitle: `${formattedDate}_${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
-    });
-    // const componentRef2 = React.useRef<HTMLDivElement>(null);
-    const handlePrint2 = useReactToPrint({
-        content: () => {
-            // console.log("Print Schedule button Clicked");
-            return componentRef.current || null
-        },
-        documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
-    });
+  const onClick: MenuProps['onClick'] = (e) => {
+    //  console.log('click ', e);
+    setCurrent(e.key);
+  };
 
-   
-   if(isLoading) return <div>Loading...</div>
+  const today = new Date();
 
-return (
-        <div className="flex-1 space-y-4 p-12 pt-8">
-            <div className="flex items-center">
-                <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-                <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.name}</h2>
-                <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
-            </div>
-            <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items}/>
+  const formattedDate = today.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  const componentRef = React.useRef<HTMLDivElement>(null);
+  const handlePrint = useReactToPrint({
+    content: () => {
+      // console.log("Print Report button Clicked");
+      return componentRef.current || null
+    },
+    documentTitle: `${formattedDate}_${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
+  });
+  const componentRef2 = React.useRef<HTMLDivElement>(null);
+  const handlePrint2 = useReactToPrint({
+    content: () => {
+      // console.log("Print Schedule button Clicked");
+      return componentRef2.current || null
+    },
+    documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
+  });
 
-            {/* Overview Section */}
-        {current === "overview" && (
-        <div>
-            <Card>
-                <CardHeader>
-                  <CardTitle>
-                      {data?.name}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <Card className="bg-[#F9FAFB]">
-                      <CardHeader>
-                        <CardContent className="flex max-lg:flex-col max-lg:gap-10">
-                            <div className="space-y-4 lg:w-[50%]">
-                              <CardDescription className="space-y-2">
-                                  <span>Name</span>
-                                  <p className="font-bold text-black">{data?.name}</p>
-                              </CardDescription>
+  const componentRef3 = React.useRef<HTMLDivElement>(null);
+  const handlePrint3 = useReactToPrint({
+    content: () => {
+      // console.log("Print Schedule button Clicked");
+      return componentRef3.current || null
+    },
+    documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${formatDate(new Date())}`
+  });
 
-                              <CardDescription className="space-y-2">
-                                  <span>Start Date & End Date</span>
-                                  <p className="font-bold text-black">{data?.project_start_date} to {data?.project_end_date}</p>
-                              </CardDescription>
+  if (isLoading) return <div>Loading...</div>
 
-                              <CardDescription className="space-y-2">
-                                  <span>Estimated Completion Date</span>
-                                  <p className="font-bold text-black">{data?.project_end_date}</p>
-                              </CardDescription>
-                              <CardDescription className="space-y-2">
-                                  <span>Work Package</span>
-                                  {JSON.parse(data?.project_work_milestones).work_packages?.map((item : any) => (
-                                        <div className=" max-w-[70%] flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
-                                  ))}
-                                  
-                              </CardDescription>
-                              
-                            </div>
-
-                            <div className="space-y-4">
-                              <CardDescription className="space-y-2">
-                                  <span>Location</span>
-                                  <p className="font-bold text-black">{data?.project_city}, {data?.project_state}</p>
-                              </CardDescription>
-
-                              <CardDescription className="space-y-2">
-                                  <span>Area (Sqft)</span>
-                                  <p className="font-bold text-black">placeholder</p>
-                              </CardDescription>
-
-                              <CardDescription className="space-y-2">
-                                  <span>No. of sections in layout</span>
-                                  <p className="font-bold text-black">{data?.subdivisions}</p>
-                              </CardDescription>
-
-                              <CardDescription className="space-y-2">
-                                  <span>Health Score</span>
-                                    <StatusBar currentValue={6} totalValue={10} />
-                              </CardDescription>
-                              
-                            </div>
-                        </CardContent>
-                      </CardHeader>
-                    </Card>
-                </CardContent>
-                
-            </Card>
-        </div>
-        )}
-
-        {current === "projectTracking" && (
-            <div className="pr-2 py-4">
-                <div className="flex gap-4 items-center">
-                  <Button variant="outline" className=" cursor-pointer flex items-center gap-1" 
-                  onClick={() => handlePrint()}
-                  >
-                      Download Report
-                      <Download className="w-4" />
-                  </Button>
-                  <Button variant="outline" className="cursor-pointer flex items-center gap-1" 
-                  onClick={() => handlePrint2()}
-                      >
-                      Download Schedule
-                      <Download className="w-4" />
-                  </Button>
-                </div>
-                {mile_isloading ? (
-                    <TableSkeleton />
-                ) : (
-                    <DataTable columns={columns} data={mile_data || []} />
-                )}
-            </div>
-        )}
-
-        {
-            current === "status" && (
-                <div>Pending....</div>
-            )
-        }
-
-<div className="hidden">
-      <div ref={componentRef} className="px-4 pb-1">
-          <div className="overflow-x-auto">
-              <table className="w-full my-4">
-                  <thead className="w-full">
-                      <tr>
-                          <th colSpan={6} className="p-0">
-                              <div className="mt-1 flex justify-between">
-                                  <div>
-                                      <img className="w-44" src={redlogo} alt="Nirmaan" />
-                                      <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
-                                  </div>
-                              </div>
-                          </th>
-                      </tr>
-                      <tr>
-                          <th colSpan={6} className="p-0">
-                              <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
-                                  <div className="flex justify-between">
-                                      <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
-                                      <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
-                                  </div>
-                              </div>
-                          </th>
-                      </tr>
-                      <tr>
-                          <th colSpan={6} className="p-0">
-                              <div className="grid grid-cols-6 gap-4 justify-between border border-gray-100 rounded-lg px-3 py-1 mb-1">
-                                  <div className="border-0 flex flex-col col-span-2">
-                                      <p className="text-left py-1 font-medium text-xs text-gray-500">Name and address</p>
-                                      <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_name}</p>
-                                      <p className="text-left py-1 font-medium text-xs text-gray-500">Date : {formattedDate}</p>
-                                  </div>
-                                  <div className="border-0 flex flex-col col-span-2">
-                                      <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
-                                      <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_start_date} to {data?.project_end_date}</p>
-                                  </div>
-                                  <div className="border-0 flex flex-col col-span-2">
-                                      <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-                                      <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
-                                  </div>
-                              </div>
-                          </th>
-                      </tr>
-                      <tr>
-                          <th scope="col" className="px-6 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Work Package</th>
-                          <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Scope of Work</th>
-                          <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Milestone</th>
-                          <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Start Date</th>
-                          <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">End Date</th>
-                          {/* <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Status - Common Area</th> */}
-                          {
-                            areaNames?.map((area) => (
-                          <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">{area}</th>
-                            ))
-                          }
-                      </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                      {mile_data?.map((item) => {
-                          return <tr className="">
-                              <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
-                              <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
-                                  {item.scope_of_work}
-                              </td>
-                              <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
-                              <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.start_date}</td>
-                              <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.end_date}</td>
-                              {
-                                item.status_list?.list.map((area) => (
-                              <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{area.status}</td>
-                                ))
-                              }
-                          </tr>
-                      })}
-                  </tbody>
-              </table>
-          </div>
+  return (
+    <div className="flex-1 space-y-4 p-12 pt-8">
+      <div className="flex items-center">
+        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
+        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
+        <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
       </div>
-      {/* <div ref={componentRef2} className="px-4 pb-1">
-          <div className="overflow-x-auto">
-              <table className="w-full">
-                  <thead className="w-full">
-                      <tr>
-                          <th colSpan="5" className="p-0">
-                              <div className="mt-1 flex justify-between">
-                                  <div>
-                                      <img className="w-44" src={redlogo} alt="Nirmaan" />
-                                      <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
-                                  </div>
-                              </div>
-                          </th>
-                      </tr>
-                      <tr>
-                          <th colSpan="5" className="p-0">
-                              <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
-                                  <div className="flex justify-between">
-                                      <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
-                                      <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
-                                  </div>
-                              </div>
-                          </th>
-                      </tr>
-                      <tr>
-                          <th colSpan="5" className="p-0">
-                              <div className="grid grid-cols-6 gap-4 justify-between border border-gray-100 rounded-lg px-3 py-1 mb-1">
-                                  <div className="border-0 flex flex-col col-span-2">
-                                      <p className="text-left py-1 font-medium text-xs text-gray-500">Name and address</p>
-                                      <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_name}</p>
-                                  </div>
-                                  <div className="border-0 flex flex-col col-span-2">
-                                      <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
-                                      <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_start_date} to {data?.project_end_date}</p>
-                                  </div>
-                                  <div className="border-0 flex flex-col col-span-2">
-                                      <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-                                      <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
-                                  </div>
-                              </div>
-                          </th>
-                      </tr>
-                      <tr>
-                          <th scope="col" className="px-6 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Work Package</th>
-                          <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Scope of Work</th>
-                          <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Milestone</th>
-                          <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Start Date</th>
-                          <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">End Date</th>
-                      </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                      {mile_data?.map((item) => {
-                          return <tr className="">
-                              <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
-                              <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
-                                  {item.scope_of_work}
-                              </td>
-                              <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
-                              <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.start_date}</td>
-                              <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.end_date}</td>
-                          </tr>
-                      })}
-                  </tbody>
-              </table>
+      <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
+
+      {/* Overview Section */}
+      {current === "overview" && (
+        <div>
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {data?.project_name}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-10 w-full">
+              {/* <Card className="bg-[#F9FAFB]">
+                      <CardHeader>
+                        <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
+              <div className="flex max-md:flex-col max-md:gap-10">
+              <div className="space-y-4 lg:w-[50%] md:w-[60%]">
+                <CardDescription className="space-y-2">
+                  <span>Project Id</span>
+                  <p className="font-bold text-black">{data?.name}</p>
+                </CardDescription>
+
+                <CardDescription className="space-y-2">
+                  <span>Start Date</span>
+                  <p className="font-bold text-black">{formatDate(data?.project_start_date)}</p>
+                </CardDescription>
+
+                <CardDescription className="space-y-2">
+                  <span>End Date</span>
+                  <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
+                </CardDescription>
+
+                <CardDescription className="space-y-2">
+                  <span>Estimated Completion Date</span>
+                  <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
+                </CardDescription>
+                {/* <CardDescription className="space-y-2">
+                  <span>Work Package</span>
+                  <div className="flex gap-1">
+                  {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
+                    <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
+                  ))}
+                  </div>
+
+                </CardDescription> */}
+
+              </div>
+
+              <div className="space-y-4">
+              <CardDescription className="space-y-2">
+                  <span>Customer</span>
+                  <p className="font-bold text-black">{projectCustomer?.company_name}</p>
+                </CardDescription>
+                <CardDescription className="space-y-2">
+                  <span>Location</span>
+                  <p className="font-bold text-black">{data?.project_city}, {data?.project_state}</p>
+                </CardDescription>
+
+                <CardDescription className="space-y-2">
+                  <span>Area (Sqft)</span>
+                  <p className="font-bold text-black">placeholder</p>
+                </CardDescription>
+
+                <CardDescription className="space-y-2">
+                  <span>No. of sections in layout</span>
+                  <p className="font-bold text-black">{data?.subdivisions}</p>
+                </CardDescription>
+
+                {/* <CardDescription className="space-y-2">
+                  <span>Health Score</span>
+                  <StatusBar currentValue={6} totalValue={10} />
+                </CardDescription> */}
+
+              </div>
+              </div>
+              <div className="space-y-4 w-full">
+              <CardDescription className="space-y-2">
+                  <span>Work Package</span>
+                  <div className="flex gap-1">
+                  {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
+                    <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
+                  ))}
+                  </div>
+
+                </CardDescription>
+                <CardDescription className="space-y-2">
+                  <span>Health Score</span>
+                  <StatusBar currentValue={6} totalValue={10} />
+                </CardDescription>
+                </div>
+            </CardContent>
+            {/* </CardHeader>
+                    </Card>
+                </CardContent> */}
+
+          </Card>
+        </div>
+      )}
+
+      {current === "projectTracking" && (
+        <div className="pr-2 py-4">
+          <div className="flex gap-4 items-center">
+            <Button variant="outline" className=" cursor-pointer flex items-center gap-1"
+              onClick={() => handlePrint()}
+            >
+              Download Report
+              <Download className="w-4" />
+            </Button>
+            <Button variant="outline" className="cursor-pointer flex items-center gap-1"
+              onClick={() => handlePrint2()}
+            >
+              Download Schedule
+              <Download className="w-4" />
+            </Button>
+            <Button variant="outline" className="cursor-pointer flex items-center gap-1"
+              onClick={() => handlePrint3()}
+            >
+              Download Today's Report
+              <Download className="w-4" />
+            </Button>
           </div>
-      </div> */}
+          {mile_isloading ? (
+            <TableSkeleton />
+          ) : (
+            <DataTable columns={columns} data={mile_data || []} />
+          )}
         </div>
-            
+      )}
+
+      {
+        current === "status" && (
+          <div>Pending....</div>
+        )
+      }
+
+      <div className="hidden">
+        <div ref={componentRef} className="px-4 pb-1">
+          <div className="overflow-x-auto">
+            <table className="w-full my-4">
+              <thead className="w-full">
+                <tr>
+                  <th colSpan={5 + areaNames?.length} className="p-0">
+                    <div className="mt-1 flex justify-between">
+                      <div>
+                        <img className="w-44" src={redlogo} alt="Nirmaan" />
+                        <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+                <tr>
+                  <th colSpan={5 + areaNames?.length} className="p-0">
+                    <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
+                      <div className="flex justify-between">
+                        <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                        <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+                <tr>
+                  <th colSpan={5 + areaNames?.length} className="p-0">
+                    <div className="grid grid-cols-6 gap-4 justify-between border border-gray-100 rounded-lg px-3 py-1 mb-1">
+                      <div className="border-0 flex flex-col col-span-2">
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Name and address</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_name}</p>
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Date : {formattedDate}</p>
+                      </div>
+                      <div className="border-0 flex flex-col col-span-2">
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{formatDate(data?.project_start_date)} to {formatDate(data?.project_end_date)}</p>
+                      </div>
+                      <div className="border-0 flex flex-col col-span-2">
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+                <tr>
+                  <th scope="col" className="px-6 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Work Package</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Scope of Work</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Milestone</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Start Date</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">End Date</th>
+                  {/* <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Status - Common Area</th> */}
+                  {
+                    areaNames?.map((area) => (
+                      <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">{area}</th>
+                    ))
+                  }
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {mile_data?.map((item) => {
+                  return <tr className="">
+                    <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
+                    <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
+                      {item.scope_of_work}
+                    </td>
+                    <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
+                    <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{formatDate(item.start_date)}</td>
+                    <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{formatDate(item.end_date)}</td>
+                    {
+                      item.status_list?.list.map((area) => (
+                        <td className={`px-2 py-2 text-sm whitespace-normal border border-gray-100 ${(area.status === "WIP") ? "text-yellow-500" : area.status === "Completed" ? "text-green-800" : area.status === "Halted" ? "text-red-500" : ""}`}>{(area.status && area.status !== "Pending") ? area.status : "--"}</td>
+                      ))
+                    }
+                  </tr>
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-    )
+        <div ref={componentRef2} className="px-4 pb-1">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="w-full">
+                <tr>
+                  <th colSpan={5} className="p-0">
+                    <div className="mt-1 flex justify-between">
+                      <div>
+                        <img className="w-44" src={redlogo} alt="Nirmaan" />
+                        <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+                <tr>
+                  <th colSpan={5} className="p-0">
+                    <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
+                      <div className="flex justify-between">
+                        <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                        <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+                <tr>
+                  <th colSpan={5} className="p-0">
+                    <div className="grid grid-cols-6 gap-4 justify-between border border-gray-100 rounded-lg px-3 py-1 mb-1">
+                      <div className="border-0 flex flex-col col-span-2">
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Name and address</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_name}</p>
+                      </div>
+                      <div className="border-0 flex flex-col col-span-2">
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{formatDate(data?.project_start_date)} to {formatDate(data?.project_end_date)}</p>
+                      </div>
+                      <div className="border-0 flex flex-col col-span-2">
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+                <tr>
+                  <th scope="col" className="px-6 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Work Package</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Scope of Work</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Milestone</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Start Date</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">End Date</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {mile_data?.map((item) => {
+                  return <tr className="">
+                    <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
+                    <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
+                      {item.scope_of_work}
+                    </td>
+                    <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
+                    <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{formatDate(item.start_date)}</td>
+                    <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{formatDate(item.end_date)}</td>
+                  </tr>
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div ref={componentRef3} className="px-4 pb-1">
+          <div className="overflow-x-auto">
+            <table className="w-full my-4">
+              <thead className="w-full">
+                <tr>
+                  <th colSpan={6 + areaNames?.length} className="p-0">
+                    <div className="mt-1 flex justify-between">
+                      <div>
+                        <img className="w-44" src={redlogo} alt="Nirmaan" />
+                        <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+                <tr>
+                  <th colSpan={6 + areaNames?.length} className="p-0">
+                    <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
+                      <div className="flex justify-between">
+                        <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                        <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+                <tr>
+                  <th colSpan={6 + areaNames?.length} className="p-0">
+                    <div className="grid grid-cols-6 gap-4 justify-between border border-gray-100 rounded-lg px-3 py-1 mb-1">
+                      <div className="border-0 flex flex-col col-span-2">
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Name and address</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_name}</p>
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Date : {formattedDate}</p>
+                      </div>
+                      <div className="border-0 flex flex-col col-span-2">
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{formatDate(data?.project_start_date)} to {formatDate(data?.project_end_date)}</p>
+                      </div>
+                      <div className="border-0 flex flex-col col-span-2">
+                        <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+                <tr>
+                  <th scope="col" className="px-6 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Work Package</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Scope of Work</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Milestone</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Start Date</th>
+                  <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">End Date</th>
+                  {/* <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Status - Common Area</th> */}
+                  {
+                    areaNames?.map((area) => (
+                      <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">{area}</th>
+                    ))
+                  }
+                </tr>
+              </thead>
+              {/* <tbody className="bg-white divide-y divide-gray-200">
+                {mile_data?.map((item) => {
+                  console.log("item", item)
+                  const today = new Date().toISOString().split("T")[0];
+                  const modifiedDate = new Date(item.modified).toISOString().split("T")[0];
+                  if(modifiedDate === today) {
+                  return <tr className="">
+                    <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
+                    <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
+                      {item.scope_of_work}
+                    </td>
+                    <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
+                    <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{formatDate(item.start_date)}</td>
+                    <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{formatDate(item.end_date)}</td>
+                    {
+                      item.status_list?.list.map((area) => (
+                        <td className={`px-2 py-2 text-sm whitespace-normal border border-gray-100 ${(area.status === "WIP") ? "text-yellow-500" : area.status === "Completed" ? "text-green-800" : area.status === "Halted" ? "text-red-500" : ""}`}>{(area.status && area.status !== "Pending") ? area.status : "--"}</td>
+                      ))
+                    }
+                  </tr>
+                  } else {
+                    return <div>No milestones updated for today yet</div>
+                  }
+                })}
+              </tbody> */}
+              <tbody className="bg-white divide-y divide-gray-200">
+              {mile_data?.filter(item => {
+                const today = new Date().toISOString().split("T")[0];
+                const modifiedDate = new Date(item.modified).toISOString().split("T")[0];
+                const equal = item.modified !== item.creation
+                return modifiedDate === today && equal;
+              }).length > 0 ? (
+                mile_data.map((item, index) => {
+                  const today = new Date().toISOString().split("T")[0];
+                  const modifiedDate = new Date(item.modified).toISOString().split("T")[0];
+                  if (modifiedDate === today) {
+                    return (
+                      <tr key={index}>
+                        <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">
+                          {item.work_package}
+                        </td>
+                        <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
+                          {item.scope_of_work}
+                        </td>
+                        <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
+                          {item.milestone}
+                        </td>
+                        <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">
+                          {formatDate(item.start_date)}
+                        </td>
+                        <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">
+                          {formatDate(item.end_date)}
+                        </td>
+                        {item.status_list?.list.map((area, areaIndex) => (
+                          <td
+                            key={areaIndex}
+                            className={`px-2 py-2 text-sm whitespace-normal border border-gray-100 ${
+                              area.status === "WIP"
+                                ? "text-yellow-500"
+                                : area.status === "Completed"
+                                ? "text-green-800"
+                                : area.status === "Halted"
+                                ? "text-red-500"
+                                : ""
+                            }`}
+                          >
+                            {area.status && area.status !== "Pending" ? area.status : "--"}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  }
+                  return null;
+                })
+              ) : (
+                <tr>
+                  <td colSpan="6" className="text-center py-4">
+                    No milestones updated for today yet
+                  </td>
+                </tr>
+              )}
+            </tbody>
+
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  )
 
 }
 

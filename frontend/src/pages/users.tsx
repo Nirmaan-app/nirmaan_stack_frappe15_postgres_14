@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import { formatDate } from "@/utils/FormatDate";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowLeft, Building2, CirclePlus } from "lucide-react";
@@ -102,7 +103,7 @@ export default function Users() {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("creation")?.split(" ")[0]}
+                            {formatDate(row.getValue("creation")?.split(" ")[0])}
                         </div>
                     )
                 }

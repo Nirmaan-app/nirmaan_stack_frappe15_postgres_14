@@ -17,21 +17,6 @@
  {
   "docstatus": 0,
   "doctype": "Role Profile",
-  "modified": "2024-04-13 21:22:56.933490",
-  "name": "Nirmaan Project Manager Profile",
-  "role_profile": "Nirmaan Project Manager Profile",
-  "roles": [
-   {
-    "parent": "Nirmaan Project Manager Profile",
-    "parentfield": "roles",
-    "parenttype": "Role Profile",
-    "role": "Nirmaan Project Manager"
-   }
-  ]
- },
- {
-  "docstatus": 0,
-  "doctype": "Role Profile",
   "modified": "2024-04-13 21:22:33.065316",
   "name": "Nirmaan Project Lead Profile",
   "role_profile": "Nirmaan Project Lead Profile",
@@ -98,6 +83,21 @@
     "parentfield": "roles",
     "parenttype": "Role Profile",
     "role": "System Manager"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2024-04-13 21:22:56.933490",
+  "name": "Nirmaan Project Manager Profile",
+  "role_profile": "Nirmaan Project Manager Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Project Manager Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Project Manager"
    }
   ]
  },

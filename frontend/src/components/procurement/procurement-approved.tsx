@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
+import { formatDate } from "@/utils/FormatDate";
 
 
 type PRTable = {
@@ -80,7 +81,7 @@ export const PRList = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("creation")?.split(" ")[0]}
+                            {formatDate(row.getValue("creation")?.split(" ")[0])}
                         </div>
                     )
                 }
@@ -135,7 +136,7 @@ export const PRList = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="max-w-fit gap-0.5 grid grid-cols-2">
+                        <div className="flex flex-col gap-1 items-center justify-center">
                             {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )

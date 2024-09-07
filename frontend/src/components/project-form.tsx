@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, useSWR } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, useSWR } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "./ui/form"
@@ -7,7 +7,7 @@ import { Input } from "./ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
 import { Button } from "./ui/button"
 import { ButtonLoading } from "./button-loading"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
 import ProjectTypeForm from "./project-type-form"
 import CustomerForm from "./customer-form"
 import { Separator } from "./ui/separator"
@@ -22,6 +22,8 @@ import { Checkbox } from "./ui/checkbox"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet"
 import { useNavigate } from "react-router-dom"
 import { useState } from "react"
+import { formatToLocalDateTimeString } from "@/utils/FormatDate"
+import { useToast } from "./ui/use-toast"
 
 
 // 1.a Create Form Schema accordingly
@@ -32,26 +34,24 @@ const projectFormSchema = z.object({
                 required_error: "Must Provide Project name"
             })
         .min(6, {
-            message: "Employee Name must be at least 6 characters.",
+            message: "Employee Name must be at least 6 characters",
         }),
     customer: z
         .string({
-            //required_error: "Please select associated customer."
+            required_error: "Please select associated customer"
         }),
     project_type: z
-        .string({
-            //required_error: "Please select Project Type"
-        }),
+        .string()
+        .optional(),
     subdivisions: z
-        .string({
-            //required_error: "Please select Sub-Divisions"
-        }),
+        .string(),
     address_line_1: z
         .string({
             required_error: "Address Required"
         }),
     address_line_2: z
-        .string(),
+        .string()
+        .optional(),
     project_city: z
         .string({
             required_error: "Must provide city"
@@ -61,45 +61,44 @@ const projectFormSchema = z.object({
             required_error: "Must provide state"
         }),
     pin: z
-        .number({
-            required_error: "Must provide pincode"
-        })
+        .number()
         .positive()
         .gte(100000)
-        .lte(999999),
+        .lte(999999)
+        .or(z.string()).optional()
+        ,
     email: z
         .string()
-        .email(),
+        .email()
+        .optional(),
     phone: z
-        .number({
-            required_error: "Must provide contact"
-        })
+        .number()
         .positive()
         .gte(1000000000)
-        .lte(9999999999),
+        .lte(9999999999)
+        .or(z.string())
+        .optional(),
     project_start_date: z
         .date({
-            //required_error: "A start date is required.",
+            required_error: "Project must have a start date"
         }),
     project_end_date: z
-        .date({
-            //required_error: "An end date is required.",
-        }),
+        .date()
+        .optional(),
     project_lead: z
         .string({
-            //required_error: "Please select Project Lead"
+            required_error: "Project must have a Project Lead"
         }),
     project_manager: z
         .string({
-            //required_error: "Please select Project Manager"
+            required_error: "Project must have a Project Manager"
         }),
     design_lead: z
-        .string({
-            //required_error: "Please select Design Lead"
-        }),
+        .string()
+        .optional(),
     procurement_lead: z
         .string({
-            //required_error: "Please select Procurement Lead"
+            required_error: "Project must have a Procurement Lead"
         }),
     project_work_milestones: z
         .object({
@@ -180,24 +179,40 @@ export const ProjectForm = () => {
             limit: 100,
         });
 
-    const valueChange = (e) => {
-        console.log(e);
-    }
+    // const valueChange = (e) => {
+    //     console.log(e);
+    // }
+
+    const defaultValues: ProjectFormValues = {
+        project_name: "",
+        project_start_date: new Date(),
+        project_end_date: new Date(),
+        project_work_milestones: {
+            work_packages: []
+        },
+        project_scopes: {
+            scopes: []
+        },
+        address_line_1: "",
+        address_line_2: "",
+        project_city: "",
+        project_state: "",
+        pin: "",
+        email: "",
+        phone: "",
+        customer: "",
+        project_type: "",
+        project_lead: "",
+        procurement_lead: "",
+        design_lead: "",
+        project_manager: "",
+        subdivisions: "",
+    };
 
     const form = useForm<ProjectFormValues>({
         resolver: zodResolver(projectFormSchema),
-        mode: "onChange",
-        defaultValues: {
-            project_name: "",
-            project_start_date: new Date(),
-            project_end_date: new Date(),
-            project_work_milestones: {
-                work_packages: []
-            },
-            project_scopes: {
-                scopes: []
-            },
-        },
+        mode: "onBlur",
+        defaultValues
     })
     const { data: company, isLoading: company_isLoading, error: company_error, mutate: company_mutate } = useFrappeGetDocList('Customers', {
         fields: ["name", "company_name"]
@@ -275,6 +290,7 @@ export const ProjectForm = () => {
     // });
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const {deleteDoc} = useFrappeDeleteDoc()
 
 
     // const handleCheckboxChange = (item: WorkPackages) => {
@@ -295,48 +311,130 @@ export const ProjectForm = () => {
     // 2. Define a submit handler.
     const [areaNames, setAreaNames] = useState([]);
 
-    function onSubmit(values: z.infer<typeof projectFormSchema>) {
-        // Do something with the form values.
-        // ✅ This will be type-safe and validated.
-        const formatted_start_date = values.project_start_date.toISOString().replace('T', ' ').slice(0, 19)
-        const formatted_end_date = values.project_end_date.toISOString().replace('T', ' ').slice(0, 19)
-        //const scopes = values.project_scopes.toString()
-        //const formatted_project_milestone = values.project_work_milestones.
-        createDoc('Address', {
-            address_title: values.project_name,
-            address_type: "Shipping",
-            address_line1: values.address_line_1,
-            address_line2: values.address_line_2,
-            city: values.project_city,
-            state: values.project_state,
-            country: "India",
-            pincode: values.pin,
-            email_id: values.email,
-            phone: values.phone
-        }).then(doc => {
-            createDoc('Projects', {
-                project_name: values.project_name,
+
+    // function onSubmit(values: z.infer<typeof projectFormSchema>) {
+    //     // Do something with the form values.
+    //     // ✅ This will be type-safe and validated.
+    //     // console.log("values", values)
+    //     const formatted_start_date = formatToLocalDateTimeString(values.project_start_date)
+    //     const formatted_end_date = formatToLocalDateTimeString(values.project_end_date)
+
+    //     // console.log("formatedd dtes", formatted_start_date, formatted_end_date)
+    //     //const scopes = values.project_scopes.toString()
+    //     //const formatted_project_milestone = values.project_work_milestones.
+    //     createDoc('Address', {
+    //         address_title: values.project_name,
+    //         address_type: "Shipping",
+    //         address_line1: values.address_line_1,
+    //         address_line2: values.address_line_2,
+    //         city: values.project_city,
+    //         state: values.project_state,
+    //         country: "India",
+    //         pincode: values.pin,
+    //         email_id: values.email,
+    //         phone: values.phone
+    //     }).then(doc => {
+    //         createDoc('Projects', {
+    //             project_name: values.project_name,
+    //             customer: values.customer,
+    //             project_type: values.project_type,
+    //             project_start_date: formatted_start_date,
+    //             project_end_date: formatted_end_date,
+    //             project_address: doc.name,
+    //             project_city: values.project_city,
+    //             project_state: values.project_state,
+    //             project_lead: values.project_lead,
+    //             procurement_lead: values.procurement_lead,
+    //             design_lead: values.design_lead,
+    //             project_manager: values.project_manager,
+    //             project_work_milestones: values.project_work_milestones,
+    //             project_scopes: values.project_scopes,
+    //             subdivisions: values.subdivisions,
+    //             subdivision_list: {
+    //                 list: areaNames
+    //             }
+    //         }).then((doc) => console.log(doc)).catch((error) => console.log("projects error", error))
+    //     }).catch((error) => {
+    //         console.log("address error", error)
+    //     })
+
+
+    const handleOpenDialog = () => {
+        const button = document.getElementById("dialogOpenProject")
+        button?.click()
+    };
+
+    const handleCloseDialog = () => {
+        const button = document.getElementById("dialogCloseProject")
+        button?.click()
+    };
+
+    const {toast} = useToast()
+    async function onSubmit(values: z.infer<typeof projectFormSchema>) {
+        try {
+            // Format the dates
+            const formatted_start_date = formatToLocalDateTimeString(values.project_start_date);
+            const formatted_end_date = formatToLocalDateTimeString(values.project_end_date);
+        
+                // Create the address document
+                const addressDoc = await createDoc('Address', {
+                    address_title: values.project_name,
+                address_type: "Shipping",
+                address_line1: values.address_line_1,
+                address_line2: values.address_line_2,
+                city: values.project_city,
+                state: values.project_state,
+                country: "India",
+                pincode: values.pin,
+                email_id: values.email,
+                phone: values.phone
+            });
+        
+            try {
+                // Create the project document using the address document reference
+                const projectDoc = await createDoc('Projects', {
+                    project_name: values.project_name,
                 customer: values.customer,
                 project_type: values.project_type,
                 project_start_date: formatted_start_date,
                 project_end_date: formatted_end_date,
-                project_address: doc.name,
+                project_address: addressDoc.name,
                 project_city: values.project_city,
                 project_state: values.project_state,
                 project_lead: values.project_lead,
                 procurement_lead: values.procurement_lead,
                 design_lead: values.design_lead,
                 project_manager: values.project_manager,
-                project_work_milestones: JSON.stringify(values.project_work_milestones),
-                project_scopes: JSON.stringify(values.project_scopes),
+                project_work_milestones: values.project_work_milestones,
+                project_scopes: values.project_scopes,
                 subdivisions: values.subdivisions,
                 subdivision_list: {
-                    list: JSON.stringify(areaNames)
+                    list: areaNames
                 }
-            }).then((doc) => console.log(doc)).catch(() => console.log(submit_error))
-        }).catch(() => {
-            console.log(submit_error)
-        })
+            });
+
+            console.log("project", projectDoc)
+            toast({
+                title: "Success!",
+                description: `Project ${projectDoc.project_name} created successfully!`,
+                variant: "success"
+            })
+            handleOpenDialog()
+
+        }
+            catch (projectError) {
+                await deleteDoc('Address', addressDoc.name);
+                throw projectError; 
+            }
+        } catch (error) {
+            toast({
+                title: "Failed!",
+                description: `${error?.message}`,
+                variant: "destructive"
+            })
+            console.log("Error:", error);
+    }
+
 
         // if (!mile_loading && !mile_error) {
         //     console.log("scopes", values.project_scopes.scopes)
@@ -427,12 +525,7 @@ export const ProjectForm = () => {
         return <div>{error?.message}</div>;
     }
 
-    const handleRedirect = () => {
-        navigate("/projects")
-    }
-
     const handleSubdivisionChange = (e) => {
-        console.log("e",e)
         let n = e;
         setAreaNames(Array.from({ length: Number(n) }, (_, i) => ({
             name: `Area ${i + 1}`,
@@ -445,7 +538,6 @@ export const ProjectForm = () => {
         newAreaNames[index].name = event.target.value;
         setAreaNames(newAreaNames);
     }
-    console.log(form.getValues(),areaNames)
 
     return (
         <Form {...form}>
@@ -472,7 +564,7 @@ export const ProjectForm = () => {
                                     </div>
                                     <div className="md:basis-1/2 pl-10 pt-2">
                                         <FormDescription>
-                                            Example: CUSTOMER+LOACTION
+                                            Example: CUSTOMER+LOCATION
                                         </FormDescription>
                                     </div>
 
@@ -979,7 +1071,7 @@ export const ProjectForm = () => {
                                                     >
                                                         {field.value ? (
 
-                                                            format(field.value, "yyyy-MMM-dd")
+                                                            format(field.value, "dd-MM-yyyy")
                                                         ) : (
                                                             <span>Pick a date</span>
                                                         )}
@@ -1036,7 +1128,7 @@ export const ProjectForm = () => {
                                                     >
                                                         {field.value ? (
 
-                                                            format(field.value, "yyyy-MMM-dd")
+                                                            format(field.value, "dd-MM-yyyy")
                                                         ) : (
                                                             <span>Pick a date</span>
                                                         )}
@@ -1295,7 +1387,7 @@ export const ProjectForm = () => {
                                             form.setValue(("project_scopes.scopes"), [])
                                             form.setValue(("project_work_milestones.work_packages"), [])
                                         }
-                                        console.log(form.getValues())
+                                        // console.log(form.getValues())
                                     }}
 
                                 /> <span className="text-sm text-red-600 font-bold">Select All</span>
@@ -1334,7 +1426,7 @@ export const ProjectForm = () => {
                                                                                 form.setValue(("project_scopes.scopes"), filteredSow)
 
                                                                             }
-                                                                            console.log(form.getValues());
+                                                                            // console.log(form.getValues());
                                                                             return checked
                                                                                 ? field.onChange([...field.value, { work_package_name: item.work_package_name }])
                                                                                 : field.onChange(
@@ -1510,17 +1602,38 @@ export const ProjectForm = () => {
                     <div className="pt-2 pb-2 ">
                         {(loading) ?
                             <ButtonLoading />
-                            : (submit_complete) ?
-                                <Button onClick={() => handleRedirect()}>Go Back</Button>
-                                : <Button type="submit">Submit</Button>}
+                            : <Button type="submit">Submit</Button>
+                        }
                     </div>
-                    <div>
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            <button className="hidden" id="dialogOpenProject" >Trigger Dialog</button>
+                        </DialogTrigger>
+                        <DialogContent>
+                            <DialogHeader className="flex items-center justify-center">
+                                <div className="flex gap-2">
+                                    <Button onClick={() => navigate("/projects")}>Go Back</Button>
+                                    <Button onClick={() => {
+                                        form.reset();
+                                        handleCloseDialog();
+                                    }}>
+                                        Create New
+                                    </Button>
+                                </div>
+                            </DialogHeader>
+                            <DialogClose asChild>
+                            <button className="hidden" id="dialogCloseProject">close</button>
+                        </DialogClose>
+                        </DialogContent>
+                        
+                    </Dialog>
+                    {/* <div>
                         {submit_complete &&
                             <div>
                                 <div className="font-semibold text-green-500"> Submitted successfully</div>
                             </div>
                         }
-                    </div>
+                    </div> */}
                 </div>
             </form >
         </Form >

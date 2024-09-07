@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { formatDate } from "@/utils/FormatDate";
 
 export function ItemComponent({ item_id }) {
     const { data: item_data, isLoading: item_loading, error: item_error } = useFrappeGetDoc("Items", item_id);
@@ -80,7 +81,7 @@ export default function Items() {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("creation")?.split(" ")[0]}
+                            {formatDate(row.getValue("creation")?.split(" ")[0])}
                         </div>
                     )
                 }

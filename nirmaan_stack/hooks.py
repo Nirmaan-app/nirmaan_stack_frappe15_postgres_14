@@ -2,8 +2,8 @@ from . import __version__ as app_version
 
 app_name = "nirmaan_stack"
 app_title = "Nirmaan Stack"
-app_publisher = "Abhishek"
-app_description = "A fully fledged commercial project management stack."
+app_publisher = "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)"
+app_description = "A fully fledged commercial construction project management stack."
 app_email = "techadmin@nirmaan.app"
 app_license = "mit"
 # required_apps = []
@@ -130,6 +130,9 @@ doc_events = {
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.on_user_update",
 		"on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
 	},
+    "User Permission": {
+        "after_insert": "nirmaan_stack.integrations.controllers.user_permission.after_insert"
+    },
     "Projects": {
         "after_insert": [
             "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm",

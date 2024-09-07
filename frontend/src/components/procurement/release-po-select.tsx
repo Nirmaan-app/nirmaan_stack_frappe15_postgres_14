@@ -15,6 +15,7 @@ import React from 'react';
 import { BadgeIndianRupee } from 'lucide-react';
 import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
+import { formatDate } from "@/utils/FormatDate";
 
 
 type PRTable = {
@@ -123,7 +124,7 @@ export const ReleasePOSelect = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("creation")?.split(" ")[0]}
+                            {formatDate(row.getValue("creation")?.split(" ")[0])}
                         </div>
                     )
                 }

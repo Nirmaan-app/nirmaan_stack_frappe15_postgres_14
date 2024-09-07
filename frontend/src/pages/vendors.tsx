@@ -10,6 +10,7 @@ import { Link } from "react-router-dom";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { TailSpin } from "react-loader-spinner";
+import { formatDate } from "@/utils/FormatDate";
 
 export default function Vendors() {
 
@@ -57,7 +58,7 @@ export default function Vendors() {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("creation")?.split(" ")[0]}
+                            {formatDate(row.getValue("creation")?.split(" ")[0])}
                         </div>
                     )
                 }
@@ -86,8 +87,8 @@ export default function Vendors() {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="font-medium">
-                            {row.getValue("vendor_email")}
+                        <div className="font-medium flex items-center justify-center">
+                            {row.getValue("vendor_email") || "--"}
                         </div>
                     )
                 }
