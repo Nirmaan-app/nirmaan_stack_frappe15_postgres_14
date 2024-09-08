@@ -19,11 +19,19 @@ class Projects(Document):
 	
 def generateUserPermissions(project, method=None):
 	user_permissions = set()
-	user_permissions = {project.project_lead, project.procurement_lead, project.design_lead, project.project_manager}
-	for user in user_permissions:
-		doc = frappe.new_doc("User Permission")
-		doc.user = user
-		doc.allow = "Projects"
-		doc.for_value = project.name
-		doc.insert(ignore_permissions=True)
+	if(project.project_lead!=""):
+		user_permissions.add(project.project_lead)
+	if(project.procurement_lead!=""):
+		user_permissions.add(project.procurement_lead)
+	if(project.design_lead!=""):
+		user_permissions.add(project.design_lead)
+	if(project.project_manager!=""):	
+		user_permissions.add(project.project_manager)	
+	if(len(user_permissions)!=0):
+		for user in user_permissions:
+			doc = frappe.new_doc("User Permission")
+			doc.user = user
+			doc.allow = "Projects"
+			doc.for_value = project.name
+			doc.insert(ignore_permissions=True)
 		

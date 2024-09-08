@@ -11,13 +11,15 @@ import {
     DialogHeader,
     DialogTitle,
     DialogTrigger,
-    DialogClose
+    DialogClose,
+    DialogFooter
 } from "@/components/ui/dialog"
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Table as ReactTable } from "@/components/ui/table";
 import {  Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import { useToast } from '@/components/ui/use-toast';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
 interface DataType {
@@ -136,8 +138,8 @@ export const ApproveVendor = () => {
             limit: 1000
         });
 
-    const { createDoc: createDoc, error: submit_error } = useFrappeCreateDoc()
-    const { updateDoc: updateDoc, error: update_submit_error } = useFrappeUpdateDoc()
+    const { createDoc: createDoc, loading: createLoading } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc, loading: updateLoading } = useFrappeUpdateDoc()
 
     const [page, setPage] = useState<string>('approvequotation')
     const [orderData, setOrderData] = useState({
@@ -338,52 +340,52 @@ export const ApproveVendor = () => {
     // console.log("orderData", orderData)
     // console.log("selectedItems", selectedItems)
 
-const BATCH_SIZE = 10; // Adjust the batch size based on your needs
+    const BATCH_SIZE = 10; // Adjust the batch size based on your needs
 
-const createDocBatch = async (doctype, docs) => {
-    const results = [];
-    for (const doc of docs) {
-        try {
-            await createDoc(doctype, doc);
-            results.push(doc);
-        } catch (error) {
-            console.error("Error creating document", error);
-        }
-    }
-    return results;
-};
-
-const {toast} = useToast()
-
-    const newHandleApprove = async () => {
-        // TODO: Add Quotation request state change to approved 
-        const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
-    
-        // Group items by vendor
-        const vendorItems = {};
-        filteredData?.forEach((item) => {
-            const currentVendor =  selectedVendors[item.key]
-            if (currentVendor) {
-                if (!vendorItems[currentVendor]) {
-                    vendorItems[currentVendor] = [];
-                }
-                const price = Number(getPrice(selectedVendors[item.key], item.key));
-
-                vendorItems[currentVendor].push({
-                    name: item.key,
-                    quote: price,
-                    quantity: item.quantity,
-                    unit: item.unit,
-                    item: item.item,
-                    category: item.category,
-                    tax: item.tax
-                });
+    const createDocBatch = async (doctype, docs) => {
+        const results = [];
+        for (const doc of docs) {
+            try {
+                await createDoc(doctype, doc);
+                results.push(doc);
+            } catch (error) {
+                console.error("Error creating document", error);
             }
-        });
+        }
+        return results;
+    };
     
-        // Flatten the documents into a single array
-        const docs = Object.entries(vendorItems).flatMap(([key, value]) => {
-            const newProcurementOrder = {
+    const { toast } = useToast();
+    const [isLoading, setIsLoading] = useState<string | null>(null);
+    
+    const newHandleApprove = async () => {
+        try {
+            setIsLoading('newHandleApprove');
+    
+            // Filter and group items by vendor
+            const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
+            const vendorItems = {};
+            filteredData?.forEach((item) => {
+                const currentVendor = selectedVendors[item.key];
+                if (currentVendor) {
+                    if (!vendorItems[currentVendor]) {
+                        vendorItems[currentVendor] = [];
+                    }
+                    const price = Number(getPrice(selectedVendors[item.key], item.key));
+                    vendorItems[currentVendor].push({
+                        name: item.key,
+                        quote: price,
+                        quantity: item.quantity,
+                        unit: item.unit,
+                        item: item.item,
+                        category: item.category,
+                        tax: item.tax
+                    });
+                }
+            });
+    
+            // Flatten the documents into a single array
+            const docs = Object.entries(vendorItems).map(([key, value]) => ({
                 procurement_request: orderId,
                 project: orderData.project,
                 project_name: getProjectName(orderData.project),
@@ -392,146 +394,149 @@ const {toast} = useToast()
                 vendor_name: getVendorName(key),
                 vendor_address: getVendorAddress(key),
                 vendor_gst: getVendorGST(key),
-                order_list: {
-                    list: value
-                }
-            };
-            return newProcurementOrder;
-        });
+                order_list: { list: value }
+            }));
     
-        // Process documents in batches
-        for (let i = 0; i < docs.length; i += BATCH_SIZE) {
-            const batch = docs.slice(i, i + BATCH_SIZE);
-            await createDocBatch('Procurement Orders', batch);
-        }
-    
-        const currentState = procurement_request_list?.[0]?.workflow_state;
-        const allItemsApproved = filteredData.length === orderData.procurement_list.list.length;
-        let newWorkflowState = currentState;
-    
-        if (currentState === "Vendor Selected") {
-            newWorkflowState = allItemsApproved ? "Vendor Approved" : "Partially Approved";
-        }
-    
-        // Update item statuses to "Approved"
-        const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map(item => {
-            if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
-                return { ...item, status: "Approved" };
+            // Process documents in batches
+            for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+                const batch = docs.slice(i, i + BATCH_SIZE);
+                await createDocBatch('Procurement Orders', batch);
             }
-            return item;
-        });
-
-        const filteredList = orderData.procurement_list?.list.filter(item =>
-            !filteredData.some(selectedItem => selectedItem.key === item.name)
-        );
     
-        // Update the procurement request document
-        await updateDoc('Procurement Requests', orderId, {
-            procurement_list: { list: updatedProcurementList },
-            workflow_state: newWorkflowState
-        }).then(() => {
+            // Update item statuses and workflow state
+            const currentState = procurement_request_list?.[0]?.workflow_state;
+            const allItemsApproved = filteredData.length === orderData.procurement_list.list.length;
+            const newWorkflowState = currentState === "Vendor Selected"
+                ? allItemsApproved ? "Vendor Approved" : "Partially Approved"
+                : currentState;
+    
+            const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map(item => {
+                if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
+                    return { ...item, status: "Approved" };
+                }
+                return item;
+            });
+    
+            const filteredList = orderData.procurement_list?.list.filter(item =>
+                !filteredData.some(selectedItem => selectedItem.key === item.name)
+            );
+    
+            await updateDoc('Procurement Requests', orderId, {
+                procurement_list: { list: updatedProcurementList },
+                workflow_state: newWorkflowState
+            });
+    
             toast({
-                title : "Success!",
+                title: "Success!",
                 description: "New PO created Successfully!",
                 variant: "success"
-            })
-        }).catch((error) => console.log("update_error", error));
-
-        if(filteredList.length === 0 ) {
-            navigate('/approve-vendor')
-        }
+            });
     
-        // Update state
-        setOrderData(prevOrderData => ({
-            ...prevOrderData,
-            procurement_list: { list: filteredList }
-        }));
-
+            // Update state and navigate if all items are processed
+            setOrderData(prevOrderData => ({
+                ...prevOrderData,
+                procurement_list: { list: filteredList }
+            }));
+    
+            if (filteredList.length === 0) {
+                navigate('/approve-vendor');
+            }
+        } catch (error) {
+            console.error("Error approving vendor:", error);
+            toast({
+                title: "Failed!",
+                description: "Approving Vendor Failed!",
+                variant: "destructive"
+            });
+        } finally {
+            setIsLoading(null);
+        }
     };
     
     const newHandleSentBack = async () => {
-
-        const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
+        try {
+            setIsLoading('newHandleSentBack');
     
-        const itemlist = filteredData.map(value => {
-            const price = getPrice(selectedVendors[value.key], value.key);
-            return {
-                name: value.key,
-                item: value.item,
-                quantity: value.quantity,
-                tax: Number(value.tax),
-                quote: price,
-                unit: value.unit,
-                category: value.category
+            const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
+            const itemlist = filteredData.map(value => {
+                const price = getPrice(selectedVendors[value.key], value.key);
+                return {
+                    name: value.key,
+                    item: value.item,
+                    quantity: value.quantity,
+                    tax: Number(value.tax),
+                    quote: price,
+                    unit: value.unit,
+                    category: value.category
+                };
+            });
+    
+            const newCategories = Array.from(new Set(itemlist.map(item => item.category)))
+                .map(name => ({ name }));
+    
+            const newSendBack = {
+                procurement_request: orderId,
+                project: orderData.project,
+                category_list: { list: newCategories },
+                item_list: { list: itemlist },
+                comments: comment,
+                type: "Rejected"
             };
-        });
     
-        const newCategories = Array.from(new Set(itemlist.map(item => item.category)))
-            .map(name => ({ name }));
+            if (itemlist.length > 0) {
+                await createDoc('Sent Back Category', newSendBack);
+            }
     
-        const newSendBack = {
-            procurement_request: orderId,
-            project: orderData.project,
-            category_list: {
-                list: newCategories
-            },
-            item_list: {
-                list: itemlist
-            },
-            comments: comment,
-            type: "Rejected"
-        };
+            // Update item statuses and workflow state
+            const currentState = procurement_request_list?.[0]?.workflow_state;
+            const newWorkflowState = currentState === "Vendor Selected" && itemlist.length > 0
+                ? "Partially Approved"
+                : currentState;
     
-        if (itemlist.length > 0) {
-            await createDoc('Sent Back Category', newSendBack)
+            const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map(item => {
+                if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
+                    return { ...item, status: "Sent Back" };
+                }
+                return item;
+            });
+    
+            const filteredList = orderData.procurement_list?.list.filter(item =>
+                !filteredData.some(selectedItem => selectedItem.key === item.name)
+            );
+    
+            await updateDoc('Procurement Requests', orderId, {
+                procurement_list: { list: updatedProcurementList },
+                workflow_state: newWorkflowState
+            });
+    
+            toast({
+                title: "Success!",
+                description: "New Sent Back created Successfully!",
+                variant: "success"
+            });
+    
+            // Update state and navigate if all items are processed
+            setOrderData(prevOrderData => ({
+                ...prevOrderData,
+                procurement_list: { list: filteredList }
+            }));
+    
+            if (filteredList.length === 0) {
+                navigate('/approve-vendor');
+            }
+        } catch (error) {
+            console.error("Error sending back items:", error);
+            toast({
+                title: "Failed!",
+                description: "Rejecting Items Failed!",
+                variant: "destructive"
+            });
+        } finally {
+            setComment('');
+            setIsLoading(null);
         }
-    
-        // Update procurement request status
-    const currentState = procurement_request_list?.[0]?.workflow_state;
-    let newWorkflowState = currentState;
-
-    if (currentState === "Vendor Selected" && itemlist.length > 0) {
-        newWorkflowState = "Partially Approved";
-    }
-
-    // Update item statuses to "Sent Back"
-    const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map(item => {
-        if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
-            return { ...item, status: "Sent Back" };
-        }
-        return item;
-    });
-
-    const filteredList = orderData.procurement_list?.list.filter(item =>
-        !filteredData.some(selectedItem => selectedItem.key === item.name)
-    );
-
-    // Update the procurement request document
-    await updateDoc('Procurement Requests', orderId, {
-        procurement_list: { list: updatedProcurementList },
-        workflow_state: newWorkflowState
-    }).then(() => {
-        toast({
-            title : "Success!",
-            description: "New Sent Back created Successfully!",
-            variant: "success"
-        })
-    }).catch((error) => console.log("update_error", error));
-
-    if(filteredList.length === 0 ) {
-        navigate('/approve-vendor')
-    }
-
-    // Update state
-    setOrderData(prevOrderData => ({
-        ...prevOrderData,
-        procurement_list: { list: filteredList }
-    }));
-
-    // Clear comment after sending back
-    setComment('');
-
     };
+    
     
     const generateVendorItemKey = (vendor: string, item: string): string => {
         return `${vendor}-${item}`;
@@ -838,16 +843,16 @@ const {toast} = useToast()
                 }
             </ConfigProvider>
             {selectedItems?.length > 0 && <div className="text-right space-x-2 mr-6">
-                <Dialog>
-                    <DialogTrigger asChild>
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
                         <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
-                            Send Back
+                            {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
                         </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                            <DialogTitle>Are you Sure</DialogTitle>
-                            <DialogDescription>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="sm:max-w-[425px]">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                            <AlertDialogDescription>
                                 Add Comments and Send Back the Selected Items.
                                 <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
                                 <textarea
@@ -857,31 +862,33 @@ const {toast} = useToast()
                                     placeholder="Type your comments here"
                                     onChange={(e) => setComment(e.target.value)}
                                 />
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogClose>
-                            <Button className="text-white bg-red-500" onClick={() => newHandleSentBack()}>Send Back</Button>
-                        </DialogClose>
-                    </DialogContent>
-                </Dialog>
-                <Dialog>
-                    <DialogTrigger asChild>
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleSentBack()}>Send Back</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
                         <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
-                            Approve
+                        {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
                         </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                            <DialogTitle>Are you Sure</DialogTitle>
-                            <DialogDescription>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="sm:max-w-[425px]">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                            <AlertDialogDescription>
                                 Click on Confirm to Approve the Selected Items.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogClose>
-                            <Button className="text-white bg-red-500" onClick={() => newHandleApprove()}>Approve</Button>
-                        </DialogClose>
-                    </DialogContent>
-                </Dialog>
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleApprove()}>Approve</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </div>}
             <div className="flex items-center pt-1  pb-4">
                 <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>

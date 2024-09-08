@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {  Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
+import { useToast } from '../ui/use-toast';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -330,6 +331,12 @@ export const SelectVendors = () => {
             })
                 .then(() => {
                     console.log(orderId)
+                    toast({
+                        title: "Oops!",
+                        description: `You just delayed all the items, you can see them in "New Sent Back" tab!`,
+                        variant: "default"
+                    })
+                    navig
                     navigate("/")
                 }).catch(() => {
                     console.log(update_submit_error)
@@ -342,12 +349,19 @@ export const SelectVendors = () => {
             })
                 .then(() => {
                     console.log(orderId)
+                    toast({
+                        title: "Success!",
+                        description: `Items Sent for Approval`,
+                        variant: "success"
+                    })
                     navigate("/")
                 }).catch(() => {
                     console.log(update_submit_error)
                 })
         }
     }
+
+    const {toast} = useToast()
 
     const generateVendorItemKey = (vendor: string, item: string): string => {
         return `${vendor}-${item}`;

@@ -18,7 +18,7 @@
 //   staleTime: 1000 * 60 * 5
 // })
 
-  
+
 
 //   // if(!docLoading) {
 //   //   console.log("singleDoc", singleDoc.data)
@@ -30,7 +30,7 @@
 //   //   queryClient.invalidateQueries({queryKey: ['docList', 'Procurement Orders'], refetchType: 'active' })
 //   // }, 1 * 60 * 1000);
 
- 
+
 
 //   if (isLoading) return <div>Loading...</div>;
 //   if (error) return <div>Error: {error.message}</div>;
@@ -85,7 +85,7 @@ export default function Customers() {
                     return (
                         <div className="font-medium">
                             <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/customers/${row.getValue("name")}`}>
-                                {row.getValue("name")}
+                                {row.getValue("name")?.slice(-4)}
                             </Link>
                         </div>
                     );
@@ -164,12 +164,8 @@ export default function Customers() {
 
     const { data, isLoading, error } = useFrappeGetDocList("Customers",
         {
-        fields: ["*"],
-        limit: 1000
-        },
-        "Customers",
-        {
-            revalidateIfStale: false
+            fields: ["*"],
+            limit: 1000
         }
     )
 
