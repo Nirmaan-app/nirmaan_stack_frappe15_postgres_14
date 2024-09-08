@@ -6,29 +6,19 @@ import { Link } from "react-router-dom";
 
 export const Default = () => {
 
-    const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects", undefined, true, false, "Projects Count", {
-        revalidateIfStale: false
-    } );
+    const { data: project_count, isLoading: project_count_loading, error: project_count_error } = useFrappeGetDocCount("Projects");
 
-    const { data: user_count, isLoading: user_count_loading, error: user_count_error } = useFrappeGetDocCount("Nirmaan Users", undefined, true, false, "NirmaanUsers Count", {
-        revalidateIfStale: false
-    } );
+    const { data: user_count, isLoading: user_count_loading, error: user_count_error } = useFrappeGetDocCount("Nirmaan Users");
 
     // const { data: role_count, isLoading: role_count_loading, error: role_count_error } = useFrappeGetDocCount("Nirmaan Roles");
 
-    const { data: wp_count, isLoading: wp_count_loading, error: wp_count_error } = useFrappeGetDocCount("Work Packages", undefined, true, false, "WorkPackages Count", {
-        revalidateIfStale: false
-    } );
+    const { data: wp_count, isLoading: wp_count_loading, error: wp_count_error } = useFrappeGetDocCount("Work Packages");
 
     // const { data: pr_count, isLoading: pr_count_loading, error: pr_count_error } = useFrappeGetDocCount("Procurement Requests");
 
-    const { data: items_count, isLoading: items_count_loading, error: items_count_error } = useFrappeGetDocCount("Items", undefined, true, false, "Items Count", {
-        revalidateIfStale: false
-    } );
+    const { data: items_count, isLoading: items_count_loading, error: items_count_error } = useFrappeGetDocCount("Items");
 
-    const { data: vendors_count, isLoading: vendors_count_loading, error: vendors_count_error } = useFrappeGetDocCount("Vendors", undefined, true, false, "Vendors Count", {
-        revalidateIfStale: false
-    } );
+    const { data: vendors_count, isLoading: vendors_count_loading, error: vendors_count_error } = useFrappeGetDocCount("Vendors");
 
     // const {data : customers_count, isLoading: customers_count_loading, error: customers_count_error} = useQuery({
     //     queryKey: ["docCount", "Customers"],
@@ -36,11 +26,9 @@ export const Default = () => {
     //     staleTime: 1000 * 60 * 5,
     // })
 
-    const {data: customers_count, isLoading: customers_count_loading, error : customers_count_error} = useFrappeGetDocCount("Customers", undefined, true, false, "Customers Count", {
-        revalidateIfStale: false
-    } )
+    const { data: customers_count, isLoading: customers_count_loading, error: customers_count_error } = useFrappeGetDocCount("Customers")
 
-    
+
 
     return (
         <>

@@ -27,10 +27,14 @@ const UserFormSchema = z.object({
                 required_error: "Must Provide Last name"
             }),
     mobile_no: z
-        .string(
+        .number(
             {
                 required_error: "Must Provide Mobile Number"
-            }),
+            })
+        .positive()
+        .gte(1000000000)
+        .lte(9999999999)
+        .or(z.string()),
     email: z
         .string(
             {
@@ -73,7 +77,7 @@ export const UserForm = () => {
 
     const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
 
-    const {toast} = useToast()
+    const { toast } = useToast()
 
     const onSubmit = async (values: UserFormValues) => {
         try {
@@ -90,11 +94,11 @@ export const UserForm = () => {
                 role_profile_name: "Select the Role",
             });
             navigate("/users")
-        } catch (error : any) {
+        } catch (error: any) {
             toast({
-                  title: "Error",
-                  description: `${error?.message}`,
-                  variant: "destructive"
+                title: "Error",
+                description: `${error?.message}`,
+                variant: "destructive"
             })
 
             console.log("error", error)
@@ -102,182 +106,182 @@ export const UserForm = () => {
     }
 
     return (
-            <div className="flex-1 space-y-4 p-8 pt-6">
-                <div className="flex items-center justify-between mb-2 space-y-2">
-                    <div className="flex">
-                        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} />
-                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Add User</h2>
-                    </div>
+        <div className="flex-1 space-y-4 p-8 pt-6">
+            <div className="flex items-center justify-between mb-2 space-y-2">
+                <div className="flex">
+                    <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} />
+                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Add User</h2>
                 </div>
-                <p className=" pl-7 text-muted-foreground">
-                    Fill out to create a new User
-                </p>
-                <Separator className="my-6" />
-                <Form {...form}>
-                    <form onSubmit={(event) => {
-                        event.stopPropagation();
-                        return form.handleSubmit(onSubmit)(event);
-                    }} className="flex flex-col space-y-8">
-                        <div className="flex flex-col">
-                            <p className="text-sky-600 font-semibold pb-9">User Details</p>
-                            <FormField
-                                control={form.control}
-                                name="first_name"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <div className="md:flex md:flex-row pt-2 pb-2">
-                                            <div className="md:basis-1/4">
-                                                <FormLabel>First Name: </FormLabel>
-                                            </div>
-                                            <div className="md:basis-1/4">
+            </div>
+            <p className=" pl-7 text-muted-foreground">
+                Fill out to create a new User
+            </p>
+            <Separator className="my-6" />
+            <Form {...form}>
+                <form onSubmit={(event) => {
+                    event.stopPropagation();
+                    return form.handleSubmit(onSubmit)(event);
+                }} className="flex flex-col space-y-8">
+                    <div className="flex flex-col">
+                        <p className="text-sky-600 font-semibold pb-9">User Details</p>
+                        <FormField
+                            control={form.control}
+                            name="first_name"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <div className="md:flex md:flex-row pt-2 pb-2">
+                                        <div className="md:basis-1/4">
+                                            <FormLabel className="flex">First Name: <h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                        </div>
+                                        <div className="md:basis-1/4">
+                                            <FormControl>
+                                                <Input placeholder="First Name" {...field} />
+                                            </FormControl>
+                                        </div>
+                                        <div className="md:basis-1/2 pl-10 pt-2">
+                                            <FormDescription>
+                                                Example: Michael
+                                            </FormDescription>
+                                        </div>
+
+                                    </div>
+                                    <div className="pt-2 pb-2">
+                                        <FormMessage />
+                                    </div>
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="last_name"
+                            render={({ field }) => (
+
+                                <FormItem>
+                                    <div className="md:flex md:flex-row pt-2 pb-2">
+                                        <div className="md:basis-1/4">
+                                            <FormLabel className="flex">Last Name: <h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                        </div>
+                                        <div className="md:basis-1/4">
+                                            <FormControl>
+                                                <Input placeholder="Last Name" {...field} />
+                                            </FormControl>
+                                        </div>
+                                        <div className="md:basis-1/2 pl-10 pt-2">
+                                            <FormDescription>
+                                                Example: Johnson
+                                            </FormDescription>
+                                        </div>
+
+                                    </div>
+                                    <div className="pt-2 pb-2">
+                                        <FormMessage />
+                                    </div>
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="mobile_no"
+                            render={({ field }) => (
+
+                                <FormItem>
+                                    <div className="md:flex md:flex-row pt-2 pb-2">
+                                        <div className="md:basis-1/4">
+                                            <FormLabel className="flex">Mobile Number: <h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                        </div>
+                                        <div className="md:basis-1/4">
+                                            <FormControl>
+                                                <Input type="number" placeholder="Mobile Number" {...field} />
+                                            </FormControl>
+                                        </div>
+                                        <div className="md:basis-1/2 pl-10 pt-2">
+                                            <FormDescription>
+                                                Example: 9999999999
+                                            </FormDescription>
+                                        </div>
+                                    </div>
+                                    <div className="pt-2 pb-2">
+                                        <FormMessage />
+                                    </div>
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="email"
+                            render={({ field }) => (
+
+                                <FormItem>
+                                    <div className="md:flex md:flex-row pt-2 pb-2">
+                                        <div className="md:basis-1/4">
+                                            <FormLabel className="flex">Email: <h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                        </div>
+                                        <div className="md:basis-1/4">
+                                            <FormControl>
+                                                <Input placeholder="Email" {...field} />
+                                            </FormControl>
+                                        </div>
+                                        <div className="md:basis-1/2 pl-10 pt-2">
+                                            <FormDescription>
+                                                Example: john@john.john
+                                            </FormDescription>
+                                        </div>
+                                    </div>
+                                    <div className="pt-2 pb-2">
+                                        <FormMessage />
+                                    </div>
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="role_profile_name"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <div className="md:flex md:flex-row pt-2 pb-2">
+                                        <div className="md:basis-1/4">
+                                            <FormLabel className="flex">Role Profile<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                        </div>
+                                        <div className="md:basis-1/4">
+                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                 <FormControl>
-                                                    <Input placeholder="First Name" {...field} />
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select the Role" />
+                                                    </SelectTrigger>
                                                 </FormControl>
-                                            </div>
-                                            <div className="md:basis-1/2 pl-10 pt-2">
-                                                <FormDescription>
-                                                    Example: Michael
-                                                </FormDescription>
-                                            </div>
+                                                <SelectContent>
+                                                    {role_profile_list_loading && <div>Loading...</div>}
+                                                    {role_profile_list_error && <div>Error: {role_profile_list_error.message}</div>}
+                                                    {options.map(option => (
+                                                        <SelectItem value={option.value}>{option.label}</SelectItem>
+                                                    ))}
 
+                                                </SelectContent>
+                                            </Select>
                                         </div>
-                                        <div className="pt-2 pb-2">
-                                            <FormMessage />
+                                        <div className="md:basis-1/4 pl-10 pt-2">
+                                            <FormDescription>
+                                                Role associated with this User
+                                            </FormDescription>
                                         </div>
-                                    </FormItem>
-                                )}
-                            />
-                            <FormField
-                                control={form.control}
-                                name="last_name"
-                                render={({ field }) => (
-
-                                    <FormItem>
-                                        <div className="md:flex md:flex-row pt-2 pb-2">
-                                            <div className="md:basis-1/4">
-                                                <FormLabel>Last Name: </FormLabel>
-                                            </div>
-                                            <div className="md:basis-1/4">
-                                                <FormControl>
-                                                    <Input placeholder="Last Name" {...field} />
-                                                </FormControl>
-                                            </div>
-                                            <div className="md:basis-1/2 pl-10 pt-2">
-                                                <FormDescription>
-                                                    Example: Johnson
-                                                </FormDescription>
-                                            </div>
-
-                                        </div>
-                                        <div className="pt-2 pb-2">
-                                            <FormMessage />
-                                        </div>
-                                    </FormItem>
-                                )}
-                            />
-                            <FormField
-                                control={form.control}
-                                name="mobile_no"
-                                render={({ field }) => (
-
-                                    <FormItem>
-                                        <div className="md:flex md:flex-row pt-2 pb-2">
-                                            <div className="md:basis-1/4">
-                                                <FormLabel>Mobile Number: </FormLabel>
-                                            </div>
-                                            <div className="md:basis-1/4">
-                                                <FormControl>
-                                                    <Input type="number" placeholder="Mobile Number" {...field} />
-                                                </FormControl>
-                                            </div>
-                                            <div className="md:basis-1/2 pl-10 pt-2">
-                                                <FormDescription>
-                                                    Example: 9999999999
-                                                </FormDescription>
-                                            </div>
-                                        </div>
-                                        <div className="pt-2 pb-2">
-                                            <FormMessage />
-                                        </div>
-                                    </FormItem>
-                                )}
-                            />
-                            <FormField
-                                control={form.control}
-                                name="email"
-                                render={({ field }) => (
-
-                                    <FormItem>
-                                        <div className="md:flex md:flex-row pt-2 pb-2">
-                                            <div className="md:basis-1/4">
-                                                <FormLabel>Email: </FormLabel>
-                                            </div>
-                                            <div className="md:basis-1/4">
-                                                <FormControl>
-                                                    <Input placeholder="Email" {...field} />
-                                                </FormControl>
-                                            </div>
-                                            <div className="md:basis-1/2 pl-10 pt-2">
-                                                <FormDescription>
-                                                    Example: john@john.john
-                                                </FormDescription>
-                                            </div>
-                                        </div>
-                                        <div className="pt-2 pb-2">
-                                            <FormMessage />
-                                        </div>
-                                    </FormItem>
-                                )}
-                            />
-                            <FormField
-                                control={form.control}
-                                name="role_profile_name"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <div className="md:flex md:flex-row pt-2 pb-2">
-                                            <div className="md:basis-1/4">
-                                                <FormLabel>Role Profile</FormLabel>
-                                            </div>
-                                            <div className="md:basis-1/4">
-                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                    <FormControl>
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Select the Role" />
-                                                        </SelectTrigger>
-                                                    </FormControl>
-                                                    <SelectContent>
-                                                        {role_profile_list_loading && <div>Loading...</div>}
-                                                        {role_profile_list_error && <div>Error: {role_profile_list_error.message}</div>}
-                                                        {options.map(option => (
-                                                            <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                        ))}
-
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div className="md:basis-1/4 pl-10 pt-2">
-                                                <FormDescription>
-                                                    Role associated with this User
-                                                </FormDescription>
-                                            </div>
-                                        </div>
-                                        <div className="pt-2 pb-2">
-                                            <FormMessage />
-                                        </div>
-                                    </FormItem>
-                                )}
-                            />
-                            <div className="pt-2 pb-2 ">
-                                {/* {(loading) ? (<ButtonLoading />)
+                                    </div>
+                                    <div className="pt-2 pb-2">
+                                        <FormMessage />
+                                    </div>
+                                </FormItem>
+                            )}
+                        />
+                        <div className="pt-2 pb-2 ">
+                            {/* {(loading) ? (<ButtonLoading />)
                                     : (submit_complete) ? (<div className="flex"><Button onClick={() => handleRedirect()}>Go Back</Button><div className="pl-3"><Button onClick={() => handleRefresh()} >Add new</Button></div></div>)
                                         : (<Button type="submit">Submit</Button>)} */}
-                                        {loading ? (
-                                                <ButtonLoading />
-                                        ) : (
-                                            <Button type="submit">Submit</Button>
-                                        )}
-                            </div>
-                            {/* <div>
+                            {loading ? (
+                                <ButtonLoading />
+                            ) : (
+                                <Button type="submit">Submit</Button>
+                            )}
+                        </div>
+                        {/* <div>
                                 {submit_complete &&
                                     <div>
                                         <div className="font-semibold text-green-500"> User Added successfully</div>
@@ -290,9 +294,9 @@ export const UserForm = () => {
                                     </div>
                                 }
                             </div> */}
-                        </div>
-                    </form>
-                </Form>
-            </div>
+                    </div>
+                </form>
+            </Form>
+        </div>
     )
 }

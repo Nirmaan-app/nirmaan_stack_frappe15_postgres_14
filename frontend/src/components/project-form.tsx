@@ -66,10 +66,11 @@ const projectFormSchema = z.object({
         .gte(100000)
         .lte(999999)
         .or(z.string()).optional()
-        ,
+    ,
     email: z
         .string()
         .email()
+        .or(z.string())
         .optional(),
     phone: z
         .number()
@@ -86,20 +87,17 @@ const projectFormSchema = z.object({
         .date()
         .optional(),
     project_lead: z
-        .string({
-            required_error: "Project must have a Project Lead"
-        }),
+        .string()
+        .optional(),
     project_manager: z
-        .string({
-            required_error: "Project must have a Project Manager"
-        }),
+        .string()
+        .optional(),
     design_lead: z
         .string()
         .optional(),
     procurement_lead: z
-        .string({
-            required_error: "Project must have a Procurement Lead"
-        }),
+        .string()
+        .optional(),
     project_work_milestones: z
         .object({
             work_packages: z.array(
@@ -290,7 +288,7 @@ export const ProjectForm = () => {
     // });
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    const {deleteDoc} = useFrappeDeleteDoc()
+    const { deleteDoc } = useFrappeDeleteDoc()
 
 
     // const handleCheckboxChange = (item: WorkPackages) => {
@@ -369,16 +367,16 @@ export const ProjectForm = () => {
         button?.click()
     };
 
-    const {toast} = useToast()
+    const { toast } = useToast()
     async function onSubmit(values: z.infer<typeof projectFormSchema>) {
         try {
             // Format the dates
             const formatted_start_date = formatToLocalDateTimeString(values.project_start_date);
             const formatted_end_date = formatToLocalDateTimeString(values.project_end_date);
-        
-                // Create the address document
-                const addressDoc = await createDoc('Address', {
-                    address_title: values.project_name,
+
+            // Create the address document
+            const addressDoc = await createDoc('Address', {
+                address_title: values.project_name,
                 address_type: "Shipping",
                 address_line1: values.address_line_1,
                 address_line2: values.address_line_2,
@@ -389,42 +387,42 @@ export const ProjectForm = () => {
                 email_id: values.email,
                 phone: values.phone
             });
-        
+
             try {
                 // Create the project document using the address document reference
                 const projectDoc = await createDoc('Projects', {
                     project_name: values.project_name,
-                customer: values.customer,
-                project_type: values.project_type,
-                project_start_date: formatted_start_date,
-                project_end_date: formatted_end_date,
-                project_address: addressDoc.name,
-                project_city: values.project_city,
-                project_state: values.project_state,
-                project_lead: values.project_lead,
-                procurement_lead: values.procurement_lead,
-                design_lead: values.design_lead,
-                project_manager: values.project_manager,
-                project_work_milestones: values.project_work_milestones,
-                project_scopes: values.project_scopes,
-                subdivisions: values.subdivisions,
-                subdivision_list: {
-                    list: areaNames
-                }
-            });
+                    customer: values.customer,
+                    project_type: values.project_type,
+                    project_start_date: formatted_start_date,
+                    project_end_date: formatted_end_date,
+                    project_address: addressDoc.name,
+                    project_city: values.project_city,
+                    project_state: values.project_state,
+                    project_lead: values.project_lead,
+                    procurement_lead: values.procurement_lead,
+                    design_lead: values.design_lead,
+                    project_manager: values.project_manager,
+                    project_work_milestones: values.project_work_milestones,
+                    project_scopes: values.project_scopes,
+                    subdivisions: values.subdivisions,
+                    subdivision_list: {
+                        list: areaNames
+                    }
+                });
 
-            console.log("project", projectDoc)
-            toast({
-                title: "Success!",
-                description: `Project ${projectDoc.project_name} created successfully!`,
-                variant: "success"
-            })
-            handleOpenDialog()
+                console.log("project", projectDoc)
+                toast({
+                    title: "Success!",
+                    description: `Project ${projectDoc.project_name} created successfully!`,
+                    variant: "success"
+                })
+                handleOpenDialog()
 
-        }
+            }
             catch (projectError) {
                 await deleteDoc('Address', addressDoc.name);
-                throw projectError; 
+                throw projectError;
             }
         } catch (error) {
             toast({
@@ -433,7 +431,7 @@ export const ProjectForm = () => {
                 variant: "destructive"
             })
             console.log("Error:", error);
-    }
+        }
 
 
         // if (!mile_loading && !mile_error) {
@@ -530,7 +528,7 @@ export const ProjectForm = () => {
         setAreaNames(Array.from({ length: Number(n) }, (_, i) => ({
             name: `Area ${i + 1}`,
             status: "Pending",
-          })));
+        })));
     }
 
     const handleAreaNameChange = (index, event) => {
@@ -554,8 +552,9 @@ export const ProjectForm = () => {
 
                             <FormItem>
                                 <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                    <div className="md:basis-1/4 flex">
                                         <FormLabel>Project Name: </FormLabel>
+                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
                                     </div>
                                     <div className="md:basis-1/4">
                                         <FormControl>
@@ -581,8 +580,9 @@ export const ProjectForm = () => {
                         render={({ field }) => (
                             <FormItem>
                                 <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                    <div className="md:basis-1/4 flex">
                                         <FormLabel>Customer</FormLabel>
+                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
                                     </div>
                                     <div className="md:basis-1/4">
                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
@@ -670,8 +670,9 @@ export const ProjectForm = () => {
                             return (
                                 <FormItem>
                                     <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
+                                        <div className="md:basis-1/4 flex">
                                             <FormLabel>Project Type</FormLabel>
+                                            <h1 className="pl-1 text-sm text-red-600">*</h1>
                                         </div>
                                         <div className="md:basis-1/4">
                                             <Select onValueChange={field.onChange} defaultValue={field.value}>
@@ -731,11 +732,12 @@ export const ProjectForm = () => {
                             return (
                                 <FormItem>
                                     <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
+                                        <div className="md:basis-1/4 flex">
                                             <FormLabel>Sub-Divisions</FormLabel>
+                                            <h1 className="pl-1 text-sm text-red-600">*</h1>
                                         </div>
                                         <div className="md:basis-1/4">
-                                            <Select 
+                                            <Select
                                                 onValueChange={(e) => {
                                                     field.onChange(e);
                                                     handleSubdivisionChange(e);
@@ -750,7 +752,7 @@ export const ProjectForm = () => {
                                                 <SelectContent>
                                                     {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(item => (
                                                         <SelectItem key={item} value={`${item}`}>
-                                                        {item}
+                                                            {item}
                                                         </SelectItem>
                                                     ))}
                                                 </SelectContent>
@@ -771,20 +773,20 @@ export const ProjectForm = () => {
                     />
                     {Array.from({ length: form.getValues().subdivisions }).map((_, index) => {
                         return <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                    <div className="md:basis-1/4">
-                                        <FormLabel>Area {index + 1}:</FormLabel>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <Input 
-                                            type="text" 
-                                            onChange={(e) => handleAreaNameChange(index,e)}
-                                            // placeholder={area}
-                                            value={areaNames[index].name} 
-                                        />
-                                    </div>
+                            <div className="md:flex md:flex-row pt-2 pb-2 ">
+                                <div className="md:basis-1/4">
+                                    <FormLabel>Area {index + 1}:</FormLabel>
                                 </div>
-                            </FormItem>
+                                <div className="md:basis-1/4">
+                                    <Input
+                                        type="text"
+                                        onChange={(e) => handleAreaNameChange(index, e)}
+                                        // placeholder={area}
+                                        value={areaNames[index].name}
+                                    />
+                                </div>
+                            </div>
+                        </FormItem>
                     })}
                     <Separator className="my-6" />
                     <p className="text-sky-600 font-semibold pb-9">Project Address Details</p>
@@ -794,8 +796,9 @@ export const ProjectForm = () => {
                         render={({ field }) => (
                             <FormItem>
                                 <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                    <div className="md:basis-1/4 flex">
                                         <FormLabel>Address Line 1: </FormLabel>
+                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
                                     </div>
                                     <div className="md:basis-1/4">
                                         <FormControl>
@@ -822,8 +825,9 @@ export const ProjectForm = () => {
                         render={({ field }) => (
                             <FormItem>
                                 <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                    <div className="md:basis-1/4 flex">
                                         <FormLabel>Address Line 2: </FormLabel>
+                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
                                     </div>
                                     <div className="md:basis-1/4">
                                         <FormControl>
@@ -849,8 +853,9 @@ export const ProjectForm = () => {
                         render={({ field }) => (
                             <FormItem>
                                 <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                    <div className="md:basis-1/4 flex">
                                         <FormLabel>City: </FormLabel>
+                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
                                     </div>
                                     <div className="md:basis-1/4">
                                         <FormControl>
@@ -876,8 +881,9 @@ export const ProjectForm = () => {
                         render={({ field }) => (
                             <FormItem>
                                 <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                    <div className="md:basis-1/4 flex">
                                         <FormLabel>State: </FormLabel>
+                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
                                     </div>
                                     <div className="md:basis-1/4">
                                         <FormControl>
@@ -904,8 +910,9 @@ export const ProjectForm = () => {
                         render={({ field }) => (
                             <FormItem>
                                 <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                    <div className="md:basis-1/4 flex">
                                         <FormLabel>Pin Code: </FormLabel>
+                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
                                     </div>
                                     <div className="md:basis-1/4">
                                         <FormControl>
@@ -1055,8 +1062,9 @@ export const ProjectForm = () => {
 
                             <FormItem>
                                 <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                    <div className="md:basis-1/4 flex">
                                         <FormLabel>Project Start Date: </FormLabel>
+                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
                                     </div>
                                     <div className="md:basis-1/4">
                                         <Popover>
@@ -1112,8 +1120,9 @@ export const ProjectForm = () => {
 
                             <FormItem>
                                 <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
+                                    <div className="md:basis-1/4 flex">
                                         <FormLabel>Project End Date: </FormLabel>
+                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
                                     </div>
                                     <div className="md:basis-1/4">
                                         <Popover>
@@ -1371,7 +1380,8 @@ export const ProjectForm = () => {
                         render={() => (
                             <FormItem>
                                 <div className="mb-4">
-                                    <FormLabel className="text-base">Sidebar</FormLabel>
+                                    <FormLabel className="text-base flex">Work Package selection<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+
                                     <FormDescription>
                                         Select the work packages.
                                     </FormDescription>
@@ -1599,7 +1609,7 @@ export const ProjectForm = () => {
                         )}
                     /> */}
 
-                    <div className="pt-2 pb-2 ">
+                    <div className="pt-5 pb-2 ">
                         {(loading) ?
                             <ButtonLoading />
                             : <Button type="submit">Submit</Button>
@@ -1611,6 +1621,7 @@ export const ProjectForm = () => {
                         </DialogTrigger>
                         <DialogContent>
                             <DialogHeader className="flex items-center justify-center">
+                                <div className="font-semibold text-green-500"> Submitted successfully</div>
                                 <div className="flex gap-2">
                                     <Button onClick={() => navigate("/projects")}>Go Back</Button>
                                     <Button onClick={() => {
@@ -1622,10 +1633,10 @@ export const ProjectForm = () => {
                                 </div>
                             </DialogHeader>
                             <DialogClose asChild>
-                            <button className="hidden" id="dialogCloseProject">close</button>
-                        </DialogClose>
+                                <button className="hidden" id="dialogCloseProject">close</button>
+                            </DialogClose>
                         </DialogContent>
-                        
+
                     </Dialog>
                     {/* <div>
                         {submit_complete &&

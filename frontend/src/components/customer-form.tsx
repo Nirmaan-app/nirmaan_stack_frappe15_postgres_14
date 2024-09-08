@@ -32,7 +32,9 @@ const customerFormSchema = z.object({
             required_error: "Address Required"
         }),
     company_address_line_2: z
-        .string(),
+        .string({
+            required_error: "Address Required"
+        }),
     company_city: z
         .string({
             required_error: "Must provide city"
@@ -50,19 +52,18 @@ const customerFormSchema = z.object({
         .lte(999999),
 
     company_contact_person: z
-        .string({
-            required_error: "Must provide contact person"
-        }),
+        .string()
+        .optional(),
     email: z
         .string()
-        .email(),
+        .email()
+        .optional(),
     phone: z
-        .number({
-            required_error: "Must provide contact"
-        })
+        .number()
         .positive()
         .gte(1000000000)
-        .lte(9999999999),
+        .lte(9999999999)
+        .optional(),
     company_gst: z
         .string()
 })
@@ -144,7 +145,7 @@ export default function CustomerForm({ company_mutate }) {
                     name="company_name"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Company Name:</FormLabel>
+                            <FormLabel className="flex">Company Name:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="Empty" {...field} />
                             </FormControl>
@@ -158,7 +159,7 @@ export default function CustomerForm({ company_mutate }) {
                     name="company_gst"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Company GST no.:</FormLabel>
+                            <FormLabel className="flex">Company GST no.:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="Empty" {...field} />
                             </FormControl>
@@ -216,7 +217,7 @@ export default function CustomerForm({ company_mutate }) {
                     name="company_address_line_1"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Address Line 1:</FormLabel>
+                            <FormLabel className="flex">Address Line 1:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="Empty" {...field} />
                             </FormControl>
@@ -230,7 +231,7 @@ export default function CustomerForm({ company_mutate }) {
                     name="company_address_line_2"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Address Line 2:</FormLabel>
+                            <FormLabel className="flex">Address Line 2:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="Empty" {...field} />
                             </FormControl>
@@ -244,7 +245,7 @@ export default function CustomerForm({ company_mutate }) {
                     name="company_city"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>City</FormLabel>
+                            <FormLabel className="flex">City<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="Empty" {...field} />
                             </FormControl>
@@ -258,7 +259,7 @@ export default function CustomerForm({ company_mutate }) {
                     name="company_state"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>State</FormLabel>
+                            <FormLabel className="flex">State<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input placeholder="Empty" {...field} />
                             </FormControl>
@@ -272,7 +273,7 @@ export default function CustomerForm({ company_mutate }) {
                     name="company_pin"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Pin Code</FormLabel>
+                            <FormLabel className="flex">Pin Code<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
                             <FormControl>
                                 <Input type="number" placeholder="Empty" {...field} onChange={event => field.onChange(+event.target.value)} />
                             </FormControl>
