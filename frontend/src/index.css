@@ -8,6 +8,10 @@
   height: 4px;
 }
 
+html, body {
+  font-family:"Inter"
+}
+
 ::-webkit-scrollbar-track {
   cursor: pointer;
   background-color: #d0d0d2;

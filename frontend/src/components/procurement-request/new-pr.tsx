@@ -16,6 +16,7 @@ import imageUrl from "@/assets/user-icon.jpeg"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Input } from "../ui/input";
 import { useUserData } from "@/hooks/useUserData";
+import { useToast } from "../ui/use-toast";
 
 export const NewPR = () => {
 
@@ -221,16 +222,26 @@ export const NewPR = () => {
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
 
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
-
+    const {toast} = useToast()
     const handleSubmit = () => {
         console.log(userData)
         if (userData?.role === "Nirmaan Project Manager Profile" || userData?.role === "Nirmaan Admin Profile" || userData.user_id == "Administrator") {
             createDoc('Procurement Requests', orderData)
-                .then(() => {
-                    console.log(orderData)
+                .then((res) => {
+                    console.log("newPR", res)
+                    toast({
+                        title: "Success!",
+                        description: `New PR: ${res?.name} created successfully!`,
+                        variant: "success"
+                    })
                     navigate("/procurement-request")
                 }).catch(() => {
                     console.log("submit_error", submit_error)
+                    toast({
+                        title: "Failed!",
+                        description: `PR Creation failed!`,
+                        variant: "destructive"
+                    })
                 })
         }
         if (userData?.role === "Nirmaan Procurement Executive Profile") {
@@ -241,12 +252,22 @@ export const NewPR = () => {
                     })
                         .then(() => {
                             console.log("doc", doc)
+                            toast({
+                                title: "Success!",
+                                description: `New PR: ${doc?.name} with workflow_state: "Approved" created successfully!`,
+                                variant: "success"
+                            })
                             navigate("/")
                         }).catch(() => {
                             console.log("update_submit_error", update_submit_error)
                         })
                 }).catch(() => {
                     console.log("submit_error", submit_error)
+                    toast({
+                        title: "Failed!",
+                        description: `PR Creation failed!`,
+                        variant: "destructive"
+                    })
                 })
         }
     }

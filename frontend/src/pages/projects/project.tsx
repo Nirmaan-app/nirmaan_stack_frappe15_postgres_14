@@ -703,8 +703,8 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
               {/* <Card className="bg-[#F9FAFB]">
                       <CardHeader>
                         <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
-              <div className="flex max-md:flex-col max-md:gap-10">
-              <div className="space-y-4 lg:w-[50%] md:w-[60%]">
+              <div className="flex max-lg:flex-col max-lg:gap-10">
+              <div className="space-y-4 lg:w-[50%]">
                 <CardDescription className="space-y-2">
                   <span>Project Id</span>
                   <p className="font-bold text-black">{data?.name}</p>

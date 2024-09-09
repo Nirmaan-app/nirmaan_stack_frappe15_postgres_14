@@ -1,11 +1,7 @@
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumb";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { MainLayout } from "@/components/layout/main-layout";
-import { NavBar } from "@/components/nav/nav-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { formatDate } from "@/utils/FormatDate";
@@ -21,8 +17,11 @@ export default function Users() {
     const navigate = useNavigate();
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-        fields: ["name", "full_name", "email", "mobile_no", "creation"]
-    })
+        fields: ["*"],
+        limit: 1000
+    },
+    "Nirmaan Users"
+    )
 
     const columns: ColumnDef<NirmaanUsers>[] = useMemo(
         () => [
@@ -64,7 +63,6 @@ export default function Users() {
                         </div>
                     )
                 }
-
             },
             {
                 accessorKey: "full_name",
@@ -75,15 +73,6 @@ export default function Users() {
                 },
                 cell: ({ row }) => <div className="font-medium">{row.getValue("full_name")}</div>
             },
-            // {
-            //     accessorKey: "email",
-            //     header: ({ column }) => {
-            //         return (
-            //             <DataTableColumnHeader column={column} title="Email" />
-            //         )
-            //     },
-            //     cell: ({ row }) => <div className="font-medium">{row.getValue("email")}</div>
-            // },
             {
                 accessorKey: "mobile_no",
                 header: ({ column }) => {
@@ -113,7 +102,6 @@ export default function Users() {
         []
     )
     return (
-        // <MainLayout>
         <div className="flex-1 space-y-4 p-8 pt-6">
             {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
@@ -161,7 +149,6 @@ export default function Users() {
                                 {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : data?.length}
                                 {error && <p>Error</p>}
                             </div>
-                            {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                         </CardContent>
                     </Link>
                 </Card>
@@ -174,6 +161,5 @@ export default function Users() {
                 )}
             </div>
         </div>
-        //    </MainLayout>
     )
 }
