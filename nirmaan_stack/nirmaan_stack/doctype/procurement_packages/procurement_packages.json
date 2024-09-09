@@ -2,20 +2,15 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "field:work_package_name",
- "creation": "2024-04-01 15:11:02.876203",
+ "creation": "2024-09-09 13:59:05.222912",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "work_package_details_section",
+  "procurement_package_details_section",
   "work_package_name",
   "work_package_image"
  ],
  "fields": [
-  {
-   "fieldname": "work_package_details_section",
-   "fieldtype": "Section Break",
-   "label": "Work Package Details"
-  },
   {
    "fieldname": "work_package_name",
    "fieldtype": "Data",
@@ -23,17 +18,22 @@
    "unique": 1
   },
   {
+   "fieldname": "procurement_package_details_section",
+   "fieldtype": "Section Break",
+   "label": "Procurement Package Details"
+  },
+  {
    "fieldname": "work_package_image",
-   "fieldtype": "Attach Image",
+   "fieldtype": "Attach",
    "label": "Work Package Image"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-09-09 14:03:58.639025",
+ "modified": "2024-09-09 14:15:20.433163",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
- "name": "Work Packages",
+ "name": "Procurement Packages",
  "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
@@ -98,9 +98,7 @@
    "write": 1
   }
  ],
- "show_title_field_in_link": 1,
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": [],
- "title_field": "work_package_name"
+ "states": []
 }

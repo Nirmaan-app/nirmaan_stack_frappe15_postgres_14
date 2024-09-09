@@ -23,7 +23,7 @@ export const NewPR = () => {
     const navigate = useNavigate();
     const userData = useUserData()
 
-    const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
+    const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
         {
             fields: ['work_package_name', "work_package_image"],
             orderBy: { field: 'work_package_name', order: 'asc' }
@@ -315,7 +315,7 @@ export const NewPR = () => {
             {page == 'wplist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/procurement-request")} />
-                    <h3 className="text-base pl-2 font-bold tracking-tight">Select Work Package</h3>
+                    <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
                     {wp_list?.map((item) => (

@@ -1,0 +1,74 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.021242",
+  "name": "HVAC System",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/hvac.jpg",
+  "work_package_name": "HVAC System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.043161",
+  "name": "CCTV System",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/cctv.jpg",
+  "work_package_name": "CCTV System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.048426",
+  "name": "FA System",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/Fire-alarm-system.jpg",
+  "work_package_name": "FA System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.052710",
+  "name": "PA System",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/pa.jpg",
+  "work_package_name": "PA System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.057019",
+  "name": "Data & Networking",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/network.jpg",
+  "work_package_name": "Data & Networking"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.061211",
+  "name": "Fire Fighting System",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/fire.jpg",
+  "work_package_name": "Fire Fighting System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.066174",
+  "name": "Access Control System",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/access_control.jpg",
+  "work_package_name": "Access Control System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.075561",
+  "name": "Tool & Equipments",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/tool.jpg",
+  "work_package_name": "Tool & Equipments"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.082229",
+  "name": "Electrical Work",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/electrical_work.jpg.jpg",
+  "work_package_name": "Electrical Work"
+ }
+]

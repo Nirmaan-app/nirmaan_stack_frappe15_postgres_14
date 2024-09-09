@@ -1,6 +1,5 @@
 {
  "actions": [],
- "allow_import": 1,
  "allow_rename": 1,
  "autoname": "field:category_name",
  "creation": "2024-04-03 20:01:59.475380",
@@ -31,8 +30,8 @@
    "fieldname": "work_package",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Work Package",
-   "options": "Work Packages",
+   "label": "Procurement Package",
+   "options": "Procurement Packages",
    "reqd": 1
   },
   {
@@ -49,7 +48,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-08-14 12:12:46.044663",
+ "modified": "2024-09-09 14:15:56.188888",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Category",
