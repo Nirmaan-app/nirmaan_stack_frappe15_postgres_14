@@ -15,7 +15,7 @@ export default function CategorySelect({ data, handleCategoryClick }: CategorySe
         fields: ['category_name', 'work_package'],
         filters: [['work_package', '=', data.work_package]],
         orderBy: { field: 'category_name', order: 'asc' },
-        limit: 100
+        limit: 1000
     });
 
     // const orderDataZ = useProcurementRequest(store => store);

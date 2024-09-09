@@ -1,9 +1,9 @@
 //import React, {useState, useEffect} from "react"
-import React , {useState} from "react"
+import React, { useState } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import {DialogClose} from "@/components/ui/dialog"
+import { DialogClose } from "@/components/ui/dialog"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { PersonStanding } from "lucide-react"
@@ -42,9 +42,9 @@ const MilestonesFormSchema = z.object({
             message: "Type Name must be at least 3 characters.",
         }),
     scope_of_work: z
-    .string({
-        required_error: "Must provide type Name"
-    })
+        .string({
+            required_error: "Must provide type Name"
+        })
 })
 
 type MilestonesFormValues = z.infer<typeof MilestonesFormSchema>
@@ -54,7 +54,8 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<Milestones>("Milestones", {
         fields: ["name", "milestone_name"],
-        filters: [["scope_of_work", "=", sow_id]]
+        filters: [["scope_of_work", "=", sow_id]],
+        limit: 1000
     })
     const form = useForm<MilestonesFormValues>({
         resolver: zodResolver(MilestonesFormSchema),
@@ -71,7 +72,7 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
         values.scope_of_work = current;
-        console.log("values ",values)
+        console.log("values ", values)
 
         createDoc('Milestones', values)
             .then(() => {
@@ -80,21 +81,21 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
                 console.log(submit_error)
             })
     }
-    const [current,setCurrent] = useState<string>("")
-    function closewindow(){
+    const [current, setCurrent] = useState<string>("")
+    function closewindow() {
         var button = document.getElementById('dialogClose');
         mutate()
     }
 
-    const {toast} = useToast()
+    const { toast } = useToast()
 
     if (error) {
         console.log("Error in sow-card.tsx", error?.message)
         toast({
             title: "Error!",
             description: `Error ${error?.message}`,
-            variant : "destructive"
-        })   
+            variant: "destructive"
+        })
     }
 
     return (
@@ -104,52 +105,52 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
                     {sow_name}
                 </CardTitle>
                 <div className="flex items-center">
-                <Dialog>
-                    <DialogTrigger asChild>
-                        <Button className="p-3 pb-4 cursor-pointer hover:bg-gray-300" onClick={()=>{setCurrent(sow_name)}} variant="secondary">+</Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                            <DialogTitle>Add New Milestone</DialogTitle>
-                            <DialogDescription>
-                                Add new Milestone in {sow_name}.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <Form {...form}>
-                            <form onSubmit={(event) => {
-                                event.stopPropagation();
-                                return form.handleSubmit(onSubmit)(event);
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            <Button className="p-3 pb-4 cursor-pointer hover:bg-gray-300" onClick={() => { setCurrent(sow_name) }} variant="secondary">+</Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[425px]">
+                            <DialogHeader>
+                                <DialogTitle>Add New Milestone</DialogTitle>
+                                <DialogDescription>
+                                    Add new Milestone in {sow_name}.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <Form {...form}>
+                                <form onSubmit={(event) => {
+                                    event.stopPropagation();
+                                    return form.handleSubmit(onSubmit)(event);
 
-                            }} className="space-y-8">
-                                <FormField
-                                    control={form.control}
-                                    name="milestone_name"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Milestone Name</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="Milestone Name" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                {(loading) ? (<ButtonLoading />) : (<DialogClose asChild><Button type="submit">Submit</Button></DialogClose>)}
-                                        {/* <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose> */}
-                                        <div>
-                                            {submit_complete && 
+                                }} className="space-y-8">
+                                    <FormField
+                                        control={form.control}
+                                        name="milestone_name"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Milestone Name</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="Milestone Name" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    {(loading) ? (<ButtonLoading />) : (<DialogClose asChild><Button type="submit">Submit</Button></DialogClose>)}
+                                    {/* <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose> */}
+                                    <div>
+                                        {submit_complete &&
                                             <div>
-                                            {/* <div className="font-semibold text-green-500"> Customer added</div> */}
-                                            {closewindow()}
+                                                {/* <div className="font-semibold text-green-500"> Customer added</div> */}
+                                                {closewindow()}
                                             </div>
-                                            }
-                                    {submit_error && <div>{submit_error}</div>}
-                                </div>
-                            </form>
-                        </Form>
-                    </DialogContent>
-                </Dialog>
-                <PersonStanding className="h-4 w-4 text-muted-foreground" />
+                                        }
+                                        {submit_error && <div>{submit_error}</div>}
+                                    </div>
+                                </form>
+                            </Form>
+                        </DialogContent>
+                    </Dialog>
+                    <PersonStanding className="h-4 w-4 text-muted-foreground" />
                 </div>
             </CardHeader>
             <CardContent>

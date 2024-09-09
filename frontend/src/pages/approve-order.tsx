@@ -33,7 +33,7 @@ export const ProjectLeadComponent = () => {
         {
             fields: ['category_name', 'work_package', 'image_url'],
             orderBy: { field: 'category_name', order: 'asc' },
-            limit: 100
+            limit: 1000
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
@@ -48,13 +48,13 @@ export const ProjectLeadComponent = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'category_list'],
-            limit: 100
+            limit: 1000
         });
 
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['item', 'quote'],
-            limit: 1000
+            limit: 2000
         });
 
     const { createDoc: createDoc, error: update_error } = useFrappeCreateDoc()
@@ -264,18 +264,18 @@ export const ProjectLeadComponent = () => {
             category_list: orderData.category_list,
             workflow_state: "Approved"
         })
-            .then(() => {
-                console.log("orderData2", orderData)
+            .then((res) => {
+                console.log("orderData2", res)
                 toast({
                     title: "Success!",
-                    description: `PR ${orderData.name} is successfully approved!`,
+                    description: `PR: ${res?.name} is successfully approved!`,
                     variant: "success"
                 })
                 navigate("/")
             }).catch(() => {
                 toast({
                     title: "Failed!",
-                    description: `${submit_error.message}`,
+                    description: `${submit_error?.message}`,
                     variant: "destructive"
                 })
                 console.log("submit_error", submit_error)

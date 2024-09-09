@@ -2,22 +2,6 @@
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-09-06 13:21:13.121793",
-  "name": "Electrical Work",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/electrical_work.jpg.jpg",
-  "work_package_name": "Electrical Work"
- },
- {
-  "docstatus": 0,
-  "doctype": "Work Packages",
-  "modified": "2024-09-06 13:27:48.812294",
-  "name": "Tool & Equipments",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/tool.jpg",
-  "work_package_name": "Tool & Equipments"
- },
- {
-  "docstatus": 0,
-  "doctype": "Work Packages",
   "modified": "2024-09-06 13:20:00.409305",
   "name": "Access Control System",
   "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/access_control.jpg",
@@ -70,5 +54,13 @@
   "name": "HVAC System",
   "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/hvac.jpg",
   "work_package_name": "HVAC System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-09-06 13:21:13.121793",
+  "name": "Electrical Work",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/electrical_work.jpg.jpg",
+  "work_package_name": "Electrical Work"
  }
 ]

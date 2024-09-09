@@ -9,9 +9,7 @@ import { Button } from "./ui/button"
 import { ButtonLoading } from "./button-loading"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
 import ProjectTypeForm from "./project-type-form"
-import CustomerForm from "./customer-form"
 import { Separator } from "./ui/separator"
-import { ScrollArea } from "./ui/scroll-area"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 import { cn } from "@/lib/utils"
 import { CalendarIcon, CirclePlus, GitCommitVertical } from "lucide-react"
@@ -21,9 +19,11 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./
 import { Checkbox } from "./ui/checkbox"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet"
 import { useNavigate } from "react-router-dom"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { formatToLocalDateTimeString } from "@/utils/FormatDate"
 import { useToast } from "./ui/use-toast"
+import NewCustomer from "@/pages/customers/add-new-customer"
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTrigger } from "./ui/alert-dialog"
 
 
 // 1.a Create Form Schema accordingly
@@ -169,12 +169,13 @@ export const ProjectForm = () => {
     // Has handleSubmit, control functions
     const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
         {
-            fields: ['work_package_name']
+            fields: ['work_package_name'],
+            limit: 100
         });
     const { data: scope_of_work_list, isLoading: sow_list_loading, error: sow_list_error } = useFrappeGetDocList("Scopes of Work",
         {
             fields: ['scope_of_work_name', 'work_package'],
-            limit: 100,
+            limit: 1000,
         });
 
     // const valueChange = (e) => {
@@ -213,11 +214,13 @@ export const ProjectForm = () => {
         defaultValues
     })
     const { data: company, isLoading: company_isLoading, error: company_error, mutate: company_mutate } = useFrappeGetDocList('Customers', {
-        fields: ["name", "company_name"]
+        fields: ["name", "company_name"],
+        limit: 1000
     });
 
     const { data: project_types, isLoading: project_types_isLoading, error: project_types_error, mutate: project_types_mutate } = useFrappeGetDocList('Project Types', {
-        fields: ["name", "project_type_name"]
+        fields: ["name", "project_type_name"],
+        limit: 100
     });
 
 
@@ -264,7 +267,8 @@ export const ProjectForm = () => {
 
     const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
         fields: ["name", "full_name", "role_profile"],
-        filters: [["name", "!=", "Administrator"]]
+        filters: [["name", "!=", "Administrator"]],
+        limit: 1000
     });
 
     // const { data: project_lead, isLoading: project_lead_isLoading, error: project_lead_error } = useFrappeGetDocList('Empployees', {
@@ -418,7 +422,6 @@ export const ProjectForm = () => {
                     variant: "success"
                 })
                 handleOpenDialog()
-
             }
             catch (projectError) {
                 await deleteDoc('Address', addressDoc.name);
@@ -432,7 +435,6 @@ export const ProjectForm = () => {
             })
             console.log("Error:", error);
         }
-
 
         // if (!mile_loading && !mile_error) {
         //     console.log("scopes", values.project_scopes.scopes)
@@ -453,6 +455,12 @@ export const ProjectForm = () => {
 
         // console.log(values)
     }
+
+    console.log("project dates", form.getValues("project_start_date"), form.getValues("project_end_date"))
+    const [duration, setDuration] = useState(0)
+    useEffect(() => {
+        setDuration((Math.round((form.getValues("project_end_date").getTime() - form.getValues("project_start_date").getTime()) / (1000 * 3600 * 24))))
+    }, [form.getValues("project_start_date"), form.getValues("project_end_date")])
 
     // Transform data to select options
     const options: SelectOption[] = company?.map(item => ({
@@ -542,35 +550,24 @@ export const ProjectForm = () => {
             <form onSubmit={(event) => {
                 event.stopPropagation();
                 return form.handleSubmit(onSubmit)(event);
-            }} className="flex flex-col space-y-8">
-                <div className="flex flex-col">
-                    <p className="text-sky-600 font-semibold pb-9">Project Details</p>
+            }} className="ml-8">
+                <div className="flex flex-col gap-4">
+                    <p className="text-sky-600 font-semibold">Project Details</p>
                     <FormField
                         control={form.control}
                         name="project_name"
                         render={({ field }) => (
-
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4 flex">
-                                        <FormLabel>Project Name: </FormLabel>
-                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <FormControl>
-                                            <Input placeholder="Project Name" {...field} />
-                                        </FormControl>
-                                    </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Example: CUSTOMER+LOCATION
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Project Name<sup>*</sup></FormLabel>
+                                <div className="flex flex-col items-start md:basis-2/4">
+                                    <FormControl className="">
+                                        <Input placeholder="Project Name" {...field} />
+                                    </FormControl>
                                     <FormMessage />
                                 </div>
+                                <FormDescription>
+                                    Example: CUSTOMER+LOCATION
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
@@ -578,88 +575,46 @@ export const ProjectForm = () => {
                         control={form.control}
                         name="customer"
                         render={({ field }) => (
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4 flex">
-                                        <FormLabel>Customer</FormLabel>
-                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Customer<sup>*</sup></FormLabel>
+                                <div className="md:basis-2/4">
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="flex flex-col items-start">
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder="Select the customer" />
                                                 </SelectTrigger>
                                             </FormControl>
-                                            <SelectContent>
-                                                {company_isLoading && <div>Loading...</div>}
-                                                {company_error && <div>Error: {company_error.message}</div>}
-                                                {options.map(option => (
-                                                    <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                ))}
+                                            <FormMessage />
+                                        </div>
+                                        <SelectContent>
+                                            {company_isLoading && <div>Loading...</div>}
+                                            {company_error && <div>Error: {company_error.message}</div>}
+                                            {options.map(option => (
+                                                <SelectItem value={option.value}>{option.label}</SelectItem>
+                                            ))}
 
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="md:basis-1/4 pl-10 pt-2">
-                                        <FormDescription>
-                                            Customer associated with this project
-                                        </FormDescription>
-                                    </div>
-                                    <div className="md:basis-1/4 pl-10 pt-2">
-                                        {/* <Button variant="secondary" asChild>
-                                            <Link to="../../customers/edit" relative="path">+ Add Customer</Link>
-                                        </Button> */}
-                                        {/* <Dialog>
-                                            <DialogTrigger asChild>
-
-                                                <Button variant="secondary">
-                                                    <div className="flex">
-                                                        <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
-                                                        <span className="pl-1">Add New Customer</span>
-                                                    </div>
-                                                </Button>
-
-                                            </DialogTrigger>
-                                            <DialogContent className="max-w-[300px] md:max-w-[1280px] ">
-
-                                                <DialogHeader>
-                                                    <DialogTitle>Create New Customer</DialogTitle>
-                                                    <DialogDescription>
-                                                        Fill the details to create a customer.
-                                                    </DialogDescription>
-                                                </DialogHeader>
-                                                <ScrollArea className="max-w-[280px] md:max-w-[800px] max-h-[400px] md:max-h-[720px] ">
-                                                    <CustomerForm company_mutate={company_mutate} />
-
-                                                </ScrollArea>
-                                            </DialogContent>
-                                        </Dialog> */}
-                                        <Sheet>
-                                            <SheetTrigger asChild>
-                                                <Button variant="secondary">
-                                                    <div className="flex">
-                                                        <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
-                                                        <span className="pl-1">Add New Customer</span>
-                                                    </div>
-                                                </Button>
-                                            </SheetTrigger>
-                                            <SheetContent>
-                                                <ScrollArea className="h-[90%] w-[600px]  p-4">
-                                                    <SheetHeader>
-                                                        <SheetTitle><div className="pb-4 text-2xl font-bold">Create New Customer</div></SheetTitle>
-                                                        <SheetDescription>
-                                                            <CustomerForm company_mutate={company_mutate} />
-                                                        </SheetDescription>
-                                                    </SheetHeader>
-                                                </ScrollArea>
-                                            </SheetContent>
-                                        </Sheet>
-                                    </div>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
-                                <div className="pt-2 pb-2">
-                                    <FormMessage />
-                                </div>
+                                <Sheet>
+                                    <SheetTrigger asChild>
+                                        <Button variant="secondary">
+                                            <div className="flex">
+                                                <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                <span className="pl-1">Add New Customer</span>
+                                            </div>
+                                        </Button>
+                                    </SheetTrigger>
+                                    <SheetContent className="overflow-y-auto">
+                                        <SheetHeader>
+                                            <SheetTitle><div className=" text-2xl font-bold">Create New Customer</div></SheetTitle>
+                                            <SheetDescription>
+                                                <NewCustomer company_mutate={company_mutate} navigation={false} />
+                                            </SheetDescription>
+                                        </SheetHeader>
+                                    </SheetContent>
+                                </Sheet>
                             </FormItem>
                         )}
                     />
@@ -668,59 +623,47 @@ export const ProjectForm = () => {
                         name="project_type"
                         render={({ field }) => {
                             return (
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4 flex">
-                                            <FormLabel>Project Type</FormLabel>
-                                            <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                        </div>
-                                        <div className="md:basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormItem className="lg:flex lg:items-center gap-4">
+                                    <FormLabel className="md:basis-2/12">Project Type<sup>*</sup></FormLabel>
+                                    <div className="md:basis-2/4">
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <div className="flex flex-col items-start">
                                                 <FormControl>
                                                     <SelectTrigger>
                                                         <SelectValue placeholder="Select a project type" />
                                                     </SelectTrigger>
                                                 </FormControl>
-                                                <SelectContent>
-                                                    {project_types_isLoading && <div>Loading...</div>}
-                                                    {project_types_error && <div>Error: {project_types_error.message}</div>}
-                                                    {type_options.map(option => (
-                                                        <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                    ))}
+                                                <FormMessage />
+                                            </div>
+                                            <SelectContent>
+                                                {project_types_isLoading && <div>Loading...</div>}
+                                                {project_types_error && <div>Error: {project_types_error.message}</div>}
+                                                {type_options.map(option => (
+                                                    <SelectItem value={option.value}>{option.label}</SelectItem>
+                                                ))}
 
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
-                                            <FormDescription>
-                                                Select Type of Project
-                                            </FormDescription>
-                                        </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
-                                            <Dialog>
-                                                <DialogTrigger asChild>
-                                                    <Button variant="secondary">
-                                                        <div className="flex">
-                                                            <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
-                                                            <span className="pl-1">Add New Project Type</span>
-                                                        </div>
-                                                    </Button>
-                                                </DialogTrigger>
-                                                <DialogContent className="max-w-[300px] md:max-w-[425px]">
-                                                    <DialogHeader>
-                                                        <DialogTitle>Add New Project Type</DialogTitle>
-                                                        <DialogDescription>
-                                                            Add new project types here.
-                                                        </DialogDescription>
-                                                    </DialogHeader>
-                                                    <ProjectTypeForm project_types_mutate={project_types_mutate} />
-                                                </DialogContent>
-                                            </Dialog>
-                                        </div>
+                                            </SelectContent>
+                                        </Select>
                                     </div>
-                                    <div className="pt-2 pb-2">
-                                        <FormMessage />
-                                    </div>
+                                    <Dialog>
+                                        <DialogTrigger asChild>
+                                            <Button variant="secondary">
+                                                <div className="flex">
+                                                    <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                    <span className="pl-1">Add New Project Type</span>
+                                                </div>
+                                            </Button>
+                                        </DialogTrigger>
+                                        <DialogContent className="max-w-[300px] md:max-w-[425px]">
+                                            <DialogHeader>
+                                                <DialogTitle>Add New Project Type</DialogTitle>
+                                                <DialogDescription>
+                                                    Add new project types here.
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                            <ProjectTypeForm project_types_mutate={project_types_mutate} />
+                                        </DialogContent>
+                                    </Dialog>
                                 </FormItem>
                             )
                         }}
@@ -730,650 +673,430 @@ export const ProjectForm = () => {
                         name="subdivisions"
                         render={({ field }) => {
                             return (
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4 flex">
-                                            <FormLabel>Sub-Divisions</FormLabel>
-                                            <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                        </div>
-                                        <div className="md:basis-1/4">
-                                            <Select
-                                                onValueChange={(e) => {
-                                                    field.onChange(e);
-                                                    handleSubdivisionChange(e);
-                                                }}
-                                                defaultValue={field.value}
-                                            >
+                                <FormItem className="lg:flex lg:items-center gap-4">
+                                    <FormLabel className="md:basis-2/12">Sub-Divisions<sup>*</sup></FormLabel>
+                                    <div className="md:basis-2/4">
+                                        <Select
+                                            onValueChange={(e) => {
+                                                field.onChange(e);
+                                                handleSubdivisionChange(e);
+                                            }}
+                                            defaultValue={field.value}
+                                        >
+                                            <div className="flex flex-col items-start">
                                                 <FormControl>
                                                     <SelectTrigger>
                                                         <SelectValue placeholder="Select the number of Sub Divisions" />
                                                     </SelectTrigger>
                                                 </FormControl>
-                                                <SelectContent>
-                                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(item => (
-                                                        <SelectItem key={item} value={`${item}`}>
-                                                            {item}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
-                                            <FormDescription>
-                                                Select Total number of Area
-                                            </FormDescription>
-                                        </div>
+                                                <FormMessage />
+                                            </div>
+                                            <SelectContent>
+                                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(item => (
+                                                    <SelectItem key={item} value={`${item}`}>
+                                                        {item}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
-                                    <div className="pt-2 pb-2">
-                                        <FormMessage />
-                                    </div>
+                                    <FormDescription>
+                                        Select Total number of Areas
+                                    </FormDescription>
                                 </FormItem>
                             )
                         }}
                     />
                     {Array.from({ length: form.getValues().subdivisions }).map((_, index) => {
-                        return <FormItem>
-                            <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                <div className="md:basis-1/4">
-                                    <FormLabel>Area {index + 1}:</FormLabel>
-                                </div>
-                                <div className="md:basis-1/4">
-                                    <Input
-                                        type="text"
-                                        onChange={(e) => handleAreaNameChange(index, e)}
-                                        // placeholder={area}
-                                        value={areaNames[index].name}
-                                    />
-                                </div>
+                        return <FormItem className="lg:flex lg:items-center gap-4">
+                            <FormLabel className="md:basis-2/12">Area {index + 1}:</FormLabel>
+                            <div className="md:basis-2/4">
+                                <Input
+                                    type="text"
+                                    onChange={(e) => handleAreaNameChange(index, e)}
+                                    // placeholder={area}
+                                    value={areaNames[index].name}
+                                />
                             </div>
                         </FormItem>
                     })}
                     <Separator className="my-6" />
-                    <p className="text-sky-600 font-semibold pb-9">Project Address Details</p>
+                    <p className="text-sky-600 font-semibold">Project Address Details</p>
                     <FormField
                         control={form.control}
                         name="address_line_1"
                         render={({ field }) => (
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4 flex">
-                                        <FormLabel>Address Line 1: </FormLabel>
-                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <FormControl>
-                                            <Input placeholder="Address Line 1" {...field} />
-                                        </FormControl>
-                                    </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Example: Building name, Building no., Floor
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Address Line 1<sup>*</sup></FormLabel>
+                                <div className="md:basis-2/4">
+                                    <FormControl>
+                                        <Input placeholder="Address Line 1" {...field} />
+                                    </FormControl>
                                     <FormMessage />
                                 </div>
+                                <FormDescription>
+                                    Example: Building name, Building no., Floor
+                                </FormDescription>
                             </FormItem>
-
                         )}
                     />
+
                     <FormField
                         control={form.control}
                         name="address_line_2"
                         render={({ field }) => (
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4 flex">
-                                        <FormLabel>Address Line 2: </FormLabel>
-                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <FormControl>
-                                            <Input placeholder="Address Line 2" {...field} />
-                                        </FormControl>
-                                    </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Example: Road Name, Area name
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Address Line 2<sup>*</sup></FormLabel>
+                                <div className="md:basis-2/4">
+                                    <FormControl>
+                                        <Input placeholder="Address Line 2" {...field} />
+                                    </FormControl>
                                     <FormMessage />
                                 </div>
+                                <FormDescription>
+                                    Example: Road Name, Area name
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
+
                     <FormField
                         control={form.control}
                         name="project_city"
                         render={({ field }) => (
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4 flex">
-                                        <FormLabel>City: </FormLabel>
-                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <FormControl>
-                                            <Input placeholder="City Name" {...field} />
-                                        </FormControl>
-                                    </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Example: City name
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">City<sup>*</sup></FormLabel>
+                                <div className="md:basis-2/4">
+                                    <FormControl>
+                                        <Input placeholder="City Name" {...field} />
+                                    </FormControl>
                                     <FormMessage />
                                 </div>
+                                <FormDescription>
+                                    Example: City name
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
+
                     <FormField
                         control={form.control}
                         name="project_state"
                         render={({ field }) => (
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4 flex">
-                                        <FormLabel>State: </FormLabel>
-                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <FormControl>
-                                            <Input placeholder="State Name" {...field} />
-                                        </FormControl>
-                                    </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Example: State name
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">State<sup>*</sup></FormLabel>
+                                <div className="md:basis-2/4">
+                                    <FormControl>
+                                        <Input placeholder="State Name" {...field} />
+                                    </FormControl>
                                     <FormMessage />
                                 </div>
+                                <FormDescription>
+                                    Example: State name
+                                </FormDescription>
                             </FormItem>
-
                         )}
                     />
+
                     <FormField
                         control={form.control}
                         name="pin"
                         render={({ field }) => (
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4 flex">
-                                        <FormLabel>Pin Code: </FormLabel>
-                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <FormControl>
-                                            <Input type="number" placeholder="Pincode" {...field} onChange={event => field.onChange(+event.target.value)} />
-                                        </FormControl>
-                                    </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Example: 100000
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Pin Code<sup>*</sup></FormLabel>
+                                <div className="md:basis-2/4">
+                                    <FormControl>
+                                        <Input
+                                            type="number"
+                                            placeholder="Pincode"
+                                            {...field}
+                                            onChange={(event) => field.onChange(+event.target.value)}
+                                        />
+                                    </FormControl>
                                     <FormMessage />
                                 </div>
+                                <FormDescription>
+                                    Example: 100000
+                                </FormDescription>
                             </FormItem>
-
                         )}
                     />
+
                     <FormField
                         control={form.control}
                         name="phone"
                         render={({ field }) => (
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
-                                        <FormLabel>Phone: </FormLabel>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <FormControl>
-                                            <Input type="number" placeholder="Phone" {...field} onChange={event => field.onChange(+event.target.value)} />
-                                        </FormControl>
-                                    </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Example: 90000000000
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Phone</FormLabel>
+                                <div className="md:basis-2/4">
+                                    <FormControl>
+                                        <Input
+                                            type="number"
+                                            placeholder="Phone"
+                                            {...field}
+                                            onChange={(event) => field.onChange(+event.target.value)}
+                                        />
+                                    </FormControl>
                                     <FormMessage />
                                 </div>
+                                <FormDescription>
+                                    Example: 90000000000
+                                </FormDescription>
                             </FormItem>
-
                         )}
                     />
+
                     <FormField
                         control={form.control}
                         name="email"
                         render={({ field }) => (
-
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4">
-                                        <FormLabel>Email: </FormLabel>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <FormControl>
-                                            <Input placeholder="Email" {...field} />
-                                        </FormControl>
-                                    </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Example: abc@mail.com
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Email</FormLabel>
+                                <div className="md:basis-2/4">
+                                    <FormControl>
+                                        <Input placeholder="Email" {...field} />
+                                    </FormControl>
                                     <FormMessage />
                                 </div>
+                                <FormDescription>
+                                    Example: abc@mail.com
+                                </FormDescription>
                             </FormItem>
-
                         )}
                     />
-                    {/* <FormField
-                        control={form.control}
-                        name="project_address"
-                        render={({ field }) => (
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                    <div className="md:basis-1/4">
-                                        <FormLabel>Project Address</FormLabel>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                            <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select an address" />
-                                                </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                                {project_address_isLoading && <div>Loading...</div>}
-                                                {project_address_error && <div>Error: {project_address_error.message}</div>}
-                                                {address_options.map(option => (
-                                                    <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                ))}
 
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div className="md:basis-1/4 pl-10 pt-2">
-                                        <FormDescription>
-                                            Select Project Address
-                                        </FormDescription>
-                                    </div>
-                                    <div className="md:basis-1/4 pl-10 pt-2">
-                                        <Dialog>
-                                            <DialogTrigger asChild>
-                                                <Button variant="secondary">
-                                                    <div className="flex">
-                                                        <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
-                                                        <span className="pl-1">Add New Project Address</span>
-                                                    </div>
-                                                </Button>
-                                            </DialogTrigger>
-                                            <DialogContent className="max-w-[300px] md:max-w-[425px]">
-                                                <ScrollArea className="max-h-[400px] md:max-h-[500px] ">
-                                                    <DialogHeader>
-                                                        <DialogTitle>Add New Project Address</DialogTitle>
-                                                        <DialogDescription>
-                                                            Add new project address here.
-                                                        </DialogDescription>
-                                                    </DialogHeader>
-                                                    <Separator className="my-6" />
-                                                    <AddressForm type={"Shipping"} project_address_mutate={project_address_mutate} />
-                                                </ScrollArea>
-                                            </DialogContent>
-                                        </Dialog>
-                                    </div>
-                                </div>
-
-                                <div className="pt-2 pb-2">
-                                    <FormMessage />
-                                </div>
-                            </FormItem>
-                        )}
-                    /> */}
                     <Separator className="my-6" />
-                    <p className="text-sky-600 font-semibold pb-9">Project Timeline</p>
+                    <p className="text-sky-600 font-semibold">Project Timeline</p>
                     <FormField
                         control={form.control}
                         name="project_start_date"
                         render={({ field }) => (
-
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4 flex">
-                                        <FormLabel>Project Start Date: </FormLabel>
-                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <FormControl>
-                                                    <Button
-                                                        variant={"outline"}
-                                                        className={cn(
-                                                            "w-[50%] md:w-[100%] pl-3 text-left font-normal",
-                                                            !field.value && "text-muted-foreground"
-                                                        )}
-                                                    >
-                                                        {field.value ? (
-
-                                                            format(field.value, "dd-MM-yyyy")
-                                                        ) : (
-                                                            <span>Pick a date</span>
-                                                        )}
-                                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                    </Button>
-                                                </FormControl>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0" align="start">
-                                                <Calendar
-                                                    mode="single"
-                                                    selected={String(field.value)}
-                                                    onSelect={field.onChange}
-
-                                                    initialFocus
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
-                                    </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Select project start date
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Project Start Date<sup>*</sup></FormLabel>
+                                <div className="md:basis-1/4">
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <FormControl>
+                                                <Button
+                                                    variant={"outline"}
+                                                    className={cn(
+                                                        "w-full pl-3 text-left font-normal",
+                                                        !field.value && "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    {field.value ? (
+                                                        format(field.value, "dd-MM-yyyy")
+                                                    ) : (
+                                                        <span>Pick a date</span>
+                                                    )}
+                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                </Button>
+                                            </FormControl>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                            <Calendar
+                                                mode="single"
+                                                selected={field.value}
+                                                onSelect={field.onChange}
+                                                initialFocus
+                                            />
+                                        </PopoverContent>
+                                    </Popover>
                                     <FormMessage />
                                 </div>
+                                <FormDescription>
+                                    Select project start date
+                                </FormDescription>
                             </FormItem>
-
-
                         )}
                     />
+
                     <FormField
                         control={form.control}
                         name="project_end_date"
                         render={({ field }) => (
-
-                            <FormItem>
-                                <div className="md:flex md:flex-row pt-2 pb-2">
-                                    <div className="md:basis-1/4 flex">
-                                        <FormLabel>Project End Date: </FormLabel>
-                                        <h1 className="pl-1 text-sm text-red-600">*</h1>
-                                    </div>
-                                    <div className="md:basis-1/4">
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <FormControl>
-                                                    <Button
-                                                        variant={"outline"}
-                                                        className={cn(
-                                                            "w-[50%] md:w-[100%] pl-3 text-left font-normal",
-                                                            !field.value && "text-muted-foreground"
-                                                        )}
-                                                    >
-                                                        {field.value ? (
-
-                                                            format(field.value, "dd-MM-yyyy")
-                                                        ) : (
-                                                            <span>Pick a date</span>
-                                                        )}
-                                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                    </Button>
-                                                </FormControl>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0" align="start">
-                                                <Calendar
-                                                    mode="single"
-                                                    selected={String(field.value)}
-                                                    onSelect={field.onChange}
-                                                    disabled={(date) =>
-                                                        date < form.getValues("project_start_date")
-                                                    }
-                                                    initialFocus
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
-                                    </div>
-                                    <div className="md:basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Select Project End date
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Project End Date<sup>*</sup></FormLabel>
+                                <div className="md:basis-1/4">
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <FormControl>
+                                                <Button
+                                                    variant={"outline"}
+                                                    className={cn(
+                                                        "w-full pl-3 text-left font-normal",
+                                                        !field.value && "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    {field.value ? (
+                                                        format(field.value, "dd-MM-yyyy")
+                                                    ) : (
+                                                        <span>Pick a date</span>
+                                                    )}
+                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                </Button>
+                                            </FormControl>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                            <Calendar
+                                                mode="single"
+                                                selected={field.value}
+                                                onSelect={field.onChange}
+                                                disabled={(date) =>
+                                                    date < form.getValues("project_start_date")
+                                                }
+                                                initialFocus
+                                            />
+                                        </PopoverContent>
+                                    </Popover>
                                     <FormMessage />
                                 </div>
+                                <FormDescription>
+                                    Select project end date
+                                </FormDescription>
                             </FormItem>
-
-
                         )}
                     />
-                    <div className="pt-2 pb-2">
-                        <div className="flex flex-row pt-2 pb-2">
-                            <div className="md:basis-1/4">
-                                <FormLabel>Duration: </FormLabel>
-                            </div>
-                            <div className="md:basis-1/4 flex pl-5">
-                                <h1>{
-                                    (Math.round((form.getValues("project_end_date").getTime() - form.getValues("project_start_date").getTime()) / (1000 * 3600 * 24))) || "0"
-                                }
-                                </h1>
-                                <h1 className="pl-3 mt-0.5 text-sm text-red-600">*(Days)</h1>
-                            </div>
+                    <div className="flex items-center">
+                        <FormLabel className="md:basis-2/12">Duration: </FormLabel>
+                        <div className=" pl-4 flex items-center gap-2">
+                            <h1>{duration}
+                            </h1>
+                            <h1 className="text-sm text-red-600"><sup>*</sup>(Days)</h1>
                         </div>
                     </div>
                     <Separator className="my-6" />
-                    <div className="md:flex items-center justify-between">
-                        <p className="text-sky-600 font-semibold pb-9">Project Asignees</p>
-                        <div className="md:flex items-center">
-                            {/* <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button variant="secondary">
-                                        <div className="flex">
-                                            <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
-                                            <span className="pl-1">Add New Employee</span>
-                                        </div>
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent className="max-w-[300px] md:max-w-[425px]">
-                                    <DialogHeader>
-                                        <DialogTitle>Add New Employee</DialogTitle>
-                                        <DialogDescription>
-                                            Add new employees here.
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    <EmployeeForm />
-                                </DialogContent>
-                            </Dialog> */}
-                        </div>
-                    </div>
+                    <p className="text-sky-600 font-semibold">Project Asignees</p>
                     <FormField
                         control={form.control}
                         name="project_lead"
-                        render={({ field }) => {
-                            return (
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
-                                            <FormLabel>Project Lead:</FormLabel>
+                        render={({ field }) => (
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Project Lead</FormLabel>
+                                <div className="md:basis-2/4">
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="flex flex-col items-start">
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select project lead" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <FormMessage />
                                         </div>
-                                        <div className="md:basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                <FormControl>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Select project lead" />
-                                                    </SelectTrigger>
-                                                </FormControl>
-                                                <SelectContent>
-                                                    {user_isLoading && <div>Loading...</div>}
-                                                    {user_error && <div>Error: {user_error.message}</div>}
-                                                    {project_lead_options.map(option => (
-                                                        <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                    ))}
-
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
-                                            <FormDescription>
-                                                Select Project Lead
-                                            </FormDescription>
-                                        </div>
-                                    </div>
-                                    <div className="pt-2 pb-2">
-                                        <FormMessage />
-                                    </div>
-                                </FormItem>
-                            )
-                        }}
+                                        <SelectContent>
+                                            {user_isLoading && <div>Loading...</div>}
+                                            {user_error && <div>Error: {user_error.message}</div>}
+                                            {project_lead_options.map(option => (
+                                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <FormDescription>
+                                    Select Project Lead
+                                </FormDescription>
+                            </FormItem>
+                        )}
                     />
+
                     <FormField
                         control={form.control}
                         name="project_manager"
-                        render={({ field }) => {
-                            return (
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
-                                            <FormLabel>Project Manager:</FormLabel>
+                        render={({ field }) => (
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Project Manager</FormLabel>
+                                <div className="md:basis-2/4">
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="flex flex-col items-start">
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select project manager" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <FormMessage />
                                         </div>
-                                        <div className="md:basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                <FormControl>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Select project manager" />
-                                                    </SelectTrigger>
-                                                </FormControl>
-                                                <SelectContent>
-                                                    {user_isLoading && <div>Loading...</div>}
-                                                    {user_error && <div>Error: {user_error.message}</div>}
-                                                    {project_manager_options.map(option => (
-                                                        <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                    ))}
-
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
-                                            <FormDescription>
-                                                Select Project Manager
-                                            </FormDescription>
-                                        </div>
-                                    </div>
-                                    <div className="pt-2 pb-2">
-                                        <FormMessage />
-                                    </div>
-                                </FormItem>
-                            )
-                        }}
+                                        <SelectContent>
+                                            {user_isLoading && <div>Loading...</div>}
+                                            {user_error && <div>Error: {user_error.message}</div>}
+                                            {project_manager_options.map(option => (
+                                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <FormDescription>
+                                    Select Project Manager
+                                </FormDescription>
+                            </FormItem>
+                        )}
                     />
+
                     <FormField
                         control={form.control}
                         name="design_lead"
-                        render={({ field }) => {
-                            return (
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
-                                            <FormLabel>Design Lead:</FormLabel>
+                        render={({ field }) => (
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Design Lead</FormLabel>
+                                <div className="md:basis-2/4">
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="flex flex-col items-start">
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select design lead" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <FormMessage />
                                         </div>
-                                        <div className="md:basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                <FormControl>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Select design lead" />
-                                                    </SelectTrigger>
-                                                </FormControl>
-                                                <SelectContent>
-                                                    {user_isLoading && <div>Loading...</div>}
-                                                    {user_error && <div>Error: {user_error.message}</div>}
-                                                    {design_lead_options.map(option => (
-                                                        <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                    ))}
-
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
-                                            <FormDescription>
-                                                Select Design Lead
-                                            </FormDescription>
-                                        </div>
-                                    </div>
-                                    <div className="pt-2 pb-2">
-                                        <FormMessage />
-                                    </div>
-                                </FormItem>
-                            )
-                        }}
+                                        <SelectContent>
+                                            {user_isLoading && <div>Loading...</div>}
+                                            {user_error && <div>Error: {user_error.message}</div>}
+                                            {design_lead_options.map(option => (
+                                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <FormDescription>
+                                    Select Design Lead
+                                </FormDescription>
+                            </FormItem>
+                        )}
                     />
+
                     <FormField
                         control={form.control}
                         name="procurement_lead"
-                        render={({ field }) => {
-                            return (
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2 ">
-                                        <div className="md:basis-1/4">
-                                            <FormLabel>Procurement Lead:</FormLabel>
+                        render={({ field }) => (
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Procurement Lead</FormLabel>
+                                <div className="md:basis-2/4">
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="flex flex-col items-start">
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select procurement lead" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <FormMessage />
                                         </div>
-                                        <div className="md:basis-1/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                <FormControl>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Select procurement lead" />
-                                                    </SelectTrigger>
-                                                </FormControl>
-                                                <SelectContent>
-                                                    {user_isLoading && <div>Loading...</div>}
-                                                    {user_error && <div>Error: {user_error.message}</div>}
-                                                    {procurement_lead_options.map(option => (
-                                                        <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                    ))}
-
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
-                                            <FormDescription>
-                                                Select Procurement Lead
-                                            </FormDescription>
-                                        </div>
-                                    </div>
-                                    <div className="pt-2 pb-2">
-                                        <FormMessage />
-                                    </div>
-                                </FormItem>
-                            )
-                        }}
+                                        <SelectContent>
+                                            {user_isLoading && <div>Loading...</div>}
+                                            {user_error && <div>Error: {user_error.message}</div>}
+                                            {procurement_lead_options.map(option => (
+                                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <FormDescription>
+                                    Select Procurement Lead
+                                </FormDescription>
+                            </FormItem>
+                        )}
                     />
+
                     <Separator className="my-6" />
-                    <p className="text-sky-600 font-semibold pb-9">Package Specification</p>
+                    <p className="text-sky-600 font-semibold">Package Specification</p>
                     <FormField
                         control={form.control}
                         name="project_work_milestones"
@@ -1397,7 +1120,6 @@ export const ProjectForm = () => {
                                             form.setValue(("project_scopes.scopes"), [])
                                             form.setValue(("project_work_milestones.work_packages"), [])
                                         }
-                                        // console.log(form.getValues())
                                     }}
 
                                 /> <span className="text-sm text-red-600 font-bold">Select All</span>
@@ -1508,107 +1230,6 @@ export const ProjectForm = () => {
                             </FormItem>
                         )}
                     />
-                    {/* {wp_isLoading && <div>Loading...</div>}
-                    {wp_error && <div>Error: {wp_error.message}</div>} */}
-                    {/* {workPackages.map((option, index) => ( */}
-                    {/* <FormField
-                            control={form.control}
-                            name={"project_work_milestones"}
-                            render={() => (
-                                <FormItem>
-                                    <div className="flex flex-row pt-2 pb-2 ">
-
-                                        {workPackages.map((wp, index) => (
-                                            <FormField
-                                            key={wp.name}
-                                            control={form.control}
-                                            name={`project_work_milestones`}
-                                            render={({field}) => {
-                                                return(
-<Accordion type="single" collapsible className="w-full">
-                                            <AccordionItem value="item-1">
-                                                <AccordionTrigger>
-                                                    <div className="space-y-1 leading-none">
-                                                        <FormControl>
-                                                            <Checkbox
-                                                                checked={field.value.isChecked}
-                                                                onCheckedChange={(checked) => {
-                                                                    return checked
-                                                                    ? field.onChange([...field.value, wp])
-                                                                    : 
-                                                                }}
-                                                            />
-                                                        </FormControl>
-                                                        <FormLabel>
-                                                            {option.name}
-                                                        </FormLabel>
-                                                    </div>
-                                                </AccordionTrigger>
-                                                <AccordionContent>
-                                                    {option.scopes.map((scope) => (
-
-                                                        <div className="flex items-center space-x-2">
-                                                            <Switch id={scope.name} />
-                                                            <Label htmlFor={scope.name}>{scope.scope_of_work_name}</Label>
-                                                        </div>
-
-
-                                                    ))}
-                                                </AccordionContent>
-
-                                            </AccordionItem>
-                                        </Accordion>
-                                                )
-                                            }}
-
-                                            />
-                                        ))}
-                                        
-                                    </div>
-                                </FormItem>
-                            )}
-                        /> */}
-                    {/* ))} */}
-                    {/* <Separator className="my-6" />
-                    <p className="text-sky-600 font-semibold pb-9">DEBUG Package Specification</p> */}
-                    {/* <div>
-                        {.map(wp => (
-                            <h3>{wp.name}</h3>
-                            {}
-                        ))}
-                    </div> */}
-
-                    {/* <FormField
-                        control={form.control}
-                        name="project_name"
-                        render={({ field }) => (
-
-                            <FormItem>
-                                <div className="flex flex-row pt-2 pb-2">
-                                    <div className="basis-1/4">
-                                        <FormLabel>Project Name: </FormLabel>
-                                    </div>
-                                    <div className="basis-1/4">
-                                        <FormControl>
-                                            <Input placeholder="Project Name" {...field} />
-                                        </FormControl>
-                                    </div>
-                                    <div className="basis-1/2 pl-10 pt-2">
-                                        <FormDescription>
-                                            Example: CUSTOMER+LOACTION
-                                        </FormDescription>
-                                    </div>
-
-                                </div>
-                                <div className="pt-2 pb-2">
-                                    <FormMessage />
-                                </div>
-                            </FormItem>
-
-
-                        )}
-                    /> */}
-
                     <div className="pt-5 pb-2 ">
                         {(loading) ?
                             <ButtonLoading />
@@ -1636,15 +1257,7 @@ export const ProjectForm = () => {
                                 <button className="hidden" id="dialogCloseProject">close</button>
                             </DialogClose>
                         </DialogContent>
-
                     </Dialog>
-                    {/* <div>
-                        {submit_complete &&
-                            <div>
-                                <div className="font-semibold text-green-500"> Submitted successfully</div>
-                            </div>
-                        }
-                    </div> */}
                 </div>
             </form >
         </Form >

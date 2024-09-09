@@ -107,7 +107,7 @@ export default function SentBackVendorForm({ sent_back_data, quotation_request_l
         {
             fields: ['category_name', 'work_package'],
             orderBy: { field: 'category_name', order: 'asc' },
-            limit: 100
+            limit: 1000
         });
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()

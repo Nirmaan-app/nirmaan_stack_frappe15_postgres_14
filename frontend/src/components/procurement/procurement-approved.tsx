@@ -23,16 +23,17 @@ export const PRList = () => {
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', "category_list", 'creation'],
             filters: [["workflow_state", "=", "Approved"]],
-            limit: 100
+            limit: 1000
         });
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
+        limit: 1000
     })
 
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['item', 'quote'],
-            limit: 1000
+            limit: 10000
         });
 
     const getTotal = (order_id: string) => {
@@ -136,7 +137,7 @@ export const PRList = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="flex flex-col gap-1 items-center justify-center">
+                        <div className="flex flex-col gap-1 items-start justify-center">
                             {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
@@ -161,15 +162,15 @@ export const PRList = () => {
         ],
         [project_values]
     )
-    const {toast} = useToast()
+    const { toast } = useToast()
 
     if (procurement_request_list_error || projects_error) {
         console.log("Error in Procurement-approved.tsx", procurement_request_list_error?.message, projects_error?.message)
         toast({
             title: "Error!",
             description: `Error ${procurement_request_list_error?.message || projects_error?.message}`,
-            variant : "destructive"
-        })   
+            variant: "destructive"
+        })
     }
 
     return (
@@ -182,7 +183,7 @@ export const PRList = () => {
                     </div>
 
                     {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
+                        <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
                     )}
 
                     {/* <div className="overflow-x-auto">
@@ -215,6 +216,6 @@ export const PRList = () => {
                     </div> */}
                 </div>
             </div>
-            </>
+        </>
     )
 }

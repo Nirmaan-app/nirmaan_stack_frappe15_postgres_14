@@ -1,9 +1,9 @@
 //import React, {useState, useEffect} from "react"
-import React , {useState} from "react"
+import React, { useState } from "react"
 import { useEffect } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
-import {DialogClose} from "@/components/ui/dialog"
+import { DialogClose } from "@/components/ui/dialog"
 import * as z from "zod"
 
 import { useFrappeGetDocList } from "frappe-react-sdk"
@@ -44,9 +44,9 @@ const SOWFormSchema = z.object({
             message: "Type Name must be at least 3 characters.",
         }),
     work_package: z
-    .string({
-        required_error: "Must provide type Name"
-    })
+        .string({
+            required_error: "Must provide type Name"
+        })
 })
 
 type SOWFormValues = z.infer<typeof SOWFormSchema>
@@ -57,7 +57,8 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
 
     const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList<ScopesOfWork>("Scopes of Work", {
         fields: ["name", "scope_of_work_name"],
-        filters: [["work_package", "=", wp]]
+        filters: [["work_package", "=", wp]],
+        limit: 1000
     })
     const form = useForm<SOWFormValues>({
         resolver: zodResolver(SOWFormSchema),
@@ -74,7 +75,7 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
         values.work_package = current;
-        console.log("values ",values)
+        console.log("values ", values)
 
         createDoc('Scopes of Work', values)
             .then(() => {
@@ -83,21 +84,21 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
                 console.log(submit_error)
             })
     }
-    const [current,setCurrent] = useState<string>("")
-    function closewindow(){
+    const [current, setCurrent] = useState<string>("")
+    function closewindow() {
         var button = document.getElementById('dialogClose');
         mutate()
     }
 
-    const {toast} = useToast()
+    const { toast } = useToast()
 
     if (error) {
         console.log("Error in wp-card.tsx", error?.message)
         toast({
             title: "Error!",
             description: `Error ${error?.message}`,
-            variant : "destructive"
-        })   
+            variant: "destructive"
+        })
     }
 
     return (
@@ -107,52 +108,52 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
                     {wp}
                 </CardTitle>
                 <div className="flex items-center">
-                <Dialog>
-                    <DialogTrigger asChild>
-                        <Button className="p-3 pb-4 cursor-pointer hover:bg-gray-300" onClick={()=>{setCurrent(wp)}} variant="secondary">+</Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                            <DialogTitle>Add New Scope of Work</DialogTitle>
-                            <DialogDescription>
-                                Add new Scopes of Work in {wp}.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <Form {...form}>
-                            <form onSubmit={(event) => {
-                                event.stopPropagation();
-                                return form.handleSubmit(onSubmit)(event);
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            <Button className="p-3 pb-4 cursor-pointer hover:bg-gray-300" onClick={() => { setCurrent(wp) }} variant="secondary">+</Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[425px]">
+                            <DialogHeader>
+                                <DialogTitle>Add New Scope of Work</DialogTitle>
+                                <DialogDescription>
+                                    Add new Scopes of Work in {wp}.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <Form {...form}>
+                                <form onSubmit={(event) => {
+                                    event.stopPropagation();
+                                    return form.handleSubmit(onSubmit)(event);
 
-                            }} className="space-y-8">
-                                <FormField
-                                    control={form.control}
-                                    name="scope_of_work_name"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Scope of Work Name</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="Scope of Work Name" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                }} className="space-y-8">
+                                    <FormField
+                                        control={form.control}
+                                        name="scope_of_work_name"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Scope of Work Name</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="Scope of Work Name" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
                                     {(loading) ? (<ButtonLoading />) : (<DialogClose asChild><Button type="submit">Submit</Button></DialogClose>)}
-                                        {/* <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose> */}
-                                        <div>
-                                            {submit_complete && 
+                                    {/* <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose> */}
+                                    <div>
+                                        {submit_complete &&
                                             <div>
-                                            {/* <div className="font-semibold text-green-500"> Customer added</div> */}
-                                            {closewindow()}
+                                                {/* <div className="font-semibold text-green-500"> Customer added</div> */}
+                                                {closewindow()}
                                             </div>
-                                            }
-                                    {submit_error && <div>{submit_error}</div>}
-                                </div>
-                            </form>
-                        </Form>
-                    </DialogContent>
-                </Dialog>
-                <PersonStanding className="h-4 w-4 text-muted-foreground" />
+                                        }
+                                        {submit_error && <div>{submit_error}</div>}
+                                    </div>
+                                </form>
+                            </Form>
+                        </DialogContent>
+                    </Dialog>
+                    <PersonStanding className="h-4 w-4 text-muted-foreground" />
                 </div>
             </CardHeader>
             <CardContent>
@@ -163,7 +164,7 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
                         <div key={d.scope_of_work_name}>
                             <SOWCard sow_id={d.name} sow_name={d.scope_of_work_name} />
                         </div>
-                    ) }
+                    )}
                 </div>
                 {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
             </CardContent>

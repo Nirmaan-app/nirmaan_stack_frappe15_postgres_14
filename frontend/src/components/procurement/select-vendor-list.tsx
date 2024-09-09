@@ -25,11 +25,12 @@ export const SelectVendorList = () => {
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
             filters: [["workflow_state", "=", "Quote Updated"]],
-            limit: 100
+            limit: 1000
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
+        limit: 1000
     })
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
@@ -118,7 +119,7 @@ export const SelectVendorList = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="max-w-fit gap-0.5 grid grid-cols-2">
+                        <div className="flex flex-col gap-1 items-start justify-center">
                             {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
@@ -143,28 +144,28 @@ export const SelectVendorList = () => {
         ],
         [project_values]
     )
-    const {toast} = useToast()
+    const { toast } = useToast()
 
     if (procurement_request_list_error || projects_error) {
         console.log("Error in select-vendor-list.tsx", procurement_request_list_error?.message, projects_error?.message)
         toast({
             title: "Error!",
             description: `Error ${procurement_request_list_error?.message || projects_error?.message}`,
-            variant : "destructive"
-        })   
+            variant: "destructive"
+        })
     }
 
     return (
-            <div className="flex">
-                <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                    <div className="flex items-center justify-between space-y-2">
-                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Select Vendor PR</h2>
-                    </div>
-                    {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
+        <div className="flex">
+            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+                <div className="flex items-center justify-between space-y-2">
+                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Select Vendor PR</h2>
+                </div>
+                {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
-                    )}
+                )}
 
-                    {/* <div className="overflow-x-auto">
+                {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
@@ -192,7 +193,7 @@ export const SelectVendorList = () => {
                             </tbody>
                         </table>
                     </div> */}
-                </div>
             </div>
+        </div>
     )
 }

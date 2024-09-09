@@ -14,7 +14,8 @@ export default function WorkPackageSelect({ handleWPClick }: WorkPackageSelectPr
 
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList<WorkPackages>("Work Packages", {
         fields: ['work_package_name', "work_package_image"],
-        orderBy: { field: 'work_package_name', order: 'asc' }
+        orderBy: { field: 'work_package_name', order: 'asc' },
+        limit: 1000
     });
 
     // const orderDataZ = useProcurementRequest(store => store);

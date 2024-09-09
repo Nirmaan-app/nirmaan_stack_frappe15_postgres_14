@@ -18,6 +18,8 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
 // import { useQueryClient } from "@tanstack/react-query";
 import useCustomFetchHook from "@/reactQuery/customFunctions";
+import { SheetClose } from "@/components/ui/sheet";
+import { min } from "date-fns";
 // import { exampleFunction } from "@/reactQuery/customFunctions";
 
 const customerFormSchema = z.object({
@@ -33,7 +35,9 @@ const customerFormSchema = z.object({
         .string({
             required_error: "Address Required"
         }),
-    company_address_line_2: z.string(),
+    company_address_line_2: z.string({
+        required_error: "Address Required"
+    }),
     company_city: z
         .string({
             required_error: "Must provide city"
@@ -45,30 +49,36 @@ const customerFormSchema = z.object({
     company_pin: z
         .string({
             required_error: "Must provide pincode"
-        }),
+        })
+        .max(6, { message: "Pincode must be of 6 digits" })
+        .min(6, { message: "Pincode must be of 6 digits" }),
 
     company_contact_person: z
-        .string({
-            required_error: "Must provide contact person"
-        }),
-    email: z.string().email(),
+        .string()
+        .optional()
+        .or(z.literal('')),
+    email: z.string().email().optional().or(z.literal('')),
     phone: z
-        .string({
-            required_error: "Must provide contact"
-        }),
-    company_gst: z.string(),
+        .string()
+        .max(10, { message: "Mobile number must be of 10 digits" })
+        .min(10, { message: "Mobile number must be of 10 digits" })
+        .optional()
+        .or(z.literal('')),
+    company_gst: z.string({
+        required_error: "Must provide customer GST Details"
+    }),
 });
 
 type CustomerFormValues = z.infer<typeof customerFormSchema>;
 
-export default function NewCustomer() {
+export default function NewCustomer({ company_mutate, navigation = true }) {
 
     const form = useForm<CustomerFormValues>({
         resolver: zodResolver(customerFormSchema),
         defaultValues: {
             company_name: "",
             email: "",
-            phone:  "",
+            phone: "",
             company_contact_person: "",
             company_gst: "",
             company_address_line_1: "",
@@ -85,13 +95,13 @@ export default function NewCustomer() {
         loading,
         error: submitError,
     } = useFrappeCreateDoc();
-    const {toast} = useToast()
+    const { toast } = useToast()
     const navigate = useNavigate()
     // const queryClient = useQueryClient()
-    const {mutate} = useSWRConfig()
+    const { mutate } = useSWRConfig()
 
-    const {fetchDocList} = useCustomFetchHook()
-    
+    const { fetchDocList } = useCustomFetchHook()
+
     const onSubmit = async (values: CustomerFormValues) => {
         try {
 
@@ -107,7 +117,7 @@ export default function NewCustomer() {
                 email_id: values.email,
                 phone: values.phone,
             });
-    
+
             await createDoc("Customers", {
                 company_name: values.company_name,
                 company_address: addressDoc.name,
@@ -120,196 +130,216 @@ export default function NewCustomer() {
             await mutate("Customers", async () => {
                 const data = await fetchDocList("Customers")
                 return data
-            },{
-                rollbackOnError: true, 
+            }, {
+                rollbackOnError: true,
                 populateCache: (newData, currentData) => newData || currentData,
                 revalidate: true,
                 throwOnError: true,
             })
-    
+            if (!navigation) {
+                company_mutate()
+            }
             toast({
                 title: "Success",
-                description: `${values.company_name} Customer Created Successfully!`,
+                description: (
+                    <>
+                        Customer: <strong className="text-[14px]">{values.company_name}</strong> Created Successfully!
+                    </>
+                ),
                 variant: "success",
             });
             // await queryClient.invalidateQueries({ queryKey: ["docList", "Customers"], refetchType: "active" });
             form.reset();
-            navigate("/customers");
+            if (navigation) {
+                navigate("/customers");
+            } else {
+                closewindow()
+            }
         } catch (err) {
             console.log("Error while creating new customer:", err, submitError);
         }
     }
-    
+
+    const closewindow = () => {
+        const button = document.getElementById('sheetClose');
+        button?.click();
+    };
+
     return (
-        <div className="p-4">
-            <div className="space-y-0.5">
-            <div className="flex space-x-2 items-center">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} />
-                <h2 className="text-2xl font-bold tracking-tight">Add Customer</h2>
-            </div>
-                <p className="text-muted-foreground pl-8">
-                    Fill out to create a new Customer
-                </p>
-            </div>
-            <Separator className="my-6" />
-        <Form {...form}>
-            <form
-                onSubmit={(event) => {
-                    event.stopPropagation();
-                    return form.handleSubmit(onSubmit)(event);
-                }}
-                className="space-y-8"
-            >
-                <FormField
-                    control={form.control}
-                    name="company_name"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Company Name:</FormLabel>
-                            <FormControl>
-                                <Input placeholder="Company Name" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="company_gst"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Company GST no.:</FormLabel>
-                            <FormControl>
-                                <Input placeholder="GST Number" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="company_contact_person"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Company Contact Person:</FormLabel>
-                            <FormControl>
-                                <Input placeholder="Contact Person" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="phone"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Phone:</FormLabel>
-                            <FormControl>
-                                <Input
-                                    type="number"
-                                    placeholder="Phone Number"
-                                    {...field}
-                                />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Email:</FormLabel>
-                            <FormControl>
-                                <Input type="email" placeholder="Email" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <Separator />
-                <div className="text-base font-bold">Company Address Details:</div>
-                <FormField
-                    control={form.control}
-                    name="company_address_line_1"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Address Line 1:</FormLabel>
-                            <FormControl>
-                                <Input placeholder="Address Line 1" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="company_address_line_2"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Address Line 2:</FormLabel>
-                            <FormControl>
-                                <Input placeholder="Address Line 2" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="company_city"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>City:</FormLabel>
-                            <FormControl>
-                                <Input placeholder="City" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="company_state"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>State:</FormLabel>
-                            <FormControl>
-                                <Input placeholder="State" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="company_pin"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Pin Code:</FormLabel>
-                            <FormControl>
-                                <Input
-                                    type="number"
-                                    placeholder="Pin Code"
-                                    {...field}
-                                />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <div className="flex justify-end  space-x-2">
+        <div className={`${navigation && "p-4"}`}>
+            {
+                navigation && (<div className="space-y-0.5">
+                    <div className="flex space-x-2 items-center">
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} />
+                        <h2 className="text-2xl font-bold tracking-tight">Add Customer</h2>
+                    </div>
+                    <p className="text-muted-foreground pl-8">
+                        Fill out to create a new Customer
+                    </p>
+                </div>)
+            }
+            <Separator className="my-6 max-md:my-2" />
+            <Form {...form}>
+                <form
+                    onSubmit={(event) => {
+                        event.stopPropagation();
+                        return form.handleSubmit(onSubmit)(event);
+                    }}
+                    className="space-y-8"
+                >
+                    <FormField
+                        control={form.control}
+                        name="company_name"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Company Name:<h1 className="pl-1 text-xs text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Company Name" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="company_gst"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Company GST no.:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="GST Number" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="company_contact_person"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Company Contact Person:</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Contact Person" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="phone"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Phone:</FormLabel>
+                                <FormControl>
+                                    <Input
+                                        type="number"
+                                        placeholder="Phone Number"
+                                        {...field}
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Email:</FormLabel>
+                                <FormControl>
+                                    <Input type="email" placeholder="Email" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <Separator />
+                    <div className="text-base font-bold">Company Address Details:</div>
+                    <FormField
+                        control={form.control}
+                        name="company_address_line_1"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Address Line 1:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Address Line 1" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="company_address_line_2"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Address Line 2:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Address Line 2" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="company_city"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">City:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="City" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="company_state"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">State:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="State" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="company_pin"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Pin Code:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormControl>
+                                    <Input
+                                        type="number"
+                                        placeholder="Pin Code"
+                                        {...field}
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <div className="flex justify-end  space-x-2">
                         <Button type="button" variant="outline" onClick={() => form.reset()}>
-                            Cancel
+                            Reset
                         </Button>
                         <Button type="submit" disabled={loading}>
                             {loading ? "Submitting..." : "Submit"}
                         </Button>
                     </div>
-                <div>
-                    {/* {submitComplete && (
+                    {!navigation && (
+                        <SheetClose asChild><Button id="sheetClose" className="w-0 h-0 invisible"></Button></SheetClose>
+                    )}
+                    {/* <div>
+                    {submitComplete && (
                             <div className="font-semibold text-green-500">
                                 New Customer added
                             </div>
@@ -323,10 +353,10 @@ export default function NewCustomer() {
                                 {submitError.exception}
                             </div>
                         </div>
-                    )} */}
-                </div>
-            </form>
-        </Form>
+                    )}
+                </div> */}
+                </form>
+            </Form>
         </div>
     );
 }

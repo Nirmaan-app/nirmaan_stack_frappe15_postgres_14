@@ -89,21 +89,6 @@
  {
   "docstatus": 0,
   "doctype": "Role Profile",
-  "modified": "2024-04-13 21:22:56.933490",
-  "name": "Nirmaan Project Manager Profile",
-  "role_profile": "Nirmaan Project Manager Profile",
-  "roles": [
-   {
-    "parent": "Nirmaan Project Manager Profile",
-    "parentfield": "roles",
-    "parenttype": "Role Profile",
-    "role": "Nirmaan Project Manager"
-   }
-  ]
- },
- {
-  "docstatus": 0,
-  "doctype": "Role Profile",
   "modified": "2024-04-13 21:22:05.753047",
   "name": "Nirmaan Procurement Executive Profile",
   "role_profile": "Nirmaan Procurement Executive Profile",
@@ -113,6 +98,21 @@
     "parentfield": "roles",
     "parenttype": "Role Profile",
     "role": "Nirmaan Procurement Executive"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2024-04-13 21:22:56.933490",
+  "name": "Nirmaan Project Manager Profile",
+  "role_profile": "Nirmaan Project Manager Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Project Manager Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Project Manager"
    }
   ]
  }

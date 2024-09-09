@@ -38,11 +38,12 @@ export const ProjectManager = () => {
     const { data: project_list, isLoading: project_list_loading, error: project_list_error, mutate: project_list_mutate } = useFrappeGetDocList("Projects",
         {
             fields: ['name', 'project_name', 'project_address', "project_manager"],
+            limit: 1000
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: procurement_request_list_mutate } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'workflow_state'],
-            limit: 100
+            limit: 1000
         });
 
     useFrappeDocTypeEventListener("Procurement Requests", () => {
