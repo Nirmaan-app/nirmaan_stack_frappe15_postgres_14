@@ -77,6 +77,7 @@ export default function NewMilestones() {
             if (milestone) {
                 setInitialFields(milestone.status_list.list || []);
                 setUpdatedFields(milestone.status_list.list || []);
+                setOldChanges(milestone.status_list.list || [])
                 determineOverallStatus(milestone.status_list.list || []);
             }
         }
@@ -116,10 +117,17 @@ export default function NewMilestones() {
         setDisableSaveButton(!(hasStatusChanged));
     };
 
+    const [oldChanges, setOldChanges] = useState([])
+    const [newChanges, setNewChanges] = useState({})
+
     const handleStatusChange = (name: string, status: string) => {
         const newFields = updatedFields.map(field =>
             field.name === name ? { ...field, status } : field
         );
+        setNewChanges(prevChanges => ({
+            ...prevChanges,
+            [name]: status
+        }))
         setUpdatedFields(newFields);
         setAreaName(name);
     };
@@ -183,6 +191,7 @@ export default function NewMilestones() {
         setFileNames({});
         setUploadProgress(null);
         setAreaName(null);
+        setNewChanges({})
     };
 
     const handleUpdateMilestone = async () => {
@@ -395,7 +404,7 @@ export default function NewMilestones() {
                                                                                                 <Button
                                                                                                     size="sm"
                                                                                                     onClick={() => handleStatusChange(item.name, "WIP")}
-                                                                                                    variant={(updatedFields.some(field => field.name === item.name && field.status === "WIP") && !isMoreThanSixHours(milestone.modified)) ? "wip" : "outline"}
+                                                                                                    variant={((oldChanges.some(field => field.name === item.name && field.status === "WIP") && !isMoreThanSixHours(milestone.modified)) || newChanges[item.name] === "WIP") ? "wip" : "outline"}
                                                                                                 >
                                                                                                     WIP
                                                                                                 </Button>
@@ -409,7 +418,7 @@ export default function NewMilestones() {
                                                                                                 <Button
                                                                                                     size="sm"
                                                                                                     onClick={() => handleStatusChange(item.name, "Halted")}
-                                                                                                    variant={(updatedFields.some(field => field.name === item.name && field.status === "Halted") && !isMoreThanSixHours(milestone.modified)) ? "default" : "outline"}
+                                                                                                    variant={((oldChanges.some(field => field.name === item.name && field.status === "Halted") && !isMoreThanSixHours(milestone.modified)) || newChanges[item.name] === "Halted") ? "default" : "outline"}
                                                                                                 >
                                                                                                     Halted
                                                                                                 </Button>

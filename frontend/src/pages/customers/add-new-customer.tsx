@@ -18,6 +18,7 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
 // import { useQueryClient } from "@tanstack/react-query";
 import useCustomFetchHook from "@/reactQuery/customFunctions";
+import { SheetClose } from "@/components/ui/sheet";
 // import { exampleFunction } from "@/reactQuery/customFunctions";
 
 const customerFormSchema = z.object({
@@ -61,7 +62,7 @@ const customerFormSchema = z.object({
 
 type CustomerFormValues = z.infer<typeof customerFormSchema>;
 
-export default function NewCustomer() {
+export default function NewCustomer({company_mutate, navigation = true}) {
 
     const form = useForm<CustomerFormValues>({
         resolver: zodResolver(customerFormSchema),
@@ -126,32 +127,49 @@ export default function NewCustomer() {
                 revalidate: true,
                 throwOnError: true,
             })
-    
+            if(!navigation) {
+                company_mutate()
+            }
             toast({
                 title: "Success",
-                description: `${values.company_name} Customer Created Successfully!`,
+                description: (
+                    <>
+                      Customer: <strong className="text-[14px]">{values.company_name}</strong> Created Successfully!
+                    </>
+                  ),
                 variant: "success",
             });
             // await queryClient.invalidateQueries({ queryKey: ["docList", "Customers"], refetchType: "active" });
             form.reset();
-            navigate("/customers");
+            if(navigation) {
+                navigate("/customers");
+            } else {
+                closewindow()
+            }
         } catch (err) {
             console.log("Error while creating new customer:", err, submitError);
         }
     }
+
+    const closewindow = () => {
+        const button = document.getElementById('sheetClose');
+        button?.click();
+    };
     
     return (
-        <div className="p-4">
-            <div className="space-y-0.5">
-            <div className="flex space-x-2 items-center">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} />
-                <h2 className="text-2xl font-bold tracking-tight">Add Customer</h2>
-            </div>
-                <p className="text-muted-foreground pl-8">
-                    Fill out to create a new Customer
-                </p>
-            </div>
-            <Separator className="my-6" />
+        <div className={`${navigation && "p-4"}`}>
+            {
+                navigation && (<div className="space-y-0.5">
+                    <div className="flex space-x-2 items-center">
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} />
+                        <h2 className="text-2xl font-bold tracking-tight">Add Customer</h2>
+                    </div>
+                        <p className="text-muted-foreground pl-8">
+                            Fill out to create a new Customer
+                        </p>
+                    </div>)
+            }
+            <Separator className="my-6 max-md:my-2" />
         <Form {...form}>
             <form
                 onSubmit={(event) => {
@@ -307,9 +325,12 @@ export default function NewCustomer() {
                         <Button type="submit" disabled={loading}>
                             {loading ? "Submitting..." : "Submit"}
                         </Button>
-                    </div>
-                <div>
-                    {/* {submitComplete && (
+                </div>
+                {!navigation && (
+                        <SheetClose asChild><Button id="sheetClose" className="w-0 h-0 invisible"></Button></SheetClose>
+                        )}
+                {/* <div>
+                    {submitComplete && (
                             <div className="font-semibold text-green-500">
                                 New Customer added
                             </div>
@@ -323,8 +344,8 @@ export default function NewCustomer() {
                                 {submitError.exception}
                             </div>
                         </div>
-                    )} */}
-                </div>
+                    )}
+                </div> */}
             </form>
         </Form>
         </div>

@@ -703,28 +703,28 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
               {/* <Card className="bg-[#F9FAFB]">
                       <CardHeader>
                         <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
-              <div className="flex max-md:flex-col max-md:gap-10">
-                <div className="space-y-4 lg:w-[50%] md:w-[60%]">
-                  <CardDescription className="space-y-2">
-                    <span>Project Id</span>
-                    <p className="font-bold text-black">{data?.name}</p>
-                  </CardDescription>
+              <div className="flex max-lg:flex-col max-lg:gap-10">
+              <div className="space-y-4 lg:w-[50%]">
+                <CardDescription className="space-y-2">
+                  <span>Project Id</span>
+                  <p className="font-bold text-black">{data?.name}</p>
+                </CardDescription>
 
-                  <CardDescription className="space-y-2">
-                    <span>Start Date</span>
-                    <p className="font-bold text-black">{formatDate(data?.project_start_date)}</p>
-                  </CardDescription>
+                <CardDescription className="space-y-2">
+                  <span>Start Date</span>
+                  <p className="font-bold text-black">{formatDate(data?.project_start_date)}</p>
+                </CardDescription>
 
-                  <CardDescription className="space-y-2">
-                    <span>End Date</span>
-                    <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
-                  </CardDescription>
+                <CardDescription className="space-y-2">
+                  <span>End Date</span>
+                  <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
+                </CardDescription>
 
-                  <CardDescription className="space-y-2">
-                    <span>Estimated Completion Date</span>
-                    <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
-                  </CardDescription>
-                  {/* <CardDescription className="space-y-2">
+                <CardDescription className="space-y-2">
+                  <span>Estimated Completion Date</span>
+                  <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
+                </CardDescription>
+                {/* <CardDescription className="space-y-2">
                   <span>Work Package</span>
                   <div className="flex gap-1">
                   {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (

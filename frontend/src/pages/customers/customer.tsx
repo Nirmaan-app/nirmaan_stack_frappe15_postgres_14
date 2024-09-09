@@ -51,10 +51,10 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
                   {data?.company_name}
               </CardTitle>
             </CardHeader>
-            <CardContent>
-                <Card className="bg-[#F9FAFB]">
+            <CardContent className="flex max-lg:flex-col max-lg:gap-10">
+                {/* <Card className="bg-[#F9FAFB]">
                   <CardHeader>
-                    <CardContent className="flex max-lg:flex-col max-lg:gap-10">
+                    <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
                         <div className="space-y-4 lg:w-[50%]">
                           <CardDescription className="space-y-2">
                               <span>Company Id</span>
@@ -103,9 +103,9 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
                           </CardDescription>
                           
                         </div>
-                    </CardContent>
+                    {/* </CardContent>
                   </CardHeader>
-                </Card>
+                </Card> */}
             </CardContent>
                           
         </Card>

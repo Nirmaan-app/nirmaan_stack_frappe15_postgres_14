@@ -119,7 +119,7 @@ export const SelectVendorList = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="max-w-fit gap-0.5 grid grid-cols-2">
+                        <div className="flex flex-col gap-1 items-start justify-center">
                             {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )

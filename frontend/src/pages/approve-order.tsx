@@ -264,18 +264,18 @@ export const ProjectLeadComponent = () => {
             category_list: orderData.category_list,
             workflow_state: "Approved"
         })
-            .then(() => {
-                console.log("orderData2", orderData)
+            .then((res) => {
+                console.log("orderData2", res)
                 toast({
                     title: "Success!",
-                    description: `PR ${orderData.name} is successfully approved!`,
+                    description: `PR: ${res?.name} is successfully approved!`,
                     variant: "success"
                 })
                 navigate("/")
             }).catch(() => {
                 toast({
                     title: "Failed!",
-                    description: `${submit_error.message}`,
+                    description: `${submit_error?.message}`,
                     variant: "destructive"
                 })
                 console.log("submit_error", submit_error)

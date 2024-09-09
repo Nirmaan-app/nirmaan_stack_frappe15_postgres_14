@@ -139,7 +139,7 @@ export const ApprovePR = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="flex flex-col gap-1 items-center justify-center">
+                        <div className="flex flex-col gap-1 items-start justify-center">
                             {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )

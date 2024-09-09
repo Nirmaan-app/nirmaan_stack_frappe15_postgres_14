@@ -256,7 +256,7 @@ export const SelectVendors = () => {
     const handleChangeWithParam = (item, vendor) => {
         return () => handleRadioChange(item, vendor);
     };
-
+    // console.log("orderData in select vendors", orderData)
     const handleSubmit = () => {
         const delayedItems = [];
         quotation_request_list?.map((item) => {
@@ -281,7 +281,8 @@ export const SelectVendors = () => {
                     quantity: value.quantity,
                     quote: 0,
                     unit: value.unit,
-                    category: value.category
+                    category: value.category,
+                    tax: value.tax
                 })
 
                 delayedItems.push(value.name);
