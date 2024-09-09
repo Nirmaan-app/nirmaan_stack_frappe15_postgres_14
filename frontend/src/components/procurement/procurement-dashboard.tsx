@@ -21,12 +21,12 @@ export default function ProcurementDashboard() {
         {
             fields: ['name', 'workflow_state'],
             filters: [["workflow_state", "=", "Pending"]],
-            limit: 100
+            limit: 1000
         });
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: procurement_order_list_mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ['name'],
-            limit: 100
+            limit: 1000
         });
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocCount("Vendors");

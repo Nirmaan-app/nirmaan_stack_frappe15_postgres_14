@@ -107,12 +107,12 @@ export const ApproveSentBack = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
-            limit: 100
+            limit: 1000
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'unit_name'],
-            limit: 1000
+            limit: 10000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
@@ -121,19 +121,20 @@ export const ApproveSentBack = () => {
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ['name', 'project_name', 'project_address']
+            fields: ['name', 'project_name', 'project_address'],
+            limit: 1000
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category_list', 'project', 'creation', 'owner',],
             filters: [["workflow_state", "=", "Vendor Selected"]],
-            limit: 100
+            limit: 1000
         });
 
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['item', 'quote'],
-            limit: 1000
+            limit: 2000
         });
 
 
@@ -205,7 +206,7 @@ export const ApproveSentBack = () => {
             console.log("newData", newData)
             setData(newData)
         }
-    }, [orderData,vendor_list,quote_data]);
+    }, [orderData, vendor_list, quote_data]);
     console.log("data", data)
 
     const [selectedItems, setSelectedItems] = useState()
@@ -277,11 +278,11 @@ export const ApproveSentBack = () => {
     }
 
 
-    const {toast} = useToast()
+    const { toast } = useToast()
     const [isLoading, setIsLoading] = useState<string | null>(null);
 
     const BATCH_SIZE = 10;
-    
+
     const createDocBatch = async (doctype, docs) => {
         const results = [];
         for (const doc of docs) {
@@ -296,7 +297,7 @@ export const ApproveSentBack = () => {
     };
 
 
-    const newHandleApprove =async () => {
+    const newHandleApprove = async () => {
 
         try {
             setIsLoading('newHandleApprove');
@@ -304,7 +305,7 @@ export const ApproveSentBack = () => {
                 return item.unit !== null && item.quantity !== null
             });
             console.log(filteredData)
-    
+
             const vendorItems = {};
             filteredData?.forEach((item) => {
                 if (item.selectedVendor) {
@@ -322,10 +323,10 @@ export const ApproveSentBack = () => {
                         item: item.item
                     });
                 }
-    
+
             })
-                const docs = Object.entries(vendorItems)?.flatMap(([key, value]) => {
-    
+            const docs = Object.entries(vendorItems)?.flatMap(([key, value]) => {
+
                 const newProcurementOrder = {
                     procurement_request: orderData.procurement_request,
                     project: orderData.project,
@@ -339,11 +340,11 @@ export const ApproveSentBack = () => {
                         list: value
                     }
                 };
-    
+
                 return newProcurementOrder
-    
+
             });
-    
+
             for (let i = 0; i < docs.length; i += BATCH_SIZE) {
                 const batch = docs.slice(i, i + BATCH_SIZE);
                 await createDocBatch('Procurement Orders', batch);
@@ -352,7 +353,7 @@ export const ApproveSentBack = () => {
                 !filteredData.some(setItem => setItem.key === procItem.name)
             );
 
-            if(filteredList.length === 0) {
+            if (filteredList.length === 0) {
                 await updateDoc('Sent Back Category', id, {
                     workflow_state: "Approved",
                 })
@@ -362,9 +363,9 @@ export const ApproveSentBack = () => {
                 description: "PO(s) created Successfully!",
                 variant: "success"
             });
-    
-            
-    
+
+
+
             setOrderData(prevOrderData => ({
                 ...prevOrderData,
                 item_list: {
@@ -372,7 +373,7 @@ export const ApproveSentBack = () => {
                 }
             }));
 
-            if(filteredList.length === 0) {
+            if (filteredList.length === 0) {
                 navigate("/approve-sent-back")
             }
         } catch (error) {
@@ -385,17 +386,17 @@ export const ApproveSentBack = () => {
         } finally {
             setIsLoading(null);
         }
-        
+
     }
 
-    const newHandleSentBack =async () => {
+    const newHandleSentBack = async () => {
         try {
             setIsLoading('newHandleSentBack');
             const filteredData = selectedItems?.filter(item => {
                 return item.unit !== null && item.quantity !== null
             });
             console.log(filteredData)
-    
+
             const itemlist = [];
             filteredData?.map((value) => {
                 // const price = getPrice(value.selectedVendor, value.key);
@@ -408,7 +409,7 @@ export const ApproveSentBack = () => {
                     category: value.category
                 })
             })
-    
+
             const newCategories = [];
             itemlist?.forEach((item) => {
                 const isDuplicate = newCategories.some(category => category.name === item.category);
@@ -416,7 +417,7 @@ export const ApproveSentBack = () => {
                     newCategories.push({ name: item.category })
                 }
             })
-    
+
             const newSendBack = {
                 procurement_request: orderData.procurement_request,
                 project: orderData.project,
@@ -433,15 +434,15 @@ export const ApproveSentBack = () => {
             await createDoc("Sent Back Category", newSendBack)
 
             toast({
-                    title: "Success!",
-                    description: "New Sent Back created Successfully!",
-                    variant: "success"
-                });
-    
+                title: "Success!",
+                description: "New Sent Back created Successfully!",
+                variant: "success"
+            });
+
             const filteredList = orderData.item_list?.list.filter(procItem =>
                 !filteredData.some(selItem => selItem.key === procItem.name)
             );
-    
+
             setOrderData(prevOrderData => ({
                 ...prevOrderData,
                 item_list: {
@@ -449,7 +450,7 @@ export const ApproveSentBack = () => {
                 }
             }));
 
-            if(filteredData.length === 0) {
+            if (filteredData.length === 0) {
                 navigate("/approve-sent-back")
             }
         } catch (error) {
@@ -463,7 +464,7 @@ export const ApproveSentBack = () => {
             setComment('');
             setIsLoading(null);
         }
-        
+
     }
 
     useEffect(() => {
@@ -653,9 +654,10 @@ export const ApproveSentBack = () => {
     const getTotal = (cat: string) => {
         let total: number = 0;
         orderData.item_list?.list.map((item) => {
-            if(item.category === cat){
-            const price = item.quote;
-            total += (price ? parseFloat(price) : 0) * item.quantity}
+            if (item.category === cat) {
+                const price = item.quote;
+                total += (price ? parseFloat(price) : 0) * item.quantity
+            }
         })
         return total
     }
@@ -924,7 +926,7 @@ export const ApproveSentBack = () => {
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
-                        {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
+                            {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
                         </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent className="sm:max-w-[425px]">
@@ -985,7 +987,7 @@ export const ApproveSentBack = () => {
                     </DialogContent>
                 </Dialog> */}
             </div>}
-            </>
+        </>
         // </MainLayout>
     )
 }

@@ -11,7 +11,7 @@ import SentBackQuotationForm from "./sent-back-quotation-form"
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
-import {  useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "../ui/button";
 import { Card } from '@/components/ui/card';
@@ -24,7 +24,7 @@ export const SentBackUpdateQuote = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
-            limit: 100
+            limit: 1000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
@@ -34,16 +34,16 @@ export const SentBackUpdateQuote = () => {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error, mutate: quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ["*"],
-            limit: 1000
+            limit: 2000
         },
-    "Quotation Requests"
+        "Quotation Requests"
     );
 
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category_list', 'project', 'creation', 'item_list', 'comments'],
             filters: [["workflow_state", "=", "Pending"]],
-            limit: 100
+            limit: 1000
         });
 
     const getVendorName = (vendorName: string) => {
@@ -128,7 +128,7 @@ export const SentBackUpdateQuote = () => {
                                 <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{getPackage(orderData?.procurement_request)}</p>
                             </div>
-                            
+
                         </Card>
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
@@ -222,13 +222,13 @@ export const SentBackUpdateQuote = () => {
                         <Sheet>
                             <SheetTrigger className="text-blue-500"><div className="flex pl-5"><CirclePlus className="w-4 mr-2" />Add New Vendor</div></SheetTrigger>
                             <SheetContent className="overflow-auto">
-                                    <SheetHeader>
-                                        <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
-                                        <SheetDescription>
-                                            {/* <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} /> */}
-                                            <NewVendor dynamicCategories={orderData?.category_list?.list?.map(item => item.name) || []} sentBackData = {orderData} renderCategorySelection={false} navigation={false} />
-                                        </SheetDescription>
-                                    </SheetHeader>
+                                <SheetHeader>
+                                    <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
+                                    <SheetDescription>
+                                        {/* <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} /> */}
+                                        <NewVendor dynamicCategories={orderData?.category_list?.list?.map(item => item.name) || []} sentBackData={orderData} renderCategorySelection={false} navigation={false} />
+                                    </SheetDescription>
+                                </SheetHeader>
                             </SheetContent>
                         </Sheet>
                         <div className="flex flex-col justify-end items-end">
@@ -239,6 +239,6 @@ export const SentBackUpdateQuote = () => {
                     </div>
                 </div>
             }
-            </>
+        </>
     )
 }

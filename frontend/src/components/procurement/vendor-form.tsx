@@ -474,7 +474,7 @@ export default function VendorForm({ vendor_category_mutate, vendor_list_mutate,
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category", {
         fields: ['category_name', 'work_package'],
         orderBy: { field: 'category_name', order: 'asc' },
-        limit: 100
+        limit: 1000
     });
 
     const { createDoc, loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc();

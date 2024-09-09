@@ -120,7 +120,7 @@ export const DelayedPR = () => {
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
             filters: [['name', '=', orderId]],
-            limit: 100
+            limit: 1000
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
@@ -134,24 +134,25 @@ export const DelayedPR = () => {
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ['name', 'project_name', 'project_address', 'procurement_lead']
+            fields: ['name', 'project_name', 'project_address', 'procurement_lead'],
+            limit: 1000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["status", "=", "Selected"], ["procurement_task", "=", orderId]],
-            limit: 1000
+            limit: 2000
         });
     const { data: quotation_request_list2, isLoading: quotation_request_list2_loading, error: quotation_request_list2_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["procurement_task", "=", orderId]],
-            limit: 1000
+            limit: 2000
         });
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['item', 'quote'],
-            limit: 1000
+            limit: 2000
         });
 
     const [page, setPage] = useState<string>('approvequotation')

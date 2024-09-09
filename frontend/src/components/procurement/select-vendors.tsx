@@ -13,7 +13,7 @@ import {
     DialogTrigger
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import {  Table, ConfigProvider } from 'antd';
+import { Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import { useToast } from '../ui/use-toast';
 
@@ -112,7 +112,7 @@ export const SelectVendors = () => {
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'procurement_executive'],
             filters: [['name', '=', orderId]],
-            limit: 100
+            limit: 1000
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
@@ -123,12 +123,12 @@ export const SelectVendors = () => {
         {
             fields: ['name', 'lead_time', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'quantity'],
             filters: [["procurement_task", "=", orderId]],
-            limit: 1000
+            limit: 2000
         });
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['item', 'quote'],
-            limit: 1000
+            limit: 2000
         });
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
@@ -289,8 +289,8 @@ export const SelectVendors = () => {
         })
 
         const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map((item) => {
-            if(delayedItems.some((i) => i === item.name)){
-                return {...item, status: "Delayed"}
+            if (delayedItems.some((i) => i === item.name)) {
+                return { ...item, status: "Delayed" }
             }
             return item
         })
@@ -327,7 +327,7 @@ export const SelectVendors = () => {
         if (itemlist.length === orderData.procurement_list?.list.length) {
             updateDoc('Procurement Requests', orderId, {
                 workflow_state: "Rejected",
-                procurement_list : {list : updatedProcurementList}
+                procurement_list: { list: updatedProcurementList }
             })
                 .then(() => {
                     console.log(orderId)
@@ -345,7 +345,7 @@ export const SelectVendors = () => {
         else {
             updateDoc('Procurement Requests', orderId, {
                 workflow_state: "Vendor Selected",
-                procurement_list : {list : updatedProcurementList}
+                procurement_list: { list: updatedProcurementList }
             })
                 .then(() => {
                     console.log(orderId)
@@ -361,7 +361,7 @@ export const SelectVendors = () => {
         }
     }
 
-    const {toast} = useToast()
+    const { toast } = useToast()
 
     const generateVendorItemKey = (vendor: string, item: string): string => {
         return `${vendor}-${item}`;
@@ -609,35 +609,35 @@ export const SelectVendors = () => {
                 </div>}
             {page == 'approvequotation' &&
                 <>
-                 <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
-                        <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
-                        </div>
-                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                    <div className="flex">
+                        <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                            <div className="flex items-center pt-1 pb-4">
+                                <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
+                                <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div>
-                        </Card>
-                        {/* {orderData?.category_list?.list.map((cat) => {
+                            <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                                <div className="border-0 flex flex-col items-center justify-center">
+                                    <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
+                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                                </div>
+                                <div className="border-0 flex flex-col items-center justify-center">
+                                    <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
+                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
+                                </div>
+                                <div className="border-0 flex flex-col items-center justify-center">
+                                    <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
+                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
+                                </div>
+                                <div className="border-0 flex flex-col items-center justify-center">
+                                    <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
+                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
+                                </div>
+                                <div className="border-0 flex flex-col items-center justify-center">
+                                    <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
+                                </div>
+                            </Card>
+                            {/* {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name
                             let total: number = 0;
                             const lowest = getLowest(cat.name);
@@ -759,8 +759,8 @@ export const SelectVendors = () => {
                                 </div>
                             </div>
                         })} */}
-                        {/* <div className='p-10'></div> */}
-                        {/* <div className="flex flex-col justify-end items-end">
+                            {/* <div className='p-10'></div> */}
+                            {/* <div className="flex flex-col justify-end items-end">
                             <Dialog>
                                 <DialogTrigger asChild>
                                     <Button>
@@ -781,30 +781,30 @@ export const SelectVendors = () => {
                                 </DialogContent>
                             </Dialog>
                         </div> */}
+                        </div>
+
                     </div>
+                    <div className='pl-7'>
+                        <ConfigProvider
+                            theme={{
+                                token: {
+                                    // Seed Token
+                                    colorPrimary: '#FF2828',
+                                    borderRadius: 4,
 
-                </div>
-                <div className='pl-7'>
-                    <ConfigProvider
-                        theme={{
-                            token: {
-                                // Seed Token
-                                colorPrimary: '#FF2828',
-                                borderRadius: 4,
-                                
 
-                                // Alias Token
-                                colorBgContainer: '#FFFFFF',
-                            },
-                        }}
-                    >
-                        <Table
-                            dataSource={data}
-                            expandable={{ defaultExpandAllRows: true }}
-                            columns={columns}
-                        />
+                                    // Alias Token
+                                    colorBgContainer: '#FFFFFF',
+                                },
+                            }}
+                        >
+                            <Table
+                                dataSource={data}
+                                expandable={{ defaultExpandAllRows: true }}
+                                columns={columns}
+                            />
 
-                    </ConfigProvider>
+                        </ConfigProvider>
                     </div>
                     <div className="flex flex-col justify-end items-end mr-2">
                         <Dialog>

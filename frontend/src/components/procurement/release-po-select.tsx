@@ -31,16 +31,18 @@ export const ReleasePOSelect = () => {
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'procurement_request', 'advance'],
-            limit: 100
+            limit: 1000
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
+        limit: 1000
     })
 
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
-            fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode']
+            fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
+            limit: 1000
         });
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
@@ -225,15 +227,15 @@ export const ReleasePOSelect = () => {
     const afterDelivery = totalAmount * (1 - advance / 100);
     let count = 1;
 
-    const {toast} = useToast()
+    const { toast } = useToast()
 
     if (procurement_order_list_error || projects_error || address_list_error) {
         console.log("Error in release-po-select.tsx", procurement_order_list_error?.message, projects_error?.message, address_list_error?.error)
         toast({
             title: "Error!",
             description: `Error ${procurement_order_list_error?.message || projects_error?.message || address_list_error?.message}`,
-            variant : "destructive"
-        })   
+            variant: "destructive"
+        })
     }
 
     return (
@@ -244,7 +246,7 @@ export const ReleasePOSelect = () => {
                         <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Release PO</h2>
                     </div>
                     {(procurement_order_list_loading || projects_loading || address_list_loading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurement_order_list || []} project_values={project_values} />
+                        <DataTable columns={columns} data={procurement_order_list || []} project_values={project_values} />
                     )}
                     {orderData &&
 

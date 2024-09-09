@@ -511,7 +511,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     }
   )
 
-  const {data: projectCustomer} = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
+  const { data: projectCustomer } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
 
   console.log("customerData", projectCustomer)
   // console.log("mile_data", mile_data)
@@ -575,7 +575,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
         const statusObj = row.original.status_list.list.find(
           (statusObj) => statusObj.name === statusName
         );
-        return <div className={`text-[#11050599] ${statusObj?.status === "WIP" && "text-yellow-500"} ${statusObj?.status === "Halted" && "text-red-500"} ${statusObj?.status === "Completed" && "text-green-800"}`}>{(statusObj?.status  && statusObj.status !== "Pending") ? statusObj?.status : "--"}</div>;
+        return <div className={`text-[#11050599] ${statusObj?.status === "WIP" && "text-yellow-500"} ${statusObj?.status === "Halted" && "text-red-500"} ${statusObj?.status === "Completed" && "text-green-800"}`}>{(statusObj?.status && statusObj.status !== "Pending") ? statusObj?.status : "--"}</div>;
       },
     }));
   };
@@ -704,27 +704,27 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                       <CardHeader>
                         <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
               <div className="flex max-md:flex-col max-md:gap-10">
-              <div className="space-y-4 lg:w-[50%] md:w-[60%]">
-                <CardDescription className="space-y-2">
-                  <span>Project Id</span>
-                  <p className="font-bold text-black">{data?.name}</p>
-                </CardDescription>
+                <div className="space-y-4 lg:w-[50%] md:w-[60%]">
+                  <CardDescription className="space-y-2">
+                    <span>Project Id</span>
+                    <p className="font-bold text-black">{data?.name}</p>
+                  </CardDescription>
 
-                <CardDescription className="space-y-2">
-                  <span>Start Date</span>
-                  <p className="font-bold text-black">{formatDate(data?.project_start_date)}</p>
-                </CardDescription>
+                  <CardDescription className="space-y-2">
+                    <span>Start Date</span>
+                    <p className="font-bold text-black">{formatDate(data?.project_start_date)}</p>
+                  </CardDescription>
 
-                <CardDescription className="space-y-2">
-                  <span>End Date</span>
-                  <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
-                </CardDescription>
+                  <CardDescription className="space-y-2">
+                    <span>End Date</span>
+                    <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
+                  </CardDescription>
 
-                <CardDescription className="space-y-2">
-                  <span>Estimated Completion Date</span>
-                  <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
-                </CardDescription>
-                {/* <CardDescription className="space-y-2">
+                  <CardDescription className="space-y-2">
+                    <span>Estimated Completion Date</span>
+                    <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
+                  </CardDescription>
+                  {/* <CardDescription className="space-y-2">
                   <span>Work Package</span>
                   <div className="flex gap-1">
                   {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
@@ -734,42 +734,42 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
 
                 </CardDescription> */}
 
-              </div>
+                </div>
 
-              <div className="space-y-4">
-              <CardDescription className="space-y-2">
-                  <span>Customer</span>
-                  <p className="font-bold text-black">{projectCustomer?.company_name}</p>
-                </CardDescription>
-                <CardDescription className="space-y-2">
-                  <span>Location</span>
-                  <p className="font-bold text-black">{data?.project_city}, {data?.project_state}</p>
-                </CardDescription>
+                <div className="space-y-4">
+                  <CardDescription className="space-y-2">
+                    <span>Customer</span>
+                    <p className="font-bold text-black">{projectCustomer?.company_name}</p>
+                  </CardDescription>
+                  <CardDescription className="space-y-2">
+                    <span>Location</span>
+                    <p className="font-bold text-black">{data?.project_city}, {data?.project_state}</p>
+                  </CardDescription>
 
-                <CardDescription className="space-y-2">
-                  <span>Area (Sqft)</span>
-                  <p className="font-bold text-black">placeholder</p>
-                </CardDescription>
+                  <CardDescription className="space-y-2">
+                    <span>Area (Sqft)</span>
+                    <p className="font-bold text-black">placeholder</p>
+                  </CardDescription>
 
-                <CardDescription className="space-y-2">
-                  <span>No. of sections in layout</span>
-                  <p className="font-bold text-black">{data?.subdivisions}</p>
-                </CardDescription>
+                  <CardDescription className="space-y-2">
+                    <span>No. of sections in layout</span>
+                    <p className="font-bold text-black">{data?.subdivisions}</p>
+                  </CardDescription>
 
-                {/* <CardDescription className="space-y-2">
+                  {/* <CardDescription className="space-y-2">
                   <span>Health Score</span>
                   <StatusBar currentValue={6} totalValue={10} />
                 </CardDescription> */}
 
-              </div>
+                </div>
               </div>
               <div className="space-y-4 w-full">
-              <CardDescription className="space-y-2">
+                <CardDescription className="space-y-2">
                   <span>Work Package</span>
                   <div className="flex gap-1">
-                  {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
-                    <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
-                  ))}
+                    {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
+                      <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
+                    ))}
                   </div>
 
                 </CardDescription>
@@ -777,7 +777,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                   <span>Health Score</span>
                   <StatusBar currentValue={6} totalValue={10} />
                 </CardDescription>
-                </div>
+              </div>
             </CardContent>
             {/* </CardHeader>
                     </Card>
@@ -1051,62 +1051,61 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                 })}
               </tbody> */}
               <tbody className="bg-white divide-y divide-gray-200">
-              {mile_data?.filter(item => {
-                const today = new Date().toISOString().split("T")[0];
-                const modifiedDate = new Date(item.modified).toISOString().split("T")[0];
-                const equal = item.modified !== item.creation
-                return modifiedDate === today && equal;
-              }).length > 0 ? (
-                mile_data.map((item, index) => {
+                {mile_data?.filter(item => {
                   const today = new Date().toISOString().split("T")[0];
                   const modifiedDate = new Date(item.modified).toISOString().split("T")[0];
-                  if (modifiedDate === today) {
-                    return (
-                      <tr key={index}>
-                        <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">
-                          {item.work_package}
-                        </td>
-                        <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
-                          {item.scope_of_work}
-                        </td>
-                        <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
-                          {item.milestone}
-                        </td>
-                        <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">
-                          {formatDate(item.start_date)}
-                        </td>
-                        <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">
-                          {formatDate(item.end_date)}
-                        </td>
-                        {item.status_list?.list.map((area, areaIndex) => (
-                          <td
-                            key={areaIndex}
-                            className={`px-2 py-2 text-sm whitespace-normal border border-gray-100 ${
-                              area.status === "WIP"
-                                ? "text-yellow-500"
-                                : area.status === "Completed"
-                                ? "text-green-800"
-                                : area.status === "Halted"
-                                ? "text-red-500"
-                                : ""
-                            }`}
-                          >
-                            {area.status && area.status !== "Pending" ? area.status : "--"}
+                  const equal = item.modified !== item.creation
+                  return modifiedDate === today && equal;
+                }).length > 0 ? (
+                  mile_data.map((item, index) => {
+                    const today = new Date().toISOString().split("T")[0];
+                    const modifiedDate = new Date(item.modified).toISOString().split("T")[0];
+                    if (modifiedDate === today) {
+                      return (
+                        <tr key={index}>
+                          <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">
+                            {item.work_package}
                           </td>
-                        ))}
-                      </tr>
-                    );
-                  }
-                  return null;
-                })
-              ) : (
-                <tr>
-                  <td colSpan="6" className="text-center py-4">
-                    No milestones updated for today yet
-                  </td>
-                </tr>
-              )}
-            </tbody>
+                          <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
+                            {item.scope_of_work}
+                          </td>
+                          <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
+                            {item.milestone}
+                          </td>
+                          <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">
+                            {formatDate(item.start_date)}
+                          </td>
+                          <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">
+                            {formatDate(item.end_date)}
+                          </td>
+                          {item.status_list?.list.map((area, areaIndex) => (
+                            <td
+                              key={areaIndex}
+                              className={`px-2 py-2 text-sm whitespace-normal border border-gray-100 ${area.status === "WIP"
+                                  ? "text-yellow-500"
+                                  : area.status === "Completed"
+                                    ? "text-green-800"
+                                    : area.status === "Halted"
+                                      ? "text-red-500"
+                                      : ""
+                                }`}
+                            >
+                              {area.status && area.status !== "Pending" ? area.status : "--"}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    }
+                    return null;
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan="6" className="text-center py-4">
+                      No milestones updated for today yet
+                    </td>
+                  </tr>
+                )}
+              </tbody>
 
             </table>
           </div>

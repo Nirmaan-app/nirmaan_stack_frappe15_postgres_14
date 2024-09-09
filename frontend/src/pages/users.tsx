@@ -21,7 +21,8 @@ export default function Users() {
     const navigate = useNavigate();
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-        fields: ["name", "full_name", "email", "mobile_no", "creation"]
+        fields: ["name", "full_name", "email", "mobile_no", "creation"],
+        limit: 1000
     })
 
     const columns: ColumnDef<NirmaanUsers>[] = useMemo(
