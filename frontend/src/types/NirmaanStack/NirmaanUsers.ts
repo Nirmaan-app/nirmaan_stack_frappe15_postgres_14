@@ -16,6 +16,8 @@ export interface NirmaanUsers{
 	last_name?: string
 	/**	Full name : Data	*/
 	full_name?: string
+	/**	Has Project : Data	*/
+	has_project?: string
 	/**	Mobile : Data	*/
 	mobile_no?: string
 	/**	Email : Data	*/

@@ -28,17 +28,24 @@ export function UserNav() {
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
-                    <div className="flex flex-col space-y-1">
-                        <p className="text-sm font-medium leading-none">{userData.full_name}</p>
-                        <p className="text-sm font-medium leading-none">{"(" + userData.role + ")"}</p>
-                        <p className="text-xs leading-none text-muted-foreground">
-                            {userData.user_id}
-                        </p>
+                    <div className="flex">
+                        <Avatar className="h-12 w-12 mr-2">
+                            <AvatarImage src={userData.user_image} alt={userData.full_name} />
+                            <AvatarFallback className="text-2xl">{generateFallback(userData.full_name)}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex flex-col space-y-1">
+                            <p className="text-sm font-bold leading-none">{userData.full_name}</p>
+                            <p className="text-xs font-light text-red-700 leading-none">{userData.role?.split(" ").slice(1, -1).join(" ")}</p>
+                            <p className="text-xs font-thin leading-none text-muted-foreground">
+                                {userData.user_id}
+                            </p>
+                        </div>
                     </div>
+
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
-                    <DropdownMenuItem>
+                    {/* <DropdownMenuItem>
                         Profile
                         <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
                     </DropdownMenuItem>
@@ -50,7 +57,11 @@ export function UserNav() {
                         Settings
                         <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
                     </DropdownMenuItem>
-                    <DropdownMenuItem>New Team</DropdownMenuItem>
+                    <DropdownMenuItem>New Team</DropdownMenuItem> */}
+                    <DropdownMenuItem>
+                        Profile<span className="text-red-700 text-xs font-thin">(beta)</span>
+                        <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
+                    </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout}>
