@@ -458,9 +458,9 @@ export const ProjectForm = () => {
 
     console.log("project dates", form.getValues("project_start_date"), form.getValues("project_end_date"))
     const [duration, setDuration] = useState(0)
-        useEffect(() => {
-            setDuration((Math.round((form.getValues("project_end_date").getTime() - form.getValues("project_start_date").getTime()) / (1000 * 3600 * 24))))
-        }, [form.getValues("project_start_date"), form.getValues("project_end_date")])
+    useEffect(() => {
+        setDuration((Math.round((form.getValues("project_end_date").getTime() - form.getValues("project_start_date").getTime()) / (1000 * 3600 * 24))))
+    }, [form.getValues("project_start_date"), form.getValues("project_end_date")])
 
     // Transform data to select options
     const options: SelectOption[] = company?.map(item => ({
@@ -558,16 +558,16 @@ export const ProjectForm = () => {
                         name="project_name"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                        <FormLabel className="md:basis-2/12">Project Name<sup>*</sup></FormLabel>
-                                        <div className="flex flex-col items-start md:basis-2/4">
-                                            <FormControl className="">
-                                                <Input placeholder="Project Name" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </div>
-                                        <FormDescription>
-                                            Example: CUSTOMER+LOCATION
-                                        </FormDescription>
+                                <FormLabel className="md:basis-2/12">Project Name<sup>*</sup></FormLabel>
+                                <div className="flex flex-col items-start md:basis-2/4">
+                                    <FormControl className="">
+                                        <Input placeholder="Project Name" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </div>
+                                <FormDescription>
+                                    Example: CUSTOMER+LOCATION
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
@@ -576,45 +576,45 @@ export const ProjectForm = () => {
                         name="customer"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                    <FormLabel className="md:basis-2/12">Customer<sup>*</sup></FormLabel>
-                                    <div className="md:basis-2/4">
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                            <div className="flex flex-col items-start">
-                                                <FormControl>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Select the customer" />
-                                                    </SelectTrigger>
-                                                </FormControl>
-                                                <FormMessage />
-                                            </div>
-                                            <SelectContent>
-                                                {company_isLoading && <div>Loading...</div>}
-                                                {company_error && <div>Error: {company_error.message}</div>}
-                                                {options.map(option => (
-                                                    <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                ))}
+                                <FormLabel className="md:basis-2/12">Customer<sup>*</sup></FormLabel>
+                                <div className="md:basis-2/4">
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <div className="flex flex-col items-start">
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select the customer" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <FormMessage />
+                                        </div>
+                                        <SelectContent>
+                                            {company_isLoading && <div>Loading...</div>}
+                                            {company_error && <div>Error: {company_error.message}</div>}
+                                            {options.map(option => (
+                                                <SelectItem value={option.value}>{option.label}</SelectItem>
+                                            ))}
 
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                        <Sheet>
-                                            <SheetTrigger asChild>
-                                                <Button variant="secondary">
-                                                    <div className="flex">
-                                                        <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
-                                                        <span className="pl-1">Add New Customer</span>
-                                                    </div>
-                                                </Button>
-                                            </SheetTrigger>
-                                            <SheetContent className="overflow-y-auto">
-                                                    <SheetHeader>
-                                                        <SheetTitle><div className=" text-2xl font-bold">Create New Customer</div></SheetTitle>
-                                                        <SheetDescription>
-                                                            <NewCustomer company_mutate={company_mutate} navigation={false}/>
-                                                        </SheetDescription>
-                                                    </SheetHeader>
-                                            </SheetContent>
-                                        </Sheet>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <Sheet>
+                                    <SheetTrigger asChild>
+                                        <Button variant="secondary">
+                                            <div className="flex">
+                                                <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                <span className="pl-1">Add New Customer</span>
+                                            </div>
+                                        </Button>
+                                    </SheetTrigger>
+                                    <SheetContent className="overflow-y-auto">
+                                        <SheetHeader>
+                                            <SheetTitle><div className=" text-2xl font-bold">Create New Customer</div></SheetTitle>
+                                            <SheetDescription>
+                                                <NewCustomer company_mutate={company_mutate} navigation={false} />
+                                            </SheetDescription>
+                                        </SheetHeader>
+                                    </SheetContent>
+                                </Sheet>
                             </FormItem>
                         )}
                     />
@@ -625,45 +625,45 @@ export const ProjectForm = () => {
                             return (
                                 <FormItem className="lg:flex lg:items-center gap-4">
                                     <FormLabel className="md:basis-2/12">Project Type<sup>*</sup></FormLabel>
-                                        <div className="md:basis-2/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                <div className="flex flex-col items-start">
-                                                    <FormControl>
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Select a project type" />
-                                                        </SelectTrigger>
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </div>
-                                                <SelectContent>
-                                                    {project_types_isLoading && <div>Loading...</div>}
-                                                    {project_types_error && <div>Error: {project_types_error.message}</div>}
-                                                    {type_options.map(option => (
-                                                        <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                    ))}
+                                    <div className="md:basis-2/4">
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <div className="flex flex-col items-start">
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select a project type" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <FormMessage />
+                                            </div>
+                                            <SelectContent>
+                                                {project_types_isLoading && <div>Loading...</div>}
+                                                {project_types_error && <div>Error: {project_types_error.message}</div>}
+                                                {type_options.map(option => (
+                                                    <SelectItem value={option.value}>{option.label}</SelectItem>
+                                                ))}
 
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                            <Dialog>
-                                                <DialogTrigger asChild>
-                                                    <Button variant="secondary">
-                                                        <div className="flex">
-                                                            <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
-                                                            <span className="pl-1">Add New Project Type</span>
-                                                        </div>
-                                                    </Button>
-                                                </DialogTrigger>
-                                                <DialogContent className="max-w-[300px] md:max-w-[425px]">
-                                                    <DialogHeader>
-                                                        <DialogTitle>Add New Project Type</DialogTitle>
-                                                        <DialogDescription>
-                                                            Add new project types here.
-                                                        </DialogDescription>
-                                                    </DialogHeader>
-                                                    <ProjectTypeForm project_types_mutate={project_types_mutate} />
-                                                </DialogContent>
-                                            </Dialog>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <Dialog>
+                                        <DialogTrigger asChild>
+                                            <Button variant="secondary">
+                                                <div className="flex">
+                                                    <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                    <span className="pl-1">Add New Project Type</span>
+                                                </div>
+                                            </Button>
+                                        </DialogTrigger>
+                                        <DialogContent className="max-w-[300px] md:max-w-[425px]">
+                                            <DialogHeader>
+                                                <DialogTitle>Add New Project Type</DialogTitle>
+                                                <DialogDescription>
+                                                    Add new project types here.
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                            <ProjectTypeForm project_types_mutate={project_types_mutate} />
+                                        </DialogContent>
+                                    </Dialog>
                                 </FormItem>
                             )
                         }}
@@ -675,50 +675,50 @@ export const ProjectForm = () => {
                             return (
                                 <FormItem className="lg:flex lg:items-center gap-4">
                                     <FormLabel className="md:basis-2/12">Sub-Divisions<sup>*</sup></FormLabel>
-                                        <div className="md:basis-2/4">
-                                            <Select
-                                                onValueChange={(e) => {
-                                                    field.onChange(e);
-                                                    handleSubdivisionChange(e);
-                                                }}
-                                                defaultValue={field.value}
-                                            >
-                                                <div className="flex flex-col items-start">
-                                                    <FormControl>
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Select the number of Sub Divisions" />
-                                                        </SelectTrigger>
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </div>
-                                                <SelectContent>
-                                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(item => (
-                                                        <SelectItem key={item} value={`${item}`}>
-                                                            {item}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                            <FormDescription>
-                                                Select Total number of Areas
-                                            </FormDescription>
+                                    <div className="md:basis-2/4">
+                                        <Select
+                                            onValueChange={(e) => {
+                                                field.onChange(e);
+                                                handleSubdivisionChange(e);
+                                            }}
+                                            defaultValue={field.value}
+                                        >
+                                            <div className="flex flex-col items-start">
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select the number of Sub Divisions" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <FormMessage />
+                                            </div>
+                                            <SelectContent>
+                                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(item => (
+                                                    <SelectItem key={item} value={`${item}`}>
+                                                        {item}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <FormDescription>
+                                        Select Total number of Areas
+                                    </FormDescription>
                                 </FormItem>
                             )
                         }}
                     />
                     {Array.from({ length: form.getValues().subdivisions }).map((_, index) => {
                         return <FormItem className="lg:flex lg:items-center gap-4">
-                                    <FormLabel className="md:basis-2/12">Area {index + 1}:</FormLabel>
-                                        <div className="md:basis-2/4">
-                                            <Input
-                                                type="text"
-                                                onChange={(e) => handleAreaNameChange(index, e)}
-                                                // placeholder={area}
-                                                value={areaNames[index].name}
-                                            />
-                                        </div>
-                                </FormItem>
+                            <FormLabel className="md:basis-2/12">Area {index + 1}:</FormLabel>
+                            <div className="md:basis-2/4">
+                                <Input
+                                    type="text"
+                                    onChange={(e) => handleAreaNameChange(index, e)}
+                                    // placeholder={area}
+                                    value={areaNames[index].name}
+                                />
+                            </div>
+                        </FormItem>
                     })}
                     <Separator className="my-6" />
                     <p className="text-sky-600 font-semibold">Project Address Details</p>
@@ -734,9 +734,9 @@ export const ProjectForm = () => {
                                     </FormControl>
                                     <FormMessage />
                                 </div>
-                                    <FormDescription>
-                                        Example: Building name, Building no., Floor
-                                    </FormDescription>
+                                <FormDescription>
+                                    Example: Building name, Building no., Floor
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
@@ -753,9 +753,9 @@ export const ProjectForm = () => {
                                     </FormControl>
                                     <FormMessage />
                                 </div>
-                                    <FormDescription>
-                                        Example: Road Name, Area name
-                                    </FormDescription>
+                                <FormDescription>
+                                    Example: Road Name, Area name
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
@@ -772,9 +772,9 @@ export const ProjectForm = () => {
                                     </FormControl>
                                     <FormMessage />
                                 </div>
-                                    <FormDescription>
-                                        Example: City name
-                                    </FormDescription>
+                                <FormDescription>
+                                    Example: City name
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
@@ -791,9 +791,9 @@ export const ProjectForm = () => {
                                     </FormControl>
                                     <FormMessage />
                                 </div>
-                                    <FormDescription>
-                                        Example: State name
-                                    </FormDescription>
+                                <FormDescription>
+                                    Example: State name
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
@@ -815,9 +815,9 @@ export const ProjectForm = () => {
                                     </FormControl>
                                     <FormMessage />
                                 </div>
-                                    <FormDescription>
-                                        Example: 100000
-                                    </FormDescription>
+                                <FormDescription>
+                                    Example: 100000
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
@@ -839,9 +839,9 @@ export const ProjectForm = () => {
                                     </FormControl>
                                     <FormMessage />
                                 </div>
-                                    <FormDescription>
-                                        Example: 90000000000
-                                    </FormDescription>
+                                <FormDescription>
+                                    Example: 90000000000
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
@@ -858,9 +858,9 @@ export const ProjectForm = () => {
                                     </FormControl>
                                     <FormMessage />
                                 </div>
-                                    <FormDescription>
-                                        Example: abc@mail.com
-                                    </FormDescription>
+                                <FormDescription>
+                                    Example: abc@mail.com
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
@@ -904,67 +904,67 @@ export const ProjectForm = () => {
                                     </Popover>
                                     <FormMessage />
                                 </div>
-                                    <FormDescription>
-                                        Select project start date
-                                    </FormDescription>
+                                <FormDescription>
+                                    Select project start date
+                                </FormDescription>
                             </FormItem>
                         )}
                     />
 
                     <FormField
-                    control={form.control}
-                    name="project_end_date"
-                    render={({ field }) => (
-                        <FormItem className="lg:flex lg:items-center gap-4">
-                            <FormLabel className="md:basis-2/12">Project End Date<sup>*</sup></FormLabel>
-                            <div className="md:basis-1/4">
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <FormControl>
-                                            <Button
-                                                variant={"outline"}
-                                                className={cn(
-                                                    "w-full pl-3 text-left font-normal",
-                                                    !field.value && "text-muted-foreground"
-                                                )}
-                                            >
-                                                {field.value ? (
-                                                    format(field.value, "dd-MM-yyyy")
-                                                ) : (
-                                                    <span>Pick a date</span>
-                                                )}
-                                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                            </Button>
-                                        </FormControl>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                        <Calendar
-                                            mode="single"
-                                            selected={field.value}
-                                            onSelect={field.onChange}
-                                            disabled={(date) =>
-                                                date < form.getValues("project_start_date")
-                                            }
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                                <FormMessage />
-                            </div>
+                        control={form.control}
+                        name="project_end_date"
+                        render={({ field }) => (
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">Project End Date<sup>*</sup></FormLabel>
+                                <div className="md:basis-1/4">
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <FormControl>
+                                                <Button
+                                                    variant={"outline"}
+                                                    className={cn(
+                                                        "w-full pl-3 text-left font-normal",
+                                                        !field.value && "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    {field.value ? (
+                                                        format(field.value, "dd-MM-yyyy")
+                                                    ) : (
+                                                        <span>Pick a date</span>
+                                                    )}
+                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                </Button>
+                                            </FormControl>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                            <Calendar
+                                                mode="single"
+                                                selected={field.value}
+                                                onSelect={field.onChange}
+                                                disabled={(date) =>
+                                                    date < form.getValues("project_start_date")
+                                                }
+                                                initialFocus
+                                            />
+                                        </PopoverContent>
+                                    </Popover>
+                                    <FormMessage />
+                                </div>
                                 <FormDescription>
                                     Select project end date
                                 </FormDescription>
-                        </FormItem>
-                    )}
-                />
-                        <div className="flex items-center">
-                                <FormLabel className="md:basis-2/12">Duration: </FormLabel>
-                            <div className=" pl-4 flex items-center gap-2">
-                                <h1>{duration}
-                                </h1>
-                                <h1 className="text-sm text-red-600"><sup>*</sup>(Days)</h1>
-                            </div>
+                            </FormItem>
+                        )}
+                    />
+                    <div className="flex items-center">
+                        <FormLabel className="md:basis-2/12">Duration: </FormLabel>
+                        <div className=" pl-4 flex items-center gap-2">
+                            <h1>{duration}
+                            </h1>
+                            <h1 className="text-sm text-red-600"><sup>*</sup>(Days)</h1>
                         </div>
+                    </div>
                     <Separator className="my-6" />
                     <p className="text-sky-600 font-semibold">Project Asignees</p>
                     <FormField
@@ -1236,12 +1236,12 @@ export const ProjectForm = () => {
                             : <Button type="submit">Submit</Button>
                         }
                     </div>
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
+                    <Dialog>
+                        <DialogTrigger asChild>
                             <button className="hidden" id="dialogOpenProject" >Trigger Dialog</button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader className="flex items-center justify-center">
+                        </DialogTrigger>
+                        <DialogContent>
+                            <DialogHeader className="flex items-center justify-center">
                                 <div className="font-semibold text-green-500"> Submitted successfully</div>
                                 <div className="flex gap-2">
                                     <Button onClick={() => navigate("/projects")}>Go Back</Button>
@@ -1252,12 +1252,12 @@ export const ProjectForm = () => {
                                         Create New
                                     </Button>
                                 </div>
-                            </AlertDialogHeader>
+                            </DialogHeader>
                             <DialogClose asChild>
                                 <button className="hidden" id="dialogCloseProject">close</button>
                             </DialogClose>
-                        </AlertDialogContent>
-                    </AlertDialog>
+                        </DialogContent>
+                    </Dialog>
                 </div>
             </form >
         </Form >
