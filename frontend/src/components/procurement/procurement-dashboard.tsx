@@ -4,6 +4,8 @@ import { TailSpin } from "react-loader-spinner";
 import { Card } from "../ui/card";
 import { MainLayout } from "../layout/main-layout";
 import { Button } from "../ui/button";
+import { Separator } from "../ui/separator";
+import { CirclePlus } from "lucide-react";
 
 
 export default function ProcurementDashboard() {
@@ -60,8 +62,8 @@ export default function ProcurementDashboard() {
 
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex justify-between items-center space-y-2">
-                    <h2 className="text-2xl pt-1 pl-2 pb-4 font-bold tracking-tight">Procurement Executive Dashboard</h2>
-                    <Button onClick={() => navigate("/procurement-request")}>Urgent PR</Button>
+                    <h2 className="text-2xl pt-1 pl-2 pb-4 font-bold tracking-tight">Procurement Dashboard</h2>
+                    <Button onClick={() => navigate("/procurement-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
                 </div>
                 <div className="flex items-center space-y-2">
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">New PR Actions</h2>
@@ -93,14 +95,25 @@ export default function ProcurementDashboard() {
                                 {procurement_request_list_error && <p>Error</p>}</p>
                         </Link>
                     </Card>
-
-
+                    <div className="flex ">
+                        <Separator orientation="vertical" className="mr-4 flex-grow-0" />
+                        <div className="flex-grow">
+                            <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                                <Link to="/release-po">
+                                    <p className="text-center py-6 font-bold text-gray-500">Release PO</p>
+                                    <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(procurement_order_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                        : (procurement_order_list?.length)}
+                                        {procurement_order_list_error && <p>Error</p>}</p>
+                                </Link>
+                            </Card>
+                        </div>
+                    </div>
                 </div>
                 <div className="flex items-center space-y-2">
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Sent Back PR Actions</h2>
                 </div>
                 <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                    <Card className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                    <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/sent-back-request">
                             <p className="text-center py-6 font-bold text-gray-500">Sent Back Request</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(sent_back_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
@@ -109,24 +122,17 @@ export default function ProcurementDashboard() {
                         </Link>
                     </Card>
                 </div>
-                <div className="flex items-center space-y-2">
+                {/* <div className="flex items-center space-y-2">
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Generated Order Actions</h2>
                 </div>
                 <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                    <Card className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                        <Link to="/release-po">
-                            <p className="text-center py-6 font-bold text-gray-500">Release PO</p>
-                            <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(procurement_order_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                : (procurement_order_list?.length)}
-                                {procurement_order_list_error && <p>Error</p>}</p>
-                        </Link>
-                    </Card>
-                </div>
+
+                </div> */}
                 <div className="flex items-center space-y-2">
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">General Actions</h2>
                 </div>
                 <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                    <Card className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                    <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/vendors">
                             <p className="text-center py-6 font-bold text-gray-500">Total Vendors</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(vendor_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
@@ -134,7 +140,7 @@ export default function ProcurementDashboard() {
                                 {vendor_list_error && <p>Error</p>}</p>
                         </Link>
                     </Card>
-                    <Card className="border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                    <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/items">
                             <p className="text-center py-6 font-bold text-gray-500">Total Items</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(item_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
