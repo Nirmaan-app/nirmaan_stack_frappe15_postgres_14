@@ -12,8 +12,10 @@ export interface Category{
 	idx?: number
 	/**	Category Name : Data	*/
 	category_name: string
-	/**	Work Package : Link - Work Packages	*/
+	/**	Procurement Package : Link - Procurement Packages	*/
 	work_package: string
 	/**	Image Url : Attach Image	*/
 	image_url?: string
+	/**	Tax : Data	*/
+	tax?: string
 }

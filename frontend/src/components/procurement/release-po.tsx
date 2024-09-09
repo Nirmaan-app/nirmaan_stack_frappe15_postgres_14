@@ -22,16 +22,18 @@ export const ReleasePO = () => {
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'advance', 'loading_charges', 'freight_charges', 'category'],
-            limit: 100
+            limit: 1000
         });
 
-    const {data: category_list, isLoading: category_list_loading, error: category_list_error, mutate: category_list_mutate} = useFrappeGetDocList("Category", 
+    const { data: category_list, isLoading: category_list_loading, error: category_list_error, mutate: category_list_mutate } = useFrappeGetDocList("Category",
         {
-        fields: ['work_package', 'name', 'tax']
+            fields: ['work_package', 'name', 'tax'],
+            limit: 1000
         })
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
-            fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode']
+            fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
+            limit: 1000
         });
 
     const [orderData, setOrderData] = useState(null);
@@ -183,7 +185,7 @@ export const ReleasePO = () => {
         total += loadingCharges + freightCharges
         totalGst += ((orderData?.loading_charges) * 0.18) + ((orderData?.freight_charges) * 0.18)
 
-        return {total, totalGst : totalGst , totalAmt : total + totalGst};
+        return { total, totalGst: totalGst, totalAmt: total + totalGst };
     }
 
     // console.log("total", getTotal().total)
@@ -418,8 +420,8 @@ export const ReleasePO = () => {
                                     </tr>
                                 </thead>
                                 <tbody className={`bg-white`}>
-                                    {orderData?.order_list?.list.map((item : any, index : number) => {
-                                        return ( <tr key={index} className={`${(!loadingCharges && !freightCharges && index === orderData?.order_list?.list.length - 1) && "border-b border-black"} page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
+                                    {orderData?.order_list?.list.map((item: any, index: number) => {
+                                        return (<tr key={index} className={`${(!loadingCharges && !freightCharges && index === orderData?.order_list?.list.length - 1) && "border-b border-black"} page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
                                             <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
@@ -429,7 +431,7 @@ export const ReleasePO = () => {
                                             {/* <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td> */}
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity)).toFixed(2)}</td>
-                                        </tr> )
+                                        </tr>)
                                     })}
                                     {/* {[...Array(14)].map((_, index) => (
                                         orderData?.order_list?.list.map((item) => (
@@ -494,17 +496,17 @@ export const ReleasePO = () => {
                                         </td>
                                     </tr> */}
                                     <tr className="">
-                                            <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
-                                            <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td>
+                                        <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
+                                        <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                        {/* <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td> */}
-                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{(getTotal().totalGst).toFixed(2)}</td>  */}
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{getTotal().total.toFixed(2)}</td>
-                                        </tr>
+                                        {/* <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{(getTotal().totalGst).toFixed(2)}</td>  */}
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{getTotal().total.toFixed(2)}</td>
+                                    </tr>
                                     <tr className="border-none">
                                         <td></td>
                                         <td></td>
@@ -520,8 +522,8 @@ export const ReleasePO = () => {
 
                                         <td className="space-y-4 py-4 text-sm whitespace-nowrap">
                                             <div className="ml-4">{(getTotal().totalGst).toFixed(2)}</div>
-                                           <div className="ml-4">- {((getTotal().totalAmt).toFixed(2) - (Math.floor(getTotal().totalAmt)).toFixed(2)).toFixed(2)}</div>
-                                           <div className="ml-4">{(Math.floor(getTotal().totalAmt)).toFixed(2)}</div>
+                                            <div className="ml-4">- {((getTotal().totalAmt).toFixed(2) - (Math.floor(getTotal().totalAmt)).toFixed(2)).toFixed(2)}</div>
+                                            <div className="ml-4">{(Math.floor(getTotal().totalAmt)).toFixed(2)}</div>
                                         </td>
 
                                     </tr>
@@ -539,18 +541,18 @@ export const ReleasePO = () => {
                                         </td>
                                     </tr> */}
                                     <tr className="end-of-page page-break-inside-avoid" >
-                                       <td colSpan={6}>
-                                         <div className="text-gray-400 text-sm py-2">Note</div>
-                                         <div className="text-sm text-gray-900">Above Sheet to be used of Jindal or Tata</div>
-                     
-                                         <div className="text-gray-400 text-sm py-2">Payment Terms</div>
-                                         <div className="text-sm text-gray-900">
-                                           {orderData?.advance}% advance {orderData?.advance === "100" ? "" : `and remaining ${100 - orderData?.advance}% on material readiness before delivery of material to site`}
-                                         </div>
-                     
-                                         <img src={Seal} className="w-24 h-24" />
-                                         <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
-                                       </td>
+                                        <td colSpan={6}>
+                                            <div className="text-gray-400 text-sm py-2">Note</div>
+                                            <div className="text-sm text-gray-900">Above Sheet to be used of Jindal or Tata</div>
+
+                                            <div className="text-gray-400 text-sm py-2">Payment Terms</div>
+                                            <div className="text-sm text-gray-900">
+                                                {orderData?.advance}% advance {orderData?.advance === "100" ? "" : `and remaining ${100 - orderData?.advance}% on material readiness before delivery of material to site`}
+                                            </div>
+
+                                            <img src={Seal} className="w-24 h-24" />
+                                            <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>

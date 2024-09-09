@@ -25,15 +25,16 @@ export const QuoteUpdateSelect = () => {
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
             filters: [["workflow_state", "=", "RFQ Generated"]],
-            limit: 100
+            limit: 1000
         });
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
+        limit: 1000
     })
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['item', 'quote'],
-            limit: 1000
+            limit: 2000
         });
 
 
@@ -163,28 +164,28 @@ export const QuoteUpdateSelect = () => {
         ],
         [project_values]
     )
-    const {toast} = useToast()
+    const { toast } = useToast()
 
     if (procurement_request_list_error || projects_error) {
         console.log("Error in quote-update-select.tsx", procurement_request_list_error?.message, projects_error?.message)
         toast({
             title: "Error!",
             description: `Error ${procurement_request_list_error?.message || projects_error?.message}`,
-            variant : "destructive"
-        })   
+            variant: "destructive"
+        })
     }
 
     return (
-            <div className="flex">
-                <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                    <div className="flex items-center justify-between space-y-2">
-                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Quote Update PR</h2>
-                    </div>
-                    {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
-                    {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
+        <div className="flex">
+            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+                <div className="flex items-center justify-between space-y-2">
+                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Quote Update PR</h2>
+                </div>
+                {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
+                {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
-                    )}
-                    {/* 
+                )}
+                {/* 
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
@@ -213,7 +214,7 @@ export const QuoteUpdateSelect = () => {
                             </tbody>
                         </table>
                     </div> */}
-                </div>
             </div>
+        </div>
     )
 }

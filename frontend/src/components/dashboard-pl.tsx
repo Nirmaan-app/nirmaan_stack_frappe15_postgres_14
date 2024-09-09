@@ -9,13 +9,13 @@ export const ProjectLead = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: procurement_request_list_mutate } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state'],
-            limit: 100
+            limit: 1000
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sent_back_list_mutate } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name'],
             filters: [["workflow_state", "=", "Vendor Selected"]],
-            limit: 100
+            limit: 1000
         });
 
     const pending_procurement_requests: string[] = [];

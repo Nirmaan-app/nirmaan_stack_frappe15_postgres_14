@@ -26,11 +26,12 @@ export const ApproveSelectVendor = () => {
             filters: [
                 ["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]
             ],
-            limit: 100
+            limit: 1000
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
+        limit: 1000
     })
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
@@ -147,31 +148,31 @@ export const ApproveSelectVendor = () => {
 
     let filteredList;
 
-    if(procurement_request_list) {
+    if (procurement_request_list) {
         filteredList = procurement_request_list.filter((item) => item.procurement_list?.list?.some((i) => i.status === "Pending"))
     }
-    
-    const {toast} = useToast()
+
+    const { toast } = useToast()
 
     if (procurement_request_list_error || projects_error) {
         console.log("Error in approve-select-vendor.tsx", procurement_request_list_error?.message, projects_error?.message)
         toast({
             title: "Error!",
             description: `Error ${procurement_request_list_error?.message || projects_error?.message}`,
-            variant : "destructive"
-        })   
+            variant: "destructive"
+        })
     }
 
     return (
-            <div className="flex">
-                <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                    <div className="flex items-center justify-between space-y-2 pl-2">
-                        <h2 className="text-lg font-bold tracking-tight">Approve Vendors</h2>
-                    </div>
-                    {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
+        <div className="flex">
+            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+                <div className="flex items-center justify-between space-y-2 pl-2">
+                    <h2 className="text-lg font-bold tracking-tight">Approve Vendors</h2>
+                </div>
+                {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={filteredList || []} project_values={project_values} />
-                    )}
-                    {/* <div className="overflow-x-auto">
+                )}
+                {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
@@ -199,7 +200,7 @@ export const ApproveSelectVendor = () => {
                             </tbody>
                         </table>
                     </div> */}
-                </div>
             </div>
+        </div>
     )
 }

@@ -12,18 +12,19 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
             filters: [["name", "=", pr_id]],
-            limit: 100
+            limit: 1000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'quantity', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
-            limit: 1000
+            limit: 2000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
             fields: ['name', 'project_name', 'project_address', 'project_city', 'project_state'],
-            filters: [['name', 'like', `%${pr_id.split("-").at(1)}`]]
+            filters: [['name', 'like', `%${pr_id.split("-").at(1)}`]],
+            limit: 1000
         });
     // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
     //     {

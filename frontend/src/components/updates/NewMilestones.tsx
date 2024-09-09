@@ -46,6 +46,7 @@ export default function NewMilestones() {
 
     const { data: project_list, isLoading: project_list_loading, error: project_list_error, mutate: project_list_mutate } = useFrappeGetDocList("Projects", {
         fields: ["*"],
+        limit: 1000
     },
         "Projects"
     );
@@ -371,8 +372,8 @@ export default function NewMilestones() {
                                                                                 >
                                                                                     <Button className="max-md:p-1 flex items-center justify-center gap-1">
                                                                                         <p>Update</p>
-                                                                                    {/* <FilePenLine className="md:w-8 md:h-8 mr-1 md:mr-2 text-blue-300 hover:text-blue-600 cursor-pointer" /> */}
-                                                                                    <Pencil className=" w-4 h-4"  />
+                                                                                        {/* <FilePenLine className="md:w-8 md:h-8 mr-1 md:mr-2 text-blue-300 hover:text-blue-600 cursor-pointer" /> */}
+                                                                                        <Pencil className=" w-4 h-4" />
                                                                                     </Button>
                                                                                 </button>
                                                                             </div>

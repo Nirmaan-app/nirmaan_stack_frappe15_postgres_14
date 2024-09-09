@@ -24,27 +24,29 @@ export const NewPR = () => {
     const navigate = useNavigate();
     const userData = useUserData()
 
-    const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
+    const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
         {
             fields: ['work_package_name', "work_package_image"],
-            orderBy: { field: 'work_package_name', order: 'asc' }
+            orderBy: { field: 'work_package_name', order: 'asc' },
+            limit: 100
         });
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package', 'image_url', 'tax'],
             orderBy: { field: 'category_name', order: 'asc' },
-            limit: 100
+            limit: 1000
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
             orderBy: { field: 'creation', order: 'desc' },
-            limit: 1000
+            limit: 10000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
             fields: ['name', 'project_name', 'project_address', 'project_lead', 'procurement_lead', 'creation'],
-            orderBy: { field: 'creation', order: 'desc' }
+            orderBy: { field: 'creation', order: 'desc' },
+            limit: 1000
         });
 
     interface Category {
@@ -336,7 +338,7 @@ export const NewPR = () => {
             {page == 'wplist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/procurement-request")} />
-                    <h3 className="text-base pl-2 font-bold tracking-tight">Select Work Package</h3>
+                    <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
                     {wp_list?.map((item) => (

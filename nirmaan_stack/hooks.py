@@ -252,6 +252,7 @@ doc_events = {
 fixtures = [
 	# All Data
     "Work Packages",
+    "Procurement Packages",
     "Category",
     "Scopes of Work",
     "Milestones",

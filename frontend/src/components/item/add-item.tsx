@@ -25,7 +25,8 @@ export default function AddItem({ curCategory, handleCreateItem, handleAdd }: Ad
 
     const { data: data, isLoading: loading, error: error } = useFrappeGetDocList("Items", {
         fields: ["name", "item_name", "category", "unit_name"],
-        filters: [["category", "=", curCategory]]
+        filters: [["category", "=", curCategory]],
+        limit: 1000
     })
 
     const [options, setOptions] = useState<SelectOptions[]>([])

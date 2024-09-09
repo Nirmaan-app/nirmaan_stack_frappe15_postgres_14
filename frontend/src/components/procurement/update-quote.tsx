@@ -57,7 +57,7 @@ export const UpdateQuote = () => {
         {
             fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote'],
             filters: [["procurement_task", "=", orderId]],
-            limit: 1000
+            limit: 2000
         });
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc } = useFrappeUpdateDoc()

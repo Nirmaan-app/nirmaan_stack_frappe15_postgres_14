@@ -37,13 +37,15 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         });
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
-            fields: ['name', 'address_title', 'address_line1','address_line2', 'city', 'state', 'pincode']
+            fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
+            limit: 1000
         });
 
-    const { data: is_present,mutate: is_present_mutate } = useFrappeGetDocList("PR Attachments",
+    const { data: is_present, mutate: is_present_mutate } = useFrappeGetDocList("PR Attachments",
 
         {
-            filters: [["procurement_request", "=", pr_id], ["vendor", "=", vendor_id]]
+            filters: [["procurement_request", "=", pr_id], ["vendor", "=", vendor_id]],
+            limit: 1000
         });
 
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
@@ -72,14 +74,14 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 
     const getItem = (item: string) => {
         let item_name;
-        if(item_list) {
+        if (item_list) {
             item_name = item_list?.find(value => value.name === item)?.item_name;
         }
         return item_name
     }
     const getUnit = (item: string) => {
         let item_unit;
-        if(item_list) {
+        if (item_list) {
             item_unit = item_list?.find(value => value.name === item)?.unit_name;
         }
         return item_unit
