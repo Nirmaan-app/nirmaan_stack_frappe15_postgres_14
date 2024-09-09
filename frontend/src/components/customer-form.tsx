@@ -53,17 +53,20 @@ const customerFormSchema = z.object({
 
     company_contact_person: z
         .string()
-        .optional(),
+        .optional()
+        .or(z.literal('')),
     email: z
         .string()
         .email()
-        .optional(),
+        .optional()
+        .or(z.literal('')),
     phone: z
         .number()
         .positive()
         .gte(1000000000)
         .lte(9999999999)
-        .optional(),
+        .optional()
+        .or(z.literal('')),
     company_gst: z
         .string()
 })
