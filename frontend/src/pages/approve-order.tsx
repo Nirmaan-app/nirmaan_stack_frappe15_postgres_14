@@ -31,7 +31,7 @@ export const ProjectLeadComponent = () => {
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package', 'image_url'],
+            fields: ['category_name', 'work_package', 'image_url', 'tax'],
             orderBy: { field: 'category_name', order: 'asc' },
             limit: 1000
         });
@@ -72,7 +72,7 @@ export const ProjectLeadComponent = () => {
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
-
+    const [tax, setTax] = useState<number | null>(null)
 
     // const [dialogVisible, setDialogVisible] = useState(false)
     const [dialogMessage, setDialogMessage] = useState("")
@@ -80,6 +80,7 @@ export const ProjectLeadComponent = () => {
 
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
+        setTax(category_list?.find((category) => category.category_name === categoryName).tax)
         const isDuplicate = categories.list.some(category => category.name === categoryName);
         if (!isDuplicate) {
             setCategories(prevState => ({
@@ -187,6 +188,8 @@ export const ProjectLeadComponent = () => {
                     unit: unit,
                     quantity: Number(quantity),
                     category: curCategory,
+                    tax: Number(tax),
+                    status: "Pending"
                 };
                 const isDuplicate = curRequest.some((item) => item.name === curValue.name);
                 if (isDuplicate) {
@@ -209,6 +212,7 @@ export const ProjectLeadComponent = () => {
                 setItem_id('');
                 setCurItem('');
                 setMake('');
+                setTax(null)
             }
             const categoryIds = categories.list.map((cat) => cat.name);
             const curCategoryIds = orderData.category_list.list.map((cat) => cat.name);

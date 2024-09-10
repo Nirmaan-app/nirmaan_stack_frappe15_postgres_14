@@ -28,13 +28,15 @@ export const SentBackUpdateQuote = () => {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address', "vendor_category"],
+            fields: ["*"],
             limit: 1000
-        });
+        },
+        "Vendors"
+    );
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error, mutate: quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ["*"],
-            limit: 2000
+            limit: 10000
         },
         "Quotation Requests"
     );
@@ -68,7 +70,9 @@ export const SentBackUpdateQuote = () => {
         })
     }, [sent_back_list]);
 
-    console.log("uniqueVendors", uniqueVendors)
+    // console.log("uniqueVendors", uniqueVendors)
+
+    // console.log("orderData", orderData)
 
     useEffect(() => {
         if (orderData.project) {
@@ -76,7 +80,8 @@ export const SentBackUpdateQuote = () => {
             // vendor_list?.map((item) => (item.vendor_category.categories)[0] === (orderData.category_list.list)[0].name && vendors.push(item.name))
             quotation_request_list?.map((item) => {
                 const isPresent = orderData.category_list.list.find(cat => cat.name === item.category)
-                if (orderData.procurement_request === item.procurement_task && isPresent) {
+                const isSameItem = orderData.item_list.list.find(i => i.name === item.item)
+                if (orderData.procurement_request === item.procurement_task && isPresent && isSameItem) {
                     const value = item.vendor;
                     vendors.push(value)
                 }
