@@ -106,24 +106,24 @@ export const UserForm = () => {
     }
 
     return (
-        <div className="flex-1 space-y-4 p-8 pt-6">
-            <div className="flex items-center justify-between mb-2 space-y-2">
-                <div className="flex">
+        <div className="flex-1">
+                <div className="flex gap-2">
                     <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} />
-                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Add User</h2>
+                        <div className="flex flex-col">
+                            <h2 className="text-xl md:text-3xl font-bold tracking-tight">Add User</h2>
+                            <p className="text-muted-foreground">
+                                Fill out to create a new User
+                            </p>
+                        </div>
                 </div>
-            </div>
-            <p className=" pl-7 text-muted-foreground">
-                Fill out to create a new User
-            </p>
+                
             <Separator className="my-6" />
             <Form {...form}>
                 <form onSubmit={(event) => {
                     event.stopPropagation();
                     return form.handleSubmit(onSubmit)(event);
-                }} className="flex flex-col space-y-8">
-                    <div className="flex flex-col">
-                        <p className="text-sky-600 font-semibold pb-9">User Details</p>
+                }} className="flex flex-col gap-4 space-y-4 p-8 pt-6">
+                        <p className="text-sky-600 font-semibold">User Details</p>
                         <FormField
                             control={form.control}
                             name="first_name"
@@ -272,29 +272,12 @@ export const UserForm = () => {
                             )}
                         />
                         <div className="pt-2 pb-2 ">
-                            {/* {(loading) ? (<ButtonLoading />)
-                                    : (submit_complete) ? (<div className="flex"><Button onClick={() => handleRedirect()}>Go Back</Button><div className="pl-3"><Button onClick={() => handleRefresh()} >Add new</Button></div></div>)
-                                        : (<Button type="submit">Submit</Button>)} */}
                             {loading ? (
                                 <ButtonLoading />
                             ) : (
                                 <Button type="submit">Submit</Button>
                             )}
                         </div>
-                        {/* <div>
-                                {submit_complete &&
-                                    <div>
-                                        <div className="font-semibold text-green-500"> User Added successfully</div>
-                                    </div>
-                                }
-                                {submit_error &&
-                                    <div className="flex-1">
-                                        <div className="font-semibold text-red-500">{submit_error.message}</div>
-                                        <div className="font-slim text-red-500">{submit_error.exception}</div>
-                                    </div>
-                                }
-                            </div> */}
-                    </div>
                 </form>
             </Form>
         </div>

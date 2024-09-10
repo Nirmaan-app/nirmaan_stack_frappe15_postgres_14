@@ -21,10 +21,12 @@ type PRTable = {
 export const ApproveSelectSentBack = () => {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation'],
+            fields: ["*"],
             filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
             limit: 1000
-        });
+        },
+        "Sent Back Category(filters,in,Vendor Selected,Partially Approved)"
+    );
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],

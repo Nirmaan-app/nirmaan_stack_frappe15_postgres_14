@@ -98,12 +98,6 @@ const columns: TableColumnsType<DataType> = [
     },
 ];
 
-
-// interface VendorItem {
-//     vendor: string;
-//     item: string;
-// }
-
 export const SelectVendors = () => {
     const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate()
@@ -157,6 +151,8 @@ export const SelectVendors = () => {
     const [data, setData] = useState<DataType>([])
     // const [checkStrictly, setCheckStrictly] = useState(false);
 
+    console.log("orderData", orderData)
+
     useEffect(() => {
         if (orderData.project) {
             const newData: DataType[] = [];
@@ -207,19 +203,6 @@ export const SelectVendors = () => {
         }
     }, [orderData, selectedVendors, vendor_list]);
 
-    console.log("data", data)
-    // const rowSelection: TableRowSelection<DataType> = {
-    //     onChange: (selectedRowKeys, selectedRows) => {
-    //         console.log("onChange")
-    //         console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
-    //     },
-    //     onSelect: (record, selected, selectedRows) => {
-    //         console.log(record, selected, selectedRows);
-    //     },
-    //     onSelectAll: (selected, selectedRows, changeRows) => {
-    //         console.log(selected, selectedRows, changeRows);
-    //     },
-    // };
 
     useEffect(() => {
         const updatedCategories = { ...selectedCategories };
@@ -256,7 +239,9 @@ export const SelectVendors = () => {
     const handleChangeWithParam = (item, vendor) => {
         return () => handleRadioChange(item, vendor);
     };
-    // console.log("orderData in select vendors", orderData)
+    console.log("orderData in select vendors", orderData)
+    console.log("selected Vendors", selectedVendors)
+
     const handleSubmit = () => {
         const delayedItems = [];
         quotation_request_list?.map((item) => {
@@ -282,7 +267,8 @@ export const SelectVendors = () => {
                     quote: 0,
                     unit: value.unit,
                     category: value.category,
-                    tax: value.tax
+                    tax: value.tax,
+                    status: "Pending"
                 })
 
                 delayedItems.push(value.name);

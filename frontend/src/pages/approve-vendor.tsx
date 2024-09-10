@@ -95,7 +95,7 @@ export const ApproveVendor = () => {
     const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate()
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: procurement_list_mutate } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
             filters: [['name', '=', orderId]],
@@ -421,14 +421,16 @@ export const ApproveVendor = () => {
             });
 
             // Update state and navigate if all items are processed
-            setOrderData(prevOrderData => ({
-                ...prevOrderData,
-                procurement_list: { list: filteredList }
-            }));
+            // setOrderData(prevOrderData => ({
+            //     ...prevOrderData,
+            //     procurement_list: { list: filteredList }
+            // }));
 
             if (filteredList.length === 0) {
                 navigate('/approve-vendor');
             }
+
+            procurement_list_mutate()
         } catch (error) {
             console.error("Error approving vendor:", error);
             toast({
@@ -505,14 +507,16 @@ export const ApproveVendor = () => {
             });
 
             // Update state and navigate if all items are processed
-            setOrderData(prevOrderData => ({
-                ...prevOrderData,
-                procurement_list: { list: filteredList }
-            }));
+            // setOrderData(prevOrderData => ({
+            //     ...prevOrderData,
+            //     procurement_list: { list: filteredList }
+            // }));
 
             if (filteredList.length === 0) {
                 navigate('/approve-vendor');
             }
+
+            procurement_list_mutate()
         } catch (error) {
             console.error("Error sending back items:", error);
             toast({

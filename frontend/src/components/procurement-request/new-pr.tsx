@@ -194,7 +194,6 @@ export const NewPR = () => {
                 setUnit('');
                 setItem_id('');
                 setMake('');
-                setTax(null)
             }
         }
     };
