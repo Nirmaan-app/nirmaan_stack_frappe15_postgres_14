@@ -46,7 +46,6 @@ import Vendors from './pages/vendors'
 
 import ListPR from './components/procurement-request/list-pr'
 import { EditVendor } from './pages/edit-vendor'
-import EditItems from './pages/items-edit'
 import { FC } from 'react'
 import { MainLayout } from './components/layout/main-layout'
 import { ProjectManager } from './components/dashboard-pm'
@@ -58,7 +57,6 @@ import NewCustomer from './pages/customers/add-new-customer'
 import EditCustomer from './pages/customers/edit-customer'
 import { NewVendor } from './pages/new-vendor'
 import NewMilestones from './components/updates/NewMilestones'
-
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -132,7 +130,7 @@ const router = createBrowserRouter(
 
 					<Route path="items" >
 						<Route index element={<Items />} />
-						<Route path=":id" element={<EditItems />} />
+						<Route path=":itemId" lazy={() => import('@/pages/item')}  />
 					</Route>
 
 					<Route path="vendors">

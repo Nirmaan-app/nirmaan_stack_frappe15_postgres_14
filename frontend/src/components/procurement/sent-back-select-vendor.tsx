@@ -173,7 +173,7 @@ export const SentBackSelectVendor = () => {
 
     const [data, setData] = useState<DataType>([])
     const [checkStrictly, setCheckStrictly] = useState(false);
-
+    console.log("orderData", orderData)
     useEffect(() => {
         if (orderData.project) {
             const newData: DataType[] = [];
@@ -194,6 +194,8 @@ export const SentBackSelectVendor = () => {
                             item: item.item,
                             key: item.name,
                             unit: item.unit,
+                            tax: Number(item.tax),
+                            status: "Pending",
                             quantity: item.quantity,
                             category: item.category,
                             rate: selectedVendors[item.name] ? price : "Delayed",

@@ -22,7 +22,7 @@ export const ApproveSelectSentBack = () => {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation'],
-            filters: [["workflow_state", "=", "Vendor Selected"]],
+            filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
             limit: 1000
         });
 
@@ -137,6 +137,12 @@ export const ApproveSelectSentBack = () => {
         [project_values, sent_back_list]
     )
 
+    let filteredList;
+
+    if (sent_back_list) {
+        filteredList = sent_back_list.filter((item) => item.item_list?.list?.some((i) => i.status === "Pending"))
+    }
+
     const { toast } = useToast()
 
     if (sent_back_list_error || projects_error) {
@@ -156,7 +162,7 @@ export const ApproveSelectSentBack = () => {
                     <h2 className="text-lg font-bold tracking-tight">Approve Sent Back Vendors</h2>
                 </div>
                 {(sent_back_list_loading || projects_loading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
+                    <DataTable columns={columns} data={filteredList || []} project_values={project_values} />
                 )}
                 {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
