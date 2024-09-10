@@ -1,7 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { Table, ConfigProvider } from 'antd';
@@ -94,9 +94,9 @@ export const ApproveSentBack = () => {
             fields: ['name', 'project_name', 'project_address'],
             limit: 1000
         });
-    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
+    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sent_back_list_mutate } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'category_list', 'project', 'creation', 'owner',],
+            fields: ["*"],
             filters: [["name", "=", id]],
             limit: 1000
         });
@@ -248,6 +248,9 @@ export const ApproveSentBack = () => {
         return results;
     };
 
+    // console.log("selectedItems", selectedItems)
+    // console.log("orderData", orderData)
+    const {mutate} = useSWRConfig()
 
     const newHandleApprove = async () => {
 
@@ -256,7 +259,6 @@ export const ApproveSentBack = () => {
             const filteredData = selectedItems?.filter(item => {
                 return item.unit !== null && item.quantity !== null
             });
-            console.log(filteredData)
 
             const vendorItems = {};
             filteredData?.forEach((item) => {
@@ -277,6 +279,7 @@ export const ApproveSentBack = () => {
                 }
 
             })
+            console.log("vendorItems", vendorItems)
             const docs = Object.entries(vendorItems)?.flatMap(([key, value]) => {
 
                 const newProcurementOrder = {
@@ -330,13 +333,16 @@ export const ApproveSentBack = () => {
                 variant: "success"
             });
 
-            setOrderData(prevOrderData => ({
-                ...prevOrderData,
-                item_list: {
-                    list: filteredList
-                }
-            }));
+            // setOrderData(prevOrderData => ({
+            //     ...prevOrderData,
+            //     item_list: {
+            //         list: filteredList
+            //     }
+            // }));
 
+            mutate("Sent Back Category(filters,in,Vendor Selected, Partially Approved)");
+            sent_back_list_mutate()
+            
             if (filteredList.length === 0) {
                 navigate("/approve-sent-back")
             }
@@ -406,17 +412,22 @@ export const ApproveSentBack = () => {
                 if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
                     return { ...item, status: "Sent Back" };
                 }
+                console.log("item", item)
                 return item;
             });
+
+            console.log("updatedItemList", updatedItemList)
             
             const filteredList = orderData.item_list?.list.filter(procItem =>
                 !filteredData.some(selItem => selItem.key === procItem.name)
             );
 
-            await updateDoc('Sent Back Category', id, {
+            const res = await updateDoc('Sent Back Category', id, {
                 procurement_list: { list: updatedItemList },
                 workflow_state: newWorkflowState
             });
+
+            console.log("response", res)
 
             toast({
                 title: "Success!",
@@ -424,12 +435,15 @@ export const ApproveSentBack = () => {
                 variant: "success"
             });
 
-            setOrderData(prevOrderData => ({
-                ...prevOrderData,
-                item_list: {
-                    list: filteredList
-                }
-            }));
+            // setOrderData(prevOrderData => ({
+            //     ...prevOrderData,
+            //     item_list: {
+            //         list: filteredList
+            //     }
+            // }));
+
+            mutate("Sent Back Category(filters,in,Vendor Selected,Partially Approved)");
+            sent_back_list_mutate()
 
             if (filteredList.length === 0) {
                 navigate("/approve-sent-back")
@@ -445,7 +459,6 @@ export const ApproveSentBack = () => {
             setComment('');
             setIsLoading(null);
         }
-
     }
 
     useEffect(() => {
@@ -682,7 +695,7 @@ export const ApproveSentBack = () => {
 
             </ConfigProvider>
             {selectedItems?.length > 0 && <div className="text-right space-x-2">
-                <AlertDialog>
+                {/* <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
                             {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
@@ -708,7 +721,7 @@ export const ApproveSentBack = () => {
                             <AlertDialogAction onClick={() => newHandleSentBack()}>Send Back</AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
-                </AlertDialog>
+                </AlertDialog> */}
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>

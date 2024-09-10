@@ -145,8 +145,6 @@ export const SentBackSelectVendor = () => {
         })
     }
 
-
-
     const [selectedVendors, setSelectedVendors] = useState({})
     const [selectedCategories, setSelectedCategories] = useState({})
     const [totals, setTotals] = useState()
@@ -172,7 +170,7 @@ export const SentBackSelectVendor = () => {
     }, [quotation_request_list, orderData]);
 
     const [data, setData] = useState<DataType>([])
-    const [checkStrictly, setCheckStrictly] = useState(false);
+
     console.log("orderData", orderData)
     useEffect(() => {
         if (orderData.project) {
@@ -243,7 +241,7 @@ export const SentBackSelectVendor = () => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
 
-
+console.log("orderData", orderData)
 
     const handleRadioChange = (item, vendor) => {
         setSelectedVendors(prevState => {
@@ -261,6 +259,7 @@ export const SentBackSelectVendor = () => {
     };
 
     const handleSubmit = () => {
+        console.log("submit orderData", orderData)
         updateDoc('Sent Back Category', id, {
             workflow_state: "Vendor Selected",
             item_list: orderData.item_list,
