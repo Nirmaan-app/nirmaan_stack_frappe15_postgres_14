@@ -1,44 +1,16 @@
-
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumb";
-import { DataTable } from "@/components/data-table/data-table";
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-
-import { ColumnDef } from "@tanstack/react-table";
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
-
-import { useMemo, useState } from "react";
-
-import { Link, useNavigate, useParams } from "react-router-dom";
-
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { MainLayout } from "@/components/layout/main-layout"
-
+import {  useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import {  useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-
-export function ItemComponent({ item_id }) {
-    const { data: item_data, isLoading: item_loading, error: item_error } = useFrappeGetDoc("Items", item_id);
-
-    if (item_loading) return <>Loading</>
-    if (item_error) return <>{item_error.message}</>
-    return item_data?.item_name
-}
 
 interface SelectOption {
     label: string;
     value: string;
 }
 
-export default function EditItems() {
-    const navigate = useNavigate();
-    const { id } = useParams<{ id: string }>()
-
-    const { data: data, isLoading: isLoading, error: error } = useFrappeGetDoc("Items", id)
+export default function EditItems({data}) {
 
     const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["category_name", "work_package"],
@@ -68,7 +40,6 @@ export default function EditItems() {
         })
             .then(() => {
                 console.log("edited", id)
-                navigate("/items")
                 setUnit('')
                 setCurItem('')
                 setCategory('')
@@ -77,24 +48,13 @@ export default function EditItems() {
             })
     }
 
-
     return (
-
-        // <MainLayout>
         <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
             <div className="flex items-center space-x-2">
-                <Dialog>
-                    <DialogTrigger asChild>
-                        <Button>
-                            <CirclePlus className="w-5 h-5 mt- pr-1 " /><span className="hidden md:flex pl-1">Edit Item</span>
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Edit Item</DialogTitle>
-                            <DialogDescription>
+                        <div>
+                            <p>
                                 Enter Item Details here.
-                            </DialogDescription>
+                            </p>
                             <div className="mb-4">
                                 <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
                                 <Input
@@ -113,10 +73,8 @@ export default function EditItems() {
                                         <SelectValue className="text-gray-200" placeholder={data?.unit_name} />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {/* <SelectItem value="PCS">PCS</SelectItem> */}
                                         <SelectItem value="BOX">BOX</SelectItem>
                                         <SelectItem value="ROLL">ROLL</SelectItem>
-                                        {/* <SelectItem value="PKT">PKT</SelectItem> */}
                                         <SelectItem value="LENGTH">LTH</SelectItem>
                                         <SelectItem value="MTR">MTR</SelectItem>
                                         <SelectItem value="NOS">NOS</SelectItem>
@@ -124,11 +82,8 @@ export default function EditItems() {
                                         <SelectItem value="PAIRS">PAIRS</SelectItem>
                                         <SelectItem value="PACKS">PACKS</SelectItem>
                                         <SelectItem value="DRUM">DRUM</SelectItem>
-                                        {/* <SelectItem value="COIL">COIL</SelectItem> */}
                                         <SelectItem value="SQMTR">SQMTR</SelectItem>
                                         <SelectItem value="LTR">LTR</SelectItem>
-                                        {/* <SelectItem value="PAC">PAC</SelectItem> */}
-                                        {/* <SelectItem value="BAG">BAG</SelectItem> */}
                                         <SelectItem value="BUNDLE">BUNDLE</SelectItem>
                                         <SelectItem value="FEET">FEET</SelectItem>
                                     </SelectContent>
@@ -140,16 +95,6 @@ export default function EditItems() {
                                     <SelectTrigger className="w-[180px]">
                                         <SelectValue className="text-gray-200" placeholder={data?.category} />
                                     </SelectTrigger>
-                                    {/* <SelectContent>
-                                            <SelectItem value="Miscellaneous">Miscellaneous</SelectItem>
-                                            <SelectItem value="Conduits">Conduits</SelectItem>
-                                            <SelectItem value="Wires & Cables">Wires & Cables</SelectItem>
-                                            <SelectItem value="Switch Sockets">Switch Sockets</SelectItem>
-                                            <SelectItem value="Accessories">Accessories</SelectItem>
-                                            <SelectItem value="Lighting">Lighting</SelectItem>
-                                            <SelectItem value="Raceway & Cabletray">Raceway & Cabletray</SelectItem>
-                                            <SelectItem value="Switch Gear">Switch Gear</SelectItem>
-                                        </SelectContent> */}
                                     <SelectContent>
                                         {category_options?.map((item) => {
                                             return (
@@ -159,16 +104,14 @@ export default function EditItems() {
                                     </SelectContent>
                                 </Select>
                             </div>
-                        </DialogHeader>
-                        <div className="flex">
-                            <DialogClose className="flex-1 right-0">
-                                <Button className="flex right-0" onClick={() => handleEditItem()}>Submit</Button>
-                            </DialogClose>
                         </div>
-                    </DialogContent>
-                </Dialog>
+                        <div className="flex">
+                                <Button className="flex right-0" onClick={() => handleEditItem()}>Submit</Button>
+                                <DialogClose className="flex-1 right-0 hidden">
+                                            close button
+                                </DialogClose>
+                        </div>
             </div>
         </div>
-        // </MainLayout>
     )
 }

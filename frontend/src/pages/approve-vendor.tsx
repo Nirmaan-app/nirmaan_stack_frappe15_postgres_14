@@ -4,16 +4,6 @@ import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import React, { useState, useEffect, useCallback } from "react";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-    DialogClose,
-    DialogFooter
-} from "@/components/ui/dialog"
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Table as ReactTable } from "@/components/ui/table";
 import { Table, ConfigProvider } from 'antd';
@@ -194,7 +184,7 @@ export const ApproveVendor = () => {
             });
 
             // Update orderData with computed lists
-            setOrderData((prevState) => ({
+            setOrderData(() => ({
                 ...newOrderData,
                 procurement_list: {
                     list: newList
@@ -338,9 +328,6 @@ export const ApproveVendor = () => {
         onSelectAll: (selected, selectedRows, changeRows) => { },
     };
 
-    // console.log("orderData", orderData)
-    // console.log("selectedItems", selectedItems)
-
     const BATCH_SIZE = 10; // Adjust the batch size based on your needs
 
     const createDocBatch = async (doctype, docs) => {
@@ -429,7 +416,7 @@ export const ApproveVendor = () => {
 
             toast({
                 title: "Success!",
-                description: "New PO created Successfully!",
+                description: "New PO(s) created Successfully!",
                 variant: "success"
             });
 
@@ -468,7 +455,8 @@ export const ApproveVendor = () => {
                     tax: Number(value.tax),
                     quote: price,
                     unit: value.unit,
-                    category: value.category
+                    category: value.category,
+                    status: "Pending"
                 };
             });
 

@@ -37,9 +37,11 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address'],
+            fields: ["*"],
             limit: 1000
-        });
+        },
+        "Vendors"
+    );
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'unit_name'],

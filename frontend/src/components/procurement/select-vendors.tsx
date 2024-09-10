@@ -337,7 +337,6 @@ export const SelectVendors = () => {
                         description: `You just delayed all the items, you can see them in "New Sent Back" tab!`,
                         variant: "default"
                     })
-                    navig
                     navigate("/")
                 }).catch(() => {
                     console.log(update_submit_error)

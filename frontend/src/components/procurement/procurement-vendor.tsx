@@ -54,7 +54,7 @@ export const ProcurementOrder = () => {
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ["*"],
-            limit: 1000
+            limit: 10000
         },
         `Quotation Requests`
     );
