@@ -212,7 +212,6 @@ export const ProjectLeadComponent = () => {
                 setItem_id('');
                 setCurItem('');
                 setMake('');
-                setTax(null)
             }
             const categoryIds = categories.list.map((cat) => cat.name);
             const curCategoryIds = orderData.category_list.list.map((cat) => cat.name);
