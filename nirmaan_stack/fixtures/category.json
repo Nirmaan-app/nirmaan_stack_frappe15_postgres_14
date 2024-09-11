@@ -600,6 +600,16 @@
   "work_package": "Electrical Work"
  },
  {
+  "category_name": "Fire Extinguishers",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped fire safety/extin.jpg",
+  "modified": "2024-09-11 19:57:59.078512",
+  "name": "Fire Extinguishers",
+  "tax": "18",
+  "work_package": "Fire Fighting System"
+ },
+ {
   "category_name": "Reader",
   "docstatus": 0,
   "doctype": "Category",
