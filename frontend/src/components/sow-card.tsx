@@ -52,7 +52,7 @@ type MilestonesFormValues = z.infer<typeof MilestonesFormSchema>
 
 export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
 
-    const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<Milestones>("Milestones", {
+    const { data: data, isLoading: isLoading, error: error, mutate } = useFrappeGetDocList<Milestones>("Milestones", {
         fields: ["name", "milestone_name"],
         filters: [["scope_of_work", "=", sow_id]],
         limit: 1000
@@ -76,17 +76,14 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
 
         createDoc('Milestones', values)
             .then(() => {
+                mutate()
                 console.log(values)
+                document.getElementById("dialogClosesow")?.click()
             }).catch(() => {
                 console.log(submit_error)
             })
     }
     const [current, setCurrent] = useState<string>("")
-    function closewindow() {
-        var button = document.getElementById('dialogClose');
-        mutate()
-    }
-
     const { toast } = useToast()
 
     if (error) {
@@ -109,46 +106,40 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
                         <DialogTrigger asChild>
                             <Button className="p-3 pb-4 cursor-pointer hover:bg-gray-300" onClick={() => { setCurrent(sow_name) }} variant="secondary">+</Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-[425px]">
-                            <DialogHeader>
-                                <DialogTitle>Add New Milestone</DialogTitle>
-                                <DialogDescription>
-                                    Add new Milestone in {sow_name}.
-                                </DialogDescription>
-                            </DialogHeader>
-                            <Form {...form}>
-                                <form onSubmit={(event) => {
-                                    event.stopPropagation();
-                                    return form.handleSubmit(onSubmit)(event);
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Add New Milestone</DialogTitle>
+                                </DialogHeader>
+                                <Form {...form}>
+                                    <form onSubmit={(event) => {
+                                        event.stopPropagation();
+                                        return form.handleSubmit(onSubmit)(event);
 
-                                }} className="space-y-8">
-                                    <FormField
-                                        control={form.control}
-                                        name="milestone_name"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Milestone Name</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="Milestone Name" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    {(loading) ? (<ButtonLoading />) : (<DialogClose asChild><Button type="submit">Submit</Button></DialogClose>)}
-                                    {/* <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose> */}
-                                    <div>
-                                        {submit_complete &&
-                                            <div>
-                                                {/* <div className="font-semibold text-green-500"> Customer added</div> */}
-                                                {closewindow()}
-                                            </div>
-                                        }
-                                        {submit_error && <div>{submit_error}</div>}
-                                    </div>
-                                </form>
-                            </Form>
-                        </DialogContent>
+                                    }} className="flex flex-col gap-2">
+                                        <FormField
+                                            control={form.control}
+                                            name="milestone_name"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Milestone Name</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder="Milestone Name..." {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <div className="flex items-center justify-center">
+                                        {(loading) ? (<ButtonLoading />) : (
+                                            <>
+                                            <Button type="submit">Submit</Button>
+                                            <DialogClose id="dialogClosesow" className="hidden">hello</DialogClose>
+                                            </>
+                                            )}       
+                                        </div>                                    
+                                    </form>
+                                </Form>
+                            </DialogContent>
                     </Dialog>
                     <PersonStanding className="h-4 w-4 text-muted-foreground" />
                 </div>
@@ -161,9 +152,7 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
                         )
                     )}
                 </div>
-                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
             </CardContent>
         </Card>
-
     )
 }

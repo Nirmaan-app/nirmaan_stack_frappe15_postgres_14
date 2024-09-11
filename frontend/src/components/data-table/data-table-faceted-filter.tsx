@@ -71,7 +71,7 @@ export function DataTableFacetedFilter<TData, TValue>({
             </PopoverTrigger>
             <PopoverContent className="w-[200px] p-0" align="start">
                 <Command>
-                    <CommandInput placeholder={title} />
+                    <CommandInput placeholder={"Search project.."} />
                     <CommandList>
                         <CommandEmpty>{"No Filter results"}</CommandEmpty>
                         <CommandGroup>

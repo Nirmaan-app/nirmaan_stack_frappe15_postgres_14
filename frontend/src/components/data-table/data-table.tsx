@@ -79,6 +79,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values }: Data
         },
     })
 
+    console.log("globalFilter", globalFilter)
     // Show selected rows
     // ------------------
     // You can show the number of selected rows using the table.getFilteredSelectedRowModel() API.
@@ -124,7 +125,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values }: Data
                             </TableRow>
                         ))}
                     </TableHeader>
-                    <TableBody>
+                    {/* <TableBody>
                         {table.getRowModel().rows?.length ? (
                             table.getRowModel().rows.map((row) => (
                                 <TableRow
@@ -145,7 +146,32 @@ export function DataTable<TData, TValue>({ columns, data, project_values }: Data
                                 </TableCell>
                             </TableRow>
                         )}
+                    </TableBody> */}
+
+                    <TableBody>
+                        {table.getRowModel().rows?.length ? (
+                            table.getRowModel().rows.map((row) => (
+                                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
+                                    {row.getVisibleCells().map((cell) => (
+                                        <TableCell
+                                            key={cell.id}
+                                            data-label={cell.column.columnDef.header}
+                                            className="py-6 px-4"
+                                        >
+                                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))
+                        ) : (
+                            <TableRow>
+                                <TableCell colSpan={columns.length} className="h-24 text-center">
+                                    No results.
+                                </TableCell>
+                            </TableRow>
+                        )}
                     </TableBody>
+
                 </Table>
             </div>
             <DataTablePagination table={table} />

@@ -22,8 +22,8 @@ import { TableSkeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import { Menu, MenuProps, TableProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
-import { ArrowLeft, Download, FilePenLine } from "lucide-react"
-import React, { useMemo, useState } from "react"
+import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, Download, FilePenLine } from "lucide-react"
+import React, { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
 import { Button } from "@/components/ui/button"
@@ -513,7 +513,70 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
 
   const { data: projectCustomer } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
 
-  console.log("customerData", projectCustomer)
+  const {data: projectAssignees, isLoading: projectAssigneesLoading} = useFrappeGetDocList("User Permission", {
+    fields: ["*"],
+    limit: 1000,
+    filters: [["for_value", "=", projectId], ["allow", "=", "Projects"]]
+  },
+  `User Permission, filters(for_value),=,${projectId}`
+  )
+
+  const {data: usersList, isLoading: usersListLoading} = useFrappeGetDocList("Nirmaan Users", {
+    fields: ["*"],
+    limit: 1000
+  },
+  "Nirmaan Users"
+)
+
+// Grouping functionality
+const groupedAssignees = useMemo(() => {
+  if (!projectAssignees || !usersList) return {};
+
+  const filteredAssignees = projectAssignees.filter(assignee =>
+    usersList.some(user => user.name === assignee.user)
+  );
+
+  const grouped = filteredAssignees.reduce((acc, assignee) => {
+    const user = usersList.find(user => user.name === assignee.user);
+    if (user) {
+      const { role_profile, full_name } = user;
+
+      if (!acc[role_profile.split(" ").slice(1,3).join(" ")]) {
+        acc[role_profile.split(" ").slice(1,3).join(" ")] = [];
+      }
+
+      acc[role_profile.split(" ").slice(1,3).join(" ")].push(full_name);
+    }
+
+    return acc;
+  }, {});
+
+  return grouped;
+}, [projectAssignees, usersList]);
+
+// Accordion state
+const [expandedRoles, setExpandedRoles] = useState({});
+
+useEffect(() => {
+  const initialExpandedState = Object.keys(groupedAssignees).reduce((acc, roleProfile) => {
+    acc[roleProfile] = true;
+    return acc;
+  }, {});
+  setExpandedRoles(initialExpandedState);
+}, [groupedAssignees]);
+
+const toggleExpand = (roleProfile) => {
+  setExpandedRoles((prev) => ({
+    ...prev,
+    [roleProfile]: !prev[roleProfile],
+  }));
+};
+
+// console.log("users", usersList)
+
+// console.log("project assignees", projectAssignees)
+
+//   console.log("customerData", projectCustomer)
   // console.log("mile_data", mile_data)
 
   // console.log("data", data)
@@ -692,7 +755,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
 
       {/* Overview Section */}
       {current === "overview" && (
-        <div>
+        <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
               <CardTitle>
@@ -766,7 +829,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
               <div className="space-y-4 w-full">
                 <CardDescription className="space-y-2">
                   <span>Work Package</span>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 flex-wrap">
                     {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
                       <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
                     ))}
@@ -783,6 +846,48 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                     </Card>
                 </CardContent> */}
 
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Assignees</CardTitle>
+            </CardHeader>
+            <CardContent>
+          <CardDescription className="space-y-2">
+                  <ul className="flex gap-2 flex-wrap">
+                    {Object.entries(groupedAssignees).map(([roleProfile, assigneeList], index) => (
+                      <li key={index} className="border p-1 bg-white rounded-lg max-sm:w-full">
+                        <div
+                          className="flex items-center justify-between gap-4 cursor-pointer hover:bg-gray-100 p-2 rounded-md transition-all duration-200"
+                          onClick={() => toggleExpand(roleProfile)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {expandedRoles[roleProfile] ? (
+                              <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                            ) : (
+                              <ChevronRightIcon className="w-5 h-5 text-gray-500" />
+                            )}
+                            <span className="text-md font-medium text-gray-800">{roleProfile}</span>
+                          </div>
+                          <span className="text-sm text-gray-500">{assigneeList.length} users</span>
+                        </div>
+                        {expandedRoles[roleProfile] && (
+                          <ul className="pl-8 mt-2 space-y-2">
+                            {assigneeList.map((fullName, index) => (
+                              <li
+                                key={index}
+                                className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
+                              >
+                                <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                                <span className="text-sm font-medium text-gray-600">{fullName}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </CardDescription>
+                </CardContent>
           </Card>
         </div>
       )}
