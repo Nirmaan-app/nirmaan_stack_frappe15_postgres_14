@@ -88,15 +88,11 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                     </DialogTrigger>
                     <DialogContent>
                         <DialogHeader>
-                        <DialogTitle>Edit Item</DialogTitle>
-                            {/* <EditItems data={data} /> */}
-                            <DialogDescription>
-                            <div className="flex items-center space-x-2">
-                                <div>
-                                    <DialogDescription>
-                                        Enter Item Details here.
-                                    </DialogDescription>
-                                    <div className="mb-4">
+                        <DialogTitle className="mb-2">Edit Item</DialogTitle>
+                            <DialogDescription className="flex flex-col gap-2">
+                                <div className="flex flex-col gap-4 ">
+                                    
+                                    <div className="flex flex-col items-start">
                                         <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
                                         <Input
                                             type="text"
@@ -107,10 +103,10 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                             className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                         />
                                     </div>
-                                    <div className="mb-4">
+                                    <div className="flex flex-col items-start">
                                         <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
                                         <Select onValueChange={(value) => setUnit(value)}>
-                                            <SelectTrigger className="w-[180px]">
+                                            <SelectTrigger className="">
                                                 <SelectValue className="text-gray-200" placeholder={data?.unit_name} />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -130,10 +126,10 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <div className="mb-4">
+                                    <div className="flex flex-col items-start">
                                         <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category</label>
                                         <Select onValueChange={(value) => setCategory(value)}>
-                                            <SelectTrigger className="w-[180px]">
+                                            <SelectTrigger className="">
                                                 <SelectValue className="text-gray-200" placeholder={data?.category} />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -146,12 +142,9 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                         </Select>
                                     </div>
                                 </div>
-                            </div>
-                    <div className="flex">
-                                <DialogClose className="flex-1 right-0">
-                                    <Button className="flex right-0" onClick={() => handleEditItem()}>Submit</Button>
+                                <DialogClose className="">
+                                    <Button className="" onClick={() => handleEditItem()}>Submit</Button>
                                 </DialogClose>
-                        </div>
                             </DialogDescription>
                         </DialogHeader>
                     </DialogContent>

@@ -23,16 +23,10 @@ export function DataTableToolbar<TData>({ table, project_values }: DataTableTool
     return (
         <div className="flex w-full items-center justify-between">
             <div className="flex flex-1 items-center space-x-2">
-                {/* <Input
-                    placeholder={"Filter"}
-                    value={(table.getColumn("userName")?.getFilterValue() as string) ?? ""}
-                    onChange={(event) => table.getColumn("userName")?.setFilterValue(event.target.value)}
-                    className="h-8 w-[150px] lg:w-[250px]"
-                /> */}
                 {table.getColumn("project") && (
                     <DataTableFacetedFilter
                         column={table.getColumn("project")}
-                        title={"Project"}
+                        title={"Filter by Project"}
                         options={project_values || []}
                     />
                 )}

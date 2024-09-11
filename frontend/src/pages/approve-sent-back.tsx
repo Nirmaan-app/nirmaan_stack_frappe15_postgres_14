@@ -694,8 +694,8 @@ export const ApproveSentBack = () => {
                 />}
 
             </ConfigProvider>
-            {selectedItems?.length > 0 && <div className="text-right space-x-2">
-                {/* <AlertDialog>
+            {selectedItems?.length > 0 && <div className="text-right space-x-2 mr-4">
+                <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
                             {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
@@ -721,7 +721,7 @@ export const ApproveSentBack = () => {
                             <AlertDialogAction onClick={() => newHandleSentBack()}>Send Back</AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
-                </AlertDialog> */}
+                </AlertDialog>
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>

@@ -80,15 +80,13 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
         createDoc('Scopes of Work', values)
             .then(() => {
                 console.log(values)
+                mutate()
+                document.getElementById("dialogClosewpCard")?.click()
             }).catch(() => {
                 console.log(submit_error)
             })
     }
     const [current, setCurrent] = useState<string>("")
-    function closewindow() {
-        var button = document.getElementById('dialogClose');
-        mutate()
-    }
 
     const { toast } = useToast()
 
@@ -113,44 +111,38 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
                             <Button className="p-3 pb-4 cursor-pointer hover:bg-gray-300" onClick={() => { setCurrent(wp) }} variant="secondary">+</Button>
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-[425px]">
-                            <DialogHeader>
-                                <DialogTitle>Add New Scope of Work</DialogTitle>
-                                <DialogDescription>
-                                    Add new Scopes of Work in {wp}.
-                                </DialogDescription>
-                            </DialogHeader>
-                            <Form {...form}>
-                                <form onSubmit={(event) => {
-                                    event.stopPropagation();
-                                    return form.handleSubmit(onSubmit)(event);
+                                <DialogHeader>
+                                    <DialogTitle>Add New Scope of Work</DialogTitle>
+                                </DialogHeader>
+                                <Form {...form}>
+                                    <form onSubmit={(event) => {
+                                        event.stopPropagation();
+                                        return form.handleSubmit(onSubmit)(event);
 
-                                }} className="space-y-8">
-                                    <FormField
-                                        control={form.control}
-                                        name="scope_of_work_name"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Scope of Work Name</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="Scope of Work Name" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    {(loading) ? (<ButtonLoading />) : (<DialogClose asChild><Button type="submit">Submit</Button></DialogClose>)}
-                                    {/* <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose> */}
-                                    <div>
-                                        {submit_complete &&
-                                            <div>
-                                                {/* <div className="font-semibold text-green-500"> Customer added</div> */}
-                                                {closewindow()}
-                                            </div>
-                                        }
-                                        {submit_error && <div>{submit_error}</div>}
-                                    </div>
-                                </form>
-                            </Form>
+                                    }} className="flex flex-col gap-2">
+                                        <FormField
+                                            control={form.control}
+                                            name="scope_of_work_name"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Scope of Work Name</FormLabel>
+                                                    <FormControl>
+                                                        <Input placeholder="Scope of Work Name..." {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <div className="flex items-center justify-center">
+                                        {(loading) ? (<ButtonLoading />) : (
+                                            <>
+                                            <Button type="submit">Submit</Button>
+                                            <DialogClose id="dialogClosewpCard" className="hidden">hello</DialogClose>
+                                            </>
+                                            )}      
+                                        </div>                                    
+                                    </form>
+                                </Form>
                         </DialogContent>
                     </Dialog>
                     <PersonStanding className="h-4 w-4 text-muted-foreground" />
@@ -158,15 +150,12 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
             </CardHeader>
             <CardContent>
                 <div>
-                    {/* {(isLoading) && (<p>Loading</p>)} */}
-
                     {isLoading ? (<Skeleton className="w-1/3 h-4" />) : (data || []).map(d =>
                         <div key={d.scope_of_work_name}>
                             <SOWCard sow_id={d.name} sow_name={d.scope_of_work_name} />
                         </div>
                     )}
                 </div>
-                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
             </CardContent>
         </Card>
 

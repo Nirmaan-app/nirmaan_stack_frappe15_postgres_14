@@ -122,32 +122,23 @@ export const UserForm = () => {
                 <form onSubmit={(event) => {
                     event.stopPropagation();
                     return form.handleSubmit(onSubmit)(event);
-                }} className="flex flex-col gap-4 space-y-4 p-8 pt-6">
+                }} className="px-8 flex flex-col gap-4">
                         <p className="text-sky-600 font-semibold">User Details</p>
                         <FormField
                             control={form.control}
                             name="first_name"
                             render={({ field }) => (
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2">
-                                        <div className="md:basis-1/4">
-                                            <FormLabel className="flex">First Name: <h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
-                                        </div>
-                                        <div className="md:basis-1/4">
-                                            <FormControl>
-                                                <Input placeholder="First Name" {...field} />
-                                            </FormControl>
-                                        </div>
-                                        <div className="md:basis-1/2 pl-10 pt-2">
-                                            <FormDescription>
-                                                Example: Michael
-                                            </FormDescription>
-                                        </div>
-
-                                    </div>
-                                    <div className="pt-2 pb-2">
+                                <FormItem className="lg:flex lg:items-center gap-4">
+                                    <FormLabel className="md:basis-2/12">First Name<sup>*</sup></FormLabel>
+                                    <div className="flex flex-col items-start md:basis-2/4">
+                                        <FormControl className="">
+                                            <Input placeholder="First Name" {...field} />
+                                        </FormControl>
                                         <FormMessage />
                                     </div>
+                                    <FormDescription>
+                                        Example: John
+                                    </FormDescription>
                                 </FormItem>
                             )}
                         />
@@ -155,27 +146,17 @@ export const UserForm = () => {
                             control={form.control}
                             name="last_name"
                             render={({ field }) => (
-
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2">
-                                        <div className="md:basis-1/4">
-                                            <FormLabel className="flex">Last Name: <h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
-                                        </div>
-                                        <div className="md:basis-1/4">
-                                            <FormControl>
-                                                <Input placeholder="Last Name" {...field} />
-                                            </FormControl>
-                                        </div>
-                                        <div className="md:basis-1/2 pl-10 pt-2">
-                                            <FormDescription>
-                                                Example: Johnson
-                                            </FormDescription>
-                                        </div>
-
-                                    </div>
-                                    <div className="pt-2 pb-2">
+                                <FormItem className="lg:flex lg:items-center gap-4">
+                                    <FormLabel className="md:basis-2/12">Last Name<sup>*</sup></FormLabel>
+                                    <div className="flex flex-col items-start md:basis-2/4">
+                                        <FormControl className="">
+                                            <Input placeholder="Last Name" {...field} />
+                                        </FormControl>
                                         <FormMessage />
                                     </div>
+                                    <FormDescription>
+                                        Example: Doe
+                                    </FormDescription>
                                 </FormItem>
                             )}
                         />
@@ -183,26 +164,17 @@ export const UserForm = () => {
                             control={form.control}
                             name="mobile_no"
                             render={({ field }) => (
-
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2">
-                                        <div className="md:basis-1/4">
-                                            <FormLabel className="flex">Mobile Number: <h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
-                                        </div>
-                                        <div className="md:basis-1/4">
-                                            <FormControl>
-                                                <Input type="number" placeholder="Mobile Number" {...field} />
-                                            </FormControl>
-                                        </div>
-                                        <div className="md:basis-1/2 pl-10 pt-2">
-                                            <FormDescription>
-                                                Example: 9999999999
-                                            </FormDescription>
-                                        </div>
-                                    </div>
-                                    <div className="pt-2 pb-2">
+                                <FormItem className="lg:flex lg:items-center gap-4">
+                                    <FormLabel className="md:basis-2/12">Mobile Number<sup>*</sup></FormLabel>
+                                    <div className="flex flex-col items-start md:basis-2/4">
+                                        <FormControl className="">
+                                            <Input placeholder="Mobile Number" {...field} />
+                                        </FormControl>
                                         <FormMessage />
                                     </div>
+                                    <FormDescription>
+                                        Example: 9999999999
+                                    </FormDescription>
                                 </FormItem>
                             )}
                         />
@@ -210,26 +182,17 @@ export const UserForm = () => {
                             control={form.control}
                             name="email"
                             render={({ field }) => (
-
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2">
-                                        <div className="md:basis-1/4">
-                                            <FormLabel className="flex">Email: <h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
-                                        </div>
-                                        <div className="md:basis-1/4">
-                                            <FormControl>
-                                                <Input placeholder="Email" {...field} />
-                                            </FormControl>
-                                        </div>
-                                        <div className="md:basis-1/2 pl-10 pt-2">
-                                            <FormDescription>
-                                                Example: john@john.john
-                                            </FormDescription>
-                                        </div>
-                                    </div>
-                                    <div className="pt-2 pb-2">
+                                <FormItem className="lg:flex lg:items-center gap-4">
+                                    <FormLabel className="md:basis-2/12">Email<sup>*</sup></FormLabel>
+                                    <div className="flex flex-col items-start md:basis-2/4">
+                                        <FormControl className="">
+                                            <Input placeholder="Email" {...field} />
+                                        </FormControl>
                                         <FormMessage />
                                     </div>
+                                    <FormDescription>
+                                        Example: john@doe.in
+                                    </FormDescription>
                                 </FormItem>
                             )}
                         />
@@ -237,18 +200,18 @@ export const UserForm = () => {
                             control={form.control}
                             name="role_profile_name"
                             render={({ field }) => (
-                                <FormItem>
-                                    <div className="md:flex md:flex-row pt-2 pb-2">
-                                        <div className="md:basis-1/4">
-                                            <FormLabel className="flex">Role Profile<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
-                                        </div>
-                                        <div className="md:basis-1/4">
+                                <FormItem className="lg:flex lg:items-center gap-4">
+                                        <FormLabel className="md:basis-2/12">Role Profile<sup>*</sup></FormLabel>
+                                    <div className="md:basis-2/4">
                                             <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <div className="flex flex-col items-start">
                                                 <FormControl>
                                                     <SelectTrigger>
                                                         <SelectValue placeholder="Select the Role" />
                                                     </SelectTrigger>
                                                 </FormControl>
+                                                <FormMessage />
+                                                </div>
                                                 <SelectContent>
                                                     {role_profile_list_loading && <div>Loading...</div>}
                                                     {role_profile_list_error && <div>Error: {role_profile_list_error.message}</div>}
@@ -258,24 +221,18 @@ export const UserForm = () => {
 
                                                 </SelectContent>
                                             </Select>
-                                        </div>
-                                        <div className="md:basis-1/4 pl-10 pt-2">
+                                            </div>
                                             <FormDescription>
                                                 Role associated with this User
                                             </FormDescription>
-                                        </div>
-                                    </div>
-                                    <div className="pt-2 pb-2">
-                                        <FormMessage />
-                                    </div>
                                 </FormItem>
                             )}
                         />
-                        <div className="pt-2 pb-2 ">
+                        <div className="flex items-center lg:justify-center">
                             {loading ? (
                                 <ButtonLoading />
                             ) : (
-                                <Button type="submit">Submit</Button>
+                                <Button className="lg:w-24" type="submit">Submit</Button>
                             )}
                         </div>
                 </form>

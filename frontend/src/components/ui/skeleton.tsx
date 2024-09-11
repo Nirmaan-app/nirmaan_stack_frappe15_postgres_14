@@ -277,10 +277,7 @@ export const OverviewSkeleton = () => {
             <Skeleton className="h-6 w-32 bg-gray-300" />
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <Card className="bg-[#F9FAFB]">
-            <CardHeader>
-              <CardContent className="flex max-lg:flex-col max-lg:gap-10">
+        <CardContent className="flex max-lg:flex-col max-lg:gap-10">
                 <div className="space-y-4 lg:w-[50%]">
                   <CardDescription className="space-y-2">
                     <Skeleton className="h-4 w-16 bg-gray-200" />
@@ -324,9 +321,6 @@ export const OverviewSkeleton = () => {
                     <Skeleton className="bg-gray-200 h-5 w-40" /> 
                   </CardDescription>
                 </div>
-              </CardContent>
-            </CardHeader>
-          </Card>
         </CardContent>
       </Card>
     </div>

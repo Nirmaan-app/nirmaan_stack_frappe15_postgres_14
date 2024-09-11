@@ -98,7 +98,7 @@ export const Default = () => {
                             </CardContent>
                         </Link>
                     </Card> */}
-                    <Card className="hover:animate-shadow-drop-center" >
+                    {/* <Card className="hover:animate-shadow-drop-center" >
                         <Link to="/wp">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
@@ -111,10 +111,10 @@ export const Default = () => {
                                     {(wp_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (wp_count)}
                                     {wp_count_error && <p>Error</p>}
                                 </div>
-                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
+                                <p className="text-xs text-muted-foreground">COUNT</p>
                             </CardContent>
                         </Link>
-                    </Card>
+                    </Card> */}
                     {/* <Card className="hover:animate-shadow-drop-center" >
                         <Link to="/procurement-requests">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

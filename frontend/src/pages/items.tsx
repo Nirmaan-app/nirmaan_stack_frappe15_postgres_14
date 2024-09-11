@@ -1,9 +1,8 @@
-
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
@@ -14,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
+import { useToast } from "@/components/ui/use-toast";
 
 export default function Items() {
     const navigate = useNavigate();
@@ -105,7 +105,6 @@ export default function Items() {
         []
     )
 
-
     const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList("Items", {
 
         fields: ["name", "item_name", "unit_name", "make_name", "category", "creation"],
@@ -125,7 +124,7 @@ export default function Items() {
     const [category, setCategory] = useState('');
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-
+    const {toast} = useToast()
 
     const handleAddItem = () => {
         const itemData = {
@@ -137,52 +136,47 @@ export default function Items() {
         createDoc('Items', itemData)
             .then(() => {
                 console.log(itemData)
+                document.getElementById("dialogCloseItem")?.click()
+                toast({
+                    title: "Success!",
+                    description: `Item: ${curItem} created successfully!`,
+                    variant : "success"
+                })
                 setUnit('')
                 setCurItem('')
                 setCategory('')
                 setMake('')
                 mutate()
             }).catch(() => {
-                console.log("submit_error", error)
+                console.log("submit_error", submit_error)
+                toast({
+                    title: "Error!",
+                    description: `Error ${submit_error?.message}`,
+                    variant : "destructive"
+                })   
             })
     }
 
     return (
 
-        // <MainLayout>
         <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-            {/* <div className="flex items-center justify-between space-y-2">
-                    <Breadcrumb>
-                        <BreadcrumbItem>
-                            <Link to="/" className="md:text-base text-sm">Dashboard</Link>
-                        </BreadcrumbItem>
-                        <BreadcrumbItem isCurrentPage>
-                            <Link to="/items" className="text-gray-400 md:text-base text-sm">
-                                Items
-                            </Link>
-                        </BreadcrumbItem>
-                    </Breadcrumb>
-                </div> */}
-            <div className="flex items-center justify-between mb-2 space-y-2">
-                <div className="flex">
-                    <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/")} />
-                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Items List</h2>
+            <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1">
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
+                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Items List</h2>
                 </div>
-                <div className="flex items-center space-x-2">
                     <Dialog>
                         <DialogTrigger asChild>
-                            <Button>
-                                <CirclePlus className="w-5 h-5 mt- pr-1 " />
-                                <span className="hidden md:flex pl-1">Add New Item</span>
+                            <Button className="flex items-center gap-1">
+                                <CirclePlus className="w-5 h-5" />
+                                <span className="hidden md:flex">Add New Item</span>
                             </Button>
                         </DialogTrigger>
                         <DialogContent>
                             <DialogHeader>
-                                <DialogTitle>Add New Item</DialogTitle>
-                                <DialogDescription>
-                                    Enter Item Details here.
-                                </DialogDescription>
-                                <div className="mb-4">
+                                <DialogTitle className="mb-2">Add New Item</DialogTitle>
+                                <div className="flex flex-col gap-4 ">
+                                <div className="flex flex-col items-start">
                                     <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
                                     <Input
                                         type="text"
@@ -192,7 +186,7 @@ export default function Items() {
                                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                     />
                                 </div>
-                                <div className="mb-4">
+                                <div className="flex flex-col items-start">
                                     <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name</label>
                                     <Input
                                         type="text"
@@ -202,17 +196,15 @@ export default function Items() {
                                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                     />
                                 </div>
-                                <div className="mb-4">
+                                <div className="flex flex-col items-start">
                                     <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
                                     <Select onValueChange={(value) => setUnit(value)}>
-                                        <SelectTrigger className="w-[180px]">
+                                        <SelectTrigger className="">
                                             <SelectValue className="text-gray-200" placeholder="Select Unit" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {/* <SelectItem value="PCS">PCS</SelectItem> */}
                                             <SelectItem value="BOX">BOX</SelectItem>
                                             <SelectItem value="ROLL">ROLL</SelectItem>
-                                            {/* <SelectItem value="PKT">PKT</SelectItem> */}
                                             <SelectItem value="LENGTH">LTH</SelectItem>
                                             <SelectItem value="MTR">MTR</SelectItem>
                                             <SelectItem value="NOS">NOS</SelectItem>
@@ -220,47 +212,34 @@ export default function Items() {
                                             <SelectItem value="PAIRS">PAIRS</SelectItem>
                                             <SelectItem value="PACKS">PACKS</SelectItem>
                                             <SelectItem value="DRUM">DRUM</SelectItem>
-                                            {/* <SelectItem value="COIL">COIL</SelectItem> */}
                                             <SelectItem value="SQMTR">SQMTR</SelectItem>
                                             <SelectItem value="LTR">LTR</SelectItem>
-                                            {/* <SelectItem value="PAC">PAC</SelectItem> */}
-                                            {/* <SelectItem value="BAG">BAG</SelectItem> */}
                                             <SelectItem value="BUNDLE">BUNDLE</SelectItem>
                                             <SelectItem value="FEET">FEET</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="mb-4">
+                                <div className="flex flex-col items-start">
                                     <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category</label>
                                     <Select onValueChange={(value) => setCategory(value)}>
-                                        <SelectTrigger className="w-[180px]">
+                                        <SelectTrigger className="">
                                             <SelectValue className="text-gray-200" placeholder="Select Category" />
                                         </SelectTrigger>
                                         <SelectContent>
                                             {category_list?.map((cat) => {
                                                 return <SelectItem value={cat.category_name}>{cat.category_name}-({cat.work_package})</SelectItem>
                                             })}
-                                            {/* <SelectItem value="Miscellaneous">Miscellaneous</SelectItem>
-                                                <SelectItem value="Conduits">Conduits</SelectItem>
-                                                <SelectItem value="Wires & Cables">Wires & Cables</SelectItem>
-                                                <SelectItem value="Switch Sockets">Switch Sockets</SelectItem>
-                                                <SelectItem value="Accessories">Accessories</SelectItem>
-                                                <SelectItem value="Lighting">Lighting</SelectItem>
-                                                <SelectItem value="Raceway & Cabletray">Raceway & Cabletray</SelectItem>
-                                                <SelectItem value="Switch Gear">Switch Gear</SelectItem> */}
                                         </SelectContent>
                                     </Select>
                                 </div>
-                            </DialogHeader>
-                            <div className="flex">
-                                <DialogClose className="flex-1 right-0">
-                                    <Button className="flex right-0" onClick={() => handleAddItem()}>Submit</Button>
-                                </DialogClose>
                             </div>
+                            </DialogHeader>
+                                    <Button className="" onClick={() => handleAddItem()}>Submit</Button>
+                                <DialogClose className="hidden" id="dialogCloseItem">
+                                    close
+                                </DialogClose>
                         </DialogContent>
                     </Dialog>
-                </div>
-
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
                 <Card className="hover:animate-shadow-drop-center" onClick={() => {
@@ -275,9 +254,7 @@ export default function Items() {
                     <CardContent>
                         <div className="text-2xl font-bold">
                             {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (data?.length)}
-                            {/* {error && <p>Error</p>} */}
                         </div>
-                        {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                     </CardContent>
                 </Card>
             </div>
@@ -289,7 +266,5 @@ export default function Items() {
                     )}
             </div>
         </div>
-        // </MainLayout>
-
     )
 }
