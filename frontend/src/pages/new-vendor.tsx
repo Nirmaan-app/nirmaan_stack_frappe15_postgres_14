@@ -8,11 +8,13 @@ import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ButtonLoading } from "@/components/button-loading"
 import ReactSelect from 'react-select';
-import { useState } from "react"
-import {  Link, useNavigate } from "react-router-dom"
+import { useState, useEffect, useCallback } from "react"
+import { Link, useNavigate } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
+import { usePincode } from "@/hooks/usePincode"
+
 
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z
@@ -41,12 +43,11 @@ const VendorFormSchema = z.object({
             required_error: "Must provide state"
         }),
     pin: z
-        .number()
-        .positive()
-        .gte(100000)
-        .lte(999999)
-        .or(z.string())
-        .optional(),
+        .string({
+            required_error: "Must provide pincode"
+        })
+        .max(6, { message: "Pincode must be of 6 digits" })
+        .min(6, { message: "Pincode must be of 6 digits" }),
     vendor_email: z
         .string()
         .email()
@@ -59,7 +60,7 @@ const VendorFormSchema = z.object({
         .gte(1000000000)
         .lte(9999999999)
         .or(z.string())
-        ,
+    ,
     vendor_gst: z
         .string({
             required_error: "Vendor GST Required"
@@ -75,7 +76,7 @@ interface SelectOption {
     value: string;
 }
 
-export const NewVendor = ({dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined}) => {
+export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined }) => {
     const navigate = useNavigate()
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
@@ -83,7 +84,7 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
         ,
         mode: "onBlur",
     })
-    
+
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ["*"],
@@ -93,8 +94,8 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
         "Category"
     );
 
-    const {mutate} = useSWRConfig()
-    const {toast} = useToast()
+    const { mutate } = useSWRConfig()
+    const { toast } = useToast()
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
 
     const [categories, setCategories] = useState<SelectOption[]>([])
@@ -105,7 +106,7 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
             value: item.category_name
         })) || [];
 
-    const handleChange = (selectedOptions : SelectOption[]) => {
+    const handleChange = (selectedOptions: SelectOption[]) => {
         setCategories(selectedOptions)
     }
 
@@ -130,7 +131,7 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
         setCategories([]);
         form.clearErrors();
     }
-    
+
 
     const onSubmit = async (values: VendorFormValues) => {
         let category_json = categories.map((cat) => cat["value"])
@@ -172,12 +173,12 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
                 }
                 promises.push(createDoc("Quotation Requests", newItem))
             })
-            
+
             await Promise.all(promises)
             await mutate("Vendors")
             await mutate("Quotation Requests")
             await mutate("Vendor Category")
-            
+
             toast({
                 title: "Success!",
                 description: "Vendor Created Successfully!",
@@ -198,21 +199,44 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
             console.error("Submit Error", error)
         }
     }
-        
+
+    const [pincode, setPincode] = useState("")
+    const { city, state } = usePincode(pincode)
+
+    const debouncedFetch = useCallback(
+        (value: string) => {
+            if (value.length === 6) {
+                setPincode(value)
+            }
+        }, []
+    )
+
+    const handlePincodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value
+        debouncedFetch(value)
+    }
+
+    useEffect(() => {
+        if (pincode.length === 6) {
+            form.setValue("vendor_city", city || "")
+            form.setValue("vendor_state", state || "")
+        }
+    }, [city, state, form])
+
     return (
         <div className={`flex-1 space-x-2 ${navigation ? " md:space-y-4 p-4 md:p-8 pt-6" : ""} `}>
             {navigation && (
                 <div className="flex gap-1">
-                <Link to="/vendors"><ArrowLeft className="mt-1.5" /></Link>
-                <div>
-                <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
-                <p className="text-muted-foreground">
-                    Fill out to create a new Vendor
-                </p>
+                    <Link to="/vendors"><ArrowLeft className="mt-1.5" /></Link>
+                    <div>
+                        <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
+                        <p className="text-muted-foreground">
+                            Fill out to create a new Vendor
+                        </p>
+                    </div>
                 </div>
-            </div>
             )}
-            
+
             <Separator className="my-6" />
             <Form {...form}>
                 <form onSubmit={(event) => {
@@ -262,11 +286,11 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
 
                         )}
                     />
-                    {renderCategorySelection &&  (
-                    <div>
-                        <label className="flex items-center">Add Category<sup className="text-sm text-red-600">*</sup></label>
-                        <ReactSelect options={category_options} onChange={handleChange} isMulti />
-                    </div>
+                    {renderCategorySelection && (
+                        <div>
+                            <label className="flex items-center">Add Category<sup className="text-sm text-red-600">*</sup></label>
+                            <ReactSelect options={category_options} onChange={handleChange} isMulti />
+                        </div>
                     )}
                     <Separator className="my-3" />
                     <p className="text-sky-600 font-semibold pb-2">Vendor Address Details</p>
@@ -303,7 +327,7 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
                             <FormItem>
                                 <FormLabel className="flex">City: <sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input placeholder="City Name" {...field} />
+                                    <Input placeholder={city || "City"} disabled={true} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -316,7 +340,7 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
                             <FormItem>
                                 <FormLabel className="flex">State: <sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input placeholder="State Name" {...field} />
+                                    <Input placeholder={state || "State"} disabled={true} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -330,7 +354,15 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
                             <FormItem>
                                 <FormLabel className="flex">Pin Code:</FormLabel>
                                 <FormControl>
-                                    <Input type="number" placeholder="6 digit PIN" {...field} />
+                                    <Input
+                                        type="number"
+                                        placeholder="6 digit PIN"
+                                        {...field}
+                                        onChange={(e) => {
+                                            field.onChange(e)
+                                            handlePincodeChange(e)
+                                        }}
+                                    />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -363,16 +395,16 @@ export const NewVendor = ({dynamicCategories = [], navigation = true, renderCate
                         )}
                     />
                     {(loading) ? (<ButtonLoading />) : (
-                        
+
                         <div className="flex space-x-2 items-center justify-end">
-                            <Button type="button" variant="outline" onClick={() => resetForm()}>Cancel</Button>
+                            <Button type="button" variant="outline" onClick={() => resetForm()}>Reset</Button>
                             <Button type="submit" >Submit</Button>
                         </div>
-                        
-                        )}
-                        {!navigation && (
+
+                    )}
+                    {!navigation && (
                         <SheetClose asChild><Button id="sheetClose" className="w-0 h-0 invisible"></Button></SheetClose>
-                        )}
+                    )}
                 </form>
             </Form>
         </div>
