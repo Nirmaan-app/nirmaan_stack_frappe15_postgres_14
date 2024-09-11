@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
@@ -11,7 +12,7 @@ import {
     FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { useFrappeCreateDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useSWRConfig } from "frappe-react-sdk";
 import { Separator } from "@/components/ui/separator"
 import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -19,8 +20,8 @@ import { useToast } from "@/components/ui/use-toast";
 // import { useQueryClient } from "@tanstack/react-query";
 import useCustomFetchHook from "@/reactQuery/customFunctions";
 import { SheetClose } from "@/components/ui/sheet";
-import { min } from "date-fns";
 // import { exampleFunction } from "@/reactQuery/customFunctions";
+import { usePincode } from "@/hooks/usePincode"
 
 const customerFormSchema = z.object({
     company_name: z
@@ -165,6 +166,29 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
         button?.click();
     };
 
+    const [pincode, setPincode] = useState("")
+    const { city, state } = usePincode(pincode)
+
+    const debouncedFetch = useCallback(
+        (value: string) => {
+            if (value.length === 6) {
+                setPincode(value)
+            }
+        }, []
+    )
+
+    const handlePincodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value
+        debouncedFetch(value)
+    }
+
+    useEffect(() => {
+        if (pincode.length === 6) {
+            form.setValue("company_city", city || "")
+            form.setValue("company_state", state || "")
+        }
+    }, [city, state, form])
+
     return (
         <div className={`${navigation && "p-4"}`}>
             {
@@ -192,7 +216,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         name="company_name"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Company Name:<h1 className="pl-1 text-xs text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">Company Name:<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="Company Name" {...field} />
                                 </FormControl>
@@ -205,7 +229,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         name="company_gst"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Company GST no.:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">Company GST no.:<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="GST Number" {...field} />
                                 </FormControl>
@@ -263,7 +287,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         name="company_address_line_1"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Address Line 1:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">Address Line 1:<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="Address Line 1" {...field} />
                                 </FormControl>
@@ -276,7 +300,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         name="company_address_line_2"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Address Line 2:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">Address Line 2:<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="Address Line 2" {...field} />
                                 </FormControl>
@@ -289,9 +313,9 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         name="company_city"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">City:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">City:</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="City" {...field} />
+                                    <Input placeholder={city || "City"} disabled={true} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -302,9 +326,9 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         name="company_state"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">State:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">State:</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="State" {...field} />
+                                    <Input placeholder={state || "State"} disabled={true} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -315,12 +339,16 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         name="company_pin"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Pin Code:<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                <FormLabel className="flex">Pin Code:<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input
                                         type="number"
-                                        placeholder="Pin Code"
+                                        placeholder="6 digit PIN"
                                         {...field}
+                                        onChange={(e) => {
+                                            field.onChange(e)
+                                            handlePincodeChange(e)
+                                        }}
                                     />
                                 </FormControl>
                                 <FormMessage />

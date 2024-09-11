@@ -19,11 +19,11 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./
 import { Checkbox } from "./ui/checkbox"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet"
 import { useNavigate } from "react-router-dom"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { formatToLocalDateTimeString } from "@/utils/FormatDate"
 import { useToast } from "./ui/use-toast"
 import NewCustomer from "@/pages/customers/add-new-customer"
-import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog"
+import { usePincode } from "@/hooks/usePincode"
 
 
 // 1.a Create Form Schema accordingly
@@ -50,8 +50,9 @@ const projectFormSchema = z.object({
             required_error: "Address Required"
         }),
     address_line_2: z
-        .string()
-        .optional(),
+        .string({
+            required_error: "Address Required"
+        }),
     project_city: z
         .string({
             required_error: "Must provide city"
@@ -65,8 +66,7 @@ const projectFormSchema = z.object({
         .positive()
         .gte(100000)
         .lte(999999)
-        .or(z.string()).optional()
-    ,
+        .or(z.string()),
     email: z
         .string()
         .email()
@@ -238,6 +238,25 @@ export const ProjectForm = () => {
     const [areaNames, setAreaNames] = useState([]);
     const { toast } = useToast()
 
+
+    const [pincode, setPincode] = useState("")
+    const { city, state } = usePincode(pincode)
+
+    const debouncedFetch = useCallback(
+        (value: string) => {
+            if (value.length === 6) {
+                setPincode(value)
+            }
+        }, []
+    )
+
+    useEffect(() => {
+        if (pincode.length === 6) {
+            form.setValue("project_city", city || "")
+            form.setValue("project_state", state || "")
+        }
+    }, [city, state, form])
+
     const handleOpenDialog = () => {
         const button = document.getElementById("alertOpenProject")
         button?.click()
@@ -378,6 +397,10 @@ export const ProjectForm = () => {
         newAreaNames[index].name = event.target.value;
         setAreaNames(newAreaNames);
     }
+    const handlePincodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value
+        debouncedFetch(value)
+    }
     return (
         <Form {...form}>
             <form onSubmit={(event) => {
@@ -391,7 +414,7 @@ export const ProjectForm = () => {
                         name="project_name"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Project Name<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Project Name<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="flex flex-col items-start md:basis-2/4">
                                     <FormControl className="">
                                         <Input placeholder="Project Name" {...field} />
@@ -409,7 +432,7 @@ export const ProjectForm = () => {
                         name="customer"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Customer<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Customer<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                         <div className="flex flex-col items-start">
@@ -457,7 +480,7 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem className="lg:flex lg:items-center gap-4">
-                                    <FormLabel className="md:basis-2/12">Project Type<sup>*</sup></FormLabel>
+                                    <FormLabel className="md:basis-2/12">Project Type<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                     <div className="md:basis-2/4">
                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                             <div className="flex flex-col items-start">
@@ -507,7 +530,7 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem className="lg:flex lg:items-center gap-4">
-                                    <FormLabel className="md:basis-2/12">Sub-Divisions<sup>*</sup></FormLabel>
+                                    <FormLabel className="md:basis-2/12">Sub-Divisions<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                     <div className="md:basis-2/4">
                                         <Select
                                             onValueChange={(e) => {
@@ -560,7 +583,7 @@ export const ProjectForm = () => {
                         name="address_line_1"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Address Line 1<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Address Line 1<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
                                         <Input placeholder="Address Line 1" {...field} />
@@ -579,7 +602,7 @@ export const ProjectForm = () => {
                         name="address_line_2"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Address Line 2<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Address Line 2<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
                                         <Input placeholder="Address Line 2" {...field} />
@@ -598,10 +621,10 @@ export const ProjectForm = () => {
                         name="project_city"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">City<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">City</FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
-                                        <Input placeholder="City Name" {...field} />
+                                        <Input placeholder={city || "City"} disabled={true} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </div>
@@ -617,10 +640,10 @@ export const ProjectForm = () => {
                         name="project_state"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">State<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">State</FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
-                                        <Input placeholder="State Name" {...field} />
+                                        <Input placeholder={state || "State"} disabled={true} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </div>
@@ -636,14 +659,17 @@ export const ProjectForm = () => {
                         name="pin"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Pin Code<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Pin Code<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
                                         <Input
                                             type="number"
-                                            placeholder="Pincode"
+                                            placeholder="6 digit PIN"
                                             {...field}
-                                            onChange={(event) => field.onChange(+event.target.value)}
+                                            onChange={(e) => {
+                                                field.onChange(+e.target.value)
+                                                handlePincodeChange(e)
+                                            }}
                                         />
                                     </FormControl>
                                     <FormMessage />
@@ -705,7 +731,7 @@ export const ProjectForm = () => {
                         name="project_start_date"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Project Start Date<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Project Start Date<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-1/4">
                                     <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
                                         <PopoverTrigger asChild>
@@ -752,7 +778,7 @@ export const ProjectForm = () => {
                         name="project_end_date"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Project End Date<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Project End Date<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-1/4">
                                     <Popover open={popoverOpen2} onOpenChange={setPopoverOpen2}>
                                         <PopoverTrigger asChild>
@@ -804,7 +830,7 @@ export const ProjectForm = () => {
                         </div>
                     </div>
                     <Separator className="my-6" />
-                    <p className="text-sky-600 font-semibold">Project Asignees</p>
+                    <p className="text-sky-600 font-semibold">Project Asignees(Optional)</p>
                     <FormField
                         control={form.control}
                         name="project_lead"
@@ -941,7 +967,7 @@ export const ProjectForm = () => {
                         render={() => (
                             <FormItem>
                                 <div className="mb-4">
-                                    <FormLabel className="text-base flex">Work Package selection<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                    <FormLabel className="text-base flex">Work Package selection<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
 
                                     <FormDescription>
                                         Select the work packages.

@@ -16,7 +16,8 @@ export default function ProjectSelect({ onChange }: ProjectSelectProps) {
 
     const { data: data, isLoading: loading, error: error } = useFrappeGetDocList("Projects", {
         fields: ['name', 'project_name', 'project_address', "project_manager"],
-        limit: 1000
+        limit: 1000,
+        orderBy: { field: 'creation', order: 'desc' },
     });
 
     const [options, setOptions] = useState<SelectOptions[]>([]);

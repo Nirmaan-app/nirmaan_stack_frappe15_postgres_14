@@ -40,32 +40,12 @@
   "work_package": "Electrical Work"
  },
  {
-  "category_name": "LT Panels",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/lt-panel.jpg",
-  "modified": "2024-09-06 13:36:02.929877",
-  "name": "LT Panels",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
   "category_name": "Earthing Material",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/earthing.jpg",
   "modified": "2024-09-06 13:33:26.357348",
   "name": "Earthing Material",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Electrical Accessories",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-accessories.jpg",
-  "modified": "2024-09-06 13:34:16.694668",
-  "name": "Electrical Accessories",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -470,16 +450,6 @@
   "work_package": "Access Control System"
  },
  {
-  "category_name": "Reader",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/reader.jpg",
-  "modified": "2024-09-07 12:41:02.774636",
-  "name": "Reader",
-  "tax": "18",
-  "work_package": "Access Control System"
- },
- {
   "category_name": "Data Cabling",
   "docstatus": 0,
   "doctype": "Category",
@@ -540,26 +510,6 @@
   "work_package": "Data & Networking"
  },
  {
-  "category_name": "Conduits",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/conduits.jpg",
-  "modified": "2024-09-06 13:32:22.761673",
-  "name": "Conduits",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Lighting",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-lighting-fixtures.jpg",
-  "modified": "2024-09-06 13:34:33.866734",
-  "name": "Lighting",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
   "category_name": "Wires & Cables",
   "docstatus": 0,
   "doctype": "Category",
@@ -568,16 +518,6 @@
   "name": "Wires & Cables",
   "tax": "18",
   "work_package": "Electrical Work"
- },
- {
-  "category_name": "CCTV Services",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped cctv/cctv-service.jpg",
-  "modified": "2024-09-07 12:45:53.064225",
-  "name": "CCTV Services",
-  "tax": "18",
-  "work_package": "CCTV System"
  },
  {
   "category_name": "Analog Cameras",
@@ -630,16 +570,6 @@
   "work_package": "CCTV System"
  },
  {
-  "category_name": "Cable Tray & Junction Box",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/cable-tray-jb.jpg",
-  "modified": "2024-09-06 13:31:46.997543",
-  "name": "Cable Tray & Junction Box",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
   "category_name": "IP Cameras",
   "docstatus": 0,
   "doctype": "Category",
@@ -666,6 +596,86 @@
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/sockets-switches.jpg",
   "modified": "2024-09-06 13:36:48.043994",
   "name": "Switch & Sockets",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Fire Extinguishers",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped fire safety/extin.jpg",
+  "modified": "2024-09-11 19:57:59.078512",
+  "name": "Fire Extinguishers",
+  "tax": "18",
+  "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "Reader",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/reader.jpg",
+  "modified": "2024-09-07 12:41:02.774636",
+  "name": "Reader",
+  "tax": "18",
+  "work_package": "Access Control System"
+ },
+ {
+  "category_name": "CCTV Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped cctv/cctv-service.jpg",
+  "modified": "2024-09-07 12:45:53.064225",
+  "name": "CCTV Services",
+  "tax": "18",
+  "work_package": "CCTV System"
+ },
+ {
+  "category_name": "Conduits",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/conduits.jpg",
+  "modified": "2024-09-06 13:32:22.761673",
+  "name": "Conduits",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Lighting",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-lighting-fixtures.jpg",
+  "modified": "2024-09-06 13:34:33.866734",
+  "name": "Lighting",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Electrical Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-accessories.jpg",
+  "modified": "2024-09-06 13:34:16.694668",
+  "name": "Electrical Accessories",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "LT Panels",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/lt-panel.jpg",
+  "modified": "2024-09-06 13:36:02.929877",
+  "name": "LT Panels",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Cable Tray & Junction Box",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/cable-tray-jb.jpg",
+  "modified": "2024-09-06 13:31:46.997543",
+  "name": "Cable Tray & Junction Box",
   "tax": "18",
   "work_package": "Electrical Work"
  }
