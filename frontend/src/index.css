@@ -151,7 +151,7 @@ sup {
   color: red;
 }
 
-@media (max-width: 600px) {
+/* @media (max-width: 600px) {
   table, thead, tbody, th, td, tr {
       display: block;
   }
@@ -162,7 +162,7 @@ sup {
 
   /* tr {
       margin-bottom: 1rem;
-  } */
+  } 
 
   td {
       display: flex;
@@ -182,4 +182,5 @@ sup {
       text-align: left;
       font-weight: bold;
   }
-}
+} */
+

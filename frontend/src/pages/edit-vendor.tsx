@@ -63,7 +63,7 @@ export const EditVendor = () => {
         {
             fields: ['vendor', 'category'],
             filters: [["vendor", "=", id]]
-        });
+    });
     useFrappeDocTypeEventListener("Vendor Category", () => {
         vendor_category_mutate()
     })

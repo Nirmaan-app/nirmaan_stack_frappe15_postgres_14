@@ -79,7 +79,6 @@ export function DataTable<TData, TValue>({ columns, data, project_values }: Data
         },
     })
 
-    console.log("globalFilter", globalFilter)
     // Show selected rows
     // ------------------
     // You can show the number of selected rows using the table.getFilteredSelectedRowModel() API.

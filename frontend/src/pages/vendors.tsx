@@ -105,7 +105,7 @@ export default function Vendors() {
     {
         revalidateIfStale: false,
     }
-)
+    )
 
 console.log("data", data)
 
