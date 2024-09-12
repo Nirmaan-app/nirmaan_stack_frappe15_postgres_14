@@ -99,7 +99,14 @@ export default function Customers() {
                     );
                 },
                 cell: ({ row }) => {
-                    return <div className="font-medium">{row.getValue("company_name")}</div>;
+
+                    return (
+                        <div className="font-medium">
+                            <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/customers/${row.getValue("name")}`}>
+
+                                {row.getValue("company_name")}
+                            </Link>
+                        </div>);
                 },
             },
             {
@@ -110,7 +117,7 @@ export default function Customers() {
                     );
                 },
                 cell: ({ row }) => {
-                    return <div className="font-medium">{row.getValue("company_contact_person")}</div>;
+                    return <div className="font-medium">{row.getValue("company_contact_person") || "--"}</div>;
                 },
             },
             {
@@ -121,7 +128,7 @@ export default function Customers() {
                     );
                 },
                 cell: ({ row }) => {
-                    return <div className="font-medium">{row.getValue("company_phone")}</div>;
+                    return <div className="font-medium">{row.getValue("company_phone") || "--"}</div>;
                 },
             },
             {
@@ -132,7 +139,7 @@ export default function Customers() {
                     );
                 },
                 cell: ({ row }) => {
-                    return <div className="font-medium">{row.getValue("company_email")}</div>;
+                    return <div className="font-medium">{row.getValue("company_email") || "--"}</div>;
                 },
             },
             {

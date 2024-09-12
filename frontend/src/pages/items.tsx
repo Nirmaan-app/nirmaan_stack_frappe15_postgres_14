@@ -6,7 +6,7 @@ import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTr
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -14,12 +14,45 @@ import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import { useToast } from "@/components/ui/use-toast";
+import { Badge } from "@/components/ui/badge";
+import { Items as ItemsType } from "@/types/NirmaanStack/Items"
 
 export default function Items() {
+
+    const [curItem, setCurItem] = useState('');
+    const [make, setMake] = useState('');
+    const [unit, setUnit] = useState('');
+    const [category, setCategory] = useState('');
+    const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+
+    const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList("Items", {
+
+        fields: ["name", "item_name", "unit_name", "make_name", "category", "creation"],
+        limit: 1000
+    })
+    const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
+
+        fields: ["*"],
+        orderBy: { field: 'category_name', order: 'asc' },
+        limit: 1000
+    })
+
+    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { toast } = useToast()
     const navigate = useNavigate();
 
 
-    const columns: ColumnDef[] = useMemo(
+    useEffect(() => {
+        if (category_list) {
+            const currOptions = category_list.map((item) => ({
+                value: item.name,
+                label: item.name + "(" + item.work_package.slice(0, 4).toUpperCase() + ")"
+            }))
+            setCategoryOptions(currOptions);
+        }
+    }, [category_list]);
+
+    const columns: ColumnDef<ItemsType>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -32,7 +65,7 @@ export default function Items() {
                     return (
                         <div className="font-medium">
                             <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/items/${row.getValue("name")}`}>
-                                {row.getValue("name")}
+                                {row.getValue("name").slice(-6)}
                             </Link>
                         </div>
                     )
@@ -50,11 +83,31 @@ export default function Items() {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("item_name")} {row.getValue("make_name") ? "-" + row.getValue("make_name") : ""}
+                            <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/items/${row.getValue("name")}`}>
+                                {row.getValue("item_name")}
+                            </Link>
                             {/* `${item.item_name} ${ ? "-" + row.getValue("make_name") : ""}` */}
                         </div>
                     )
                 }
+            },
+            {
+                accessorKey: "make_name",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Make" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("make_name") || "--"}
+                            {/* `${item.item_name} ${ ? "-" + row.getValue("make_name") : ""}` */}
+                        </div>
+                    )
+                }
+
+
             },
             {
                 accessorKey: "creation",
@@ -96,35 +149,17 @@ export default function Items() {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("category")}
+                            <Badge>{row.getValue("category")}</Badge>
                         </div>
                     )
-                }
+                },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.getValue(id))
+                },
             }
         ],
         []
     )
-
-    const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList("Items", {
-
-        fields: ["name", "item_name", "unit_name", "make_name", "category", "creation"],
-        limit: 1000
-    })
-    const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
-
-        fields: ["category_name", "work_package"],
-        orderBy: { field: 'category_name', order: 'asc' },
-        limit: 1000
-    })
-
-
-    const [curItem, setCurItem] = useState('');
-    const [make, setMake] = useState('');
-    const [unit, setUnit] = useState('');
-    const [category, setCategory] = useState('');
-
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    const {toast} = useToast()
 
     const handleAddItem = () => {
         const itemData = {
@@ -140,7 +175,7 @@ export default function Items() {
                 toast({
                     title: "Success!",
                     description: `Item: ${curItem} created successfully!`,
-                    variant : "success"
+                    variant: "success"
                 })
                 setUnit('')
                 setCurItem('')
@@ -152,10 +187,13 @@ export default function Items() {
                 toast({
                     title: "Error!",
                     description: `Error ${submit_error?.message}`,
-                    variant : "destructive"
-                })   
+                    variant: "destructive"
+                })
             })
     }
+
+    if (isLoading || category_loading) return <h1>Loading</h1>
+    if (error || category_error) return (error ? <h1>error.message</h1> : <h1>category_error.message</h1>)
 
     return (
 
@@ -165,17 +203,17 @@ export default function Items() {
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Items List</h2>
                 </div>
-                    <Dialog>
-                        <DialogTrigger asChild>
-                            <Button className="flex items-center gap-1">
-                                <CirclePlus className="w-5 h-5" />
-                                <span className="hidden md:flex">Add New Item</span>
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                            <DialogHeader>
-                                <DialogTitle className="mb-2">Add New Item</DialogTitle>
-                                <div className="flex flex-col gap-4 ">
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button className="flex items-center gap-1">
+                            <CirclePlus className="w-5 h-5" />
+                            <span className="hidden md:flex">Add New Item</span>
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle className="mb-2">Add New Item</DialogTitle>
+                            <div className="flex flex-col gap-4 ">
                                 <div className="flex flex-col items-start">
                                     <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
                                     <Input
@@ -233,13 +271,13 @@ export default function Items() {
                                     </Select>
                                 </div>
                             </div>
-                            </DialogHeader>
-                                    <Button className="" onClick={() => handleAddItem()}>Submit</Button>
-                                <DialogClose className="hidden" id="dialogCloseItem">
-                                    close
-                                </DialogClose>
-                        </DialogContent>
-                    </Dialog>
+                        </DialogHeader>
+                        <Button className="" onClick={() => handleAddItem()}>Submit</Button>
+                        <DialogClose className="hidden" id="dialogCloseItem">
+                            close
+                        </DialogClose>
+                    </DialogContent>
+                </Dialog>
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
                 <Card className="hover:animate-shadow-drop-center" onClick={() => {
@@ -259,11 +297,11 @@ export default function Items() {
                 </Card>
             </div>
             <div className="pl-0 pr-2">
-                    {isLoading ?  (
-                        <TableSkeleton />
-                    ) : (
-                    <DataTable columns={columns} data={data || []} />
-                    )}
+                {isLoading ? (
+                    <TableSkeleton />
+                ) : (
+                    <DataTable columns={columns} data={data || []} category_options={categoryOptions} />
+                )}
             </div>
         </div>
     )

@@ -14,6 +14,8 @@ export interface Vendors{
 	vendor_name: string
 	/**	Vendor Type : Select	*/
 	vendor_type?: "Material" | "Service"
+	/**	Vendor Category : JSON	*/
+	vendor_category?: any
 	/**	Vendor Address : Link - Address	*/
 	vendor_address?: string
 	/**	Vendor City : Data	*/
@@ -21,11 +23,11 @@ export interface Vendors{
 	/**	Vendor State : Data	*/
 	vendor_state?: string
 	/**	Vendor Contact Person Name : Data	*/
-	vendor_contact_person_name: string
+	vendor_contact_person_name?: string
 	/**	Vendor Mobile : Data	*/
 	vendor_mobile?: string
 	/**	Vendor Email : Data	*/
 	vendor_email?: string
 	/**	Vendor GST : Data	*/
-	vendor_gst?: string
+	vendor_gst: string
 }

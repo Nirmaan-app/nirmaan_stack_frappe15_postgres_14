@@ -36,11 +36,12 @@ interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
     data: TData[]
     project_values?: ProjectOptions[]
+    category_options?: ProjectOptions[]
     loading?: boolean
     error?: any
 }
 
-export function DataTable<TData, TValue>({ columns, data, project_values }: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({ columns, data, project_values, category_options }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([
         {
             id: "creation",
@@ -79,7 +80,6 @@ export function DataTable<TData, TValue>({ columns, data, project_values }: Data
         },
     })
 
-    console.log("globalFilter", globalFilter)
     // Show selected rows
     // ------------------
     // You can show the number of selected rows using the table.getFilteredSelectedRowModel() API.
@@ -104,7 +104,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values }: Data
                     onChange={value => setGlobalFilter(String(value))}
                     className="max-w-sm"
                 />
-                <DataTableToolbar table={table} project_values={project_values} />
+                <DataTableToolbar table={table} project_values={project_values} category_options={category_options} />
                 {/* <DataTableViewOptions table={table} /> */}
             </div>
 
