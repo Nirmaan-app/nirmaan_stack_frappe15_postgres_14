@@ -42,7 +42,7 @@ import { NewPR } from './components/procurement-request/new-pr'
 import { UserForm } from './pages/user-form'
 import Items from './pages/items'
 
-import Vendors from './pages/vendors'
+import Vendors from './pages/vendors/vendors'
 
 import ListPR from './components/procurement-request/list-pr'
 import { EditVendor } from './pages/edit-vendor'
@@ -55,7 +55,7 @@ import { DelayedPRSelect } from './pages/delayed-pr-select'
 import { DelayedPR } from './pages/delayed-pr'
 import NewCustomer from './pages/customers/add-new-customer'
 import EditCustomer from './pages/customers/edit-customer'
-import { NewVendor } from './pages/new-vendor'
+import { NewVendor } from './pages/vendors/new-vendor'
 import NewMilestones from './components/updates/NewMilestones'
 // import { NewMilestone } from './components/new-milestone'
 
@@ -130,13 +130,13 @@ const router = createBrowserRouter(
 
 					<Route path="items" >
 						<Route index element={<Items />} />
-						<Route path=":itemId" lazy={() => import('@/pages/item')}  />
+						<Route path=":itemId" lazy={() => import('@/pages/item')} />
 					</Route>
 
 					<Route path="vendors">
 						<Route index element={<Vendors />} />
 						<Route path="new" element={<NewVendor />} />
-						<Route path=":vendorId" lazy={() => import('@/pages/vendor')} />
+						<Route path=":vendorId" lazy={() => import('@/pages/vendors/vendor')} />
 						<Route path=":id/edit" element={<EditVendor />} />
 					</Route>
 
