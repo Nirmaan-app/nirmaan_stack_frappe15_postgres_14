@@ -1,30 +1,31 @@
-import Select from 'react-select';
 import {
     Sheet,
     SheetContent,
-    SheetDescription,
     SheetHeader,
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
 import { ArrowLeft, CirclePlus } from 'lucide-react';
-import { Card } from "@/components/ui/card";
-
-
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom";
 import { Button } from '@/components/ui/button'
 import { NewVendor } from '@/pages/vendors/new-vendor';
 import { ButtonLoading } from '../button-loading';
-
-interface VendorItem {
-    vendor: string;
-    item: string;
-}
+import { DataTable } from '../data-table/data-table';
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ColumnDef } from "@tanstack/react-table";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { formatDate } from '@/utils/FormatDate';
+import Select from 'react-select'
+import { AddVendorCategories } from "../forms/addvendorcategories";
+import { Badge } from "../ui/badge";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 
 export const ProcurementOrder = () => {
+
     const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate();
 
@@ -43,6 +44,7 @@ export const ProcurementOrder = () => {
         },
         "Vendor Category"
     );
+
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
             fields: ["*"],
@@ -61,9 +63,7 @@ export const ProcurementOrder = () => {
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
 
-    const getVendorName = (vendorName: string) => {
-        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
-    }
+
     const [page, setPage] = useState<string>('approve')
     const [uniqueVendors, setUniqueVendors] = useState({
         list: []
@@ -87,6 +87,7 @@ export const ProcurementOrder = () => {
             filters: [['work_package', '=', orderData.work_package]]
         });
 
+
     if (!orderData.project) {
         procurement_request_list?.map(item => {
             if (item.name === orderId) {
@@ -94,16 +95,76 @@ export const ProcurementOrder = () => {
             }
         })
     }
-    interface SelectOption {
-        label: string;
-        value: string;
-    }
+
     const [categories, setCategories] = useState({})
     const [selectedCategories, setSelectedCategories] = useState(null)
-    const [selectedVendors, setSelectedVendors] = useState({})
     const [uniqueCategories, setUniqueCategories] = useState({
         list: []
     })
+
+    const columns: ColumnDef<ProjectsType>[] = useMemo(
+        () => [
+            {
+                accessorKey: "vendor_name",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Vendor Name" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue("vendor_name")}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "creation",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date Created" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "vendor_category",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Vendor Categories" />
+                    )
+                },
+                cell: ({ row }) => {
+                    const categories = row.getValue("vendor_category")
+                    const vendor_name = row.getValue("vendor_name")
+                    return (
+                        <div className="space-x-1 space-y-1">
+                            {categories?.categories.map((cat) => (
+                                <Badge key={cat} >{cat}</Badge>
+                            ))}
+                            <span>+</span>
+                            <Sheet>
+                                <SheetTrigger>
+                                    <button className="px-2 border rounded-md hover:bg-gray-200">Add</button>
+                                </SheetTrigger>
+                                <SheetContent>
+                                    <AddVendorCategories vendor_name={vendor_name} isSheet={true} />
+                                </SheetContent>
+                            </Sheet>
+                        </div>
+                    )
+                }
+            },
+        ],
+        []
+    )
 
     useEffect(() => {
         const updatedCategories = { ...categories };
@@ -342,17 +403,129 @@ export const ProcurementOrder = () => {
                                 <Select options={getCategoryByName(cat.name)} onChange={handleChange(cat.name)} isMulti />
                             </div>
                         })}
-                        <div className="flex flex-col justify-end items-end">
+                        <div className="flex flex-col justify-end items-end max-md:py-6 pb-10">
                             {/* {block ? <div>loading...</div> : <Button onClick={() => { handleSubmit(); setBlock(true) }}>
                                 Send RFQ
                             </Button>} */}
                             {(loading || update_loading) ? <ButtonLoading /> : (
                                 <Button disabled={selectedCategories === null} onClick={handleSubmit}>Send RFQ</Button>
                             )}
-
                         </div>
+                        <Accordion type="multiple" defaultValue={["Vendors"]}>
+                            <AccordionItem value="Vendors">
+                                <AccordionTrigger>
+                                    <Button variant="ghost" size="lg" className="md:mb-2 text-base md:text-lg px-2  w-full justify-start">
+                                        <span className=" text-base mb-0.5 md:text-lg font-slim">Recently Added Vendors</span>
+                                    </Button>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                    <div className="">
+                                        <Card className=''>
+                                            <CardHeader>
+                                                <CardContent>
+                                                    <DataTable columns={columns} data={vendor_list || []} />
+                                                </CardContent>
+                                            </CardHeader>
+                                        </Card>
+                                    </div>
+                                </AccordionContent>
+                            </AccordionItem>
+                        </Accordion>
+                        {/* <Button onClick={() => setShow(!show)}>Recently Added Vendors</Button>
+                        {show && (
+                            <div className='px-20'>
+                            <Card className=''>
+                                <CardHeader>
+                                    <CardContent>
+                                        <DataTable columns={columns} data={vendor_list || []}/>
+                                    </CardContent>
+                                </CardHeader>
+                            </Card>
+                        </div>
+                        )} */}
                     </div>
                 </div>}
         </>
     )
 }
+
+
+// const CustomSelect = ({ options, defaultValue, onChange }) => {
+//     const [selectedOptions, setSelectedOptions] = useState(defaultValue || []);
+//     const [filteredOptions, setFilteredOptions] = useState([]);
+//     const [searchTerm, setSearchTerm] = useState("");
+
+//     console.log("default", defaultValue)
+//     console.log("selectedOptions", selectedOptions) 
+//     console.log("options", options)
+
+//     // Update selected options when defaultValue changes
+//     useEffect(() => {
+//         setSelectedOptions(defaultValue || []);
+//     }, [defaultValue]);
+
+//     // Filter options based on the selected ones
+//     useEffect(() => {
+//         if (options) {
+//             const availableOptions = options.filter(
+//                 (option) => !selectedOptions.some((selected) => selected.value === option.value)
+//             );
+//             setFilteredOptions(availableOptions);
+//         }
+//     }, [selectedOptions, options]);
+
+//     const handleSelect = (option) => {
+//         const newSelectedOptions = [...selectedOptions, option];
+//         setSelectedOptions(newSelectedOptions);
+//         onChange(newSelectedOptions);
+//     };
+
+//     const handleDeselect = (option) => {
+//         const newSelectedOptions = selectedOptions.filter((item) => item.value !== option.value);
+//         setSelectedOptions(newSelectedOptions);
+//         onChange(newSelectedOptions);
+//     };
+
+//     const handleSearch = (e) => {
+//         setSearchTerm(e.target.value);
+//     };
+
+//     const filteredResults = filteredOptions.filter(option =>
+//         option.label.toLowerCase().includes(searchTerm.toLowerCase())
+//     );
+
+//     return (
+//         <div className="custom-select h-[500px] overflow-auto">
+//             <div className="selected-options">
+//                 {selectedOptions.map(option => (
+//                     <span key={option.value} className="option-tag">
+//                         {option.label}
+//                         <button className="remove-btn" onClick={() => handleDeselect(option)}>
+//                             x
+//                         </button>
+//                     </span>
+//                 ))}
+//             </div>
+
+//             <input 
+//                 type="text" 
+//                 className="search-bar" 
+//                 value={searchTerm} 
+//                 onChange={handleSearch} 
+//                 placeholder="Search categories..."
+//             />
+
+//             <ul className="options-list">
+//                 {filteredResults.map(option => (
+//                     <li 
+//                         key={option.value} 
+//                         className="option-item"
+//                         onClick={() => handleSelect(option)}
+//                     >
+//                         {option.label}
+//                     </li>
+//                 ))}
+//             </ul>
+//         </div>
+//     );
+// };

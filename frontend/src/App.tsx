@@ -57,6 +57,8 @@ import NewCustomer from './pages/customers/add-new-customer'
 import EditCustomer from './pages/customers/edit-customer'
 import { NewVendor } from './pages/vendors/new-vendor'
 import NewMilestones from './components/updates/NewMilestones'
+import DeliveryNotes from './pages/DeliveryNotes/deliverynotes'
+import DeliveryNote from './pages/DeliveryNotes/deliverynote'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -104,7 +106,8 @@ const router = createBrowserRouter(
 					<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
 					<Route path="release-po" element={<ReleasePOSelect />} />
 					<Route path="/release-po/:id" element={<ReleasePO />} />
-
+					<Route path="delivery-notes" element={<DeliveryNotes />} />
+					<Route path="/delivery-notes/:id" element={<DeliveryNote />} />
 
 					<Route path="projects">
 						<Route index element={<Projects />} />

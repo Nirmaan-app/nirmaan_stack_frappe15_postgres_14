@@ -147,6 +147,9 @@ export const ProjectManager = () => {
                             <p className="text-center py-6 font-bold text-white">Update Milestones</p>
                             {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p> */}
                         </div>
+                        <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer" onClick={() => navigate("/delivery-notes")}>
+                            <p className="text-center py-6 font-bold text-white">Update Delivery Notes</p>
+                        </div>
                     </div>
                 </div>
             </div>}
