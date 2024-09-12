@@ -15,7 +15,7 @@ import { useNavigate } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "../ui/button";
 import { Card } from '@/components/ui/card';
-import { NewVendor } from "@/pages/new-vendor";
+import { NewVendor } from "@/pages/vendors/new-vendor";
 
 export const SentBackUpdateQuote = () => {
     const { id } = useParams<{ id: string }>()

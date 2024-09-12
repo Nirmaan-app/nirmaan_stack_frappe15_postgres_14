@@ -14,9 +14,9 @@ import { Card } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
-import {  useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from '@/components/ui/button'
-import { NewVendor } from '@/pages/new-vendor';
+import { NewVendor } from '@/pages/vendors/new-vendor';
 import { ButtonLoading } from '../button-loading';
 
 interface VendorItem {
@@ -329,13 +329,13 @@ export const ProcurementOrder = () => {
                                             </div>
                                         </SheetTrigger>
                                         <SheetContent className='overflow-auto'>
-                                                <SheetHeader>
-                                                    <SheetTitle>Add Vendor for {cat.name}</SheetTitle>
-                                                    {/* <SheetDescription> */}
-                                                        {/* <VendorForm work_package={orderData.work_package} vendor_category_mutate={vendor_category_mutate} vendor_list_mutate={vendor_list_mutate} /> */}
-                                                        <NewVendor dynamicCategories={category_list || []} renderCategorySelection={true} navigation={false} />
-                                                    {/* </SheetDescription> */}
-                                                </SheetHeader>
+                                            <SheetHeader>
+                                                <SheetTitle>Add Vendor for {cat.name}</SheetTitle>
+                                                {/* <SheetDescription> */}
+                                                {/* <VendorForm work_package={orderData.work_package} vendor_category_mutate={vendor_category_mutate} vendor_list_mutate={vendor_list_mutate} /> */}
+                                                <NewVendor dynamicCategories={category_list || []} renderCategorySelection={true} navigation={false} />
+                                                {/* </SheetDescription> */}
+                                            </SheetHeader>
                                         </SheetContent>
                                     </Sheet>
                                 </div>
