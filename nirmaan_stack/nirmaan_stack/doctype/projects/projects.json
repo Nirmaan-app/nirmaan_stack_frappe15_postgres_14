@@ -22,6 +22,8 @@
   "design_lead",
   "project_manager",
   "project_work_details_section",
+  "status",
+  "project_work_packages",
   "project_work_milestones",
   "project_scopes",
   "subdivisions",
@@ -101,11 +103,6 @@
    "label": "Project Work Details"
   },
   {
-   "fieldname": "project_work_milestones",
-   "fieldtype": "JSON",
-   "label": "Project Work Milestones"
-  },
-  {
    "fieldname": "project_scopes",
    "fieldtype": "JSON",
    "label": "Project Scopes"
@@ -148,11 +145,26 @@
    "fieldname": "subdivision_list",
    "fieldtype": "JSON",
    "label": "Subdivision List"
+  },
+  {
+   "fieldname": "project_work_milestones",
+   "fieldtype": "JSON",
+   "label": "Project Work Milestones"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  },
+  {
+   "fieldname": "project_work_packages",
+   "fieldtype": "JSON",
+   "label": "Project Work Packages"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-07-27 12:43:28.821386",
+ "modified": "2024-09-12 20:53:09.951499",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

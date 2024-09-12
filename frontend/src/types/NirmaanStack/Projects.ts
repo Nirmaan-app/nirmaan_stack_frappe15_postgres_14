@@ -34,8 +34,16 @@ export interface Projects{
 	design_lead?: string
 	/**	Project Manager : Link - Nirmaan Users	*/
 	project_manager?: string
+	/**	Status : Data	*/
+	status?: string
+	/**	Project Work Packages : JSON	*/
+	project_work_packages?: any
 	/**	Project Work Milestones : JSON	*/
 	project_work_milestones?: any
 	/**	Project Scopes : JSON	*/
 	project_scopes?: any
+	/**	Subdivisions : Data	*/
+	subdivisions?: string
+	/**	Subdivision List : JSON	*/
+	subdivision_list?: any
 }

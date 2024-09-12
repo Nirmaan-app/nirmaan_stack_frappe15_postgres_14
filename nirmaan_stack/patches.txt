@@ -7,3 +7,4 @@
 nirmaan_stack.patches.v1_5.add_subdivision_to_projects
 nirmaan_stack.patches.v1_5.add_status_list_to_pwm
 nirmaan_stack.patches.v1_6.add_tax_to_po #v3
+nirmaan_stack.patches.v1_7.copy_pwm_to_pwp
