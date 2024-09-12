@@ -23,6 +23,7 @@ import { useEffect, useState, useCallback } from "react"
 import { formatToLocalDateTimeString } from "@/utils/FormatDate"
 import { useToast } from "./ui/use-toast"
 import NewCustomer from "@/pages/customers/add-new-customer"
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogAction } from "./ui/alert-dialog"
 import { usePincode } from "@/hooks/usePincode"
 
 
@@ -82,7 +83,7 @@ const projectFormSchema = z.object({
     project_start_date: z
         .date({
             required_error: "Project must have a start date"
-        })        ,
+        }),
     project_end_date: z
         .date()
         .optional(),
@@ -331,12 +332,12 @@ export const ProjectForm = () => {
     const endDate = form.watch("project_end_date");
 
     useEffect(() => {
-      if (startDate && endDate) {
-        const durationInDays = Math.round(
-          (endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)
-        );
-        setDuration(durationInDays);
-      }
+        if (startDate && endDate) {
+            const durationInDays = Math.round(
+                (endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)
+            );
+            setDuration(durationInDays);
+        }
     }, [startDate, endDate]);
 
     // Transform data to select options
