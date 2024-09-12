@@ -23,6 +23,38 @@ export const NewPR = () => {
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate();
     const userData = useUserData()
+    const { toast } = useToast()
+
+    const [page, setPage] = useState<string>('wplist')
+    const [curItem, setCurItem] = useState<string>('')
+    const [curCategory, setCurCategory] = useState<string>('')
+    const [unit, setUnit] = useState<string>('')
+    const [quantity, setQuantity] = useState<number | string>('')
+    const [item_id, setItem_id] = useState<string>('');
+    const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
+    const [make, setMake] = useState('');
+    const [tax, setTax] = useState<number | null>(null)
+
+    const [orderData, setOrderData] = useState({
+        project: id,
+        work_package: '',
+        procurement_list: {
+            list: []
+        },
+        category_list: {
+            list: []
+        }
+    })
+
+
+
+    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
+        {
+            fields: ['name', 'project_name', 'project_address', 'project_lead', 'procurement_lead', 'creation', 'project'],
+            filters: [['name', "=", id]],
+            orderBy: { field: 'creation', order: 'desc' },
+            limit: 1000
+        });
 
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
         {
@@ -42,27 +74,35 @@ export const NewPR = () => {
             orderBy: { field: 'creation', order: 'desc' },
             limit: 10000
         });
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-        {
-            fields: ['name', 'project_name', 'project_address', 'project_lead', 'procurement_lead', 'creation'],
-            orderBy: { field: 'creation', order: 'desc' },
-            limit: 1000
-        });
+
+    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+
+    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+
+
+    useEffect(() => {
+        const newCategories = [];
+        orderData.procurement_list.list.map((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+        setOrderData((prevState) => ({
+            ...prevState,
+            category_list: {
+                list: newCategories
+            },
+        }));
+    }, [orderData.procurement_list]);
+
 
     interface Category {
         name: string;
     }
 
 
-    const [page, setPage] = useState<string>('wplist')
-    const [curItem, setCurItem] = useState<string>('')
-    const [curCategory, setCurCategory] = useState<string>('')
-    const [unit, setUnit] = useState<string>('')
-    const [quantity, setQuantity] = useState<number | string>('')
-    const [item_id, setItem_id] = useState<string>('');
-    const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
-    const [make, setMake] = useState('');
-    const [tax, setTax] = useState<number | null>(null)
+
 
     const addWorkPackage = (wpName: string) => {
         setOrderData(prevData => ({
@@ -83,16 +123,7 @@ export const NewPR = () => {
         console.log(curCategory, categories)
     };
 
-    const [orderData, setOrderData] = useState({
-        project: id,
-        work_package: '',
-        procurement_list: {
-            list: []
-        },
-        category_list: {
-            list: []
-        }
-    })
+
     const handleWPClick = (wp: string, value: string) => {
         setOrderData({
             project: id,
@@ -198,21 +229,7 @@ export const NewPR = () => {
         }
     };
 
-    useEffect(() => {
-        const newCategories = [];
-        orderData.procurement_list.list.map((item) => {
-            const isDuplicate = newCategories.some(category => category.name === item.category);
-            if (!isDuplicate) {
-                newCategories.push({ name: item.category })
-            }
-        })
-        setOrderData((prevState) => ({
-            ...prevState,
-            category_list: {
-                list: newCategories
-            },
-        }));
-    }, [orderData.procurement_list]);
+
 
     const handleCommentChange = (e) => {
         setOrderData((prevState) => ({
@@ -221,10 +238,7 @@ export const NewPR = () => {
         }));
     }
 
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
 
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
-    const {toast} = useToast()
     const handleSubmit = () => {
         console.log(userData)
         if (userData?.role === "Nirmaan Project Manager Profile" || userData?.role === "Nirmaan Admin Profile" || userData.user_id == "Administrator") {
