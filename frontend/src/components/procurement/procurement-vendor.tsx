@@ -5,7 +5,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus } from 'lucide-react';
+import { ArrowLeft, Circle, CirclePlus } from 'lucide-react';
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -149,10 +149,12 @@ export const ProcurementOrder = () => {
                             {categories?.categories.map((cat) => (
                                 <Badge key={cat} >{cat}</Badge>
                             ))}
-                            <span>+</span>
                             <Sheet>
                                 <SheetTrigger>
-                                    <button className="px-2 border rounded-md hover:bg-gray-200">Add</button>
+                                    <button className="px-2 border flex gap-1 items-center rounded-md hover:bg-gray-200">
+                                        <CirclePlus className="w-3 h-3" />
+                                        <span>Add</span>
+                                    </button>
                                 </SheetTrigger>
                                 <SheetContent>
                                     <AddVendorCategories vendor_name={vendor_name} isSheet={true} />

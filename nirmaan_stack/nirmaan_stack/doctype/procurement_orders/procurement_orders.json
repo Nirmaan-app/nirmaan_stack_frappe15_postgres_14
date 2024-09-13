@@ -125,6 +125,7 @@
    "label": "Tracking Details"
   },
   {
+   "default": "Generated",
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
@@ -138,7 +139,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-09-05 12:59:49.414654",
+ "modified": "2024-09-13 11:51:55.432467",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",
