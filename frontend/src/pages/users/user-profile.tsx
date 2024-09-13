@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "@/components/breadcrumb";
+
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -11,13 +11,14 @@ import {
 } from "@/components/ui/select"
 
 import imageUrl from "@/assets/user-icon.jpeg"
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useState } from "react";
 import { DialogClose } from "@radix-ui/react-dialog";
 import { ArrowLeft, CirclePlus } from "lucide-react";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
+import { useUserData } from "@/hooks/useUserData";
 
 interface SelectOption {
     label: string;
@@ -25,9 +26,12 @@ interface SelectOption {
 }
 
 export default function Profile() {
+    const [curProj, setCurProj] = useState('')
+
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
     const { toast } = useToast()
+    const userData = useUserData()
 
     const { data, isLoading, error } = useFrappeGetDoc(
         'Nirmaan Users',
@@ -51,8 +55,9 @@ export default function Profile() {
         return project_list?.find(proj => proj.name === item)?.project_name
     }
 
-    const [curProj, setCurProj] = useState('')
+
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { deleteDoc: deleteDoc, loading: delete_loading, isCompleted: delete_complete, error: delete_error } = useFrappeDeleteDoc()
     const handleSubmit = () => {
         createDoc('User Permission', {
             user: id,
@@ -64,6 +69,15 @@ export default function Profile() {
         }).catch(() => {
             console.log(submit_error)
         })
+    }
+
+    const handleDeleteUser = () => {
+        deleteDoc('Nirmaan Users', data.email)
+            .then(() => { navigate('/users') })
+            .catch(() => {
+                console.log(delete_error)
+            })
+
     }
 
     if (isLoading) return <UserProfileSkeleton />;
@@ -84,49 +98,75 @@ export default function Profile() {
                 </div>
 
                 <div className="flex items-center space-x-2">
-                    {data.role_profile === "Nirmaan Admin Profile" ?
-                        <Button disabled={true}>
-                            <div className="flex"><CirclePlus className="w-5 h-5 pr-1 " />Assign new Project</div>
-                        </Button>
-                        :
-                        <Dialog>
-                            <DialogTrigger asChild>
-                                <Button asChild>
-                                    <div><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign new Project</div>
+                    {userData.role === "Nirmaan Admin Profile" &&
+                        (data.role_profile === "Nirmaan Admin Profile" ?
+                            <>
+                                <Button disabled={true}>Delete User</Button>
+                                <Button disabled={true}>
+                                    <div className="flex"><CirclePlus className="w-5 h-5 pr-1 " />Assign new Project</div>
                                 </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogHeader>
-                                    <DialogTitle>Assign New Projects</DialogTitle>
-                                    {/* <DialogDescription>
+                            </>
+                            :
+                            <>
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                        <Button asChild>
+                                            <div>Delete User</div>
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                        <DialogHeader>
+                                            <DialogTitle>Delete user {data.full_name}</DialogTitle>
+                                        </DialogHeader>
+                                        <span>This action will delete user from the system</span>
+                                        <div className="flex justify-end">
+                                            <DialogClose >
+                                                <Button onClick={() => handleDeleteUser()}>Delete</Button>
+                                                <Button variant="secondary" className="ml-2">Cancel</Button>
+                                            </DialogClose>
+                                        </div>
+                                    </DialogContent>
+
+                                </Dialog>
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                        <Button asChild>
+                                            <div><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign new Project</div>
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                        <DialogHeader>
+                                            <DialogTitle>Assign New Projects</DialogTitle>
+                                            {/* <DialogDescription>
                                         Add Projects here.
                                     </DialogDescription> */}
-                                    <div className="flex py-2 pt-4">
-                                        <span className="px-2 text-base font-medium pt-1">Assign</span>
-                                        <Select onValueChange={(item) => setCurProj(item)}>
-                                            <SelectTrigger className="w-[220px]">
-                                                <SelectValue placeholder="Select Project" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {options.map(option => {
-                                                    const isPresent = permission_list?.find((item => item.for_value === option.value))
-                                                    if (!isPresent) {
-                                                        return <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                    }
-                                                })}
-                                            </SelectContent>
-                                        </Select>
-                                        <span className="px-4 text-base font-normal pt-1">to: {`${data?.first_name}`}</span>
-                                    </div>
-                                </DialogHeader>
-                                <div className="flex justify-end">
-                                    <DialogClose >
-                                        <Button onClick={() => handleSubmit()}>Submit</Button>
-                                    </DialogClose>
-                                </div>
-                            </DialogContent>
-                        </Dialog>
-                    }
+                                            <div className="flex py-2 pt-4">
+                                                <span className="px-2 text-base font-medium pt-1">Assign</span>
+                                                <Select onValueChange={(item) => setCurProj(item)}>
+                                                    <SelectTrigger className="w-[220px]">
+                                                        <SelectValue placeholder="Select Project" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {options.map(option => {
+                                                            const isPresent = permission_list?.find((item => item.for_value === option.value))
+                                                            if (!isPresent) {
+                                                                return <SelectItem value={option.value}>{option.label}</SelectItem>
+                                                            }
+                                                        })}
+                                                    </SelectContent>
+                                                </Select>
+                                                <span className="px-4 text-base font-normal pt-1">to: {`${data?.first_name}`}</span>
+                                            </div>
+                                        </DialogHeader>
+                                        <div className="flex justify-end">
+                                            <DialogClose >
+                                                <Button onClick={() => handleSubmit()}>Submit</Button>
+                                            </DialogClose>
+                                        </div>
+                                    </DialogContent>
+                                </Dialog>
+                            </>
+                        )}
                 </div>
 
                 {/* <Breadcrumb>

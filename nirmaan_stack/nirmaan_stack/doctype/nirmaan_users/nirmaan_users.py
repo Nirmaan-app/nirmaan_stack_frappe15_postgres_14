@@ -48,6 +48,7 @@ def on_user_update(doc, method=None):
 		profile.role_profile = doc.role_profile_name
 		profile.save(ignore_permissions=True)
 
+# Creating infinite loop if enabled with nirmaan users controller on_trash function
 def delete_user_profile(doc, method=None):
 	exists = frappe.db.exists("Nirmaan Users", {"email": doc.email})
 	if exists:

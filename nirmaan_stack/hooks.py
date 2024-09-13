@@ -128,8 +128,11 @@ doc_events = {
 	"User": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.create_user_profile",
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.on_user_update",
-		"on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
+		# "on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
 	},
+    "Nirmaan Users": {
+        "on_trash": "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash"
+    },
     "User Permission": {
         "after_insert": "nirmaan_stack.integrations.controllers.user_permission.after_insert"
     },

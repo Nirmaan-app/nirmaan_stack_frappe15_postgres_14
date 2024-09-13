@@ -11,6 +11,7 @@ import { ArrowLeft, Building2, CirclePlus } from "lucide-react";
 import { useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
+import { Badge } from "@/components/ui/badge";
 
 export default function Users() {
 
@@ -20,7 +21,7 @@ export default function Users() {
         fields: ["*"],
         limit: 1000
     },
-    "Nirmaan Users"
+        "Nirmaan Users"
     )
 
 
@@ -48,40 +49,38 @@ export default function Users() {
             //     enableSorting: false,
             //     enableHiding: false,
             // },
+            // {
+            //     accessorKey: "name",
+            //     header: ({ column }) => {
+            //         return (
+            //             <DataTableColumnHeader column={column} title="ID" />
+            //         )
+            //     },
+            //     cell: ({ row }) => {
+            //         return (
+            //             <div className="font-medium">
+            //                 <Link className="underline hover:underline-offset-2" to={`/users/${row.getValue("name")}`}>
+            //                     {row.getValue("name")}
+            //                 </Link>
+            //             </div>
+            //         )
+            //     }
+            // },
             {
-                accessorKey: "name",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="ID" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/users/${row.getValue("name")}`}>
-                                {row.getValue("name")}
-                            </Link>
-                        </div>
-                    )
-                }
-            },
-            {
-                accessorKey: "full_name",
+                id: "id_name",
+                accessorFn: row => `${row.name}_${row.full_name}`,
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Full Name" />
                     )
                 },
-                cell: ({ row }) => <div className="font-medium">{row.getValue("full_name")}</div>
-            },
-            {
-                accessorKey: "mobile_no",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Mobile" />
-                    )
-                },
-                cell: ({ row }) => <div className="font-medium">{row.getValue("mobile_no")}</div>
+                cell: ({ row }) => (
+                    <div className="font-medium">
+                        <Link className="underline hover:underline-offset-2" to={`/users/${row.getValue<String>("id_name").split("_")[0]}`}>
+                            {row.getValue<String>("id_name").split("_")[1]}
+                        </Link>
+                    </div>
+                )
             },
             {
                 accessorKey: "creation",
@@ -97,11 +96,43 @@ export default function Users() {
                         </div>
                     )
                 }
+            },
+            {
+                accessorKey: "role_profile",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Role" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {row.getValue<String>("role_profile")?.split(" ").slice(1, 3).join(" ")}
+                        </div>
+                    )
+                }
+            },
+            {
+                id: "contact",
+                accessorFn: row => `${row.email}_${row.mobile_no}`,
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Contact" />
+                    )
+                },
+                cell: ({ row }) => (
+                    <div className="font-medium flex flex-col w-40">
+                        <Badge className="mb-2">M: +91-{row.getValue<String>("contact").split("_")[1]}</Badge>
+                        <Badge>E: {row.getValue<String>("contact").split("_")[0]}</Badge>
+                    </div>
+                )
             }
 
         ],
         []
     )
+    if (isLoading) return <h1>Loading</h1>
+    if (error) return <h1>error.message</h1>
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
             {/* <div className="flex items-center justify-between space-y-2">
