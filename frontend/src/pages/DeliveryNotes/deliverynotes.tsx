@@ -12,7 +12,8 @@ const DeliveryNotes = () => {
 
     const {data : procurementRequestsList, isLoading: procurementRequestsLoading} = useFrappeGetDocList("Procurement Requests", {
         fields: ["*"],
-        limit: 1000
+        limit: 1000,
+        orderBy: {field : "creation", order: "desc"}
     },
     "Procurement Requests"
     )

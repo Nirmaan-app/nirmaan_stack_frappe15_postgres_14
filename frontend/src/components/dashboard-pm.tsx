@@ -138,7 +138,7 @@ export const ProjectManager = () => {
                         {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
                         <h2 className="text-xl pt-1 pl-2 pb-4 font-bold tracking-tight">Dashboard</h2>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 -lg p-4">
+                    <div className="grid grid-cols-2 gap-4 -lg py-4">
                         <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer" onClick={() => navigate("/procurement-request")}>
                             <p className="p-4 text-center py-6 font-bold text-white">Create Procurement Request</p>
                             {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p> */}
