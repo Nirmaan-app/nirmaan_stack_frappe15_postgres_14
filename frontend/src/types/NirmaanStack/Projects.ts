@@ -26,13 +26,13 @@ export interface Projects{
 	project_city?: string
 	/**	Project State : Data	*/
 	project_state?: string
-	/**	Project Lead : Link - Nirmaan Users	*/
+	/**	Project Lead : Data	*/
 	project_lead?: string
-	/**	Procurement Lead : Link - Nirmaan Users	*/
+	/**	Procurement Lead : Data	*/
 	procurement_lead?: string
-	/**	Design Lead : Link - Nirmaan Users	*/
+	/**	Design Lead : Data	*/
 	design_lead?: string
-	/**	Project Manager : Link - Nirmaan Users	*/
+	/**	Project Manager : Data	*/
 	project_manager?: string
 	/**	Status : Data	*/
 	status?: string

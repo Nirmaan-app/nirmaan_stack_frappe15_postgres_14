@@ -12,18 +12,6 @@ import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 
-// NOTE: Modify frappe hooks field to get the data
-
-
-// type Project = {
-//     name: string
-//     project_name: string
-//     project_type: string
-//     customer: string
-//     project_city: string
-//     project_state: string
-//     project_work_milestones: object
-// }
 
 export default function Projects() {
     const navigate = useNavigate()
@@ -31,40 +19,42 @@ export default function Projects() {
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
             {
-                accessorKey: "name",
+                id: "project",
+                accessorFn: row => `${row.name}_${row.project_name}`,
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="ID" />
+                        <DataTableColumnHeader column={column} title="Project" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
-                                {row.getValue("name")?.slice(-4)}
+                            <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue<String>("project").split("_")[0]}`}>
+                                {/* {row.getValue<String>("name")?.slice(-4)} */}
+                                {row.getValue<String>("project").split("_")[1]}
                             </Link>
                         </div>
                     )
                 }
             },
-            {
-                accessorKey: "project_name",
-                header: ({ column }) => {
-                    return (
+            // {
+            //     accessorKey: "project_name",
+            //     header: ({ column }) => {
+            //         return (
 
-                        <DataTableColumnHeader column={column} title="Project Name" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
-                            <div className="font-medium">
-                                {row.getValue("project_name")}
-                            </div>
-                        </Link>
-                    )
-                }
-            },
+            //             <DataTableColumnHeader column={column} title="Project Name" />
+            //         )
+            //     },
+            //     cell: ({ row }) => {
+            //         return (
+            //             <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
+            //                 <div className="font-medium">
+            //                     {row.getValue("project_name")}
+            //                 </div>
+            //             </Link>
+            //         )
+            //     }
+            // },
             {
                 accessorKey: "creation",
                 header: ({ column }) => {

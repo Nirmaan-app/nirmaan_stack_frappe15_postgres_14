@@ -114,27 +114,23 @@
   },
   {
    "fieldname": "project_lead",
-   "fieldtype": "Link",
-   "label": "Project Lead",
-   "options": "Nirmaan Users"
+   "fieldtype": "Data",
+   "label": "Project Lead"
   },
   {
    "fieldname": "procurement_lead",
-   "fieldtype": "Link",
-   "label": "Procurement Lead",
-   "options": "Nirmaan Users"
+   "fieldtype": "Data",
+   "label": "Procurement Lead"
   },
   {
    "fieldname": "design_lead",
-   "fieldtype": "Link",
-   "label": "Design Lead",
-   "options": "Nirmaan Users"
+   "fieldtype": "Data",
+   "label": "Design Lead"
   },
   {
    "fieldname": "project_manager",
-   "fieldtype": "Link",
-   "label": "Project Manager",
-   "options": "Nirmaan Users"
+   "fieldtype": "Data",
+   "label": "Project Manager"
   },
   {
    "fieldname": "subdivisions",
@@ -164,7 +160,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-09-12 20:53:09.951499",
+ "modified": "2024-09-13 16:43:56.842102",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
