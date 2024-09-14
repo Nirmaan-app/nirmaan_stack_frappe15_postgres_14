@@ -1,6 +1,6 @@
 import ProjectSelect from "@/components/custom-select/project-select"
-import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
+import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatDate } from "@/utils/FormatDate"
 import { useFrappeGetDocList } from "frappe-react-sdk"
@@ -126,9 +126,9 @@ const DeliveryNotes = () => {
 
     return (
         <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-            <div>
-            <div className="flex">
-                        <Link to="/prs&milestones"><ArrowLeft className="mt-1.5" /></Link>
+            <div className="pb-4">
+                <div className="flex items-center ">
+                        <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
                         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Update Delivery Notes</h2>
                     </div>
             </div>
@@ -172,15 +172,19 @@ const DeliveryNotes = () => {
                                                         </TableRow>
                                                     ))}
                                                     </TableCell>
+                                                    <TableCell className="text-sm">
+                                                        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                                                            {item?.status === "Generated" ? "Pending" : "Delivered"}
+                                                        </Badge>
+                                                        {/* {item?.status === "Generated" ? "Pending" : "Delivered"} */}
+                                                    </TableCell>
                                                     </>
                                             ) : (
                                                 <>
                                                 <TableCell></TableCell>
-                                            <TableCell className="text-red-300">**No PO's Found**</TableCell>
+                                            <TableCell className="text-red-300">**No Delivery Note's Found**</TableCell>
                                             </>
                                             ) }
-                                            <TableCell className="text-sm">Ph</TableCell>
-                                            
                                         </TableRow>
                                         )}   
                                 })}
