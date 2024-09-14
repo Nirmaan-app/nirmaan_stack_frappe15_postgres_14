@@ -483,7 +483,7 @@ import {
 export default function DeliveryNote() {
     const { id } = useParams();
     const poId = id?.replaceAll("&=", "/");
-    const { data, isLoading } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
+    const { data, isLoading, mutate : poMutate } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
     const [order, setOrder] = useState(null);
     const [modifiedOrder, setModifiedOrder] = useState(null);
     // const [showAlert, setShowAlert] = useState(false);
@@ -545,73 +545,95 @@ export default function DeliveryNote() {
         }
     };
 
-    console.log("modifiedOrder", modifiedOrder)
+    // console.log("modifiedOrder", modifiedOrder)
 
     // Handle save
     const handleSave = async () => {
-        const allDelivered = modifiedOrder.list.every(item => item.received === item.quantity);
+        try {
+            const allDelivered = modifiedOrder.list.every(item => item.received === item.quantity);
 
-        const noValueItems = modifiedOrder.list.filter(item => !item.received || item.received === 0);
-        if (noValueItems.length > 0) {
-            document.getElementById("alertDialogOpen")?.click()
-            // if (proceed) {
-            //     const updatedOrder = {
-            //         ...modifiedOrder,
-            //         list: modifiedOrder.list.map(item => 
-            //             noValueItems.includes(item) ? { ...item, received: 0 } : item
-            //         ),
-            //     };
+            const noValueItems = modifiedOrder.list.filter(item => !item.received || item.received === 0);
+            if (noValueItems.length > 0) {
+                document.getElementById("alertDialogOpen")?.click()
+                // if (proceed) {
+                //     const updatedOrder = {
+                //         ...modifiedOrder,
+                //         list: modifiedOrder.list.map(item => 
+                //             noValueItems.includes(item) ? { ...item, received: 0 } : item
+                //         ),
+                //     };
 
-            //     await updateDoc("Procurement Orders", poId, {
-            //         order_list: JSON.stringify(updatedOrder),
-            //         status: allDelivered ? "Delivered" : "Partially Delivered",
-            //     });
-            //     toast({
-            //         title: "Success!",
-            //         description:  `Delivery Note: ${poId.split('/')[1]} updated successfully`,
-            //         variant: "success",
-            //     });
-            // }
-        } else {
-            await updateDoc("Procurement Orders", poId, {
-                order_list: JSON.stringify(modifiedOrder),
-                status: allDelivered ? "Delivered" : "Partially Delivered",
-            });
+                //     await updateDoc("Procurement Orders", poId, {
+                //         order_list: JSON.stringify(updatedOrder),
+                //         status: allDelivered ? "Delivered" : "Partially Delivered",
+                //     });
+                //     toast({
+                //         title: "Success!",
+                //         description:  `Delivery Note: ${poId.split('/')[1]} updated successfully`,
+                //         variant: "success",
+                //     });
+                // }
+            } else {
+                await updateDoc("Procurement Orders", poId, {
+                    order_list: JSON.stringify(modifiedOrder),
+                    status: allDelivered ? "Delivered" : "Partially Delivered",
+                });
+                await poMutate()
+                setShow(false)
+                toast({
+                    title: "Success!",
+                    description: `Delivery Note: ${poId.split('/')[1]} updated successfully`,
+                    variant: "success",
+                });
+            }
+
+        } catch (error) {
+            console.log("error while updating delivery note", error)
             toast({
-                title: "Success!",
-                description: `Delivery Note: ${poId.split('/')[1]} updated successfully`,
-                variant: "success",
+                title: "Failed!",
+                description:  `Error while updating Delivery Note: ${poId.split('/')[1]}`,
+                variant: "destructive",
             });
         }
     };
 
     const handleProceed =   async () => {
+        try {
+            const allDelivered = modifiedOrder.list.every(item => item.received === item.quantity);
+            const noValueItems = modifiedOrder.list.filter(item => !item.received || item.received === 0);
+            const updatedOrder = {
+                ...modifiedOrder,
+                list: modifiedOrder.list.map(item => 
+                    noValueItems.includes(item) ? { ...item, received: 0 } : item
+                ),
+            };
 
-        const allDelivered = modifiedOrder.list.every(item => item.received === item.quantity);
-        const noValueItems = modifiedOrder.list.filter(item => !item.received || item.received === 0);
-        const updatedOrder = {
-            ...modifiedOrder,
-            list: modifiedOrder.list.map(item => 
-                noValueItems.includes(item) ? { ...item, received: 0 } : item
-            ),
-        };
-
-        await updateDoc("Procurement Orders", poId, {
-            order_list: JSON.stringify(updatedOrder),
-            status: allDelivered ? "Delivered" : "Partially Delivered",
-        });
-        toast({
-            title: "Success!",
-            description:  `Delivery Note: ${poId.split('/')[1]} updated successfully`,
-            variant: "success",
-        });
+            await updateDoc("Procurement Orders", poId, {
+                order_list: JSON.stringify(updatedOrder),
+                status: allDelivered ? "Delivered" : "Partially Delivered",
+            });
+            await poMutate()
+            setShow(false)
+            toast({
+                title: "Success!",
+                description:  `Delivery Note: ${poId.split('/')[1]} updated successfully`,
+                variant: "success",
+            });
+        } catch (error) {
+            console.log("error while updating delivery note", error)
+            toast({
+                title: "Failed!",
+                description:  `Error while updating Delivery Note: ${poId.split('/')[1]}`,
+                variant: "destructive",
+            });
+        }
     }
 
     const componentRef = useRef<HTMLDivElement>(null);
 
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
-        documentTitle: `${(order?.name)?.toUpperCase().replace("PO", "DN")}_${order?.vendor_name}`
+        documentTitle: `${(data?.name)?.toUpperCase().replace("PO", "DN")}_${data?.vendor_name}`
     });
 
     if (isLoading) return <div>...loading</div>;
@@ -632,9 +654,9 @@ export default function DeliveryNote() {
                <CardHeader>
                  <div className="flex justify-between items-center">
                    <CardTitle className="text-xl font-semibold text-red-600">Order Details</CardTitle>
-                     <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                     {order?.status === "Generated" ? "Pending" : "Delivered"}
-                     </Badge>
+                   <Badge variant={`${data?.status === "Generated" ? "yellow" : "green"}`} className="">
+                        {data?.status === "Generated" ? "Pending" : "Delivered"}
+                    </Badge>
                  </div>
                </CardHeader>
                <CardContent>
