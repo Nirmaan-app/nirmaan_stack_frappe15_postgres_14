@@ -19,42 +19,40 @@ export default function Projects() {
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
             {
-                id: "project",
-                accessorFn: row => `${row.name}_${row.project_name}`,
+                accessorKey: "name",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Project" />
+                        <DataTableColumnHeader column={column} title="ID" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue<String>("project").split("_")[0]}`}>
-                                {/* {row.getValue<String>("name")?.slice(-4)} */}
-                                {row.getValue<String>("project").split("_")[1]}
+                            <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
+                                {row.getValue("name")?.slice(-4)}
                             </Link>
                         </div>
                     )
                 }
             },
-            // {
-            //     accessorKey: "project_name",
-            //     header: ({ column }) => {
-            //         return (
+            {
+                accessorKey: "project_name",
+                header: ({ column }) => {
+                    return (
 
-            //             <DataTableColumnHeader column={column} title="Project Name" />
-            //         )
-            //     },
-            //     cell: ({ row }) => {
-            //         return (
-            //             <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
-            //                 <div className="font-medium">
-            //                     {row.getValue("project_name")}
-            //                 </div>
-            //             </Link>
-            //         )
-            //     }
-            // },
+                        <DataTableColumnHeader column={column} title="Project Name" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
+                            <div className="font-medium">
+                                {row.getValue("project_name")}
+                            </div>
+                        </Link>
+                    )
+                }
+            },
             {
                 accessorKey: "creation",
                 header: ({ column }) => {
