@@ -67,19 +67,33 @@ export default function Users() {
             //     }
             // },
             {
-                id: "id_name",
-                accessorFn: row => `${row.name}_${row.full_name}`,
+                accessorKey: "name",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Email" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            <Link className="underline hover:underline-offset-2" to={`/users/${row.getValue("name")}`}>
+                                {row.getValue("name")}
+                            </Link>
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "full_name",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Full Name" />
                     )
                 },
                 cell: ({ row }) => (
-                    <div className="font-medium">
-                        <Link className="underline hover:underline-offset-2" to={`/users/${row.getValue<String>("id_name").split("_")[0]}`}>
-                            {row.getValue<String>("id_name").split("_")[1]}
-                        </Link>
-                    </div>
+                    <Link className="underline hover:underline-offset-2" to={`/users/${row.getValue("name")}`}>
+                <div className="font-medium">{row.getValue("full_name")}</div>
+                </Link>
                 )
             },
             {
