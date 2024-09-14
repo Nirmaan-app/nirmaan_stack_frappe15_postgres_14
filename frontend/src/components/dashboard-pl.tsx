@@ -2,7 +2,6 @@ import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react
 import { Link } from "react-router-dom";
 import { Card } from "./ui/card";
 import { TailSpin } from "react-loader-spinner";
-import { MainLayout } from "./layout/main-layout";
 
 export const ProjectLead = () => {
 
@@ -44,9 +43,16 @@ export const ProjectLead = () => {
                     <h2 className="text-2xl pt-1 pl-2 pb-4 font-bold tracking-tight">Project Lead Dashboard</h2>
                 </div>
                 <div className="flex items-center space-y-2">
-                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">New Procurement Actions</h2>
+                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Procurement Actions</h2>
+
                 </div>
-                <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                    <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                        <Link to="/prs&milestones">
+                            <p className="text-center py-6 font-bold text-gray-500">PRs and Milestones</p>
+                            <p className="text-center text-red-400 text-sm font-light py-6 font-bold text-gray-500">Create/View PRs, update Milestones & DNs</p>
+                        </Link>
+                    </Card>
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/approve-order">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PR</p>
@@ -66,9 +72,9 @@ export const ProjectLead = () => {
 
                 </div>
                 <div className="flex items-center space-y-2">
-                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Delayed/Rejected Procurement Actions</h2>
+                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Delayed/Rejected Sent Back Actions</h2>
                 </div>
-                <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/approve-sent-back">
                             <p className="text-center py-6 font-bold text-gray-500">Approve Sent Back</p>

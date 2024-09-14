@@ -241,7 +241,7 @@ export const NewPR = () => {
 
     const handleSubmit = () => {
         console.log(userData)
-        if (userData?.role === "Nirmaan Project Manager Profile" || userData?.role === "Nirmaan Admin Profile" || userData.user_id == "Administrator") {
+        if (userData?.role === "Nirmaan Project Manager Profile" || userData?.role === "Nirmaan Admin Profile") {
             createDoc('Procurement Requests', orderData)
                 .then((res) => {
                     console.log("newPR", res)
@@ -260,7 +260,7 @@ export const NewPR = () => {
                     })
                 })
         }
-        if (userData?.role === "Nirmaan Procurement Executive Profile") {
+        if (userData?.role === "Nirmaan Procurement Executive Profile" || userData?.role === "Nirmaan Project Lead Profile") {
             createDoc('Procurement Requests', orderData)
                 .then((doc) => {
                     updateDoc('Procurement Requests', doc.name, {
