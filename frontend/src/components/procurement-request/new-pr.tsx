@@ -50,7 +50,7 @@ export const NewPR = () => {
 
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ['name', 'project_name', 'project_address', 'project_lead', 'procurement_lead', 'creation', 'project'],
+            fields: ["*"],
             filters: [['name', "=", id]],
             orderBy: { field: 'creation', order: 'desc' },
             limit: 1000
@@ -100,9 +100,6 @@ export const NewPR = () => {
     interface Category {
         name: string;
     }
-
-
-
 
     const addWorkPackage = (wpName: string) => {
         setOrderData(prevData => ({
@@ -347,6 +344,8 @@ export const NewPR = () => {
         setCurItem('')
     }
 
+    // console.log("project", project_list)
+
     return (
         <>
             {page == 'wplist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
@@ -417,7 +416,7 @@ export const NewPR = () => {
                 <div className="flex justify-between md:justify-normal md:space-x-40">
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
-                        <h3 className=" font-semibold text-sm md:text-lg">{project_list?.find((item) => item.name === id).project_name}</h3>
+                        <h3 className=" font-semibold text-sm md:text-lg">{project_list && project_list[0]?.project_name}</h3>
                     </div>
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Package</h5>
@@ -436,7 +435,7 @@ export const NewPR = () => {
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">UOM</h5>
-                        <input className="h-[37px] w-[60%] border p-2 rounded-lg" disabled="true" type="text" placeholder={unit || "Unit"} value={unit} />
+                        <input className="h-[37px] w-[60%] border p-2 rounded-lg" disabled={true} type="text" placeholder={unit || "Unit"} value={unit} />
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">Qty</h5>
@@ -566,10 +565,11 @@ export const NewPR = () => {
                         onChange={(e) => setCurItem(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
-                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name</label>
+                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(N.A)</label>
                     <Input
                         type="text"
                         id="makeName"
+                        disabled={true}
                         value={make}
                         onChange={(e) => setMake(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"

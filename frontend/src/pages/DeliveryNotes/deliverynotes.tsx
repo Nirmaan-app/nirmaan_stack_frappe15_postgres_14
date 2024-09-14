@@ -172,11 +172,16 @@ const DeliveryNotes = () => {
                                                         </TableRow>
                                                     ))}
                                                     </TableCell>
-                                                    <TableCell className="text-sm">
-                                                        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                                                            {item?.status === "Generated" ? "Pending" : "Delivered"}
-                                                        </Badge>
-                                                        {/* {item?.status === "Generated" ? "Pending" : "Delivered"} */}
+                                                     <TableCell className="text-sm">
+                                                        {getPrsAssociated(item.name)?.map((po) => (
+                                                            <TableRow>
+                                                                <TableCell>
+                                                                    <Badge variant={`${po?.status === "Generated" ? "yellow" : "green"}`} className="">
+                                                                        {po?.status === "Generated" ? "Pending" : "Delivered"}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        ))}
                                                     </TableCell>
                                                     </>
                                             ) : (

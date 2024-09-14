@@ -115,13 +115,10 @@ export const ApproveSentBack = () => {
 
     const [data, setData] = useState<DataType>([])
     const [checkStrictly, setCheckStrictly] = useState(false);
-    useEffect(() => {
-        // console.log("calling useEffect 2, settingOrderData and updating procurement_list and category_list");
 
+    useEffect(() => {
         if (sent_back_list) {
-            // Initial setup of orderData
             const newOrderData = sent_back_list[0];
-            // Compute new procurement list and categories
             const newCategories: { name: string }[] = [];
             const newList: DataType[] = [];
             newOrderData.item_list.list.forEach((item) => {
@@ -131,7 +128,6 @@ export const ApproveSentBack = () => {
                 }
             });
 
-            // Update orderData with computed lists
             setOrderData(() => ({
                 ...newOrderData,
                 item_list: {
@@ -248,8 +244,6 @@ export const ApproveSentBack = () => {
         return results;
     };
 
-    // console.log("selectedItems", selectedItems)
-    // console.log("orderData", orderData)
     const {mutate} = useSWRConfig()
 
     const newHandleApprove = async () => {
@@ -333,13 +327,6 @@ export const ApproveSentBack = () => {
                 variant: "success"
             });
 
-            // setOrderData(prevOrderData => ({
-            //     ...prevOrderData,
-            //     item_list: {
-            //         list: filteredList
-            //     }
-            // }));
-
             mutate("Sent Back Category(filters,in,Vendor Selected, Partially Approved)");
             sent_back_list_mutate()
             
@@ -416,31 +403,24 @@ export const ApproveSentBack = () => {
                 return item;
             });
 
-            console.log("updatedItemList", updatedItemList)
+            // console.log("updatedItemList", updatedItemList)
             
             const filteredList = orderData.item_list?.list.filter(procItem =>
                 !filteredData.some(selItem => selItem.key === procItem.name)
             );
 
             const res = await updateDoc('Sent Back Category', id, {
-                procurement_list: { list: updatedItemList },
+                item_list: { list: updatedItemList },
                 workflow_state: newWorkflowState
             });
 
-            console.log("response", res)
+            // console.log("response", res)
 
             toast({
                 title: "Success!",
                 description: "New Sent Back created Successfully!",
                 variant: "success"
             });
-
-            // setOrderData(prevOrderData => ({
-            //     ...prevOrderData,
-            //     item_list: {
-            //         list: filteredList
-            //     }
-            // }));
 
             mutate("Sent Back Category(filters,in,Vendor Selected,Partially Approved)");
             sent_back_list_mutate()
@@ -461,21 +441,21 @@ export const ApproveSentBack = () => {
         }
     }
 
-    useEffect(() => {
-        const newCategories = [];
-        orderData?.item_list?.list.map((item) => {
-            const isDuplicate = newCategories.some(category => category.name === item.category);
-            if (!isDuplicate) {
-                newCategories.push({ name: item.category })
-            }
-        })
-        setOrderData((prevState) => ({
-            ...prevState,
-            category_list: {
-                list: newCategories
-            },
-        }));
-    }, [orderData]);
+    // useEffect(() => {
+    //     const newCategories = [];
+    //     orderData?.item_list?.list.map((item) => {
+    //         const isDuplicate = newCategories.some(category => category.name === item.category);
+    //         if (!isDuplicate) {
+    //             newCategories.push({ name: item.category })
+    //         }
+    //     })
+    //     setOrderData((prevState) => ({
+    //         ...prevState,
+    //         category_list: {
+    //             list: newCategories
+    //         },
+    //     }));
+    // }, [orderData]);
 
 
     const getTotal = (cat: string) => {
