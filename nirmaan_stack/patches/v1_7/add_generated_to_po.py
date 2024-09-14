@@ -8,6 +8,6 @@ def execute():
    pos = frappe.get_all("Procurement Orders")
    for po in pos:
          doc = frappe.get_doc("Procurement Orders", po)
-         if(doc.status==""):
+         if(not doc.status):
             frappe.db.set_value("Procurement Orders", po, "status", "Generated")
    frappe.db.commit()
