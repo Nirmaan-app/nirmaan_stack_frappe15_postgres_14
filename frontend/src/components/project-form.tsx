@@ -48,19 +48,31 @@ const projectFormSchema = z.object({
         .string(),
     address_line_1: z
         .string({
-            required_error: "Address Required"
+            required_error: "Address Line 1 Required"
+        })
+        .min(1, {
+            message: "Address Line 1 Required"
         }),
     address_line_2: z
         .string({
-            required_error: "Address Required"
+            required_error: "Address Line 2 Required"
+        })
+        .min(1, {
+            message: "Address Line 2 Required"
         }),
     project_city: z
         .string({
             required_error: "Must provide city"
+        })
+        .min(1, {
+            message: "Must Provide City"
         }),
     project_state: z
         .string({
             required_error: "Must provide state"
+        })
+        .min(1, {
+            message: "Must Provide State"
         }),
     pin: z
         .number()
@@ -68,11 +80,7 @@ const projectFormSchema = z.object({
         .gte(100000)
         .lte(999999)
         .or(z.string()),
-    email: z
-        .string()
-        .email()
-        .or(z.string())
-        .optional(),
+    email: z.string().email().optional().or(z.literal('')),
     phone: z
         .number()
         .positive()
@@ -464,9 +472,9 @@ export const ProjectForm = () => {
                                         </Button>
                                     </SheetTrigger>
                                     <SheetContent className="overflow-y-auto">
-                                        <SheetHeader>
+                                        <SheetHeader className="text-start">
                                             <SheetTitle><div className=" text-2xl font-bold">Create New Customer</div></SheetTitle>
-                                            <SheetDescription>
+                                            <SheetDescription >
                                                 <NewCustomer company_mutate={company_mutate} navigation={false} />
                                             </SheetDescription>
                                         </SheetHeader>
@@ -1112,7 +1120,10 @@ export const ProjectForm = () => {
                                 </AlertDialogTitle>
                                 <div className="flex gap-2">
                                     <AlertDialogAction onClick={() => navigate("/projects")}>Go Back</AlertDialogAction>
-                                    <AlertDialogAction onClick={() => form.reset()}>Create New</AlertDialogAction>
+                                    <AlertDialogAction onClick={() => {
+                                        form.reset()
+                                        form.clearErrors()
+                                    }}>Create New</AlertDialogAction>
                                 </div>
                             </AlertDialogHeader>
 

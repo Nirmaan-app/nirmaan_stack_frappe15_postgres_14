@@ -194,15 +194,15 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         <div>
             <div className="font-bold text-black text-lg">{vendor_name}</div>
             <div className="text-gray-500 text-sm">{address}</div>
-            <div className="flex justify-between py-4">
-                <div className="w-[48%]">
+            <div className="flex justify-between py-4 max-sm:flex-col gap-2">
+                <div className="">
                     <div className="text-gray-500 text-sm">Attach File {is_present?.length > 0 && <span className="font-bold">(Already Uploaded)</span>}</div>
                     <Input type="file" disabled={is_present?.length > 0 ? true : false} onChange={handleFileChange} />
                 </div>
-                <div className="w-[48%]">
+                <div className="">
                     <div className="flex justify-between">
-                        <div className="text-gray-500 text-sm">Delivery Time (Days)</div>
-                        <div className="pt-1 text-gray-500 text-xs">*Required</div>
+                        <div className="text-gray-500 text-sm">Delivery Time<sup>*</sup> (Days)</div>
+                        {/* <div className="pt-1 text-gray-500 text-xs">*Required</div> */}
                     </div>
                     <Input type="number" value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)} />
                 </div>
@@ -223,29 +223,29 @@ export default function QuotationForm({ vendor_id, pr_id }) {
             </div>
             {categories.list.map((cat, index) => {
                 return <div key={index}>
-                    <div className="py-2 text-xl font-bold">
-                        <span>{index + 1}. </span>
-                        {cat.name}
-                    </div>
-                    {quotation_request_list?.map((q) => {
-                        if (q.category === cat.name && q.vendor === vendor_id) {
-                            return <div className="flex space-x-2">
-                                <ul className="mt-2 pl-5 w-1/2 text-black flex-shrink-0 list-disc">
-                                    <li className="">{getItem(q.item)}</li>
-                                </ul>
-                                <div className="flex-1">
-                                    <Input type="text" disabled={true} placeholder={getUnit(q.item)} />
-                                </div>
-                                <div className="flex-1">
-                                    <Input type="text" disabled={true} placeholder={getQuantity(q.item)} />
-                                </div>
-                                <div className="flex-1">
-                                    <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
-                                </div>
+                            <div className="py-2 text-xl font-bold">
+                                <span>{index + 1}. </span>
+                                {cat.name}
                             </div>
-                        }
-                    })}
-                </div>
+                            {quotation_request_list?.map((q) => {
+                                if (q.category === cat.name && q.vendor === vendor_id) {
+                                    return <div className="flex space-x-2">
+                                        <ul className="mt-2 pl-5 w-1/2 text-black flex-shrink-0 list-disc">
+                                            <li className="">{getItem(q.item)}</li>
+                                        </ul>
+                                        <div className="flex-1">
+                                            <Input type="text" disabled={true} placeholder={getUnit(q.item)} />
+                                        </div>
+                                        <div className="flex-1">
+                                            <Input type="text" disabled={true} placeholder={getQuantity(q.item)} />
+                                        </div>
+                                        <div className="flex-1">
+                                            <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
+                                        </div>
+                                    </div>
+                                }
+                            })}
+                        </div>
             })}
             <div className="flex flex-col justify-end items-end bottom-4 right-4 pt-10">
                 {(upload_loading || create_loading || loading) ?

@@ -418,7 +418,7 @@ export const ProcurementOrder = () => {
                                             </div>
                                         </SheetTrigger>
                                         <SheetContent className='overflow-auto'>
-                                            <SheetHeader>
+                                            <SheetHeader className="text-start">
                                                 <SheetTitle>Add Vendor for {cat.name}</SheetTitle>
                                                 {/* <SheetDescription> */}
                                                 {/* <VendorForm work_package={orderData.work_package} vendor_category_mutate={vendor_category_mutate} vendor_list_mutate={vendor_list_mutate} /> */}
