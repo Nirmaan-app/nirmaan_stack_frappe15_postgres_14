@@ -7,7 +7,7 @@ import { Input } from "./ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
 import { Button } from "./ui/button"
 import { ButtonLoading } from "./button-loading"
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
 import ProjectTypeForm from "./project-type-form"
 import { Separator } from "./ui/separator"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
@@ -19,11 +19,12 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./
 import { Checkbox } from "./ui/checkbox"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet"
 import { useNavigate } from "react-router-dom"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { formatToLocalDateTimeString } from "@/utils/FormatDate"
 import { useToast } from "./ui/use-toast"
 import NewCustomer from "@/pages/customers/add-new-customer"
-import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTrigger } from "./ui/alert-dialog"
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogAction } from "./ui/alert-dialog"
+import { usePincode } from "@/hooks/usePincode"
 
 
 // 1.a Create Form Schema accordingly
@@ -50,8 +51,9 @@ const projectFormSchema = z.object({
             required_error: "Address Required"
         }),
     address_line_2: z
-        .string()
-        .optional(),
+        .string({
+            required_error: "Address Required"
+        }),
     project_city: z
         .string({
             required_error: "Must provide city"
@@ -65,8 +67,7 @@ const projectFormSchema = z.object({
         .positive()
         .gte(100000)
         .lte(999999)
-        .or(z.string()).optional()
-    ,
+        .or(z.string()),
     email: z
         .string()
         .email()
@@ -165,8 +166,6 @@ interface sowType {
 export const ProjectForm = () => {
 
     const navigate = useNavigate()
-    // 1.b Define your form.
-    // Has handleSubmit, control functions
     const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
         {
             fields: ['work_package_name'],
@@ -178,14 +177,10 @@ export const ProjectForm = () => {
             limit: 1000,
         });
 
-    // const valueChange = (e) => {
-    //     console.log(e);
-    // }
-
     const defaultValues: ProjectFormValues = {
         project_name: "",
         project_start_date: new Date(),
-        project_end_date: new Date(),
+        project_end_date: undefined,
         project_work_milestones: {
             work_packages: []
         },
@@ -224,46 +219,11 @@ export const ProjectForm = () => {
     });
 
 
-
-    // const { data: wp, isLoading: wp_isLoading, error: wp_error } = useFrappeGetDocList('Work Packages', {
-    //     fields: ["name"]
-    // });
-
-
-    // const { data: sow, isLoading: sow_isLoading, error: sow_error } = useFrappeGetDocList('Scopes of Work', {
-    //     fields: ["name", "scope_of_work_name", "work_package"]
-    // });
-
-    // const wpa = wp?.map(wp => ({
-    //     name: wp.name,
-    //     scopes: sow?.filter(sow => sow.work_package === wp.name)
-    //     .map(sow => {
-    //         if (sow.work_package === wp.name) return ({
-    //             name: sow.name,
-    //             scope_of_work_name: sow.scope_of_work_name,
-    //             work_package: sow.work_package,
-    //             isRequired: false
-    //         })
-
-    //     })
-    // }))
-    // const [workPackage, setWorkPackage] = useState<PWM[]>()
-
-    // console.log(workPackage);
-
-
-
-
     useFrappeDocTypeEventListener("Project Types", (d) => {
         if (d.doctype === "Project Types") {
             project_types_mutate()
         }
     })
-
-    // const { data: project_address, isLoading: project_address_isLoading, error: project_address_error, mutate: project_address_mutate } = useFrappeGetDocList('Address', {
-    //     fields: ["name", "address_title"],
-    //     filters: [["address_type", "=", "Shipping"]]
-    // });
 
     const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
         fields: ["name", "full_name", "role_profile"],
@@ -271,107 +231,38 @@ export const ProjectForm = () => {
         limit: 1000
     });
 
-    // const { data: project_lead, isLoading: project_lead_isLoading, error: project_lead_error } = useFrappeGetDocList('Empployees', {
-    //     fields: ["name", "employee_name"],
-    //     filters: [["employee_role", "=", "Project Lead"]]
-    // });
-
-    // const { data: project_manager, isLoading: project_manager_isLoading, error: project_manager_error } = useFrappeGetDocList('Employees', {
-    //     fields: ["name", "employee_name"],
-    //     filters: [["employee_role", "=", "Project Manager"]]
-    // });
-
-    // const { data: design_lead, isLoading: design_lead_isLoading, error: design_lead_error } = useFrappeGetDocList('Employees', {
-    //     fields: ["name", "employee_name"],
-    //     filters: [["employee_role", "=", "Design Lead"]]
-    // });
-
-    // const { data: procurement_lead, isLoading: procurement_lead_isLoading, error: procurement_lead_error } = useFrappeGetDocList('Employees', {
-    //     fields: ["name", "employee_name"],
-    //     filters: [["employee_role", "=", "Procurement Lead"]]
-    // });
-
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { deleteDoc } = useFrappeDeleteDoc()
-
-
-    // const handleCheckboxChange = (item: WorkPackages) => {
-    //     item.isChecked = !item.isChecked
-    //     setWorkPackages([...workPackages.filter(wp => wp.name !== item.name), item])
-
-    // }
-
-    // const { scopes: d } = useWorkPackageGenerate()
-
-    // if (d) console.log(d)
-
-    // const { data: mile_data, isLoading: mile_loading, error: mile_error } = useFrappeGetDocList("Milestones", {
-    //     fields: ["name", "milestone_name", "scope_of_work"]
-    // })
-
-
-    // 2. Define a submit handler.
+    const [popoverOpen, setPopoverOpen] = useState(false);
+    const [popoverOpen2, setPopoverOpen2] = useState(false);
+    const [duration, setDuration] = useState(0)
     const [areaNames, setAreaNames] = useState([]);
+    const { toast } = useToast()
 
 
-    // function onSubmit(values: z.infer<typeof projectFormSchema>) {
-    //     // Do something with the form values.
-    //     // ✅ This will be type-safe and validated.
-    //     // console.log("values", values)
-    //     const formatted_start_date = formatToLocalDateTimeString(values.project_start_date)
-    //     const formatted_end_date = formatToLocalDateTimeString(values.project_end_date)
+    const [pincode, setPincode] = useState("")
+    const { city, state } = usePincode(pincode)
 
-    //     // console.log("formatedd dtes", formatted_start_date, formatted_end_date)
-    //     //const scopes = values.project_scopes.toString()
-    //     //const formatted_project_milestone = values.project_work_milestones.
-    //     createDoc('Address', {
-    //         address_title: values.project_name,
-    //         address_type: "Shipping",
-    //         address_line1: values.address_line_1,
-    //         address_line2: values.address_line_2,
-    //         city: values.project_city,
-    //         state: values.project_state,
-    //         country: "India",
-    //         pincode: values.pin,
-    //         email_id: values.email,
-    //         phone: values.phone
-    //     }).then(doc => {
-    //         createDoc('Projects', {
-    //             project_name: values.project_name,
-    //             customer: values.customer,
-    //             project_type: values.project_type,
-    //             project_start_date: formatted_start_date,
-    //             project_end_date: formatted_end_date,
-    //             project_address: doc.name,
-    //             project_city: values.project_city,
-    //             project_state: values.project_state,
-    //             project_lead: values.project_lead,
-    //             procurement_lead: values.procurement_lead,
-    //             design_lead: values.design_lead,
-    //             project_manager: values.project_manager,
-    //             project_work_milestones: values.project_work_milestones,
-    //             project_scopes: values.project_scopes,
-    //             subdivisions: values.subdivisions,
-    //             subdivision_list: {
-    //                 list: areaNames
-    //             }
-    //         }).then((doc) => console.log(doc)).catch((error) => console.log("projects error", error))
-    //     }).catch((error) => {
-    //         console.log("address error", error)
-    //     })
+    const debouncedFetch = useCallback(
+        (value: string) => {
+            if (value.length === 6) {
+                setPincode(value)
+            }
+        }, []
+    )
 
+    useEffect(() => {
+        if (pincode.length === 6) {
+            form.setValue("project_city", city || "")
+            form.setValue("project_state", state || "")
+        }
+    }, [city, state, form])
 
     const handleOpenDialog = () => {
-        const button = document.getElementById("dialogOpenProject")
+        const button = document.getElementById("alertOpenProject")
         button?.click()
     };
 
-    const handleCloseDialog = () => {
-        const button = document.getElementById("dialogCloseProject")
-        button?.click()
-    };
-
-    const { toast } = useToast()
     async function onSubmit(values: z.infer<typeof projectFormSchema>) {
         try {
             // Format the dates
@@ -421,6 +312,7 @@ export const ProjectForm = () => {
                     description: `Project ${projectDoc.project_name} created successfully!`,
                     variant: "success"
                 })
+
                 handleOpenDialog()
             }
             catch (projectError) {
@@ -435,32 +327,18 @@ export const ProjectForm = () => {
             })
             console.log("Error:", error);
         }
-
-        // if (!mile_loading && !mile_error) {
-        //     console.log("scopes", values.project_scopes.scopes)
-        //     values.project_scopes.scopes.forEach(scope => {
-        //         const miles = mile_data?.filter(mile => mile.scope_of_work === scope.name)
-        //         miles?.forEach(mile => {
-        //             createDoc("Project Work Milestones", {
-        //                 project: values.project_name,
-        //                 work_package: scope.work_package,
-        //                 scope_of_work: scope.scope_of_work_name,
-        //                 milestone: mile.milestone_name
-        //             })
-        //             console.log(mile.milestone_name, scope.scope_of_work_name, scope.work_package)
-        //         })
-        //     })
-        // }
-
-
-        // console.log(values)
     }
+    const startDate = form.watch("project_start_date");
+    const endDate = form.watch("project_end_date");
 
-    console.log("project dates", form.getValues("project_start_date"), form.getValues("project_end_date"))
-    const [duration, setDuration] = useState(0)
     useEffect(() => {
-        setDuration((Math.round((form.getValues("project_end_date").getTime() - form.getValues("project_start_date").getTime()) / (1000 * 3600 * 24))))
-    }, [form.getValues("project_start_date"), form.getValues("project_end_date")])
+        if (startDate && endDate) {
+            const durationInDays = Math.round(
+                (endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)
+            );
+            setDuration(durationInDays);
+        }
+    }, [startDate, endDate]);
 
     // Transform data to select options
     const options: SelectOption[] = company?.map(item => ({
@@ -472,11 +350,6 @@ export const ProjectForm = () => {
         label: item.project_type_name, // Adjust based on your data structure
         value: item.name
     })) || [];
-
-    // const address_options: SelectOption[] = project_address?.map(item => ({
-    //     label: item.address_title, // Adjust based on your data structure
-    //     value: item.name
-    // })) || [];
 
     const project_lead_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Project Lead Profile").map(item => ({
         label: item.full_name, // Adjust based on your data structure
@@ -498,25 +371,6 @@ export const ProjectForm = () => {
         value: item.name
     })) || [];
 
-    // const project_lead_options: SelectOption[] = project_lead?.map(item => ({
-    //     label: item.employee_name, // Adjust based on your data structure
-    //     value: item.name
-    // })) || [];
-
-    // const project_manager_options: SelectOption[] = project_manager?.map(item => ({
-    //     label: item.employee_name, // Adjust based on your data structure
-    //     value: item.name
-    // })) || [];
-
-    // const design_lead_options: SelectOption[] = design_lead?.map(item => ({
-    //     label: item.employee_name, // Adjust based on your data structure
-    //     value: item.name
-    // })) || [];
-
-    // const procurement_lead_options: SelectOption[] = procurement_lead?.map(item => ({
-    //     label: item.employee_name, // Adjust based on your data structure
-    //     value: item.name
-    // })) || [];
     const wp_list: wpType[] = work_package_list?.map(item => ({
         work_package_name: item.work_package_name, // Adjust based on your data structure
     })) || [];
@@ -544,13 +398,16 @@ export const ProjectForm = () => {
         newAreaNames[index].name = event.target.value;
         setAreaNames(newAreaNames);
     }
-
+    const handlePincodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value
+        debouncedFetch(value)
+    }
     return (
         <Form {...form}>
             <form onSubmit={(event) => {
                 event.stopPropagation();
                 return form.handleSubmit(onSubmit)(event);
-            }} className="ml-8">
+            }} className="px-8">
                 <div className="flex flex-col gap-4">
                     <p className="text-sky-600 font-semibold">Project Details</p>
                     <FormField
@@ -558,7 +415,7 @@ export const ProjectForm = () => {
                         name="project_name"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Project Name<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Project Name<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="flex flex-col items-start md:basis-2/4">
                                     <FormControl className="">
                                         <Input placeholder="Project Name" {...field} />
@@ -576,7 +433,7 @@ export const ProjectForm = () => {
                         name="customer"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Customer<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Customer<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                         <div className="flex flex-col items-start">
@@ -624,7 +481,7 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem className="lg:flex lg:items-center gap-4">
-                                    <FormLabel className="md:basis-2/12">Project Type<sup>*</sup></FormLabel>
+                                    <FormLabel className="md:basis-2/12">Project Type<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                     <div className="md:basis-2/4">
                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                             <div className="flex flex-col items-start">
@@ -674,7 +531,7 @@ export const ProjectForm = () => {
                         render={({ field }) => {
                             return (
                                 <FormItem className="lg:flex lg:items-center gap-4">
-                                    <FormLabel className="md:basis-2/12">Sub-Divisions<sup>*</sup></FormLabel>
+                                    <FormLabel className="md:basis-2/12">Sub-Divisions<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                     <div className="md:basis-2/4">
                                         <Select
                                             onValueChange={(e) => {
@@ -727,7 +584,7 @@ export const ProjectForm = () => {
                         name="address_line_1"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Address Line 1<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Address Line 1<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
                                         <Input placeholder="Address Line 1" {...field} />
@@ -746,7 +603,7 @@ export const ProjectForm = () => {
                         name="address_line_2"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Address Line 2<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Address Line 2<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
                                         <Input placeholder="Address Line 2" {...field} />
@@ -765,10 +622,10 @@ export const ProjectForm = () => {
                         name="project_city"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">City<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">City</FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
-                                        <Input placeholder="City Name" {...field} />
+                                        <Input placeholder={city || "City"} disabled={true} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </div>
@@ -784,10 +641,10 @@ export const ProjectForm = () => {
                         name="project_state"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">State<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">State</FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
-                                        <Input placeholder="State Name" {...field} />
+                                        <Input placeholder={state || "State"} disabled={true} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </div>
@@ -803,14 +660,17 @@ export const ProjectForm = () => {
                         name="pin"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Pin Code<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Pin Code<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
                                         <Input
                                             type="number"
-                                            placeholder="Pincode"
+                                            placeholder="6 digit PIN"
                                             {...field}
-                                            onChange={(event) => field.onChange(+event.target.value)}
+                                            onChange={(e) => {
+                                                field.onChange(+e.target.value)
+                                                handlePincodeChange(e)
+                                            }}
                                         />
                                     </FormControl>
                                     <FormMessage />
@@ -872,9 +732,9 @@ export const ProjectForm = () => {
                         name="project_start_date"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Project Start Date<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Project Start Date<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-1/4">
-                                    <Popover>
+                                    <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
                                         <PopoverTrigger asChild>
                                             <FormControl>
                                                 <Button
@@ -897,7 +757,10 @@ export const ProjectForm = () => {
                                             <Calendar
                                                 mode="single"
                                                 selected={field.value}
-                                                onSelect={field.onChange}
+                                                onSelect={(date) => {
+                                                    field.onChange(date)
+                                                    setPopoverOpen(false)
+                                                }}
                                                 initialFocus
                                             />
                                         </PopoverContent>
@@ -916,9 +779,9 @@ export const ProjectForm = () => {
                         name="project_end_date"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Project End Date<sup>*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">Project End Date<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-1/4">
-                                    <Popover>
+                                    <Popover open={popoverOpen2} onOpenChange={setPopoverOpen2}>
                                         <PopoverTrigger asChild>
                                             <FormControl>
                                                 <Button
@@ -941,7 +804,10 @@ export const ProjectForm = () => {
                                             <Calendar
                                                 mode="single"
                                                 selected={field.value}
-                                                onSelect={field.onChange}
+                                                onSelect={(date) => {
+                                                    field.onChange(date)
+                                                    setPopoverOpen2(false)
+                                                }}
                                                 disabled={(date) =>
                                                     date < form.getValues("project_start_date")
                                                 }
@@ -960,13 +826,12 @@ export const ProjectForm = () => {
                     <div className="flex items-center">
                         <FormLabel className="md:basis-2/12">Duration: </FormLabel>
                         <div className=" pl-4 flex items-center gap-2">
-                            <h1>{duration}
-                            </h1>
+                            <h1>{duration}</h1>
                             <h1 className="text-sm text-red-600"><sup>*</sup>(Days)</h1>
                         </div>
                     </div>
                     <Separator className="my-6" />
-                    <p className="text-sky-600 font-semibold">Project Asignees</p>
+                    <p className="text-sky-600 font-semibold">Project Asignees(Optional)</p>
                     <FormField
                         control={form.control}
                         name="project_lead"
@@ -1103,7 +968,7 @@ export const ProjectForm = () => {
                         render={() => (
                             <FormItem>
                                 <div className="mb-4">
-                                    <FormLabel className="text-base flex">Work Package selection<h1 className="pl-1 text-sm text-red-600">*</h1></FormLabel>
+                                    <FormLabel className="text-base flex">Work Package selection<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
 
                                     <FormDescription>
                                         Select the work packages.
@@ -1236,28 +1101,23 @@ export const ProjectForm = () => {
                             : <Button type="submit">Submit</Button>
                         }
                     </div>
-                    <Dialog>
-                        <DialogTrigger asChild>
-                            <button className="hidden" id="dialogOpenProject" >Trigger Dialog</button>
-                        </DialogTrigger>
-                        <DialogContent>
-                            <DialogHeader className="flex items-center justify-center">
-                                <div className="font-semibold text-green-500"> Submitted successfully</div>
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <button className="hidden" id="alertOpenProject" >Trigger Dialog</button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader className="flex items-center justify-center">
+                                <AlertDialogTitle className="text-green-500">
+                                    Project Created Successfully!
+                                </AlertDialogTitle>
                                 <div className="flex gap-2">
-                                    <Button onClick={() => navigate("/projects")}>Go Back</Button>
-                                    <Button onClick={() => {
-                                        form.reset();
-                                        handleCloseDialog();
-                                    }}>
-                                        Create New
-                                    </Button>
+                                    <AlertDialogAction onClick={() => navigate("/projects")}>Go Back</AlertDialogAction>
+                                    <AlertDialogAction onClick={() => form.reset()}>Create New</AlertDialogAction>
                                 </div>
-                            </DialogHeader>
-                            <DialogClose asChild>
-                                <button className="hidden" id="dialogCloseProject">close</button>
-                            </DialogClose>
-                        </DialogContent>
-                    </Dialog>
+                            </AlertDialogHeader>
+
+                        </AlertDialogContent>
+                    </AlertDialog>
                 </div>
             </form >
         </Form >

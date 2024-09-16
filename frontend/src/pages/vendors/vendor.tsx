@@ -365,7 +365,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
              {/* Overview Section */}
              {current === "overview" && (
                 (isLoading || vendorAddressLoading ? <OverviewSkeleton /> : (
-                <div>
+                <div className="flex flex-col gap-4">
                     <Card>
                         <CardHeader>
                           <CardTitle>
@@ -431,13 +431,22 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                                       </CardDescription> */}
                                     </div>
                                     </div>
-                                        <CardDescription className="space-y-2">
-                                              <span className="text-lg font-semibold">Categories</span>
-                                              <ul className={`flex gap-2`}>
+                                {/* </CardContent>
+                              </CardHeader>
+                            </Card> */}
+                        </CardContent>      
+                    </Card>
+                    <Card>
+                    <CardHeader>
+              <CardTitle>Packages-Categories Offered</CardTitle>
+            </CardHeader>
+            <CardContent>
+                    <CardDescription className="space-y-2">
+                                              <ul className={`flex gap-2 flex-wrap`}>
                                                 {Object.entries(groupedCategories).map(([workPackage, categoryList], index) => (
-                                                  <li key={index} className={`border p-4 max-md:p-2 bg-white rounded-lg shadow-sm`}>
+                                                  <li key={index} className={`border p-1 max-md:p-2 bg-white rounded-lg shadow-sm max-sm:w-full`}>
                                                     <div
-                                                      className="flex items-center gap-4 max-md:gap-2 cursor-pointer hover:bg-gray-100 p-2 max-md:p-1 rounded-md transition-all duration-200"
+                                                      className="flex items-center gap-4 justify-between max-md:gap-2 cursor-pointer hover:bg-gray-100 p-2 max-md:p-1 rounded-md transition-all duration-200"
                                                       onClick={() => toggleExpand(workPackage)}
                                                     >
                                                       <div className="flex items-center gap-2">
@@ -467,13 +476,8 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                                                 ))}
                                               </ul>
                                         </CardDescription>
-                                      
-                                {/* </CardContent>
-                              </CardHeader>
-                            </Card> */}
-                        </CardContent>
-                                      
-                    </Card>
+                                        </CardContent>
+                                        </Card>
                 </div>
                 ))
             )}

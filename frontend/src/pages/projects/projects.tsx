@@ -12,18 +12,6 @@ import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 
-// NOTE: Modify frappe hooks field to get the data
-
-
-// type Project = {
-//     name: string
-//     project_name: string
-//     project_type: string
-//     customer: string
-//     project_city: string
-//     project_state: string
-//     project_work_milestones: object
-// }
 
 export default function Projects() {
     const navigate = useNavigate()

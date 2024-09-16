@@ -4,17 +4,18 @@ import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { useUserData } from "@/hooks/useUserData";
 import { useContext } from "react";
 import { UserContext } from "@/utils/auth/UserProvider";
+import { useNavigate } from "react-router-dom";
 
 export function UserNav() {
     const userData = useUserData()
     const { logout } = useContext(UserContext)
+    const navigate = useNavigate()
 
     const generateFallback = (full_name: string) => {
         let names = full_name.split(" ");
         let initials = names[0].substring(0, 1).toUpperCase() + (names.length === 1 ? "" : names[1].substring(0, 1).toUpperCase());
         return initials;
     }
-
 
     return (
         <DropdownMenu>
@@ -58,7 +59,11 @@ export function UserNav() {
                         <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
                     </DropdownMenuItem>
                     <DropdownMenuItem>New Team</DropdownMenuItem> */}
-                    <DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => {
+                        (userData.user_id === "Administrator") ? alert("Admin does not has a profile page")
+                            :
+                            navigate(`/users/${userData.user_id}`)
+                    }}>
                         Profile<span className="text-red-700 text-xs font-thin">(beta)</span>
                         <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
                     </DropdownMenuItem>

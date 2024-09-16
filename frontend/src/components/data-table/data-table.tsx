@@ -36,11 +36,12 @@ interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
     data: TData[]
     project_values?: ProjectOptions[]
+    category_options?: ProjectOptions[]
     loading?: boolean
     error?: any
 }
 
-export function DataTable<TData, TValue>({ columns, data, project_values }: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({ columns, data, project_values, category_options }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([
         {
             id: "creation",
@@ -103,7 +104,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values }: Data
                     onChange={value => setGlobalFilter(String(value))}
                     className="max-w-sm"
                 />
-                <DataTableToolbar table={table} project_values={project_values} />
+                <DataTableToolbar table={table} project_values={project_values} category_options={category_options} />
                 {/* <DataTableViewOptions table={table} /> */}
             </div>
 
@@ -124,7 +125,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values }: Data
                             </TableRow>
                         ))}
                     </TableHeader>
-                    <TableBody>
+                    {/* <TableBody>
                         {table.getRowModel().rows?.length ? (
                             table.getRowModel().rows.map((row) => (
                                 <TableRow
@@ -145,7 +146,32 @@ export function DataTable<TData, TValue>({ columns, data, project_values }: Data
                                 </TableCell>
                             </TableRow>
                         )}
+                    </TableBody> */}
+
+                    <TableBody>
+                        {table.getRowModel().rows?.length ? (
+                            table.getRowModel().rows.map((row) => (
+                                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
+                                    {row.getVisibleCells().map((cell) => (
+                                        <TableCell
+                                            key={cell.id}
+                                            data-label={cell.column.columnDef.header}
+                                            className="py-6 px-4"
+                                        >
+                                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))
+                        ) : (
+                            <TableRow>
+                                <TableCell colSpan={columns.length} className="h-24 text-center">
+                                    No results.
+                                </TableCell>
+                            </TableRow>
+                        )}
                     </TableBody>
+
                 </Table>
             </div>
             <DataTablePagination table={table} />

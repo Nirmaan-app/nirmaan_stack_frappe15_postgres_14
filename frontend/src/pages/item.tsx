@@ -76,27 +76,23 @@ const ItemView = ({ itemId }: { itemId: string }) => {
 
     if (error) return <h1 className="text-red-700">There is an error while fetching the document, please check!</h1>
 
-    return ( 
+    return (
         <div className="flex-1 space-y-4 p-12 pt-8">
             <div className="flex items-center">
                 <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/items")} />
-                    {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
-                <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.item_name}</h2>}
+                {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
+                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.item_name}</h2>}
                 <Dialog>
                     <DialogTrigger>
                         <FilePenLine className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
                     </DialogTrigger>
                     <DialogContent>
                         <DialogHeader>
-                        <DialogTitle>Edit Item</DialogTitle>
-                            {/* <EditItems data={data} /> */}
-                            <DialogDescription>
-                            <div className="flex items-center space-x-2">
-                                <div>
-                                    <DialogDescription>
-                                        Enter Item Details here.
-                                    </DialogDescription>
-                                    <div className="mb-4">
+                            <DialogTitle className="mb-2">Edit Item</DialogTitle>
+                            <DialogDescription className="flex flex-col gap-2">
+                                <div className="flex flex-col gap-4 ">
+
+                                    <div className="flex flex-col items-start">
                                         <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
                                         <Input
                                             type="text"
@@ -107,10 +103,10 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                             className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                         />
                                     </div>
-                                    <div className="mb-4">
+                                    <div className="flex flex-col items-start">
                                         <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
                                         <Select onValueChange={(value) => setUnit(value)}>
-                                            <SelectTrigger className="w-[180px]">
+                                            <SelectTrigger className="">
                                                 <SelectValue className="text-gray-200" placeholder={data?.unit_name} />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -130,10 +126,10 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <div className="mb-4">
+                                    <div className="flex flex-col items-start">
                                         <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category</label>
                                         <Select onValueChange={(value) => setCategory(value)}>
-                                            <SelectTrigger className="w-[180px]">
+                                            <SelectTrigger className="">
                                                 <SelectValue className="text-gray-200" placeholder={data?.category} />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -146,46 +142,43 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                         </Select>
                                     </div>
                                 </div>
-                            </div>
-                    <div className="flex">
-                                <DialogClose className="flex-1 right-0">
-                                    <Button className="flex right-0" onClick={() => handleEditItem()}>Submit</Button>
+                                <DialogClose className="">
+                                    <Button className="" onClick={() => handleEditItem()}>Submit</Button>
                                 </DialogClose>
-                        </div>
                             </DialogDescription>
                         </DialogHeader>
                     </DialogContent>
-                </Dialog> 
+                </Dialog>
             </div>
-                {isLoading ? <OverviewSkeleton /> : (
+            {isLoading ? <OverviewSkeleton /> : (
                 <div>
                     <Card>
                         <CardHeader>
-                          <CardTitle>
-                              {data?.item_name}
-                          </CardTitle>
+                            <CardTitle>
+                                {data?.item_name}
+                            </CardTitle>
                         </CardHeader>
                         <CardContent className="flex items-start ">
-                                    <div className="space-y-4">
-                                      <CardDescription className="space-y-2">
-                                          <span>Item ID</span>
-                                          <p className="font-bold text-black">{data?.name}</p>
-                                      </CardDescription>
+                            <div className="space-y-4">
+                                <CardDescription className="space-y-2">
+                                    <span>Item ID</span>
+                                    <p className="font-bold text-black">{data?.name}</p>
+                                </CardDescription>
 
-                                      <CardDescription className="space-y-2">
-                                          <span>Category</span>
-                                          <p className="font-bold text-black">{data?.category}</p>
-                                      </CardDescription>
+                                <CardDescription className="space-y-2">
+                                    <span>Category</span>
+                                    <p className="font-bold text-black">{data?.category}</p>
+                                </CardDescription>
 
-                                      <CardDescription className="space-y-2">
-                                          <span>Unit</span>
-                                          <p className="font-bold text-black">{data?.unit_name}</p>
-                                      </CardDescription>
-                                    </div>
-                        </CardContent>           
+                                <CardDescription className="space-y-2">
+                                    <span>Unit</span>
+                                    <p className="font-bold text-black">{data?.unit_name}</p>
+                                </CardDescription>
+                            </div>
+                        </CardContent>
                     </Card>
                 </div>
-                )}
+            )}
 
         </div>
     )

@@ -48,14 +48,14 @@ export const SentBackRequest = () => {
                 accessorKey: "name",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="ID" />
+                        <DataTableColumnHeader column={column} title="Sentback ID" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
                             <Link className="underline hover:underline-offset-2" to={`/sent-back-request/${row.getValue("name")}`}>
-                                {row.getValue("name")}
+                                {row.getValue<String>("name").slice(-4)}
                             </Link>
                         </div>
                     )

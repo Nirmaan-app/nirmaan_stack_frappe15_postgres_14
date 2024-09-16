@@ -8,7 +8,7 @@ import Projects from './pages/projects/projects'
 import Customers from './pages/customers/customers'
 import WorkPackages from './pages/work-packages'
 import EditProject from './pages/projects/edit-project'
-import Profile from './pages/user-profile'
+import Profile from './pages/users/user-profile'
 import { EditProjectForm } from './components/edit-project-form'
 import { ApprovePR } from './pages/approve-pr'
 import { PRList } from './components/procurement/procurement-approved'
@@ -32,17 +32,17 @@ import { AdminRoute, LeadRoute, ProtectedRoute } from './utils/auth/ProtectedRou
 import { UserProvider } from './utils/auth/UserProvider'
 
 //import AuthenticationPage from './pages/auth/login-shadcn'
-import Users from './pages/users'
+import Users from './pages/users/users'
 import Roles from './pages/roles'
 import Debug from './pages/debug'
 import { ApproveSelectVendor } from './pages/approve-select-vendor'
 import { ApproveVendor } from './pages/approve-vendor'
 import { NewPR } from './components/procurement-request/new-pr'
 // import { PRSummary } from './components/pr-summary'
-import { UserForm } from './pages/user-form'
+import { UserForm } from './pages/users/user-form'
 import Items from './pages/items'
 
-import Vendors from './pages/vendors'
+import Vendors from './pages/vendors/vendors'
 
 import ListPR from './components/procurement-request/list-pr'
 import { EditVendor } from './pages/edit-vendor'
@@ -55,8 +55,10 @@ import { DelayedPRSelect } from './pages/delayed-pr-select'
 import { DelayedPR } from './pages/delayed-pr'
 import NewCustomer from './pages/customers/add-new-customer'
 import EditCustomer from './pages/customers/edit-customer'
-import { NewVendor } from './pages/new-vendor'
+import { NewVendor } from './pages/vendors/new-vendor'
 import NewMilestones from './components/updates/NewMilestones'
+import DeliveryNotes from './pages/DeliveryNotes/deliverynotes'
+import DeliveryNote from './pages/DeliveryNotes/deliverynote'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -104,7 +106,8 @@ const router = createBrowserRouter(
 					<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
 					<Route path="release-po" element={<ReleasePOSelect />} />
 					<Route path="/release-po/:id" element={<ReleasePO />} />
-
+					<Route path="delivery-notes" element={<DeliveryNotes />} />
+					<Route path="/delivery-notes/:id" element={<DeliveryNote />} />
 
 					<Route path="projects">
 						<Route index element={<Projects />} />
@@ -130,13 +133,13 @@ const router = createBrowserRouter(
 
 					<Route path="items" >
 						<Route index element={<Items />} />
-						<Route path=":itemId" lazy={() => import('@/pages/item')}  />
+						<Route path=":itemId" lazy={() => import('@/pages/item')} />
 					</Route>
 
 					<Route path="vendors">
 						<Route index element={<Vendors />} />
 						<Route path="new" element={<NewVendor />} />
-						<Route path=":vendorId" lazy={() => import('@/pages/vendor')} />
+						<Route path=":vendorId" lazy={() => import('@/pages/vendors/vendor')} />
 						<Route path=":id/edit" element={<EditVendor />} />
 					</Route>
 

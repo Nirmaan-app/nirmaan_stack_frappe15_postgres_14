@@ -97,7 +97,7 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                                             <span className={cn({ "text-white": isActive("/users") })}>Users</span>
                                         </Button>
                                     </Link>
-                                    <Link to="/wp">
+                                    {/* <Link to="/wp">
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -106,7 +106,7 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/wp") })}>
                                             <span className={cn({ "text-white": isActive("/wp") })}>Work Packages</span>
                                         </Button>
-                                    </Link>
+                                    </Link> */}
                                     <Link to="/items">
                                         <Button
                                             variant="ghost"

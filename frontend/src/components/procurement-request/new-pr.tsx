@@ -23,6 +23,38 @@ export const NewPR = () => {
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate();
     const userData = useUserData()
+    const { toast } = useToast()
+
+    const [page, setPage] = useState<string>('wplist')
+    const [curItem, setCurItem] = useState<string>('')
+    const [curCategory, setCurCategory] = useState<string>('')
+    const [unit, setUnit] = useState<string>('')
+    const [quantity, setQuantity] = useState<number | string>('')
+    const [item_id, setItem_id] = useState<string>('');
+    const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
+    const [make, setMake] = useState('');
+    const [tax, setTax] = useState<number | null>(null)
+
+    const [orderData, setOrderData] = useState({
+        project: id,
+        work_package: '',
+        procurement_list: {
+            list: []
+        },
+        category_list: {
+            list: []
+        }
+    })
+
+
+
+    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
+        {
+            fields: ["*"],
+            filters: [['name', "=", id]],
+            orderBy: { field: 'creation', order: 'desc' },
+            limit: 1000
+        });
 
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
         {
@@ -42,27 +74,32 @@ export const NewPR = () => {
             orderBy: { field: 'creation', order: 'desc' },
             limit: 10000
         });
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-        {
-            fields: ['name', 'project_name', 'project_address', 'project_lead', 'procurement_lead', 'creation'],
-            orderBy: { field: 'creation', order: 'desc' },
-            limit: 1000
-        });
+
+    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+
+    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+
+
+    useEffect(() => {
+        const newCategories = [];
+        orderData.procurement_list.list.map((item) => {
+            const isDuplicate = newCategories.some(category => category.name === item.category);
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category })
+            }
+        })
+        setOrderData((prevState) => ({
+            ...prevState,
+            category_list: {
+                list: newCategories
+            },
+        }));
+    }, [orderData.procurement_list]);
+
 
     interface Category {
         name: string;
     }
-
-
-    const [page, setPage] = useState<string>('wplist')
-    const [curItem, setCurItem] = useState<string>('')
-    const [curCategory, setCurCategory] = useState<string>('')
-    const [unit, setUnit] = useState<string>('')
-    const [quantity, setQuantity] = useState<number | string>('')
-    const [item_id, setItem_id] = useState<string>('');
-    const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
-    const [make, setMake] = useState('');
-    const [tax, setTax] = useState<number | null>(null)
 
     const addWorkPackage = (wpName: string) => {
         setOrderData(prevData => ({
@@ -83,16 +120,7 @@ export const NewPR = () => {
         console.log(curCategory, categories)
     };
 
-    const [orderData, setOrderData] = useState({
-        project: id,
-        work_package: '',
-        procurement_list: {
-            list: []
-        },
-        category_list: {
-            list: []
-        }
-    })
+
     const handleWPClick = (wp: string, value: string) => {
         setOrderData({
             project: id,
@@ -198,21 +226,7 @@ export const NewPR = () => {
         }
     };
 
-    useEffect(() => {
-        const newCategories = [];
-        orderData.procurement_list.list.map((item) => {
-            const isDuplicate = newCategories.some(category => category.name === item.category);
-            if (!isDuplicate) {
-                newCategories.push({ name: item.category })
-            }
-        })
-        setOrderData((prevState) => ({
-            ...prevState,
-            category_list: {
-                list: newCategories
-            },
-        }));
-    }, [orderData.procurement_list]);
+
 
     const handleCommentChange = (e) => {
         setOrderData((prevState) => ({
@@ -221,13 +235,10 @@ export const NewPR = () => {
         }));
     }
 
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
 
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
-    const {toast} = useToast()
     const handleSubmit = () => {
         console.log(userData)
-        if (userData?.role === "Nirmaan Project Manager Profile" || userData?.role === "Nirmaan Admin Profile" || userData.user_id == "Administrator") {
+        if (userData?.role === "Nirmaan Project Manager Profile" || userData?.role === "Nirmaan Admin Profile") {
             createDoc('Procurement Requests', orderData)
                 .then((res) => {
                     console.log("newPR", res)
@@ -246,7 +257,7 @@ export const NewPR = () => {
                     })
                 })
         }
-        if (userData?.role === "Nirmaan Procurement Executive Profile") {
+        if (userData?.role === "Nirmaan Procurement Executive Profile" || userData?.role === "Nirmaan Project Lead Profile") {
             createDoc('Procurement Requests', orderData)
                 .then((doc) => {
                     updateDoc('Procurement Requests', doc.name, {
@@ -333,6 +344,8 @@ export const NewPR = () => {
         setCurItem('')
     }
 
+    // console.log("project", project_list)
+
     return (
         <>
             {page == 'wplist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
@@ -340,7 +353,7 @@ export const NewPR = () => {
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/procurement-request")} />
                     <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                     {wp_list?.map((item) => (
                         <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
                             <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
@@ -376,7 +389,7 @@ export const NewPR = () => {
 
                     <h2 className="text-base pl-2 font-bold tracking-tight">Select Category</h2>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                     {category_list?.map((item) => {
                         if (item.work_package === orderData.work_package) {
                             return (
@@ -400,10 +413,10 @@ export const NewPR = () => {
                     <ArrowLeft className="cursor-pointer" onClick={() => setPage('categorylist')} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                 </div>
-                <div className="flex justify-between md:justify-normal md:space-x-40">
+                <div className="flex justify-between max-md:pr-40 md:justify-normal md:space-x-40">
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
-                        <h3 className=" font-semibold text-sm md:text-lg">{project_list?.find((item) => item.name === id).project_name}</h3>
+                        <h3 className=" font-semibold text-sm md:text-lg">{project_list && project_list[0]?.project_name}</h3>
                     </div>
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Package</h5>
@@ -422,7 +435,7 @@ export const NewPR = () => {
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">UOM</h5>
-                        <input className="h-[37px] w-[60%] border p-2 rounded-lg" disabled="true" type="text" placeholder={unit || "Unit"} value={unit} />
+                        <input className="h-[37px] w-[60%] border p-2 rounded-lg" disabled={true} type="text" placeholder={unit || "Unit"} value={unit} />
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">Qty</h5>
@@ -437,72 +450,78 @@ export const NewPR = () => {
                         <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>}
                     {/* <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button> */}
                 </div>
-                <div className="text-xs font-thin text-rose-700">Added Items</div>
-                {orderData.category_list?.list?.map((cat) => {
-                    return <div className="container mb-4 mx-0 px-0">
-                        <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
-                        <table className="table-auto w-[95%]">
-                            <thead>
-                                <tr className="bg-gray-200">
-                                    <th className="px-4 py-1 text-xs">Item Name</th>
-                                    <th className="px-4 py-1 pl-10 text-xs">Unit</th>
-                                    <th className="px-4 py-1 text-xs">Quantity</th>
-                                    <th className="px-4 py-1 text-xs">Edit</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {orderData.procurement_list.list?.map((item) => {
-                                    if (item.category === cat.name) {
-                                        return <tr key={item.item} >
-                                            <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.item}</td>
-                                            <td className="border-b-2 px-4 py-1 pl-10 text-xs text-gray-700 text-center">{item.unit}</td>
-                                            <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.quantity}</td>
-                                            <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">
-                                                <Dialog className="border border-gray-200">
-                                                    <DialogTrigger><Pencil className="w-4 h-4" /></DialogTrigger>
-                                                    <DialogContent>
-                                                        <DialogHeader>
-                                                            <DialogTitle className="text-left py-2">Edit Item</DialogTitle>
-                                                            <DialogDescription className="flex flex-row">
-                                                            </DialogDescription>
-                                                            <DialogDescription className="flex flex-row">
-                                                                <div className="flex space-x-2">
-                                                                    <div className="w-1/2 md:w-2/3">
-                                                                        <h5 className="text-xs text-gray-400 text-left">Items</h5>
-                                                                        <div className=" w-full border rounded-lg px-1 py-2 text-left">
-                                                                            {item.item}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="w-[30%]">
-                                                                        <h5 className="text-xs text-gray-400 text-left">UOM</h5>
-                                                                        <div className="h-[37px] w-full pt-1 text-left">
-                                                                            {item.unit}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="w-[25%]">
-                                                                        <h5 className="text-xs text-gray-400 text-left">Qty</h5>
-                                                                        <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
-                                                                    </div>
-                                                                </div>
-                                                            </DialogDescription>
-                                                            <DialogDescription className="flex flex-row justify-between">
-                                                                <div></div>
-                                                                <div className="flex botton-4 right-4 gap-2">
-                                                                    <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                    <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
-                                                                </div>
-                                                            </DialogDescription>
-                                                        </DialogHeader>
-                                                    </DialogContent>
-                                                </Dialog>
-                                            </td>
+                <div className="max-md:text-xs text-rose-700">Added Items</div>
+                {
+                    orderData.category_list.list.length ? (
+                        orderData.category_list?.list?.map((cat) => {
+                            return <div className="container mb-4 mx-0 px-0">
+                                <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
+                                <table className="table-auto w-[95%]">
+                                    <thead>
+                                        <tr className="bg-gray-200">
+                                            <th className="px-4 py-1 text-xs">Item Name</th>
+                                            <th className="px-4 py-1 pl-10 text-xs">Unit</th>
+                                            <th className="px-4 py-1 text-xs">Quantity</th>
+                                            <th className="px-4 py-1 text-xs">Edit</th>
                                         </tr>
-                                    }
-                                })}
-                            </tbody>
-                        </table>
+                                    </thead>
+                                    <tbody>
+                                        {orderData.procurement_list.list?.map((item) => {
+                                            if (item.category === cat.name) {
+                                                return <tr key={item.item} >
+                                                    <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.item}</td>
+                                                    <td className="border-b-2 px-4 py-1 pl-10 text-xs text-gray-700 text-center">{item.unit}</td>
+                                                    <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.quantity}</td>
+                                                    <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">
+                                                        <Dialog className="border border-gray-200">
+                                                            <DialogTrigger><Pencil className="w-4 h-4" /></DialogTrigger>
+                                                            <DialogContent>
+                                                                <DialogHeader>
+                                                                    <DialogTitle className="text-left py-2">Edit Item</DialogTitle>
+                                                                    <DialogDescription className="flex flex-row">
+                                                                    </DialogDescription>
+                                                                    <DialogDescription className="flex flex-row">
+                                                                        <div className="flex space-x-2">
+                                                                            <div className="w-1/2 md:w-2/3">
+                                                                                <h5 className="text-xs text-gray-400 text-left">Items</h5>
+                                                                                <div className=" w-full border rounded-lg px-1 py-2 text-left">
+                                                                                    {item.item}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="w-[30%]">
+                                                                                <h5 className="text-xs text-gray-400 text-left">UOM</h5>
+                                                                                <div className="h-[37px] w-full pt-1 text-left">
+                                                                                    {item.unit}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="w-[25%]">
+                                                                                <h5 className="text-xs text-gray-400 text-left">Qty</h5>
+                                                                                <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
+                                                                            </div>
+                                                                        </div>
+                                                                    </DialogDescription>
+                                                                    <DialogDescription className="flex flex-row justify-between">
+                                                                        <div></div>
+                                                                        <div className="flex botton-4 right-4 gap-2">
+                                                                            <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
+                                                                            <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                        </div>
+                                                                    </DialogDescription>
+                                                                </DialogHeader>
+                                                            </DialogContent>
+                                                        </Dialog>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        })
+                    ) : <div className="text-center bg-gray-100 p-2 text-gray-600">
+                        No Items Added!
                     </div>
-                })}
+                }
 
                 <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
                     <h3 className="font-bold py-1">Include Comments</h3>
@@ -552,10 +571,11 @@ export const NewPR = () => {
                         onChange={(e) => setCurItem(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
-                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name</label>
+                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(N.A)</label>
                     <Input
                         type="text"
                         id="makeName"
+                        disabled={true}
                         value={make}
                         onChange={(e) => setMake(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"

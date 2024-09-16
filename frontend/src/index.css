@@ -146,3 +146,41 @@ html, body {
     page-break-before: always;
   }
 }
+
+sup {
+  color: red;
+}
+
+/* @media (max-width: 600px) {
+  table, thead, tbody, th, td, tr {
+      display: block;
+  }
+
+  thead tr {
+      display: none;
+  }
+
+  /* tr {
+      margin-bottom: 1rem;
+  } 
+
+  td {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-left: 50%;
+      position: relative;
+      text-align: right;
+  }
+
+  td:before {
+      content: attr(data-label);
+      position: absolute;
+      left: 0;
+      width: 50%;
+      padding-left: 1rem;
+      text-align: left;
+      font-weight: bold;
+  }
+} */
+

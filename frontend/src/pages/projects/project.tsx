@@ -22,8 +22,8 @@ import { TableSkeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import { Menu, MenuProps, TableProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
-import { ArrowLeft, Download, FilePenLine } from "lucide-react"
-import React, { useMemo, useState } from "react"
+import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, Download, FilePenLine } from "lucide-react"
+import React, { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
 import { Button } from "@/components/ui/button"
@@ -513,7 +513,70 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
 
   const { data: projectCustomer } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
 
-  console.log("customerData", projectCustomer)
+  const { data: projectAssignees, isLoading: projectAssigneesLoading } = useFrappeGetDocList("User Permission", {
+    fields: ["*"],
+    limit: 1000,
+    filters: [["for_value", "=", projectId], ["allow", "=", "Projects"]]
+  },
+    `User Permission, filters(for_value),=,${projectId}`
+  )
+
+  const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList("Nirmaan Users", {
+    fields: ["*"],
+    limit: 1000
+  },
+    "Nirmaan Users"
+  )
+
+  // Grouping functionality
+  const groupedAssignees = useMemo(() => {
+    if (!projectAssignees || !usersList) return {};
+
+    const filteredAssignees = projectAssignees.filter(assignee =>
+      usersList.some(user => user.name === assignee.user)
+    );
+
+    const grouped = filteredAssignees.reduce((acc, assignee) => {
+      const user = usersList.find(user => user.name === assignee.user);
+      if (user) {
+        const { role_profile, full_name } = user;
+
+        if (!acc[role_profile.split(" ").slice(1, 3).join(" ")]) {
+          acc[role_profile.split(" ").slice(1, 3).join(" ")] = [];
+        }
+
+        acc[role_profile.split(" ").slice(1, 3).join(" ")].push(full_name);
+      }
+
+      return acc;
+    }, {});
+
+    return grouped;
+  }, [projectAssignees, usersList]);
+
+  // Accordion state
+  const [expandedRoles, setExpandedRoles] = useState({});
+
+  useEffect(() => {
+    const initialExpandedState = Object.keys(groupedAssignees).reduce((acc, roleProfile) => {
+      acc[roleProfile] = true;
+      return acc;
+    }, {});
+    setExpandedRoles(initialExpandedState);
+  }, [groupedAssignees]);
+
+  const toggleExpand = (roleProfile) => {
+    setExpandedRoles((prev) => ({
+      ...prev,
+      [roleProfile]: !prev[roleProfile],
+    }));
+  };
+
+  // console.log("users", usersList)
+
+  // console.log("project assignees", projectAssignees)
+
+  //   console.log("customerData", projectCustomer)
   // console.log("mile_data", mile_data)
 
   // console.log("data", data)
@@ -687,12 +750,13 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
         <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
+        <sup className="text-red-700">*(beta)</sup>
       </div>
       <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
 
       {/* Overview Section */}
       {current === "overview" && (
-        <div>
+        <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
               <CardTitle>
@@ -704,27 +768,27 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                       <CardHeader>
                         <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
               <div className="flex max-lg:flex-col max-lg:gap-10">
-              <div className="space-y-4 lg:w-[50%]">
-                <CardDescription className="space-y-2">
-                  <span>Project Id</span>
-                  <p className="font-bold text-black">{data?.name}</p>
-                </CardDescription>
+                <div className="space-y-4 lg:w-[50%]">
+                  <CardDescription className="space-y-2">
+                    <span>Project Id</span>
+                    <p className="font-bold text-black">{data?.name}</p>
+                  </CardDescription>
 
-                <CardDescription className="space-y-2">
-                  <span>Start Date</span>
-                  <p className="font-bold text-black">{formatDate(data?.project_start_date)}</p>
-                </CardDescription>
+                  <CardDescription className="space-y-2">
+                    <span>Start Date</span>
+                    <p className="font-bold text-black">{formatDate(data?.project_start_date)}</p>
+                  </CardDescription>
 
-                <CardDescription className="space-y-2">
-                  <span>End Date</span>
-                  <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
-                </CardDescription>
+                  <CardDescription className="space-y-2">
+                    <span>End Date</span>
+                    <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
+                  </CardDescription>
 
-                <CardDescription className="space-y-2">
-                  <span>Estimated Completion Date</span>
-                  <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
-                </CardDescription>
-                {/* <CardDescription className="space-y-2">
+                  <CardDescription className="space-y-2">
+                    <span>Estimated Completion Date</span>
+                    <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
+                  </CardDescription>
+                  {/* <CardDescription className="space-y-2">
                   <span>Work Package</span>
                   <div className="flex gap-1">
                   {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
@@ -766,7 +830,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
               <div className="space-y-4 w-full">
                 <CardDescription className="space-y-2">
                   <span>Work Package</span>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 flex-wrap">
                     {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
                       <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
                     ))}
@@ -783,6 +847,48 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                     </Card>
                 </CardContent> */}
 
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Assignees</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CardDescription className="space-y-2">
+                <ul className="flex gap-2 flex-wrap">
+                  {Object.entries(groupedAssignees).map(([roleProfile, assigneeList], index) => (
+                    <li key={index} className="border p-1 bg-white rounded-lg max-sm:w-full">
+                      <div
+                        className="flex items-center justify-between gap-4 cursor-pointer hover:bg-gray-100 p-2 rounded-md transition-all duration-200"
+                        onClick={() => toggleExpand(roleProfile)}
+                      >
+                        <div className="flex items-center gap-2">
+                          {expandedRoles[roleProfile] ? (
+                            <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                          ) : (
+                            <ChevronRightIcon className="w-5 h-5 text-gray-500" />
+                          )}
+                          <span className="text-md font-medium text-gray-800">{roleProfile}</span>
+                        </div>
+                        <span className="text-sm text-gray-500">{assigneeList.length} users</span>
+                      </div>
+                      {expandedRoles[roleProfile] && (
+                        <ul className="pl-8 mt-2 space-y-2">
+                          {assigneeList.map((fullName, index) => (
+                            <li
+                              key={index}
+                              className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
+                            >
+                              <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                              <span className="text-sm font-medium text-gray-600">{fullName}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </CardDescription>
+            </CardContent>
           </Card>
         </div>
       )}
@@ -1082,12 +1188,12 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                             <td
                               key={areaIndex}
                               className={`px-2 py-2 text-sm whitespace-normal border border-gray-100 ${area.status === "WIP"
-                                  ? "text-yellow-500"
-                                  : area.status === "Completed"
-                                    ? "text-green-800"
-                                    : area.status === "Halted"
-                                      ? "text-red-500"
-                                      : ""
+                                ? "text-yellow-500"
+                                : area.status === "Completed"
+                                  ? "text-green-800"
+                                  : area.status === "Halted"
+                                    ? "text-red-500"
+                                    : ""
                                 }`}
                             >
                               {area.status && area.status !== "Pending" ? area.status : "--"}
