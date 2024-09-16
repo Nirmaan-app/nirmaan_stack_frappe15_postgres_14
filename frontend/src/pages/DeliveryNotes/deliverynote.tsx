@@ -501,6 +501,7 @@ export default function DeliveryNote() {
   const [projectAddress, setProjectAddress] = useState()
   const [vendorAddress, setVendorAddress] = useState()
   const [show, setShow] = useState(false)  
+//   const [validateMessage, setValidateMessage] = useState({})
     // Validation schema using zod
     // const receivedQuantitySchema = z.number().min(0, { message: "Received quantity cannot be less than 0" });
 
@@ -535,6 +536,10 @@ export default function DeliveryNote() {
                 description: `Entered received quantity is greater than actual quantity for ${itemName}`,
                 variant: "destructive",
             });
+            // setValidateMessage(prev => ({
+            //     ...prev,
+            //     [itemName] : `Entered received quantity is greater than actual quantity for ${itemName}`
+            // }))
         } else {
             setModifiedOrder(prevState => ({
                 ...prevState,
@@ -542,6 +547,10 @@ export default function DeliveryNote() {
                     item.item === itemName ? { ...item, received: parsedValue } : item
                 )
             }));
+            // setValidateMessage(prev => ({
+            //     ...prev,
+            //     [itemName] : ''
+            // }))
         }
     };
 
@@ -701,12 +710,16 @@ export default function DeliveryNote() {
                                             )
                                             
                                         ) : (
+                                            <div>
                                             <Input
                                                 type="text"
                                                 value={modifiedOrder?.list.find((mod) => mod.name === item.name).received || ''}
                                                 onChange={(e) => handleReceivedChange(item.item, e.target.value)}
                                                 placeholder="Qty"
                                             />
+
+                                            {/* <span className='text-sm font-light text-red-500'>{validateMessage[item.item]}</span> */}
+                                            </div>
                                         )}
                                     </TableCell>
                                 </TableRow>
