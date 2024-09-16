@@ -2,12 +2,12 @@ import { ArrowLeft, CirclePlus } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom";
 import ProjectSelect from "@/components/custom-select/project-select";
 import { useState } from "react";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
-import { MainLayout } from "../layout/main-layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useUserData } from "@/hooks/useUserData";
+import { Badge } from "../ui/badge";
 
 export default function ListPR() {
 
@@ -26,6 +26,17 @@ export default function ListPR() {
             limit: 1000
         });
 
+    const {data : procurementOrdersList} = useFrappeGetDocList("Procurement Orders", {
+        fields: ["*"],
+        limit: 1000
+    },
+    "Procurement Orders"
+    )
+
+    const checkPoToPr = (prId) => {
+        return procurementOrdersList?.some((po) => po.procurement_request === prId)
+    }
+
     const handleChange = (selectedItem: any) => {
         console.log('Selected item:', selectedItem);
         setProject(selectedItem ? selectedItem.value : null);
@@ -34,8 +45,8 @@ export default function ListPR() {
 
     if (procurement_request_list_loading) return <h1>LOADING</h1>;
     if (procurement_request_list_error) return <h1>ERROR</h1>;
+
     return (
-        // <MainLayout>
             <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate('/prs&milestones')} />
@@ -60,7 +71,11 @@ export default function ListPR() {
                                         return <TableRow key={item.name}>
                                             <TableCell className="text-sm text-center"><Link to={`${item.name}`} className="text-blue-500 underline-offset-1">{item.name.slice(-4)}</Link></TableCell>
                                             <TableCell className="text-sm text-center">{item.work_package}</TableCell>
-                                            <TableCell className="text-sm text-center">{item.workflow_state}</TableCell>
+                                            <TableCell className="text-sm text-center">
+                                            <Badge variant={`${item.workflow_state === "Pending" ? "yellow" : item.workflow_state === "Approved" ? "green" : item.workflow_state === "RFQ Generated" ? "blue" : item.workflow_state === "Quote Updated" ? "teal" : item.workflow_state === "Vendor Selected" ? "purple" : item.workflow_state === "Vendor Approved" ? "indigo" : item.workflow_state === "Partially Approved" ? "orange" : "red"}`}>
+                                                    {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "Ordered" : (item.workflow_state === "Rejected" && checkPoToPr(item.name)) ? "Ordered" : (item.workflow_state === "Rejected" && !checkPoToPr(item.name)) ? "Delayed" : item.workflow_state}
+                                                </Badge>
+                                            </TableCell>
                                         </TableRow>
                                     }
                                 })}
@@ -106,6 +121,5 @@ export default function ListPR() {
                 </div>
                 <div className="pt-10"></div>
             </div>
-        // </MainLayout>
     );
 }

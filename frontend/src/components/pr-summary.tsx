@@ -1,6 +1,5 @@
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { MainLayout } from "./layout/main-layout";
 import { ArrowLeft } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
@@ -28,8 +27,6 @@ const PRSummary = () => {
             {(pr_data && project) && <PRSummaryPage pr_data={pr_data} project={project[0]} />}
         </>
     )
-
-
 };
 
 interface PRSummaryPageProps {
@@ -47,12 +44,11 @@ const PRSummaryPage = ({ pr_data, project }: PRSummaryPageProps) => {
         <>
             {address_error && <h1>{address_error.message}</h1>}
             {address &&
-                // <MainLayout>
                     <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
-                        <div className="flex items-center pt-1 pb-4">
+                        <div className="flex items-center pt-1">
                             <ArrowLeft className="mb-3 cursor-pointer" onClick={() => navigate("/procurement-request")} />
-                            <h2 className="text-xl pt-1 pb-4 pl-2 font-bold tracking-tight">Summary: </h2>
-                            <span className="pl-2 pb-2.5 text-red-500 text-2xl">PR-{pr_no}</span>
+                            <h2 className="text-xl max-md:text-lg pt-1 pb-4 pl-2 font-bold tracking-tight">Summary: </h2>
+                            <span className="pl-2 pb-2.5 text-red-500 text-2xl max-md:text-xl">PR-{pr_no}</span>
                         </div>
                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                             <Card className="w-full">
@@ -60,20 +56,20 @@ const PRSummaryPage = ({ pr_data, project }: PRSummaryPageProps) => {
                                     <CardTitle className="text-xl text-red-600">PR Details</CardTitle>
                                 </CardHeader>
                                 <CardContent className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                                    <div className="space-y-1">
+                                    {/* <div className="space-y-1">
                                         <Label className="text-slim text-red-300">ID:</Label>
                                         <p className="font-semibold">{pr_data.name}</p>
-                                    </div>
+                                    </div> */}
                                     <div className="space-y-1">
                                         <Label className="text-slim text-red-300">Project:</Label>
                                         <p className="font-semibold">{project.project_name}</p>
                                     </div>
-                                    <div className="space-y-1">
+                                    {/* <div className="space-y-1">
                                         <Label className="text-slim text-red-300">Project Address:</Label>
                                         <p className="font-semibold">{` ${address.address_line1}, ${address.address_line2}, ${address.city}, ${address.state}, PIN-${address.pincode}`}</p>
-                                    </div>
+                                    </div> */}
                                     <div className="space-y-1">
-                                        <Label className="text-slim text-red-300">Package Name:</Label>
+                                        <Label className="text-slim text-red-300">Package:</Label>
                                         <p className="font-semibold">{pr_data.work_package}</p>
                                     </div>
                                     <div className="space-y-1">
@@ -143,7 +139,6 @@ const PRSummaryPage = ({ pr_data, project }: PRSummaryPageProps) => {
                             </Card>
                         </div>
                     </div>
-                // </MainLayout>
                 }
         </>
     );

@@ -127,18 +127,18 @@ export const ProjectManager = () => {
                 console.log(update_submit_error)
             })
     };
-    console.log(curMilestone)
+    // console.log(curMilestone)
 
     return (
         <>
             {/* <MainLayout> */}
             {page == 'dashboard' && <div className="flex">
                 <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                    <div className="flex items-center space-y-2">
+                    <div className="flex items-center">
                         {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
-                        <h2 className="text-xl pt-1 pl-2 pb-4 font-bold tracking-tight">Dashboard</h2>
+                        <h2 className="text-2xl pt-1 pl-2 font-bold tracking-tight">Dashboard</h2>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 -lg py-4">
+                    <div className="grid grid-cols-2 gap-4 max-md:py-4">
                         <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer" onClick={() => navigate("/procurement-request")}>
                             <p className="p-4 text-center py-6 font-bold text-white">Create Procurement Request</p>
                             {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p> */}

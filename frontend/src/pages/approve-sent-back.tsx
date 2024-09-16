@@ -29,7 +29,14 @@ const columns: TableColumnsType<DataType> = [
     {
         title: 'Items',
         dataIndex: 'item',
-        key: 'item'
+        key: 'item',
+        render: (text, record) => {
+            return (
+                <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+            {text}
+        </span>
+            )
+        }
     },
     {
         title: 'Unit',
@@ -666,12 +673,16 @@ export const ApproveSentBack = () => {
                     },
                 }}
             >
-                {data.length > 0 && <Table
+                {data.length > 0 &&
+                <div className='px-6'>
+                 <Table
                     dataSource={data}
                     rowSelection={{ ...rowSelection, checkStrictly }}
                     expandable={{ defaultExpandAllRows: true }}
                     columns={columns}
-                />}
+                />
+                </div>
+                }
 
             </ConfigProvider>
             {selectedItems?.length > 0 && <div className="text-right space-x-2 mr-4">

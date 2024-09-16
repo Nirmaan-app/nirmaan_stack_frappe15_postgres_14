@@ -12,7 +12,7 @@ import {
     FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { useFrappeCreateDoc, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useSWRConfig } from "frappe-react-sdk";
 import { Separator } from "@/components/ui/separator"
 import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -34,18 +34,31 @@ const customerFormSchema = z.object({
 
     company_address_line_1: z
         .string({
-            required_error: "Address Required"
-        }),
+            required_error: "Address line 1 Required"
+        })
+        .min(1, {
+            message: "Address line 1 Required"
+        })
+        ,
     company_address_line_2: z.string({
-        required_error: "Address Required"
+        required_error: "Address line 2 Required"
+    })
+    .min(1, {
+        message: "Address line 2 Required"
     }),
     company_city: z
         .string({
             required_error: "Must provide city"
+        })
+        .min(1, {
+            message: "Must Provide City"
         }),
     company_state: z
         .string({
             required_error: "Must provide state"
+        })
+        .min(1, {
+            message: "Musti Provide State"
         }),
     company_pin: z
         .string({
@@ -56,17 +69,17 @@ const customerFormSchema = z.object({
 
     company_contact_person: z
         .string()
-        .optional()
-        .or(z.literal('')),
+        .optional(),
     email: z.string().email().optional().or(z.literal('')),
     phone: z
         .string()
         .max(10, { message: "Mobile number must be of 10 digits" })
         .min(10, { message: "Mobile number must be of 10 digits" })
-        .optional()
-        .or(z.literal('')),
+        .optional(),
     company_gst: z.string({
         required_error: "Must provide customer GST Details"
+    }).min(1, {
+        message: "Must Provide Customer GST Details"
     }),
 });
 
@@ -76,26 +89,12 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
 
     const form = useForm<CustomerFormValues>({
         resolver: zodResolver(customerFormSchema),
-        defaultValues: {
-            company_name: "",
-            email: "",
-            phone: "",
-            company_contact_person: "",
-            company_gst: "",
-            company_address_line_1: "",
-            company_address_line_2: "",
-            company_city: "",
-            company_state: "",
-            company_pin: "",
-        },
-        mode: "all",
+        defaultValues: {},
+        mode: "onBlur",
     });
 
-    const {
-        createDoc,
-        loading,
-        error: submitError,
-    } = useFrappeCreateDoc();
+    const {createDoc, loading, error: submitError} = useFrappeCreateDoc();
+    const {deleteDoc} = useFrappeDeleteDoc()
     const { toast } = useToast()
     const navigate = useNavigate()
     // const queryClient = useQueryClient()
@@ -103,9 +102,67 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
 
     const { fetchDocList } = useCustomFetchHook()
 
+    // const onSubmit = async (values: CustomerFormValues) => {
+    //     try {
+
+    //         const addressDoc = await createDoc("Address", {
+    //             address_title: values.company_name,
+    //             address_type: "Office",
+    //             address_line1: values.company_address_line_1,
+    //             address_line2: values.company_address_line_2,
+    //             city: values.company_city,
+    //             state: values.company_state,
+    //             country: "India",
+    //             pincode: values.company_pin,
+    //             email_id: values.email,
+    //             phone: values.phone,
+    //         });
+
+    //         await createDoc("Customers", {
+    //             company_name: values.company_name,
+    //             company_address: addressDoc.name,
+    //             company_contact_person: values.company_contact_person,
+    //             company_phone: values.phone,
+    //             company_email: values.email,
+    //             company_gst: values.company_gst,
+    //         });
+
+    //         await mutate("Customers", async () => {
+    //             const data = await fetchDocList("Customers")
+    //             return data
+    //         }, {
+    //             rollbackOnError: true,
+    //             populateCache: (newData, currentData) => newData || currentData,
+    //             revalidate: true,
+    //             throwOnError: true,
+    //         })
+    //         if (!navigation) {
+    //             company_mutate()
+    //         }
+    //         toast({
+    //             title: "Success",
+    //             description: (
+    //                 <>
+    //                     Customer: <strong className="text-[14px]">{values.company_name}</strong> Created Successfully!
+    //                 </>
+    //             ),
+    //             variant: "success",
+    //         });
+    //         // await queryClient.invalidateQueries({ queryKey: ["docList", "Customers"], refetchType: "active" });
+    //         form.reset();
+    //         if (navigation) {
+    //             navigate("/customers");
+    //         } else {
+    //             closewindow()
+    //         }
+    //     } catch (err) {
+    //         console.log("Error while creating new customer:", err, submitError);
+    //     }
+    // }
+
     const onSubmit = async (values: CustomerFormValues) => {
         try {
-
+            // Create the address document
             const addressDoc = await createDoc("Address", {
                 address_title: values.company_name,
                 address_type: "Office",
@@ -118,53 +175,89 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                 email_id: values.email,
                 phone: values.phone,
             });
-
-            await createDoc("Customers", {
-                company_name: values.company_name,
-                company_address: addressDoc.name,
-                company_contact_person: values.company_contact_person,
-                company_phone: values.phone,
-                company_email: values.email,
-                company_gst: values.company_gst,
-            });
-
-            await mutate("Customers", async () => {
-                const data = await fetchDocList("Customers")
-                return data
-            }, {
-                rollbackOnError: true,
-                populateCache: (newData, currentData) => newData || currentData,
-                revalidate: true,
-                throwOnError: true,
-            })
-            if (!navigation) {
-                company_mutate()
-            }
-            toast({
-                title: "Success",
-                description: (
-                    <>
-                        Customer: <strong className="text-[14px]">{values.company_name}</strong> Created Successfully!
-                    </>
-                ),
-                variant: "success",
-            });
-            // await queryClient.invalidateQueries({ queryKey: ["docList", "Customers"], refetchType: "active" });
-            form.reset();
-            if (navigation) {
-                navigate("/customers");
-            } else {
-                closewindow()
+    
+            try {
+                // Create the customer document using the address document reference
+                await createDoc("Customers", {
+                    company_name: values.company_name,
+                    company_address: addressDoc.name,
+                    company_contact_person: values.company_contact_person,
+                    company_phone: values.phone,
+                    company_email: values.email,
+                    company_gst: values.company_gst,
+                });
+    
+                // Mutate customer data after successful creation
+                await mutate("Customers", async () => {
+                    const data = await fetchDocList("Customers");
+                    return data;
+                }, {
+                    rollbackOnError: true,
+                    populateCache: (newData, currentData) => newData || currentData,
+                    revalidate: true,
+                    throwOnError: true,
+                });
+    
+                if (!navigation) {
+                    company_mutate();
+                }
+    
+                // Success toast notification
+                toast({
+                    title: "Success",
+                    description: (
+                        <>
+                            Customer: <strong className="text-[14px]">{values.company_name}</strong> Created Successfully!
+                        </>
+                    ),
+                    variant: "success",
+                });
+    
+                // Reset form and handle navigation
+                form.reset();
+                if (navigation) {
+                    navigate("/customers");
+                } else {
+                    closewindow();
+                }
+    
+            } catch (customerError) {
+                // Delete the address document if customer creation fails
+                await deleteDoc('Address', addressDoc.name);
+                throw customerError;
             }
         } catch (err) {
-            console.log("Error while creating new customer:", err, submitError);
+            // Error handling for address creation or customer creation failure
+            toast({
+                title: "Failed!",
+                description: `${err?.message}`,
+                variant: "destructive",
+            });
+            console.log("Error while creating new customer:", err);
         }
-    }
+    };
+    
 
     const closewindow = () => {
         const button = document.getElementById('sheetClose');
         button?.click();
     };
+
+    const resetForm = () => {
+        form.reset({
+            company_name: "",
+            email: "",
+            phone: "",
+            company_contact_person: "",
+            company_gst: "",
+            company_address_line_1: "",
+            company_address_line_2: "",
+            company_city: "",
+            company_state: "",
+            company_pin: "",
+        });
+        form.clearErrors();
+    }
 
     const [pincode, setPincode] = useState("")
     const { city, state } = usePincode(pincode)
@@ -188,6 +281,9 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
             form.setValue("company_state", state || "")
         }
     }, [city, state, form])
+
+
+    console.log("values", form.getValues())
 
     return (
         <div className={`${navigation && "p-4"}`}>
@@ -356,7 +452,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         )}
                     />
                     <div className="flex justify-end  space-x-2">
-                        <Button type="button" variant="outline" onClick={() => form.reset()}>
+                        <Button type="button" variant="outline" onClick={() => resetForm()}>
                             Reset
                         </Button>
                         <Button type="submit" disabled={loading}>
