@@ -58,7 +58,7 @@ export const ApproveSelectSentBack = () => {
                     return (
                         <div className="font-medium">
                             <Link className="underline hover:underline-offset-2" to={`/approve-sent-back/${row.getValue("name")}`}>
-                                {row.getValue("name")}
+                                {row.getValue<String>("name").slice(-5)}
                             </Link>
                         </div>
                     )

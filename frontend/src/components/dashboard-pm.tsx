@@ -139,16 +139,17 @@ export const ProjectManager = () => {
                         <h2 className="text-2xl pt-1 pl-2 font-bold tracking-tight">Dashboard</h2>
                     </div>
                     <div className="grid grid-cols-2 gap-4 max-md:py-4">
-                        <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer" onClick={() => navigate("/procurement-request")}>
+                        <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer h-32" onClick={() => navigate("/procurement-request")}>
                             <p className="p-4 text-center py-6 font-bold text-white">Create Procurement Request</p>
                             {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p> */}
                         </div>
-                        <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer" onClick={() => navigate("/milestone-update")}>
-                            <p className="text-center py-6 font-bold text-white">Update Milestones</p>
-                            {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p> */}
+                        <div className="bg-red-300 rounded-lg flex flex-col items-center justify-center cursor-pointer h-32" onClick={() => navigate("/milestone-update")}>
+                            <p className="p-4 text-center py-6 font-bold text-white">Update Milestones</p>
+                            <span className="text-white text-sm font-light">*(beta)</span>
+
                         </div>
-                        <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer" onClick={() => navigate("/delivery-notes")}>
-                            <p className="text-center py-6 font-bold text-white">Update Delivery Notes</p>
+                        <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer h-32" onClick={() => navigate("/delivery-notes")}>
+                            <p className="p-4 text-center py-6 font-bold text-white">Update Delivery Notes</p>
                         </div>
                     </div>
                 </div>

@@ -27,10 +27,29 @@ type PRTable = {
 
 
 export const ReleasePOSelect = () => {
+
+    const [orderData, setOrderData] = useState();
+
+    const [projectAddress, setProjectAddress] = useState()
+    const [vendorAddress, setVendorAddress] = useState()
+
+    const [advance, setAdvance] = useState(0);
+    const [totalAmount, setTotalAmount] = useState(100); // Example total amount
     const userData = useUserData();
+    const [form] = Form.useForm();
+
+    const componentRef = React.useRef();
+
+    const handlePrint = useReactToPrint({
+        content: () => componentRef.current,
+        documentTitle: `${orderData?.name}_${orderData?.vendor_name}`
+    });
+
+
+
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
-            fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'procurement_request', 'advance'],
+            fields: ['name', 'project', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'procurement_request', 'advance'],
             limit: 1000
         });
 
@@ -45,6 +64,8 @@ export const ReleasePOSelect = () => {
             limit: 1000
         });
 
+    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const getTotal = (order_id: string) => {
@@ -56,18 +77,7 @@ export const ReleasePOSelect = () => {
         })
         return total;
     }
-    const [orderData, setOrderData] = useState();
 
-    const componentRef = React.useRef();
-
-    const handlePrint = useReactToPrint({
-        content: () => componentRef.current,
-        documentTitle: `${orderData?.name}_${orderData?.vendor_name}`
-    });
-
-
-    const [projectAddress, setProjectAddress] = useState()
-    const [vendorAddress, setVendorAddress] = useState()
 
     useEffect(() => {
         if (orderData?.project_address) {
@@ -132,24 +142,24 @@ export const ReleasePOSelect = () => {
                 }
             },
             {
-                accessorKey: "project_name",
+                accessorKey: "project",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Project" />
                     )
                 },
                 cell: ({ row }) => {
-                    // const project = project_values.find(
-                    //     (project) => project.value === row.getValue("project")
-                    // )
-                    // if (!project) {
-                    //     return null;
-                    // }
+                    const project = project_values.find(
+                        (project) => project.value === row.getValue("project")
+                    )
+                    if (!project) {
+                        return null;
+                    }
 
                     return (
                         <div className="font-medium">
-                            {/* {project.label} */}
-                            {row.getValue("project_name")}
+                            {project.label}
+                            {/* {row.getValue("project")} */}
                         </div>
                     )
                 },
@@ -191,13 +201,12 @@ export const ReleasePOSelect = () => {
         [project_values]
     )
 
-    const [advance, setAdvance] = useState(0);
-    const [totalAmount, setTotalAmount] = useState(100); // Example total amount
+
 
     const handleAdvanceChange = (value) => {
         setAdvance(value);
     };
-    const [form] = Form.useForm();
+
 
     const handleSet = (id: string) => {
         const curOrder = procurement_order_list?.find(item => item.name === id);
@@ -208,7 +217,7 @@ export const ReleasePOSelect = () => {
         // });
     }
 
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+
 
     const handleSubmit = (values) => {
         console.log('Form values:', values);

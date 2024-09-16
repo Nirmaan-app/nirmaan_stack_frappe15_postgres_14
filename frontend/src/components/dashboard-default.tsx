@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount } from "frappe-react-sdk";
-import { HardHat, UserRound, Briefcase, WalletCards, HandPlatter } from "lucide-react";
+import { HardHat, UsersRound, Package, ShoppingCart, SquareUserRound } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
@@ -50,7 +50,7 @@ export const Default = () => {
                         <Link to="/projects">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
-                                    Total Projects
+                                    Projects
                                 </CardTitle>
                                 <HardHat className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
@@ -68,9 +68,9 @@ export const Default = () => {
                         <Link to="/users">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
-                                    Total Users
+                                    Users
                                 </CardTitle>
-                                <UserRound className="h-4 w-4 text-muted-foreground" />
+                                <UsersRound className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
@@ -139,7 +139,7 @@ export const Default = () => {
                                 <CardTitle className="text-sm font-medium">
                                     Items
                                 </CardTitle>
-                                <WalletCards className="h-4 w-4 text-muted-foreground" />
+                                <ShoppingCart className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
@@ -157,7 +157,7 @@ export const Default = () => {
                                 <CardTitle className="text-sm font-medium">
                                     Vendors
                                 </CardTitle>
-                                <WalletCards className="h-4 w-4 text-muted-foreground" />
+                                <Package className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">
@@ -173,9 +173,9 @@ export const Default = () => {
                         <Link to="/customers">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
-                                    Total Customers
+                                    Customers
                                 </CardTitle>
-                                <HandPlatter className="h-4 w-4 text-muted-foreground" />
+                                <SquareUserRound className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-bold">

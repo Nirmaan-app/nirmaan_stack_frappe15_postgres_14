@@ -5,7 +5,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, Circle, CirclePlus } from 'lucide-react';
+import { ArrowLeft, CirclePlus } from 'lucide-react';
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -28,6 +28,33 @@ export const ProcurementOrder = () => {
 
     const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate();
+
+    const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
+
+    const [page, setPage] = useState<string>('approve')
+    const [uniqueVendors, setUniqueVendors] = useState({
+        list: []
+    })
+    const [orderData, setOrderData] = useState({
+        project: '',
+        work_package: '',
+        procurement_list: {
+            list: []
+        },
+        category_list: {
+            list: []
+        }
+    })
+    const [categories, setCategories] = useState({})
+    const [selectedCategories, setSelectedCategories] = useState(null)
+    const [uniqueCategories, setUniqueCategories] = useState({
+        list: []
+    })
+
+    const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
+        fields: ["*"],
+        limit: 1000
+    })
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
@@ -64,20 +91,7 @@ export const ProcurementOrder = () => {
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
 
 
-    const [page, setPage] = useState<string>('approve')
-    const [uniqueVendors, setUniqueVendors] = useState({
-        list: []
-    })
-    const [orderData, setOrderData] = useState({
-        project: '',
-        work_package: '',
-        procurement_list: {
-            list: []
-        },
-        category_list: {
-            list: []
-        }
-    })
+
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -96,11 +110,18 @@ export const ProcurementOrder = () => {
         })
     }
 
-    const [categories, setCategories] = useState({})
-    const [selectedCategories, setSelectedCategories] = useState(null)
-    const [uniqueCategories, setUniqueCategories] = useState({
-        list: []
-    })
+    // Extract unique categories from the data dynamically
+    useEffect(() => {
+        if (category_data) {
+            console.log("inside loop", category_data)
+            const currOptions = category_data.map((item) => ({
+                value: item.name,
+                label: item.name + "(" + item.work_package.slice(0, 4).toUpperCase() + ")"
+            }))
+            setCategoryOptions(currOptions);
+        }
+        console.log("options", categoryOptions)
+    }, [category_data]);
 
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
@@ -162,7 +183,12 @@ export const ProcurementOrder = () => {
                             </Sheet>
                         </div>
                     )
-                }
+                },
+                // Implement filtering for the categories
+                filterFn: (row, _columnId, filterValue: string[]) => {
+                    const categories = row.getValue<string[]>("vendor_category")['categories'] || [];
+                    return filterValue.every((filter) => categories.includes(filter));
+                },
             },
         ],
         []
@@ -425,7 +451,7 @@ export const ProcurementOrder = () => {
                                         <Card className=''>
                                             <CardHeader>
                                                 <CardContent>
-                                                    <DataTable columns={columns} data={vendor_list || []} />
+                                                    <DataTable columns={columns} data={vendor_list || []} category_options={categoryOptions} />
                                                 </CardContent>
                                             </CardHeader>
                                         </Card>
