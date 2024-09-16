@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
@@ -30,17 +30,25 @@ const VendorFormSchema = z.object({
     address_line_1: z
         .string({
             required_error: "Address Line 1 Required"
+        }).min(1, {
+            message: "Address Line 1 Required"
         }),
     address_line_2: z
         .string()
         .optional(),
     vendor_city: z
         .string({
-            required_error: "Must provide city"
+            required_error: "Must Provide City"
+        })
+        .min(1, {
+            message: "Must Provide City"
         }),
     vendor_state: z
         .string({
-            required_error: "Must provide state"
+            required_error: "Must Provide State"
+        })
+        .min(1, {
+            message: "Must Provide State"
         }),
     pin: z
         .string({
@@ -53,17 +61,18 @@ const VendorFormSchema = z.object({
         .email()
         .optional(),
     vendor_mobile: z
-        .number({
+        .string({
             required_error: "Must provide contact"
         })
-        .positive()
-        .gte(1000000000)
-        .lte(9999999999)
-        .or(z.string())
-    ,
+        .max(10, { message: "Mobile number must be of 10 digits" })
+        .min(10, { message: "Mobile number must be of 10 digits" })
+        .optional(),
     vendor_gst: z
         .string({
             required_error: "Vendor GST Required"
+        })
+        .min(1, {
+            message: "Vendor GST Required"
         }),
     // vendor_categories: z
     //     .array(z.string())
@@ -97,6 +106,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     const { mutate } = useSWRConfig()
     const { toast } = useToast()
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { deleteDoc } = useFrappeDeleteDoc()
 
     const [categories, setCategories] = useState<SelectOption[]>([])
 
@@ -133,10 +143,78 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     }
 
 
-    const onSubmit = async (values: VendorFormValues) => {
-        let category_json = categories.map((cat) => cat["value"])
+    // const onSubmit = async (values: VendorFormValues) => {
+    //     let category_json = categories.map((cat) => cat["value"])
 
+    //     try {
+    //         const addressDoc = await createDoc('Address', {
+    //             address_title: values.vendor_name,
+    //             address_type: "Shop",
+    //             address_line1: values.address_line_1,
+    //             address_line2: values.address_line_2,
+    //             city: values.vendor_city,
+    //             state: values.vendor_state,
+    //             country: "India",
+    //             pincode: values.pin,
+    //             email_id: values.vendor_email,
+    //             phone: values.vendor_mobile,
+    //         })
+
+    //         const vendorDoc = await createDoc('Vendors', {
+    //             vendor_name: values.vendor_name,
+    //             vendor_type: "Material",
+    //             vendor_address: addressDoc.name,
+    //             vendor_city: addressDoc.city,
+    //             vendor_state: addressDoc.state,
+    //             vendor_contact_person_name: values.vendor_contact_person_name,
+    //             vendor_mobile: values.vendor_mobile,
+    //             vendor_email: values.vendor_email,
+    //             vendor_gst: values.vendor_gst,
+    //             vendor_category: { "categories": (!renderCategorySelection && dynamicCategories.length) ? dynamicCategories : category_json }
+    //         })
+    //         const promises = []
+    //         sentBackData && sentBackData.item_list?.list.map((item) => {
+    //             const newItem = {
+    //                 procurement_task: sentBackData.procurement_request,
+    //                 category: item.category,
+    //                 item: item.name,
+    //                 vendor: vendorDoc.name,
+    //                 quantity: item.quantity
+    //             }
+    //             promises.push(createDoc("Quotation Requests", newItem))
+    //         })
+
+    //         await Promise.all(promises)
+    //         await mutate("Vendors")
+    //         await mutate("Quotation Requests")
+    //         await mutate("Vendor Category")
+
+    //         toast({
+    //             title: "Success!",
+    //             description: "Vendor Created Successfully!",
+    //             variant: "success"
+    //         })
+
+    //         if (navigation) {
+    //             navigate("/vendors")
+    //         } else {
+    //             closewindow()
+    //         }
+    //     } catch (error) {
+    //         toast({
+    //             title: "Failed!",
+    //             description: `${error?.message}`,
+    //             variant: "destructive"
+    //         })
+    //         console.error("Submit Error", error)
+    //     }
+    // }
+
+    const onSubmit = async (values: VendorFormValues) => {
+        let category_json = categories.map((cat) => cat["value"]);
+    
         try {
+            // Create the address document
             const addressDoc = await createDoc('Address', {
                 address_title: values.vendor_name,
                 address_type: "Shop",
@@ -148,57 +226,74 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 pincode: values.pin,
                 email_id: values.vendor_email,
                 phone: values.vendor_mobile,
-            })
-
-            const vendorDoc = await createDoc('Vendors', {
-                vendor_name: values.vendor_name,
-                vendor_type: "Material",
-                vendor_address: addressDoc.name,
-                vendor_city: addressDoc.city,
-                vendor_state: addressDoc.state,
-                vendor_contact_person_name: values.vendor_contact_person_name,
-                vendor_mobile: values.vendor_mobile,
-                vendor_email: values.vendor_email,
-                vendor_gst: values.vendor_gst,
-                vendor_category: { "categories": (!renderCategorySelection && dynamicCategories.length) ? dynamicCategories : category_json }
-            })
-            const promises = []
-            sentBackData && sentBackData.item_list?.list.map((item) => {
-                const newItem = {
-                    procurement_task: sentBackData.procurement_request,
-                    category: item.category,
-                    item: item.name,
-                    vendor: vendorDoc.name,
-                    quantity: item.quantity
+            });
+    
+            try {
+                // Create the vendor document using the address document reference
+                const vendorDoc = await createDoc('Vendors', {
+                    vendor_name: values.vendor_name,
+                    vendor_type: "Material",
+                    vendor_address: addressDoc.name,
+                    vendor_city: addressDoc.city,
+                    vendor_state: addressDoc.state,
+                    vendor_contact_person_name: values.vendor_contact_person_name,
+                    vendor_mobile: values.vendor_mobile,
+                    vendor_email: values.vendor_email,
+                    vendor_gst: values.vendor_gst,
+                    vendor_category: {
+                        categories: (!renderCategorySelection && dynamicCategories.length)
+                            ? dynamicCategories
+                            : category_json
+                    }
+                });
+    
+                // Create quotation requests
+                const promises = [];
+                sentBackData?.item_list?.list.forEach((item) => {
+                    const newItem = {
+                        procurement_task: sentBackData.procurement_request,
+                        category: item.category,
+                        item: item.name,
+                        vendor: vendorDoc.name,
+                        quantity: item.quantity
+                    };
+                    promises.push(createDoc("Quotation Requests", newItem));
+                });
+    
+                await Promise.all(promises);
+    
+                // Mutate the vendor-related data
+                await mutate("Vendors");
+                await mutate("Quotation Requests");
+                await mutate("Vendor Category");
+    
+                toast({
+                    title: "Success!",
+                    description: "Vendor Created Successfully!",
+                    variant: "success"
+                });
+    
+                // Navigate or close window
+                if (navigation) {
+                    navigate("/vendors");
+                } else {
+                    closewindow();
                 }
-                promises.push(createDoc("Quotation Requests", newItem))
-            })
-
-            await Promise.all(promises)
-            await mutate("Vendors")
-            await mutate("Quotation Requests")
-            await mutate("Vendor Category")
-
-            toast({
-                title: "Success!",
-                description: "Vendor Created Successfully!",
-                variant: "success"
-            })
-
-            if (navigation) {
-                navigate("/vendors")
-            } else {
-                closewindow()
+            } catch (vendorError) {
+                // Delete the address document if vendor creation fails
+                await deleteDoc('Address', addressDoc.name);
+                throw vendorError;
             }
         } catch (error) {
             toast({
                 title: "Failed!",
                 description: `${error?.message}`,
                 variant: "destructive"
-            })
-            console.error("Submit Error", error)
+            });
+            console.error("Submit Error", error);
         }
-    }
+    };
+    
 
     const [pincode, setPincode] = useState("")
     const { city, state } = usePincode(pincode)

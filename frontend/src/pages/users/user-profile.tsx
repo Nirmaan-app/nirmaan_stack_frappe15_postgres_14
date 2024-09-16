@@ -188,7 +188,7 @@ export default function Profile() {
                                 <Dialog>
                                     <DialogTrigger asChild>
                                         <Button asChild>
-                                            <div><Trash2 className="w-5 h-5  pr-1 " />Delete User</div>
+                                            <div className="cursor-pointer"><Trash2 className="w-5 h-5  pr-1 " />Delete User</div>
                                         </Button>
                                     </DialogTrigger>
                                     <DialogContent>
@@ -230,13 +230,13 @@ export default function Profile() {
                         {userData.role === "Nirmaan Admin Profile" &&
                             (data?.role_profile === "Nirmaan Admin Profile" ?
                                 <Button disabled={true}>
-                                    <div><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
+                                    <div className="flex items-center"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
                                 </Button>
                                 :
                                 <Dialog>
                                     <DialogTrigger asChild>
                                         <Button asChild>
-                                            <div><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
+                                            <div className="cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
                                         </Button>
                                     </DialogTrigger>
                                     <DialogContent>

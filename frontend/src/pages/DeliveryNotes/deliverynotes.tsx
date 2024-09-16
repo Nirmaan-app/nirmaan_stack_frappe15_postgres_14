@@ -187,7 +187,7 @@ const DeliveryNotes = () => {
                                             ) : (
                                                 <>
                                                 <TableCell></TableCell>
-                                            <TableCell className="text-red-300">**No Delivery Note's Found**</TableCell>
+                                            <TableCell className="text-red-300">**Not Found**</TableCell>
                                             </>
                                             ) }
                                         </TableRow>
