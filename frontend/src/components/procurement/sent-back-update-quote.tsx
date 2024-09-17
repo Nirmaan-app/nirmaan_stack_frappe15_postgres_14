@@ -8,24 +8,42 @@ import {
 } from "@/components/ui/sheet"
 import { ArrowLeft, CirclePlus } from 'lucide-react';
 import SentBackQuotationForm from "./sent-back-quotation-form"
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { useNavigate } from "react-router-dom";
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "../ui/button";
-import { Card } from '@/components/ui/card';
 import { NewVendor } from "@/pages/vendors/new-vendor";
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { ColumnDef } from "@tanstack/react-table";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { formatDate } from '@/utils/FormatDate';
+import { Badge } from "../ui/badge";
+import { AddVendorCategories } from "../forms/addvendorcategories";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { DataTable } from "../data-table/data-table";
+import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
+import { useToast } from "../ui/use-toast";
+import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@radix-ui/react-dialog";
+import { DialogHeader } from "../ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 
 export const SentBackUpdateQuote = () => {
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate();
+
+    const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
+        fields: ["*"],
+        limit: 1000
+    })
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
             limit: 1000
         });
+
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
             fields: ["*"],
@@ -48,12 +66,15 @@ export const SentBackUpdateQuote = () => {
             limit: 1000
         });
 
+    const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
+
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
     const getPackage = (name: string) => {
         return procurement_request_list?.find(item => item.name === name)?.work_package;
     }
+
     const [page, setPage] = useState<string>('summary')
     const [uniqueVendors, setUniqueVendors] = useState({
         list: []
@@ -62,6 +83,8 @@ export const SentBackUpdateQuote = () => {
         project: ''
     })
 
+    const {createDoc} = useFrappeCreateDoc()
+
     useEffect(() => {
         sent_back_list?.map(item => {
             if (item.name === id) {
@@ -69,6 +92,16 @@ export const SentBackUpdateQuote = () => {
             }
         })
     }, [sent_back_list]);
+
+    useEffect(() => {
+        if (category_data) {
+            const currOptions = category_data.map((item) => ({
+                value: item.name,
+                label: item.name + "(" + item.work_package.slice(0, 4).toUpperCase() + ")"
+            }))
+            setCategoryOptions(currOptions);
+        }
+    }, [category_data]);
 
     // console.log("uniqueVendors", uniqueVendors)
 
@@ -95,11 +128,175 @@ export const SentBackUpdateQuote = () => {
             });
         }
     }, [quotation_request_list, orderData, vendor_list]);
-    // console.log(orderData)
+
+    // console.log("orderData", orderData)
+
+    console.log("uniquevendors", uniqueVendors)
 
     const handleUpdateQuote = () => {
         navigate(`/sent-back-request/select-vendor/${id}`);
     }
+
+    const isButtonDisabled = useCallback((vencat) => {
+        const orderCategories = orderData?.category_list?.list || []
+        return !orderCategories.every((category) => vencat.includes(category.name))
+    }, [orderData, vendor_list])
+
+    const {toast} = useToast()
+
+    const handleAddVendor = async (vendor_name) => {
+
+        const vendorId = vendor_list?.find((ven) => ven.vendor_name === vendor_name).name
+        try {
+            const promises = [];
+                orderData?.item_list?.list.forEach((item) => {
+                    const newItem = {
+                        procurement_task: orderData.procurement_request,
+                        category: item.category,
+                        item: item.name,
+                        vendor: vendorId,
+                        quantity: item.quantity
+                    };
+                    promises.push(createDoc("Quotation Requests", newItem));
+                });
+    
+                await Promise.all(promises);
+    
+                // Mutate the vendor-related data
+                // await mutate("Vendors");
+                // await mutate("Quotation Requests");
+                // await mutate("Vendor Category");
+                vendor_list_mutate()
+                quotation_request_list_mutate()
+    
+                toast({
+                    title: "Success!",
+                    description: "Vendor Added Successfully!",
+                    variant: "success"
+                });
+        } catch (error) {
+            toast({
+                title: "Failed!",
+                description: `${error?.message}`,
+                variant: "destructive"
+            });
+            console.error("Submit Error", error);
+        }
+    }
+
+
+    // console.log("orderData", orderData)
+    const columns: ColumnDef<ProjectsType>[] = useMemo(
+        () => [
+            {
+                accessorKey: "vendor_name",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Vendor Name" />
+                    )
+                },
+                cell: ({ row }) => {
+                    const vendor_name = row.getValue("vendor_name")
+                    const vendorCategories = row.getValue("vendor_category").categories || [];
+                    return (
+                        <>
+                        {!isButtonDisabled(vendorCategories) && (
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant={"outline"} className="font-light max-md:text-xs border-green-500 py-6 flex flex-col items-start">
+                                        <div className="w-[300px] text-wrap flex flex-col">
+                                            <span className="text-red-500 font-semibold">{vendor_name}</span> 
+                                            <span>Add to Sent Back</span>
+                                        </div>
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Add Vendor to the current Sent Back</AlertDialogTitle>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => handleAddVendor(vendor_name)}>Add</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogHeader>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        )}
+                        {isButtonDisabled(vendorCategories) && (
+                            <HoverCard>
+                                <HoverCardTrigger asChild>
+                                    <div>
+                                    <Button disabled={isButtonDisabled(vendorCategories)} variant={"outline"} className="font-light max-md:text-xs border-green-500 py-6 flex flex-col items-start">
+                                        <div className="w-[300px] text-wrap flex flex-col">
+                                            <span className="text-red-500 font-semibold">{row.getValue("vendor_name")}</span> <span>Add to Sent Back</span>
+                                        </div>
+                                    </Button>
+                                    </div>
+                                </HoverCardTrigger>
+                                <HoverCardContent className="w-80">
+                                    <div>Please add <span className="font-semibold underline">All Associated Categories of Current Sent Back</span> to this vendor to enable</div>
+                                </HoverCardContent>
+                            </HoverCard>
+                        )}
+                    </>
+                    )
+                }
+            },
+              
+            {
+                accessorKey: "creation",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Date Created" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {formatDate(row.getValue("creation")?.split(" ")[0])}
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "vendor_category",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Vendor Categories" />
+                    )
+                },
+                cell: ({ row }) => {
+
+                    const categories = row.getValue("vendor_category")
+                    const vendor_name = row.getValue("vendor_name")
+                    return (
+                        <div className="space-x-1 space-y-1">
+                            {categories?.categories.map((cat) => (
+                                <Badge key={cat} >{cat}</Badge>
+                            ))}
+                            <Sheet>
+                                <SheetTrigger>
+                                    <button className="px-2 border flex gap-1 items-center rounded-md hover:bg-gray-200">
+                                        <CirclePlus className="w-3 h-3" />
+                                        <span>Add categories</span>
+                                    </button>
+                                </SheetTrigger>
+                                <SheetContent>
+                                    <AddVendorCategories vendor_name={vendor_name} isSheet={true} isSentBack={true} />
+                                </SheetContent>
+                            </Sheet>
+                        </div>
+                    )
+                },
+                // Implement filtering for the categories
+                filterFn: (row, _columnId, filterValue: string[]) => {
+                    const categories = row.getValue<string[]>("vendor_category")['categories'] || [];
+                    return filterValue.every((filter) => categories.includes(filter));
+                },
+            },
+        ],
+        [orderData, isButtonDisabled, vendor_list]
+    )
+
     return (
         <>
             {page == 'summary' &&
@@ -239,6 +436,34 @@ export const SentBackUpdateQuote = () => {
                                 Update Quote
                             </Button>
                         </div>
+
+                        <div className="pl-2 flex gap-1 items-center pt-10 flex-wrap">
+                            <span className="font-light max-md:text-sm">All Categories of this Sent Back: </span>
+                            {orderData?.category_list?.list.map((cat) => (
+                                <Badge>{cat.name}</Badge>
+                            ))}
+                        </div>
+
+                        <Accordion type="multiple" >
+                            <AccordionItem value="Vendors">
+                                <AccordionTrigger>
+                                    <Button variant="ghost" size="lg" className="md:mb-2 text-base md:text-lg px-2  w-full justify-start">
+                                        <span className=" text-base mb-0.5 md:text-lg font-slim">Add Existing Vendors</span>
+                                    </Button>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                    <div className="">
+                                        <Card className=''>
+                                            <CardHeader>
+                                                <CardContent>
+                                                    <DataTable columns={columns} data={vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name)) || []} category_options={categoryOptions} />
+                                                </CardContent>
+                                            </CardHeader>
+                                        </Card>
+                                    </div>
+                                </AccordionContent>
+                            </AccordionItem>
+                        </Accordion>
                     </div>
                 </div>
             }
