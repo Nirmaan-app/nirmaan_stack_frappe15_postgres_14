@@ -19,7 +19,7 @@ interface SidebarProps {
     setIsSidebarOpen?: (isOpen: boolean) => void;
 }
 
-export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSidebar } : SidebarProps) {
+export function Sidebar({ className, isSidebarOpen, setIsSidebarOpen, toggleSidebar }: SidebarProps) {
     const location = useLocation()
     const userData = useUserData()
 
@@ -52,19 +52,19 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                     <div className="px-2 py-2">
 
                         <div className="flex items-center justify-between w-full">
-                        <Link to="/">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleSetSidebarOpen(false)}
-                                disabled={isActive("/")}
-                                className={cn("px-2 text-xs w-[200px] justify-start", { "bg-red-400": isActive("/") })}>
-                                <LayoutGrid className="mr-2 h-4 w-4" />
-                                <span className={cn({ "text-white": isActive("/") })}>Dashboard</span>
-                            </Button>
-                        </Link>
+                            <Link to="/">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleSetSidebarOpen(false)}
+                                    disabled={isActive("/")}
+                                    className={cn("px-2 text-xs w-[200px] justify-start", { "bg-red-400": isActive("/") })}>
+                                    <LayoutGrid className="mr-2 h-4 w-4" />
+                                    <span className={cn({ "text-white": isActive("/") })}>Dashboard</span>
+                                </Button>
+                            </Link>
 
-                        {isSidebarOpen && <X onClick={handleToggleSidebar} className="h-5 w-5" />}
+                            {isSidebarOpen && <X onClick={handleToggleSidebar} className="h-5 w-5" />}
 
                         </div>
                         <Accordion type="multiple" defaultValue={["admin-actions", "pl-actions", "pe-actions"]} >
@@ -150,7 +150,7 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                                     </Button>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                <Link to="/prs&milestones">
+                                    <Link to="/prs&milestones">
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -177,7 +177,7 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                                             onClick={() => handleSetSidebarOpen(false)}
                                             disabled={isActive("/approve-vendor")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-vendor") })}>
-                                            <span className={cn({ "text-white": isActive("/approve-vendor") })}>Approve Vendor</span>
+                                            <span className={cn({ "text-white": isActive("/approve-vendor") })}>Approve PO</span>
                                         </Button>
                                     </Link>
                                     <Link to="/approve-sent-back">
@@ -187,7 +187,7 @@ export function Sidebar({ className, isSidebarOpen,setIsSidebarOpen, toggleSideb
                                             onClick={() => handleSetSidebarOpen(false)}
                                             disabled={isActive("/approve-sent-back")}
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-sent-back") })}>
-                                            <span className={cn({ "text-white": isActive("/approve-sent-back") })}>Approve Sent Back</span>
+                                            <span className={cn({ "text-white": isActive("/approve-sent-back") })}>Approve Sent Back PO</span>
                                         </Button>
                                     </Link>
                                 </AccordionContent>
