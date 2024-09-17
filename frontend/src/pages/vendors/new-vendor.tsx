@@ -73,6 +73,9 @@ const VendorFormSchema = z.object({
         })
         .min(1, {
             message: "Vendor GST Required"
+        })
+        .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+            message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
         }),
     // vendor_categories: z
     //     .array(z.string())

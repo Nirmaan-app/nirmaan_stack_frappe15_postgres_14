@@ -155,14 +155,14 @@ export const UpdateQuote = () => {
                                     <Sheet>
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Download PDF</SheetTrigger>
                                         <SheetContent>
-                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
                                                 <SheetHeader>
                                                     <SheetTitle>Print PDF</SheetTitle>
                                                     <SheetDescription>
                                                         <PrintRFQ vendor_id={item} pr_id={orderData.name} />
                                                     </SheetDescription>
                                                 </SheetHeader>
-                                            </ScrollArea>
+                                            {/* </ScrollArea> */}
                                         </SheetContent>
                                     </Sheet>
                                     {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
@@ -171,8 +171,8 @@ export const UpdateQuote = () => {
                                         <Sheet>
                                             <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
                                             <SheetContent>
-                                                <ScrollArea className="h-[90%] w-[600px] p-2">
-                                                    <SheetHeader>
+                                                {/* <ScrollArea className="h-[90%] w-[600px] p-2"> */}
+                                                    <SheetHeader className="text-start">
                                                         <div className="flex items-center gap-1">
                                                             <SheetTitle className="text-xl">Enter Price</SheetTitle>
                                                             <Handshake className="w-5 h-5 text-primary" />
@@ -183,7 +183,7 @@ export const UpdateQuote = () => {
                                                             </Card>
                                                         </SheetDescription>
                                                     </SheetHeader>
-                                                </ScrollArea>
+                                                {/* </ScrollArea> */}
                                             </SheetContent>
                                         </Sheet>
                                     </div>

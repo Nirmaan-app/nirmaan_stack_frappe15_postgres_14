@@ -135,31 +135,31 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         <div>
             <div className="font-bold text-black text-lg">{vendor_name}</div>
             <div className="text-gray-500 text-sm">{address}</div>
-            <div className="flex justify-between py-4">
-                <div className="w-[48%]">
+            <div className="flex max-sm:flex-col max-sm:gap-2 justify-between py-4">
+                <div className="">
                     <div className="text-gray-500 text-sm">Attach File</div>
                     <Input type="file" />
                 </div>
-                <div className="w-[48%]">
+                <div className="">
                     <div className="flex justify-between">
-                        <div className="text-gray-500 text-sm">Delivery Time (Days)</div>
-                        <div className="pt-1 text-gray-500 text-xs">*Required</div>
+                        <div className="text-gray-500 text-sm">Delivery Time<sup>*</sup> (Days)</div>
+                        {/* <div className="pt-1 text-gray-500 text-xs">*Required</div> */}
                     </div>
                     <Input type="number" placeholder={delivery_time} value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)} />
                 </div>
             </div>
             <div className="flex text-gray-500 space-x-2 pt-4 pb-2">
-                <div className="w-1/2 flex-shrink-0">
-                    <div>Item</div>
+                <div className="w-1/2 max-sm:w-[30%] flex-shrink-0">
+                    Item
                 </div>
                 <div className="flex-1">
-                    <div>UOM</div>
+                    UOM
                 </div>
                 <div className="flex-1">
-                    <div>Qty</div>
+                    Qty
                 </div>
                 <div className="flex-1">
-                    <div>Rate</div>
+                    Rate
                 </div>
             </div>
             <div>
@@ -168,20 +168,20 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
                     const isSelected = orderData.item_list?.list.some(item => item.name === q.item);
                     if (q.vendor === vendor_id && isSelected) {
                         return <div className="flex space-x-2">
-                            <div className="w-1/2 font-semibold text-black flex-shrink-0">
-                                <div>{getItem(q.item)}</div>
-                            </div>
-                            <div className="flex-1">
-                                <Input type="text" disabled={true} placeholder={getUnit(q.item)} />
-                            </div>
-                            <div className="flex-1">
-                                <Input type="text" disabled={true} placeholder={getQuantity(q.item)} />
-                            </div>
-                            <div className="flex-1">
-                                <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
-                            </div>
-                        </div>
-                    }
+                                    <div className="w-1/2 max-sm:w-[30%] font-semibold text-black flex-shrink-0">
+                                        <div>{getItem(q.item)}</div>
+                                    </div>
+                                    <div className="flex-1">
+                                        <Input type="text" disabled={true} placeholder={getUnit(q.item)} />
+                                    </div>
+                                    <div className="flex-1">
+                                        <Input type="text" disabled={true} placeholder={getQuantity(q.item)} />
+                                    </div>
+                                    <div className="flex-1">
+                                        <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
+                                    </div>
+                                </div>
+                            }
                 })}
             </div>
             <div className="flex flex-col justify-end items-end bottom-4 right-4 pt-10">

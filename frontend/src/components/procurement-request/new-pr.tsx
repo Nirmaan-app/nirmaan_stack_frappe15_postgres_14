@@ -158,6 +158,7 @@ export const NewPR = () => {
             if (item.category === curCategory) item_options.push({ value: item.item_name, label: `${item.item_name}${item.make_name ? "-" + item.make_name : ""}` })
         })
     }
+    
     if (project_list?.length != project_lists.length) {
         project_list?.map((item) => {
             project_lists.push(item.project_name)
@@ -312,11 +313,11 @@ export const NewPR = () => {
         setPage('additem')
     }
 
-    const handleSave = (itemName: string, newQuantity: number) => {
+    const handleSave = (itemName: string, newQuantity: string) => {
         let curRequest = orderData.procurement_list.list;
         curRequest = curRequest.map((curValue) => {
             if (curValue.item === itemName) {
-                return { ...curValue, quantity: newQuantity };
+                return { ...curValue, quantity: parseInt(newQuantity) };
             }
             return curValue;
         });
@@ -410,10 +411,14 @@ export const NewPR = () => {
             {page == 'itemlist' && <div className="flex-1 space-x-2 space-y-2.5 md:space-y-4 p-2 md:p-12 pt-6">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('categorylist')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => {
+                        setCurItem("")
+                        setMake("")
+                        setPage('categorylist')
+                        }} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                 </div>
-                <div className="flex justify-between max-md:pr-40 md:justify-normal md:space-x-40">
+                <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
                         <h3 className=" font-semibold text-sm md:text-lg">{project_list && project_list[0]?.project_name}</h3>
@@ -424,7 +429,11 @@ export const NewPR = () => {
                     </div>
                 </div>
                 <div className="flex justify-between">
-                    <button className="text-sm py-2 md:text-lg text-blue-400 flex" onClick={() => setPage('categorylist')}><PackagePlus className="w-5 h-5 md:mt-1 pr-1" />Change Category</button>
+                    <button className="text-sm py-2 md:text-lg text-blue-400 flex" onClick={() => {
+                        setCurItem("")
+                        setMake("")
+                        setPage('categorylist')
+                    }}><PackagePlus className="w-5 h-5 mt- pr-1" />Change Category</button>
                 </div>
                 <h3 className="font-bold">{curCategory}</h3>
                 <div className="flex space-x-2">
@@ -443,8 +452,8 @@ export const NewPR = () => {
                     </div>
                 </div>
                 <div className="flex justify-between md:space-x-0 mt-2">
-                    <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 md:mt-1 pr-1" />Create new item</button></div>
-                    {(curItem && quantity) ?
+                    <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt- pr-1" />Create new item</button></div>
+                    {(curItem && Number(quantity)) ?
                         <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
                         :
                         <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>}
@@ -504,7 +513,7 @@ export const NewPR = () => {
                                                                         <div></div>
                                                                         <div className="flex botton-4 right-4 gap-2">
                                                                             <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                            <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                            <DialogClose><Button disabled={quantity === "0"} onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
                                                                         </div>
                                                                     </DialogDescription>
                                                                 </DialogHeader>
@@ -550,7 +559,11 @@ export const NewPR = () => {
             {page == 'additem' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => {
+                        setCurItem("")
+                        setMake("")
+                        setPage('itemlist')
+                    }} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
                 </div>
                 <div className="mb-4">
@@ -571,12 +584,13 @@ export const NewPR = () => {
                         onChange={(e) => setCurItem(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
-                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(N.A)</label>
+                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(N/A)</label>
                     <Input
                         type="text"
                         id="makeName"
                         disabled={true}
                         value={make}
+                        placeholder="disabled"
                         onChange={(e) => setMake(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
@@ -627,8 +641,8 @@ export const NewPR = () => {
                         onChange={(e) => setUnit(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     /> */}
-                <div className="mb-4">
-                    <div className=" mt-72">
+                <div className="py-8">
+                    <div className="">
                         <Dialog>
                             <DialogTrigger asChild>
                                 {(curItem && unit) ?

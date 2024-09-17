@@ -167,7 +167,7 @@ export const SentBackUpdateQuote = () => {
                         <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
                             {orderData.comments}
                         </div>
-                        <div className="flex flex-col justify-end items-end">
+                        <div className="flex flex-col justify-end items-end mt-4">
                             <Button onClick={() => setPage('quotation')}>
                                 Next
                             </Button>
@@ -209,15 +209,15 @@ export const SentBackUpdateQuote = () => {
                                 <div className="py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
                                 <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
-                                    <SheetContent>
-                                        <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                            <SheetHeader>
+                                    <SheetContent >
+                                        {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
+                                            <SheetHeader className="text-start">
                                                 <SheetTitle>Enter Price</SheetTitle>
                                                 <SheetDescription>
                                                     <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
                                                 </SheetDescription>
                                             </SheetHeader>
-                                        </ScrollArea>
+                                        {/* </ScrollArea> */}
                                     </SheetContent>
                                 </Sheet>
                             </div>
@@ -225,7 +225,7 @@ export const SentBackUpdateQuote = () => {
                         <Sheet>
                             <SheetTrigger className="text-blue-500"><div className="flex pl-5"><CirclePlus className="w-4 mr-2" />Add New Vendor</div></SheetTrigger>
                             <SheetContent className="overflow-auto">
-                                <SheetHeader>
+                                <SheetHeader className="text-start">
                                     <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
                                     <SheetDescription>
                                         {/* <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} /> */}

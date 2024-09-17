@@ -226,11 +226,11 @@ export const ProjectLeadComponent = () => {
             }));
         }
     };
-    const handleSave = (itemName: string, newQuantity: number) => {
+    const handleSave = (itemName: string, newQuantity: string) => {
         let curRequest = orderData.procurement_list.list;
         curRequest = curRequest.map((curValue) => {
             if (curValue.item === itemName) {
-                return { ...curValue, quantity: newQuantity };
+                return { ...curValue, quantity: parseInt(newQuantity) };
             }
             return curValue;
         });
@@ -319,7 +319,6 @@ export const ProjectLeadComponent = () => {
     }
 
     return (
-        // <MainLayout>
         <>
             {page == 'categorylist' &&
                 <div className="flex">
@@ -352,18 +351,18 @@ export const ProjectLeadComponent = () => {
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate("/approve-order")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                         </div>
-                        <div className="flex justify-between md:justify-normal md:space-x-40 md:hidden">
+                        <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
                             <div className="">
-                                <h5 className="text-gray-500 test-base">Project</h5>
-                                <h3 className=" font-semibold text-lg">{project_list?.find(item => item.name === orderData?.project)?.project_name}</h3>
+                                <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
+                                <h3 className=" font-semibold text-sm md:text-lg">{project_list?.find(item => item.name === orderData?.project)?.project_name}</h3>
                             </div>
                             <div className="">
-                                <h5 className="text-gray-500 test-base">Package</h5>
-                                <h3 className=" font-semibold text-lg">{orderData.work_package}</h3>
+                                <h5 className="text-gray-500 text-xs md:test-base">Package</h5>
+                                <h3 className=" font-semibold text-sm md:text-lg">{orderData.work_package}</h3>
                             </div>
                         </div>
 
-                        <Card className="md:grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4 hidden">
+                        {/* <Card className="md:grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col items-center justify-center">
                                 <p className="text-left py-1 font-semibold text-sm text-red-300">Date</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
@@ -385,22 +384,28 @@ export const ProjectLeadComponent = () => {
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div>
 
-                        </Card>
+                        </Card> */}
 
                         {curCategory === '' && <button className="text-lg text-blue-400 flex p-2" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1" /> Add Missing Items</button>}
 
-                        {curCategory && <Card className="p-5 border border-gray-100 rounded-lg">
+                        {curCategory && 
+                        <Card className="p-4 max-sm:p-2 mt-4 border border-gray-100 rounded-lg">
                             <div className="flex justify-between">
-
-                                <button onClick={() => setPage("categorylist")} className="text-blue-400 underline ml-2 mb-2">
+                                <button onClick={() => {
+                                    setCurItem("")
+                                    setMake("")
+                                    setPage('categorylist')
+                                }} className="text-blue-400 underline ml-2 mb-2">
                                     <div className="flex">
                                         <h3 className="font-bold pb-2">{curCategory}</h3>
-                                        <Pencil className="md:w-4 md:h-4 ml-1 mt-1" />
+                                        <Pencil className="w-4 h-4 ml-1 mt-1" />
                                     </div>
                                 </button>
-
-
-                                <button className="text-red-600 mb-1" onClick={() => setCurCategory('')}><X className="md:w-6 md:h-6 " /></button>
+                                <button className="text-red-600 mb-1" onClick={() => {
+                                    setCurItem("")
+                                    setMake("")
+                                    setCurCategory('')
+                                    }}><X className="md:w-6 md:h-6 " /></button>
                             </div>
 
                             <div className="flex space-x-2">
@@ -415,15 +420,18 @@ export const ProjectLeadComponent = () => {
                                 </div>
                                 <div className="flex-1">
                                     <h5 className="text-xs text-gray-400">Qty</h5>
-                                    <input className="h-[37px] w-full border rounded-lg" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
+                                    <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
                                 </div>
                             </div>
-                            <div className="flex-1 space-x-48 md:space-x-0 mt-2">
-                                {(curItem && quantity) ?
+                            <div className="flex justify-between mt-4">
+                                <div className="mt-3">
+                                    <button className="text-sm  md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create New Item</button>
+                                </div>
+                                {(curItem && Number(quantity)) ?
                                     <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
                                     :
-                                    <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>}
-                                <div><button className="text-sm py-2 md:text-lg text-blue-400 flex mt-3" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt-1 pr-1" />Create New Item</button></div>
+                                    <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>
+                                }
                             </div>
                         </Card>
                         }
@@ -495,7 +503,7 @@ export const ProjectLeadComponent = () => {
                                                                             <div></div>
                                                                             <div className="flex botton-4 right-4 gap-2">
                                                                                 <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                                <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                                <DialogClose><Button disabled={quantity === "0"} onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
                                                                             </div>
                                                                         </DialogDescription>
                                                                     </DialogHeader>
@@ -609,16 +617,24 @@ export const ProjectLeadComponent = () => {
             {page == 'additem' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => {
+                        setCurItem("")
+                        setMake("")
+                        setPage('itemlist')
+                    }} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
                 </div>
                 <div className="mb-4">
                     <div className="flex">
                         <div className="text-lg font-bold py-2">Category: </div>
-                        <button onClick={() => setPage("categorylist2")} className="text-blue-500 underline ml-1">
+                        <button onClick={() => {
+                            setCurItem("")
+                            setMake("")
+                            setPage("categorylist2")
+                        }} className="text-blue-500 underline ml-1">
                             <div className="flex">
                                 <div className="text-lg font-bold">{curCategory}</div>
-                                <Pencil className="md:w-4 md:h-4 ml-1 mt-1.5" />
+                                <Pencil className="w-4 h-4 ml-1 mt-1.5" />
                             </div>
                         </button>
 
@@ -686,8 +702,8 @@ export const ProjectLeadComponent = () => {
                         onChange={(e) => setUnit(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     /> */}
-                <div className="mb-4">
-                    <div className=" mt-72">
+                <div className="py-10">
+                    <div className="">
                         <Dialog>
                             <DialogTrigger asChild>
                                 {(curItem && unit) ?
@@ -737,6 +753,5 @@ export const ProjectLeadComponent = () => {
                 </div>
             </div>}
         </>
-        // </MainLayout>
     )
 }
