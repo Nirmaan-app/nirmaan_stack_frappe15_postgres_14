@@ -415,7 +415,7 @@ export const ProjectForm = () => {
             <form onSubmit={(event) => {
                 event.stopPropagation();
                 return form.handleSubmit(onSubmit)(event);
-            }} className="px-8">
+            }} className="max-sm:px-4 px-8">
                 <div className="flex flex-col gap-4">
                     <p className="text-sky-600 font-semibold">Project Details</p>
                     <FormField
