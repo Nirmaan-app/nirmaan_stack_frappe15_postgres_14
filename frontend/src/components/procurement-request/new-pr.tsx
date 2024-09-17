@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle } from "../ui/card";
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { PackagePlus } from "lucide-react";
+import { MessageCircleMore, PackagePlus } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 
@@ -424,7 +424,7 @@ export const NewPR = () => {
                     </div>
                 </div>
                 <div className="flex justify-between">
-                    <button className="text-sm py-2 md:text-lg text-blue-400 flex" onClick={() => setPage('categorylist')}><PackagePlus className="w-5 h-5 mt- pr-1" />Change Category</button>
+                    <button className="text-sm py-2 md:text-lg text-blue-400 flex" onClick={() => setPage('categorylist')}><PackagePlus className="w-5 h-5 md:mt-1 pr-1" />Change Category</button>
                 </div>
                 <h3 className="font-bold">{curCategory}</h3>
                 <div className="flex space-x-2">
@@ -443,7 +443,7 @@ export const NewPR = () => {
                     </div>
                 </div>
                 <div className="flex justify-between md:space-x-0 mt-2">
-                    <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt- pr-1" />Create new item</button></div>
+                    <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 md:mt-1 pr-1" />Create new item</button></div>
                     {(curItem && quantity) ?
                         <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
                         :
@@ -524,8 +524,8 @@ export const NewPR = () => {
                 }
 
                 <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
-                    <h3 className="font-bold py-1">Include Comments</h3>
-                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Comments" onChange={handleCommentChange} />
+                    <h3 className="font-bold py-1 flex"><MessageCircleMore className="w-5 h-5 mt-0.5" />Comments</h3>
+                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Write comments here..." onChange={handleCommentChange} />
                 </Card>
                 <Dialog>
                     <DialogTrigger asChild>
