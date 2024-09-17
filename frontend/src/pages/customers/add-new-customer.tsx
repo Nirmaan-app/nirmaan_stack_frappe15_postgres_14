@@ -12,7 +12,7 @@ import {
     FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useSWRConfig } from "frappe-react-sdk";
 import { Separator } from "@/components/ui/separator"
 import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -21,7 +21,6 @@ import { useToast } from "@/components/ui/use-toast";
 import useCustomFetchHook from "@/reactQuery/customFunctions";
 import { SheetClose } from "@/components/ui/sheet";
 // import { exampleFunction } from "@/reactQuery/customFunctions";
-import { usePincode } from "@/hooks/usePincode"
 
 const customerFormSchema = z.object({
     company_name: z
@@ -307,27 +306,35 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     }
 
     const [pincode, setPincode] = useState("")
-    const { city, state } = usePincode(pincode)
+
+    const { data: pincode_data, isLoading: pincode_loading, error: pincode_error } = useFrappeGetDoc("Pincodes", pincode)
+    // const { city, state } = usePincode(pincode)
 
     const debouncedFetch = useCallback(
         (value: string) => {
-            if (value.length === 6) {
+            if (value.length >= 6) {
                 setPincode(value)
+            } else {
+                setPincode("")
             }
         }, []
     )
+
+    useEffect(() => {
+        if (pincode.length >= 6 && !pincode_data) {
+            form.setValue("company_city", "Not found")
+            form.setValue("company_state", "Not found")
+        } else {
+            form.setValue("company_city", pincode_data?.city || "")
+            form.setValue("company_state", pincode_data?.state || "")
+        }
+    }, [pincode, pincode_data])
+
 
     const handlePincodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value
         debouncedFetch(value)
     }
-
-    useEffect(() => {
-        if (pincode.length === 6) {
-            form.setValue("company_city", city || "")
-            form.setValue("company_state", state || "")
-        }
-    }, [city, state, form])
 
 
     // console.log("values", form.getValues())
@@ -458,7 +465,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                             <FormItem>
                                 <FormLabel className="flex">City:</FormLabel>
                                 <FormControl>
-                                    <Input placeholder={city || "City"} disabled={true} {...field} />
+                                    <Input placeholder={pincode_data?.city ? pincode_data?.city : "City"} disabled={true} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -471,7 +478,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                             <FormItem>
                                 <FormLabel className="flex">State:</FormLabel>
                                 <FormControl>
-                                    <Input placeholder={state || "State"} disabled={true} {...field} />
+                                    <Input placeholder={pincode_data?.state ? pincode_data?.state : "State"} disabled={true} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
