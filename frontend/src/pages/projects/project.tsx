@@ -831,7 +831,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                 <CardDescription className="space-y-2">
                   <span>Work Package</span>
                   <div className="flex gap-1 flex-wrap">
-                    {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
+                    {JSON.parse(data?.project_work_packages).work_packages?.map((item: any) => (
                       <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
                     ))}
                   </div>
@@ -968,7 +968,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                       </div>
                       <div className="border-0 flex flex-col col-span-2">
                         <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_packages!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
                       </div>
                     </div>
                   </th>
@@ -1045,7 +1045,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                       </div>
                       <div className="border-0 flex flex-col col-span-2">
                         <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_packages!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
                       </div>
                     </div>
                   </th>
@@ -1112,7 +1112,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                       </div>
                       <div className="border-0 flex flex-col col-span-2">
                         <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_packages!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
                       </div>
                     </div>
                   </th>
