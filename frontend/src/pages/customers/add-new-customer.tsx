@@ -113,6 +113,9 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
 
     const onSubmit = async (values: CustomerFormValues) => {
         try {
+            if(values.company_city === "Not Found" || values.company_state === "Not Found") {
+                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+            }
             // Create the address document
             const addressDoc = await createDoc("Address", {
                 address_title: values.company_name,
@@ -322,8 +325,8 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
 
     useEffect(() => {
         if (pincode.length >= 6 && !pincode_data) {
-            form.setValue("company_city", "Not found")
-            form.setValue("company_state", "Not found")
+            form.setValue("company_city", "Not Found")
+            form.setValue("company_state", "Not Found")
         } else {
             form.setValue("company_city", pincode_data?.city || "")
             form.setValue("company_state", pincode_data?.state || "")

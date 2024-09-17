@@ -212,9 +212,13 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     // }
 
     const onSubmit = async (values: VendorFormValues) => {
-        let category_json = categories.map((cat) => cat["value"]);
     
         try {
+            if(values.vendor_city === "Not Found" || values.vendor_state === "Not Found") {
+                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+            }
+
+            let category_json = categories.map((cat) => cat["value"]);
             // Create the address document
             const addressDoc = await createDoc('Address', {
                 address_title: values.vendor_name,
@@ -313,8 +317,8 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
 
     useEffect(() => {
         if (pincode.length >= 6 && !pincode_data) {
-            form.setValue("vendor_city", "Not found")
-            form.setValue("vendor_state", "Not found")
+            form.setValue("vendor_city", "Not Found")
+            form.setValue("vendor_state", "Not Found")
         } else {
             form.setValue("vendor_city", pincode_data?.city || "")
             form.setValue("vendor_state", pincode_data?.state || "")

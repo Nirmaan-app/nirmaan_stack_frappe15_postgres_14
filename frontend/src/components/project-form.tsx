@@ -261,9 +261,10 @@ export const ProjectForm = () => {
 
     useEffect(() => {
         if (pincode.length >= 6 && !pincode_data) {
-            form.setValue("project_city", "Not found")
-            form.setValue("project_state", "Not found")
-        } else {
+            form.setValue("project_city", "Not Found")
+            form.setValue("project_state", "Not Found")
+        }
+         else {
             form.setValue("project_city", pincode_data?.city || "")
             form.setValue("project_state", pincode_data?.state || "")
         }
@@ -277,6 +278,10 @@ export const ProjectForm = () => {
 
     async function onSubmit(values: z.infer<typeof projectFormSchema>) {
         try {
+            if(values.project_city === "Not Found" || values.project_state === "Not Found") {
+                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+                return
+            }
             // Format the dates
             const formatted_start_date = formatToLocalDateTimeString(values.project_start_date);
             const formatted_end_date = formatToLocalDateTimeString(values.project_end_date);
