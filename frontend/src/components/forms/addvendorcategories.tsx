@@ -12,7 +12,7 @@ interface SelectOption {
     value: string;
 }
 
-export const AddVendorCategories = ({vendor_name, isSheet = false}) => {
+export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= false}) => {
 
     const {data} = useFrappeGetDocList("Vendors", {
         fields: ["*"],

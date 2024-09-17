@@ -113,14 +113,12 @@ export const ProcurementOrder = () => {
     // Extract unique categories from the data dynamically
     useEffect(() => {
         if (category_data) {
-            console.log("inside loop", category_data)
             const currOptions = category_data.map((item) => ({
                 value: item.name,
                 label: item.name + "(" + item.work_package.slice(0, 4).toUpperCase() + ")"
             }))
             setCategoryOptions(currOptions);
         }
-        console.log("options", categoryOptions)
     }, [category_data]);
 
     const columns: ColumnDef<ProjectsType>[] = useMemo(
