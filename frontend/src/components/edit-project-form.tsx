@@ -13,7 +13,6 @@ import ProjectTypeForm from "./project-type-form"
 import CustomerForm from "./customer-form"
 import { Separator } from "./ui/separator"
 import { AddressForm } from "./address-form"
-import { ScrollArea } from "./ui/scroll-area"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 import { cn } from "@/lib/utils"
@@ -24,6 +23,7 @@ import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
 import { Checkbox } from "./ui/checkbox"
 import { useState, useEffect } from "react"
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects"
 
 // const workPackages = [
 //     {
@@ -288,7 +288,7 @@ const projectFormSchema = z.object({
         .string({
             //required_error: "Please select Procurement Lead"
         }),
-    project_work_milestones: z
+    project_work_packages: z
         .object({
             work_packages: z.array(
                 z.object({
@@ -359,7 +359,7 @@ export const EditProjectForm = () => {
 
     const { projectId } = useParams<{ projectId: string }>()
     // console.log("projectId",projectId);
-    const { data, error, isValidating } = useFrappeGetDoc<Projects>(
+    const { data, error, isValidating } = useFrappeGetDoc<ProjectsType>(
         'Projects',
         `${projectId}`
     );
@@ -392,7 +392,7 @@ export const EditProjectForm = () => {
             procurement_lead: "",
             project_start_date: new Date(),
             project_end_date: new Date(),
-            project_work_milestones: {
+            project_work_packages: {
                 work_packages: []
             },
             project_scopes: {
@@ -511,9 +511,9 @@ export const EditProjectForm = () => {
         if (!values.project_manager) values.project_manager = data.project_manager
         if (!values.design_lead) values.design_lead = data.design_lead
         if (!values.procurement_lead) values.procurement_lead = data.procurement_lead
-        if (values.project_work_milestones.work_packages.length === 0) {
-            JSON.parse(data.project_work_milestones).work_packages.map((item) => (
-                values.project_work_milestones.work_packages.push(item)
+        if (values.project_work_packages.work_packages.length === 0) {
+            JSON.parse(data.project_work_packages).work_packages.map((item) => (
+                values.project_work_packages.work_packages.push(item)
             ))
         }
         if (values.project_scopes.scopes.length === 0) {
@@ -1141,7 +1141,7 @@ export const EditProjectForm = () => {
                         <p className="text-sky-600 font-semibold pb-9">Package Specification</p>
                         <FormField
                             control={form.control}
-                            name="project_work_milestones"
+                            name="project_work_packages"
                             render={() => (
                                 <FormItem>
                                     <div className="mb-4">
@@ -1157,7 +1157,7 @@ export const EditProjectForm = () => {
                                                     <FormField
                                                         key={item.work_package_name}
                                                         control={form.control}
-                                                        name="project_work_milestones.work_packages"
+                                                        name="project_work_packages.work_packages"
                                                         render={({ field }) => {
 
                                                             // console.log(field) 

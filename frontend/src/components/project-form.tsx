@@ -107,7 +107,7 @@ const projectFormSchema = z.object({
     procurement_lead: z
         .string()
         .optional(),
-    project_work_milestones: z
+    project_work_packages: z
         .object({
             work_packages: z.array(
                 z.object({
@@ -189,7 +189,7 @@ export const ProjectForm = () => {
         project_name: "",
         project_start_date: new Date(),
         project_end_date: undefined,
-        project_work_milestones: {
+        project_work_packages: {
             work_packages: []
         },
         project_scopes: {
@@ -306,7 +306,7 @@ export const ProjectForm = () => {
                     procurement_lead: values.procurement_lead,
                     design_lead: values.design_lead,
                     project_manager: values.project_manager,
-                    project_work_milestones: values.project_work_milestones,
+                    project_work_packages: values.project_work_packages,
                     project_scopes: values.project_scopes,
                     subdivisions: values.subdivisions,
                     subdivision_list: {
@@ -972,7 +972,7 @@ export const ProjectForm = () => {
                     <p className="text-sky-600 font-semibold">Package Specification</p>
                     <FormField
                         control={form.control}
-                        name="project_work_milestones"
+                        name="project_work_packages"
                         render={() => (
                             <FormItem>
                                 <div className="mb-4">
@@ -987,11 +987,11 @@ export const ProjectForm = () => {
                                     onCheckedChange={(checked) => {
                                         if (checked) {
                                             form.setValue(("project_scopes.scopes"), sow_list)
-                                            form.setValue(("project_work_milestones.work_packages"), wp_list)
+                                            form.setValue(("project_work_packages.work_packages"), wp_list)
                                         }
                                         else {
                                             form.setValue(("project_scopes.scopes"), [])
-                                            form.setValue(("project_work_milestones.work_packages"), [])
+                                            form.setValue(("project_work_packages.work_packages"), [])
                                         }
                                     }}
 
@@ -999,13 +999,13 @@ export const ProjectForm = () => {
                                 <Separator />
                                 <Separator />
                                 {wp_list.map((item) => (
-                                    <Accordion type="single" collapsible value={form.getValues().project_work_milestones.work_packages.find(d => d.work_package_name === item.work_package_name)?.work_package_name} className="w-full">
+                                    <Accordion type="single" collapsible value={form.getValues().project_work_packages.work_packages.find(d => d.work_package_name === item.work_package_name)?.work_package_name} className="w-full">
                                         <AccordionItem value={item.work_package_name}>
                                             <AccordionTrigger>
                                                 <FormField
                                                     key={item.work_package_name}
                                                     control={form.control}
-                                                    name="project_work_milestones.work_packages"
+                                                    name="project_work_packages.work_packages"
                                                     render={({ field }) => {
                                                         return (
                                                             <FormItem

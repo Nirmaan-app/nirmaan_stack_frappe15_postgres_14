@@ -264,7 +264,7 @@ fixtures = [
     "Workflow",
     "Workflow State",
     "Portal Menu Item",
-    "Pincodes"
+    # "Pincodes"
 ]
 
 
