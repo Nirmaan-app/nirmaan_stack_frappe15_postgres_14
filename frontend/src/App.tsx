@@ -35,7 +35,7 @@ import Users from './pages/users/users'
 import Roles from './pages/roles'
 import Debug from './pages/debug'
 import { ApproveSelectVendor } from './pages/approve-select-vendor'
-import { ApproveVendor } from './pages/approve-vendor'
+// import { ApproveVendor } from './pages/approve-vendor'
 // import { PRSummary } from './components/pr-summary'
 import { UserForm } from './pages/users/user-form'
 import Items from './pages/items'
@@ -87,7 +87,7 @@ const router = createBrowserRouter(
 					<Route path="approve-order" element={<ApprovePR />} />
 					<Route path="/approve-order/:id" lazy={() => import('@/pages/approve-order')} />
 					<Route path="approve-vendor" element={<ApproveSelectVendor />} />
-					<Route path="approve-vendor/:orderId" element={<ApproveVendor />} />
+					<Route path="approve-vendor/:orderId" lazy={() => import('@/pages/approve-vendor')} />
 					<Route path="approve-sent-back" element={<ApproveSelectSentBack />} />
 					<Route path="approve-sent-back/:id" element={<ApproveSentBack />} />
 					<Route path="delayed-pr" element={<DelayedPRSelect />} />

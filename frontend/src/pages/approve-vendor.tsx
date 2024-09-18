@@ -1,7 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import React, { useState, useEffect, useCallback } from "react";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,6 +10,10 @@ import { Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import { useToast } from '@/components/ui/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
 interface DataType {
@@ -98,36 +102,70 @@ const columns: TableColumnsType<DataType> = [
     },
 ];
 
-export const ApproveVendor = () => {
+const ApproveVendor = () => {
+
     const { orderId } = useParams<{ orderId: string }>()
+    const [project, setProject] = useState()
+    const [owner, setOwner] = useState()
+    const { data: pr, isLoading: pr_loading, error: pr_error, mutate: pr_mutate } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", orderId);
+    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project || "");
+    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner === "Administrator" ? "" : owner || "");
+
+    useEffect(() => {
+        if (pr && !pr_loading) {
+            setProject(pr?.project)
+            setOwner(pr?.modified_by)
+        }
+        else {
+            return
+        }
+    }, [pr, pr_loading, project, owner])
+
+    console.log("within 1st component", owner_data)
+    if (pr_loading || project_loading || owner_loading) return <h1>Loading...</h1>
+    if (pr_error || project_error || owner_error) return <h1>Error</h1>
+    return (
+        <ApproveVendorPage pr_data={pr} project_data={project_data} owner_data={Array.isArray(owner_data) ? { full_name: "Administrator" } : owner_data} procurement_list_mutate={pr_mutate} />
+    )
+}
+
+interface ApproveVendorPageProps {
+    pr_data: ProcurementRequestsType | undefined
+    project_data: ProjectsType | undefined
+    owner_data: NirmaanUsersType | undefined | { full_name: String }
+    procurement_list_mutate: any
+}
+
+export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procurement_list_mutate }: ApproveVendorPageProps) => {
+    // const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate()
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: procurement_list_mutate } = useFrappeGetDocList("Procurement Requests",
-        {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
-            filters: [['name', '=', orderId]],
-            limit: 1000
-        });
+    // const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: procurement_list_mutate } = useFrappeGetDocList("Procurement Requests",
+    //     {
+    //         fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+    //         filters: [['name', '=', orderId]],
+    //         limit: 1000
+    //     });
     const { data: vendor_list } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst'],
             limit: 1000
         });
-    const { data: project_list } = useFrappeGetDocList("Projects",
-        {
-            fields: ['name', 'project_name', 'project_address', 'procurement_lead'],
-            limit: 1000
-        });
+    // const { data: project_list } = useFrappeGetDocList("Projects",
+    //     {
+    //         fields: ['name', 'project_name', 'project_address', 'procurement_lead'],
+    //         limit: 1000
+    //     });
     const { data: quotation_request_list } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
-            filters: [["status", "=", "Selected"], ["procurement_task", "=", orderId]],
+            filters: [["status", "=", "Selected"], ["procurement_task", "=", pr_data?.name]],
             limit: 2000
         });
     const { data: quotation_request_list2 } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
-            filters: [["procurement_task", "=", orderId]],
+            filters: [["procurement_task", "=", pr_data?.name]],
             limit: 2000
         });
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
@@ -177,31 +215,31 @@ export const ApproveVendor = () => {
     useEffect(() => {
         // console.log("calling useEffect 2, settingOrderData and updating procurement_list and category_list");
 
-        if (procurement_request_list) {
-            // Initial setup of orderData
-            const newOrderData = procurement_request_list[0];
-            // Compute new procurement list and categories
-            const newCategories: { name: string }[] = [];
-            const newList: DataType[] = [];
-            newOrderData.procurement_list.list.forEach((item) => {
-                if (item.status === "Pending") newList.push(item);
-                if (!newCategories.some(category => category.name === item.category)) {
-                    newCategories.push({ name: item.category });
-                }
-            });
+        // if (procurement_request_list) {
+        // Initial setup of orderData
+        const newOrderData = pr_data;
+        // Compute new procurement list and categories
+        const newCategories: { name: string }[] = [];
+        const newList: DataType[] = [];
+        JSON.parse(newOrderData.procurement_list).list.forEach((item) => {
+            if (item.status === "Pending") newList.push(item);
+            if (!newCategories.some(category => category.name === item.category)) {
+                newCategories.push({ name: item.category });
+            }
+        });
 
-            // Update orderData with computed lists
-            setOrderData(() => ({
-                ...newOrderData,
-                procurement_list: {
-                    list: newList
-                },
-                category_list: {
-                    list: newCategories
-                }
-            }));
-        }
-    }, [procurement_request_list]);
+        // Update orderData with computed lists
+        setOrderData(() => ({
+            ...newOrderData,
+            procurement_list: {
+                list: newList
+            },
+            category_list: {
+                list: newCategories
+            }
+        }));
+        // }
+    }, [pr_data]);
 
 
     useEffect(() => {
@@ -223,12 +261,12 @@ export const ApproveVendor = () => {
     const getVendorGST = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_gst;
     }
-    const getProjectName = (projectName: string) => {
-        return project_list?.find(project => project.name === projectName)?.project_name;
-    }
-    const getProjectAddress = (projectName: string) => {
-        return project_list?.find(project => project.name === projectName)?.project_address;
-    }
+    // const getProjectName = (projectName: string) => {
+    //     return project_list?.find(project => project.name === projectName)?.project_name;
+    // }
+    // const getProjectAddress = (projectName: string) => {
+    //     return project_list?.find(project => project.name === projectName)?.project_address;
+    // }
     const getTotal = (cat: string) => {
         return orderData.procurement_list?.list
             .filter(item => item.category === cat)
@@ -381,10 +419,10 @@ export const ApproveVendor = () => {
 
             // Flatten the documents into a single array
             const docs = Object.entries(vendorItems).map(([key, value]) => ({
-                procurement_request: orderId,
+                procurement_request: pr_data?.name,
                 project: orderData.project,
-                project_name: getProjectName(orderData.project),
-                project_address: getProjectAddress(orderData.project),
+                project_name: project_data?.project_name,
+                project_address: project_data?.project_address,
                 vendor: key,
                 vendor_name: getVendorName(key),
                 vendor_address: getVendorAddress(key),
@@ -399,13 +437,13 @@ export const ApproveVendor = () => {
             }
 
             // Update item statuses and workflow state
-            const currentState = procurement_request_list?.[0]?.workflow_state;
+            const currentState = pr_data?.workflow_state;
             const allItemsApproved = filteredData.length === orderData.procurement_list.list.length;
             const newWorkflowState = currentState === "Vendor Selected"
                 ? allItemsApproved ? "Vendor Approved" : "Partially Approved"
                 : currentState;
 
-            const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map(item => {
+            const updatedProcurementList = JSON.parse(pr_data?.procurement_list).list.map(item => {
                 if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
                     return { ...item, status: "Approved" };
                 }
@@ -416,7 +454,7 @@ export const ApproveVendor = () => {
                 !filteredData.some(selectedItem => selectedItem.key === item.name)
             );
 
-            await updateDoc('Procurement Requests', orderId, {
+            await updateDoc('Procurement Requests', pr_data?.name, {
                 procurement_list: { list: updatedProcurementList },
                 workflow_state: newWorkflowState
             });
@@ -473,7 +511,7 @@ export const ApproveVendor = () => {
                 .map(name => ({ name }));
 
             const newSendBack = {
-                procurement_request: orderId,
+                procurement_request: pr_data?.name,
                 project: orderData.project,
                 category_list: { list: newCategories },
                 item_list: { list: itemlist },
@@ -486,12 +524,12 @@ export const ApproveVendor = () => {
             }
 
             // Update item statuses and workflow state
-            const currentState = procurement_request_list?.[0]?.workflow_state;
+            const currentState = pr_data?.workflow_state;
             const newWorkflowState = currentState === "Vendor Selected" && itemlist.length > 0
                 ? "Partially Approved"
                 : currentState;
 
-            const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map(item => {
+            const updatedProcurementList = JSON.parse(pr_data?.procurement_list).list.map(item => {
                 if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
                     return { ...item, status: "Sent Back" };
                 }
@@ -502,7 +540,7 @@ export const ApproveVendor = () => {
                 !filteredData.some(selectedItem => selectedItem.key === item.name)
             );
 
-            await updateDoc('Procurement Requests', orderId, {
+            await updateDoc('Procurement Requests', pr_data?.name, {
                 procurement_list: { list: updatedProcurementList },
                 workflow_state: newWorkflowState
             });
@@ -548,29 +586,29 @@ export const ApproveVendor = () => {
                 <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                     <div className="flex items-center pt-1  pb-4">
                         <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-vendor")} />
-                        <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
+                        <h2 className="text-base pl-2 font-bold tracking-tight">Approve PO: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
-                    <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
+                    <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
                         </div>
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
+                        <div className="border-0 flex flex-col justify-center">
+                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
                         </div>
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
+                        <div className="border-0 flex flex-col justify-center">
+                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                         </div>
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Procurement By</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                        </div>
+                        {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
+                            </div> */}
                     </Card>
                     {(orderData.project && orderData.category_list?.list.length === 0) && <div className="text-red-500 text-center text-2xl font-bold">All Done !!!</div>}
                     {/* {orderData?.category_list?.list.map((cat) => {
@@ -895,7 +933,7 @@ export const ApproveVendor = () => {
             </div>
             <div className="overflow-x-auto">
                 <div className="min-w-full inline-block align-middle">
-                    {procurement_request_list?.[0].procurement_list?.list.map(item => {
+                    {JSON.parse(pr_data?.procurement_list).list.map(item => {
                         if (item.status === "Delayed") {
                             return <div className="p-5">
                                 <ReactTable>
@@ -937,3 +975,5 @@ export const ApproveVendor = () => {
         </>
     )
 }
+
+export const Component = ApproveVendor;
