@@ -264,6 +264,10 @@ export const ProjectForm = () => {
             form.setValue("project_city", city || "")
             form.setValue("project_state", state || "")
         }
+        else {
+            form.setValue("project_city", "")
+            form.setValue("project_state", "")
+        }
     }, [city, state, form])
 
     const handleOpenDialog = () => {
