@@ -160,21 +160,12 @@ export const UpdateQuote = () => {
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
                                         <SheetContent>
                                             {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-<<<<<<< newfeat
-                                                <SheetHeader>
-                                                    <SheetTitle className="text-center">Print PDF</SheetTitle>
-                                                    <SheetDescription>
-                                                        <PrintRFQ vendor_id={item} pr_id={orderData.name} />
-                                                    </SheetDescription>
-                                                </SheetHeader>
-=======
                                             <SheetHeader>
-                                                <SheetTitle>Print PDF</SheetTitle>
+                                                <SheetTitle className="text-center">Print PDF</SheetTitle>
                                                 <SheetDescription>
                                                     <PrintRFQ vendor_id={item} pr_id={orderData.name} />
                                                 </SheetDescription>
                                             </SheetHeader>
->>>>>>> develop
                                             {/* </ScrollArea> */}
                                         </SheetContent>
                                     </Sheet>
