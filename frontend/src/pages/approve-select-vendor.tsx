@@ -121,7 +121,7 @@ export const ApproveSelectVendor = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="flex flex-col gap-1 items-start justify-center">
-                            {row.getValue("category_list").list.map((obj) =>  <Badge className="inline-block">{obj["name"]}</Badge>)}
+                            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }
@@ -167,7 +167,7 @@ export const ApproveSelectVendor = () => {
         <div className="flex">
             <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center justify-between space-y-2 pl-2">
-                    <h2 className="text-lg font-bold tracking-tight">Approve Vendors</h2>
+                    <h2 className="text-lg font-bold tracking-tight">Approve PO</h2>
                 </div>
                 {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={filteredList || []} project_values={project_values} />

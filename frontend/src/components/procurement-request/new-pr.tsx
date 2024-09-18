@@ -1,5 +1,5 @@
 import { Card, CardHeader, CardTitle } from "../ui/card";
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { MessageCircleMore, PackagePlus } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
@@ -17,10 +17,34 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Input } from "../ui/input";
 import { useUserData } from "@/hooks/useUserData";
 import { useToast } from "../ui/use-toast";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 
-export const NewPR = () => {
+const NewPR = () => {
 
-    const { id } = useParams<{ id: string }>()
+    const { id } = useParams<{ id: string }>();
+
+
+    const { data: project, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", id);
+
+    console.log("top", project)
+
+    return (
+        <>  {project_loading && <h1>Loading...</h1>}
+            {project_error && <h1>{project_error.message}</h1>}
+            {project && <NewPRPage project={project} />}
+        </>
+    )
+};
+
+interface NewPRPageProps {
+    project: ProjectsType
+}
+
+export const NewPRPage = ({ project }: NewPRPageProps) => {
+
+    console.log("bottom", project)
+
+
     const navigate = useNavigate();
     const userData = useUserData()
     const { toast } = useToast()
@@ -36,7 +60,7 @@ export const NewPR = () => {
     const [tax, setTax] = useState<number | null>(null)
 
     const [orderData, setOrderData] = useState({
-        project: id,
+        project: project.name,
         work_package: '',
         procurement_list: {
             list: []
@@ -48,13 +72,6 @@ export const NewPR = () => {
 
 
 
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-        {
-            fields: ["*"],
-            filters: [['name', "=", id]],
-            orderBy: { field: 'creation', order: 'desc' },
-            limit: 1000
-        });
 
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
         {
@@ -123,7 +140,7 @@ export const NewPR = () => {
 
     const handleWPClick = (wp: string, value: string) => {
         setOrderData({
-            project: id,
+            project: project.name,
             procurement_list: {
                 list: []
             },
@@ -158,12 +175,12 @@ export const NewPR = () => {
             if (item.category === curCategory) item_options.push({ value: item.item_name, label: `${item.item_name}${item.make_name ? "-" + item.make_name : ""}` })
         })
     }
-    
-    if (project_list?.length != project_lists.length) {
-        project_list?.map((item) => {
-            project_lists.push(item.project_name)
-        })
-    }
+
+    // if (project_list?.length != project_lists.length) {
+    //     project_list?.map((item) => {
+    //         project_lists.push(item.project_name)
+    //     })
+    // }
 
     const handleSelect = (selectedItem: string) => {
         console.log('Selected item:', selectedItem);
@@ -345,7 +362,7 @@ export const NewPR = () => {
         setCurItem('')
     }
 
-    // console.log("project", project_list)
+    console.log("project", JSON.parse(project.project_work_packages))
 
     return (
         <>
@@ -355,7 +372,10 @@ export const NewPR = () => {
                     <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {wp_list?.map((item) => (
+                    {wp_list?.filter((item) => {
+                        let wp_arr = JSON.parse(project.project_work_packages).work_packages.map((item) => item.work_package_name)
+                        if (wp_arr.includes(item.work_package_name)) return true
+                    }).map((item) => (
                         <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
                             <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
                                 <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
@@ -415,13 +435,13 @@ export const NewPR = () => {
                         setCurItem("")
                         setMake("")
                         setPage('categorylist')
-                        }} />
+                    }} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                 </div>
                 <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
-                        <h3 className=" font-semibold text-sm md:text-lg">{project_list && project_list[0]?.project_name}</h3>
+                        <h3 className=" font-semibold text-sm md:text-lg">{project && project?.project_name}</h3>
                     </div>
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Package</h5>
@@ -694,3 +714,5 @@ export const NewPR = () => {
         </>
     )
 }
+
+export const Component = NewPR;

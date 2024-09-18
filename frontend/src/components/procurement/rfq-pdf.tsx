@@ -26,10 +26,11 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
             filters: [['name', 'like', `%${pr_id.split("-").at(1)}`]],
             limit: 1000
         });
-    // const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
-    //     {
-    //         fields: ['name', 'address_title', 'address_line1', 'city', 'state', 'pincode']
-    //     });
+    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+        {
+            fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
+            limit: 1000
+        });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_city'],
@@ -50,10 +51,11 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
         return item_name
     }
     const getProjectAddress = (item: string) => {
-        // const id = project_list?.find(value => value.name === item)?.project_address;
-        // const doc = address_list?.find(item => item.name === id);
-        // const address = `${doc?.address_title}, ${doc?.address_line1}, ${doc?.city}, ${doc?.state}, PIN-${doc?.pincode}`
-        return `${project_list?.at(0).project_city}, ${project_list?.at(0).project_state}`
+        const id = project_list?.find(value => value.name === item)?.project_address;
+        const doc = address_list?.find(item => item.name === id);
+        const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}-${doc?.pincode}, ${doc?.state}`
+        // return `${project_list?.at(0).project_city}, ${project_list?.at(0).project_state}`
+        return address
     }
     const getVendorName = (item: string) => {
         const name = vendor_list?.find(value => value.name === item)?.vendor_name;
@@ -126,7 +128,7 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
                                 <th colSpan="5" className="p-0">
                                     <div className="py-2 border-b-2 border-gray-600 pb-3 mb-3">
                                         <div className="flex justify-between">
-                                            <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                                            <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
                                             <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
                                         </div>
                                     </div>
@@ -134,22 +136,22 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
                             </tr>
                             <tr>
                                 <th colSpan="5" className="p-0">
-                                    <div className="grid grid-cols-4 justify-between border border-gray-100 rounded-lg p-4">
+                                    <div className="grid grid-cols-2 justify-between border border-gray-100 rounded-lg p-4">
                                         <div className="border-0 flex flex-col">
                                             <p className="text-left py-1 font-medium text-xs text-gray-500">Date</p>
                                             <p className="text-left font-bold py-1 font-semibold text-sm text-black">{orderData?.creation?.split(" ")[0]}</p>
                                         </div>
-                                        <div className="border-0 flex flex-col">
-                                            <p className="text-left py-1 font-medium text-xs text-gray-500">Project</p>
-                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{getProjectName(orderData?.project)}</p>
+                                        <div className="border-0 flex flex-col ml-10">
+                                            <p className="text-left py-1 font-medium text-xs text-gray-500">Project ID</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{orderData?.project}</p>
                                         </div>
                                         <div className="border-0 flex flex-col">
-                                            <p className="text-left py-1 font-medium text-xs text-gray-500">Address</p>
-                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black truncate pr-4">{getProjectAddress(orderData?.project)}</p>
+                                            <p className="text-left py-1 font-medium text-xs text-gray-500">Project Address</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black truncate pr-4 text-wrap">{getProjectAddress(orderData?.project)}</p>
                                         </div>
-                                        <div className="border-0 flex flex-col">
-                                            <p className="text-left py-1 font-medium text-xs text-gray-500">For</p>
-                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{getVendorName(vendor_id)}</p>
+                                        <div className="border-0 flex flex-col ml-10">
+                                            <p className="text-left py-1 font-medium text-xs text-gray-500">Vendor Name</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black text-wrap">{getVendorName(vendor_id)}</p>
                                         </div>
                                     </div>
                                 </th>
@@ -200,6 +202,10 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
                                     </tr>})} */}
                         </tbody>
                     </table>
+                    <div className="pt-24">
+                        <p className="text-md font-bold text-red-700 underline">Note</p>
+                        <p className="text-xs">Please share the quotes as soon as possible</p>
+                    </div>
                 </div>
             </div>
             <button onClick={handlePrint} className="m-1 p-2 bg-blue-500 text-white">Print</button>

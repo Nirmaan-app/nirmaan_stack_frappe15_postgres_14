@@ -270,7 +270,6 @@ export const ProjectForm = () => {
         }
     }, [pincode, pincode_data])
 
-
     const handleOpenDialog = () => {
         const button = document.getElementById("alertOpenProject")
         button?.click()
