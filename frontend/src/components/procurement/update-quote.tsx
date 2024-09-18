@@ -157,7 +157,7 @@ export const UpdateQuote = () => {
                                         <SheetContent>
                                             {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
                                                 <SheetHeader>
-                                                    <SheetTitle>Print PDF</SheetTitle>
+                                                    <SheetTitle className="text-center">Print PDF</SheetTitle>
                                                     <SheetDescription>
                                                         <PrintRFQ vendor_id={item} pr_id={orderData.name} />
                                                     </SheetDescription>

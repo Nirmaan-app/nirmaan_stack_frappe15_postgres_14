@@ -18,7 +18,7 @@ import { ColumnDef } from "@tanstack/react-table"
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { TableSkeleton } from "@/components/ui/skeleton"
+import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import { Menu, MenuProps, TableProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
@@ -742,20 +742,23 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${formatDate(new Date())}`
   });
 
-  if (isLoading) return <div>Loading...</div>
+  // if (isLoading) return <OverviewSkeleton />
 
   return (
-    <div className="flex-1 space-y-4 p-12 pt-8">
+    <div className="flex-1 space-y-4 px-12 max-md:px-8 max-sm:px-4 pt-6">
       <div className="flex items-center">
         <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
+          {isLoading ? <Skeleton className="w-[30%] h-10" /> : (
+            <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
+          )}
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
         <sup className="text-red-700">*(beta)</sup>
       </div>
       <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
 
       {/* Overview Section */}
-      {current === "overview" && (
+
+      {(isLoading || usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" &&  (
         <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
@@ -764,9 +767,6 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-10 w-full">
-              {/* <Card className="bg-[#F9FAFB]">
-                      <CardHeader>
-                        <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
               <div className="flex max-lg:flex-col max-lg:gap-10">
                 <div className="space-y-4 lg:w-[50%]">
                   <CardDescription className="space-y-2">
@@ -788,16 +788,6 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                     <span>Estimated Completion Date</span>
                     <p className="font-bold text-black">{formatDate(data?.project_end_date)}</p>
                   </CardDescription>
-                  {/* <CardDescription className="space-y-2">
-                  <span>Work Package</span>
-                  <div className="flex gap-1">
-                  {JSON.parse(data?.project_work_milestones).work_packages?.map((item: any) => (
-                    <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
-                  ))}
-                  </div>
-
-                </CardDescription> */}
-
                 </div>
 
                 <div className="space-y-4">
@@ -819,12 +809,6 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                     <span>No. of sections in layout</span>
                     <p className="font-bold text-black">{data?.subdivisions}</p>
                   </CardDescription>
-
-                  {/* <CardDescription className="space-y-2">
-                  <span>Health Score</span>
-                  <StatusBar currentValue={6} totalValue={10} />
-                </CardDescription> */}
-
                 </div>
               </div>
               <div className="space-y-4 w-full">
@@ -948,7 +932,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                   <th colSpan={5 + areaNames?.length} className="p-0">
                     <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
                       <div className="flex justify-between">
-                        <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                        <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
                         <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
                       </div>
                     </div>
@@ -1026,7 +1010,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                   <th colSpan={5} className="p-0">
                     <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
                       <div className="flex justify-between">
-                        <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                        <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
                         <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
                       </div>
                     </div>
@@ -1092,7 +1076,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                   <th colSpan={6 + areaNames?.length} className="p-0">
                     <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
                       <div className="flex justify-between">
-                        <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                        <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
                         <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
                       </div>
                     </div>

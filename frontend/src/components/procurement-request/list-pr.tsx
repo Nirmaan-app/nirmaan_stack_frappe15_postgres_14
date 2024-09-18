@@ -8,6 +8,7 @@ import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useUserData } from "@/hooks/useUserData";
 import { Badge } from "../ui/badge";
+import { ProcurementRequestsSkeleton } from "../ui/skeleton";
 
 export default function ListPR() {
 
@@ -21,7 +22,7 @@ export default function ListPR() {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList<ProcurementRequests>("Procurement Requests",
         {
-            fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'workflow_state'],
+            fields: ["*"],
             orderBy: { field: "creation", order: "desc" },
             limit: 1000
         });
@@ -43,7 +44,7 @@ export default function ListPR() {
         sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
     };
 
-    if (procurement_request_list_loading) return <h1>LOADING</h1>;
+    if (procurement_request_list_loading ) return <ProcurementRequestsSkeleton />
     if (procurement_request_list_error) return <h1>ERROR</h1>;
 
     return (

@@ -161,7 +161,7 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
                                 <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Category</th>
                                 <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                 <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
-                                <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Price</th>
+                                <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
@@ -208,7 +208,9 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
                     </div>
                 </div>
             </div>
-            <button onClick={handlePrint} className="m-1 p-2 bg-blue-500 text-white">Print</button>
+            <div className="text-center">
+                <button onClick={handlePrint} className="m-1 p-2 bg-blue-500 text-white">Print</button>
+            </div>
         </div>
     )
 }
