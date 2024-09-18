@@ -33,7 +33,9 @@ const VendorFormSchema = z.object({
         }),
     address_line_2: z
         .string()
-        .optional(),
+        .min(1, {
+            message: "Address Line 1 Required"
+        }),
     vendor_city: z
         .string({
             required_error: "Must Provide City"
@@ -212,9 +214,9 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     // }
 
     const onSubmit = async (values: VendorFormValues) => {
-    
+
         try {
-            if(values.vendor_city === "Not Found" || values.vendor_state === "Not Found") {
+            if (values.vendor_city === "Not Found" || values.vendor_state === "Not Found") {
                 throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
             }
 
@@ -232,7 +234,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 email_id: values.vendor_email,
                 phone: values.vendor_mobile,
             });
-    
+
             try {
                 // Create the vendor document using the address document reference
                 const vendorDoc = await createDoc('Vendors', {
@@ -251,7 +253,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                             : category_json
                     }
                 });
-    
+
                 // Create quotation requests
                 const promises = [];
                 sentBackData?.item_list?.list.forEach((item) => {
@@ -264,20 +266,20 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                     };
                     promises.push(createDoc("Quotation Requests", newItem));
                 });
-    
+
                 await Promise.all(promises);
-    
+
                 // Mutate the vendor-related data
                 await mutate("Vendors");
                 await mutate("Quotation Requests");
                 await mutate("Vendor Category");
-    
+
                 toast({
                     title: "Success!",
                     description: "Vendor Created Successfully!",
                     variant: "success"
                 });
-    
+
                 // Navigate or close window
                 if (navigation) {
                     navigate("/vendors");
@@ -298,7 +300,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
             console.error("Submit Error", error);
         }
     };
-    
+
 
     const [pincode, setPincode] = useState("")
 
@@ -420,7 +422,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         name="address_line_2"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Address Line 2:</FormLabel>
+                                <FormLabel className="flex">Address Line 2: <sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="Street name, area, landmark" {...field} />
                                 </FormControl>
