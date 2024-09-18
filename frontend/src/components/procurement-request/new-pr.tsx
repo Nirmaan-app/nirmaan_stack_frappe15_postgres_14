@@ -26,8 +26,6 @@ const NewPR = () => {
 
     const { data: project, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", id);
 
-    console.log("top", project)
-
     return (
         <>  {project_loading && <h1>Loading...</h1>}
             {project_error && <h1>{project_error.message}</h1>}
@@ -40,7 +38,7 @@ interface NewPRPageProps {
     project: ProjectsType
 }
 
-export const NewPRPage = ({ project }: NewPRPageProps) => {
+const NewPRPage = ({ project }: NewPRPageProps) => {
 
     console.log("bottom", project)
 
