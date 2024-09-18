@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import { useToast } from '../ui/use-toast';
+import { formatDate } from '@/utils/FormatDate';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -471,7 +472,7 @@ export const SelectVendors = () => {
                         <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
                             </div>
                             <div className="border-0 flex flex-col justify-center">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
@@ -611,7 +612,7 @@ export const SelectVendors = () => {
                             <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                                 <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                     <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
                                 </div>
                                 <div className="border-0 flex flex-col justify-center">
                                     <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>

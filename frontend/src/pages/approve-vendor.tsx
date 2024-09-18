@@ -13,6 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+import { formatDate } from '@/utils/FormatDate';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -591,7 +592,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
                         </div>
                         <div className="border-0 flex flex-col justify-center">
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>

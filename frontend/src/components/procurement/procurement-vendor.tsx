@@ -313,7 +313,7 @@ export const ProcurementOrder = () => {
                         <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
                             </div>
                             <div className="border-0 flex flex-col justify-center">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
@@ -359,9 +359,7 @@ export const ProcurementOrder = () => {
                                                                 <TableCell>{item.item}</TableCell>
                                                                 <TableCell>{item.unit}</TableCell>
                                                                 <TableCell>{item.quantity}</TableCell>
-                                                                <TableCell className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                                    {minQuote ? minQuote * item.quantity : "N/A"}
-                                                                </TableCell>
+                                                                <TableCell>{minQuote ? minQuote * item.quantity : "N/A"}</TableCell>
                                                             </TableRow>
                                                         )
                                                     }
@@ -421,7 +419,7 @@ export const ProcurementOrder = () => {
                         <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
                             </div>
                             <div className="border-0 flex flex-col justify-center">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>

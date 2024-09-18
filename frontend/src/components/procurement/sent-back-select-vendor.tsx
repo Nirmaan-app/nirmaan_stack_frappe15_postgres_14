@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
-import { MainLayout } from '../layout/main-layout';
+import { formatDate } from '@/utils/FormatDate';
 import {
     Dialog,
     DialogClose,
@@ -241,7 +241,7 @@ export const SentBackSelectVendor = () => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
 
-console.log("orderData", orderData)
+    console.log("orderData", orderData)
 
     const handleRadioChange = (item, vendor) => {
         setSelectedVendors(prevState => {
@@ -408,29 +408,33 @@ console.log("orderData", orderData)
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => navigate(`/sent-back-request/${id}`)} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Select Vendor</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Select Vendor Quotes</h2>
                         </div>
-                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{getPackage(orderData?.procurement_request)}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                        <Card className="flex md:grid md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                             </div>
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
+                            </div>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
+                            </div>
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
+                            </div>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request}</p>
+                            </div>
+                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
+                            </div> */}
                         </Card>
                         {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name;
@@ -524,29 +528,33 @@ console.log("orderData", orderData)
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('updatequotation')} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Comparison</h2>
                         </div>
-                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{getPackage(orderData?.procurement_request)}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                        <Card className="flex md:grid md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                             </div>
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
+                            </div>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
+                            </div>
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
+                            </div>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request}</p>
+                            </div>
+                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
+                            </div> */}
                         </Card>
                         <div className="w-full">
                             {/* <div className="font-bold text-xl py-2">{curCategory}</div> */}
