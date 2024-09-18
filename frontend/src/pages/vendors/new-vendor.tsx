@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
@@ -13,8 +13,6 @@ import { Link, useNavigate } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
-import { usePincode } from "@/hooks/usePincode"
-
 
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z
@@ -73,6 +71,9 @@ const VendorFormSchema = z.object({
         })
         .min(1, {
             message: "Vendor GST Required"
+        })
+        .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+            message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
         }),
     // vendor_categories: z
     //     .array(z.string())
@@ -211,9 +212,13 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     // }
 
     const onSubmit = async (values: VendorFormValues) => {
-        let category_json = categories.map((cat) => cat["value"]);
     
         try {
+            if(values.vendor_city === "Not Found" || values.vendor_state === "Not Found") {
+                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+            }
+
+            let category_json = categories.map((cat) => cat["value"]);
             // Create the address document
             const addressDoc = await createDoc('Address', {
                 address_title: values.vendor_name,
@@ -296,27 +301,35 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     
 
     const [pincode, setPincode] = useState("")
-    const { city, state } = usePincode(pincode)
+
+    const { data: pincode_data, isLoading: pincode_loading, error: pincode_error } = useFrappeGetDoc("Pincodes", pincode)
+    // const { city, state } = usePincode(pincode)
 
     const debouncedFetch = useCallback(
         (value: string) => {
-            if (value.length === 6) {
+            if (value.length >= 6) {
                 setPincode(value)
+            } else {
+                setPincode("")
             }
         }, []
     )
+
+    useEffect(() => {
+        if (pincode.length >= 6 && !pincode_data) {
+            form.setValue("vendor_city", "Not Found")
+            form.setValue("vendor_state", "Not Found")
+        } else {
+            form.setValue("vendor_city", pincode_data?.city || "")
+            form.setValue("vendor_state", pincode_data?.state || "")
+        }
+    }, [pincode, pincode_data])
+
 
     const handlePincodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value
         debouncedFetch(value)
     }
-
-    useEffect(() => {
-        if (pincode.length === 6) {
-            form.setValue("vendor_city", city || "")
-            form.setValue("vendor_state", state || "")
-        }
-    }, [city, state, form])
 
     return (
         <div className={`flex-1 space-x-2 ${navigation ? " md:space-y-4 p-4 md:p-8 pt-6" : ""} `}>
@@ -422,7 +435,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                             <FormItem>
                                 <FormLabel className="flex">City: <sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input placeholder={city || "City"} disabled={true} {...field} />
+                                    <Input placeholder={pincode_data?.city ? pincode_data?.city : "City"} disabled={true} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -435,7 +448,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                             <FormItem>
                                 <FormLabel className="flex">State: <sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input placeholder={state || "State"} disabled={true} {...field} />
+                                    <Input placeholder={pincode_data?.state ? pincode_data?.state : "State"} disabled={true} {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>

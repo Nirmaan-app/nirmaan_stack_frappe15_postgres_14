@@ -106,7 +106,7 @@ export const UserForm = () => {
     }
 
     return (
-        <div className="flex-1">
+        <div className="flex-1 p-4">
                 <div className="flex gap-2">
                     <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} />
                         <div className="flex flex-col">

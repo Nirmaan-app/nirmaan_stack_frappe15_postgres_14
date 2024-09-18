@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle } from "../ui/card";
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { PackagePlus } from "lucide-react";
+import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { MessageCircleMore, PackagePlus } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 
@@ -17,10 +17,34 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Input } from "../ui/input";
 import { useUserData } from "@/hooks/useUserData";
 import { useToast } from "../ui/use-toast";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 
-export const NewPR = () => {
+const NewPR = () => {
 
-    const { id } = useParams<{ id: string }>()
+    const { id } = useParams<{ id: string }>();
+
+
+    const { data: project, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", id);
+
+    console.log("top", project)
+
+    return (
+        <>  {project_loading && <h1>Loading...</h1>}
+            {project_error && <h1>{project_error.message}</h1>}
+            {project && <NewPRPage project={project} />}
+        </>
+    )
+};
+
+interface NewPRPageProps {
+    project: ProjectsType
+}
+
+export const NewPRPage = ({ project }: NewPRPageProps) => {
+
+    console.log("bottom", project)
+
+
     const navigate = useNavigate();
     const userData = useUserData()
     const { toast } = useToast()
@@ -36,7 +60,7 @@ export const NewPR = () => {
     const [tax, setTax] = useState<number | null>(null)
 
     const [orderData, setOrderData] = useState({
-        project: id,
+        project: project.name,
         work_package: '',
         procurement_list: {
             list: []
@@ -48,13 +72,6 @@ export const NewPR = () => {
 
 
 
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-        {
-            fields: ["*"],
-            filters: [['name', "=", id]],
-            orderBy: { field: 'creation', order: 'desc' },
-            limit: 1000
-        });
 
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
         {
@@ -123,7 +140,7 @@ export const NewPR = () => {
 
     const handleWPClick = (wp: string, value: string) => {
         setOrderData({
-            project: id,
+            project: project.name,
             procurement_list: {
                 list: []
             },
@@ -158,11 +175,12 @@ export const NewPR = () => {
             if (item.category === curCategory) item_options.push({ value: item.item_name, label: `${item.item_name}${item.make_name ? "-" + item.make_name : ""}` })
         })
     }
-    if (project_list?.length != project_lists.length) {
-        project_list?.map((item) => {
-            project_lists.push(item.project_name)
-        })
-    }
+
+    // if (project_list?.length != project_lists.length) {
+    //     project_list?.map((item) => {
+    //         project_lists.push(item.project_name)
+    //     })
+    // }
 
     const handleSelect = (selectedItem: string) => {
         console.log('Selected item:', selectedItem);
@@ -312,11 +330,11 @@ export const NewPR = () => {
         setPage('additem')
     }
 
-    const handleSave = (itemName: string, newQuantity: number) => {
+    const handleSave = (itemName: string, newQuantity: string) => {
         let curRequest = orderData.procurement_list.list;
         curRequest = curRequest.map((curValue) => {
             if (curValue.item === itemName) {
-                return { ...curValue, quantity: newQuantity };
+                return { ...curValue, quantity: parseInt(newQuantity) };
             }
             return curValue;
         });
@@ -344,7 +362,7 @@ export const NewPR = () => {
         setCurItem('')
     }
 
-    // console.log("project", project_list)
+    console.log("project", JSON.parse(project.project_work_packages))
 
     return (
         <>
@@ -354,7 +372,10 @@ export const NewPR = () => {
                     <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {wp_list?.map((item) => (
+                    {wp_list?.filter((item) => {
+                        let wp_arr = JSON.parse(project.project_work_packages).work_packages.map((item) => item.work_package_name)
+                        if (wp_arr.includes(item.work_package_name)) return true
+                    }).map((item) => (
                         <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
                             <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
                                 <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
@@ -410,13 +431,17 @@ export const NewPR = () => {
             {page == 'itemlist' && <div className="flex-1 space-x-2 space-y-2.5 md:space-y-4 p-2 md:p-12 pt-6">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('categorylist')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => {
+                        setCurItem("")
+                        setMake("")
+                        setPage('categorylist')
+                    }} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                 </div>
-                <div className="flex justify-between max-md:pr-40 md:justify-normal md:space-x-40">
+                <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
-                        <h3 className=" font-semibold text-sm md:text-lg">{project_list && project_list[0]?.project_name}</h3>
+                        <h3 className=" font-semibold text-sm md:text-lg">{project && project?.project_name}</h3>
                     </div>
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Package</h5>
@@ -424,7 +449,11 @@ export const NewPR = () => {
                     </div>
                 </div>
                 <div className="flex justify-between">
-                    <button className="text-sm py-2 md:text-lg text-blue-400 flex" onClick={() => setPage('categorylist')}><PackagePlus className="w-5 h-5 mt- pr-1" />Change Category</button>
+                    <button className="text-sm py-2 md:text-lg text-blue-400 flex" onClick={() => {
+                        setCurItem("")
+                        setMake("")
+                        setPage('categorylist')
+                    }}><PackagePlus className="w-5 h-5 mt- pr-1" />Change Category</button>
                 </div>
                 <h3 className="font-bold">{curCategory}</h3>
                 <div className="flex space-x-2">
@@ -444,7 +473,7 @@ export const NewPR = () => {
                 </div>
                 <div className="flex justify-between md:space-x-0 mt-2">
                     <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt- pr-1" />Create new item</button></div>
-                    {(curItem && quantity) ?
+                    {(curItem && Number(quantity)) ?
                         <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
                         :
                         <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>}
@@ -504,7 +533,7 @@ export const NewPR = () => {
                                                                         <div></div>
                                                                         <div className="flex botton-4 right-4 gap-2">
                                                                             <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                            <DialogClose><Button onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                            <DialogClose><Button disabled={quantity === "0"} onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
                                                                         </div>
                                                                     </DialogDescription>
                                                                 </DialogHeader>
@@ -524,8 +553,8 @@ export const NewPR = () => {
                 }
 
                 <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
-                    <h3 className="font-bold py-1">Include Comments</h3>
-                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Comments" onChange={handleCommentChange} />
+                    <h3 className="font-bold py-1 flex"><MessageCircleMore className="w-5 h-5 mt-0.5" />Comments</h3>
+                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Write comments here..." onChange={handleCommentChange} />
                 </Card>
                 <Dialog>
                     <DialogTrigger asChild>
@@ -550,7 +579,11 @@ export const NewPR = () => {
             {page == 'additem' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => {
+                        setCurItem("")
+                        setMake("")
+                        setPage('itemlist')
+                    }} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
                 </div>
                 <div className="mb-4">
@@ -571,12 +604,13 @@ export const NewPR = () => {
                         onChange={(e) => setCurItem(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
-                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(N.A)</label>
+                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(N/A)</label>
                     <Input
                         type="text"
                         id="makeName"
                         disabled={true}
                         value={make}
+                        placeholder="disabled"
                         onChange={(e) => setMake(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
@@ -627,8 +661,8 @@ export const NewPR = () => {
                         onChange={(e) => setUnit(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     /> */}
-                <div className="mb-4">
-                    <div className=" mt-72">
+                <div className="py-8">
+                    <div className="">
                         <Dialog>
                             <DialogTrigger asChild>
                                 {(curItem && unit) ?
@@ -680,3 +714,5 @@ export const NewPR = () => {
         </>
     )
 }
+
+export const Component = NewPR;

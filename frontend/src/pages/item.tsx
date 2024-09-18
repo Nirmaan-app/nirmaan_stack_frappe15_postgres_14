@@ -25,7 +25,7 @@ const ItemView = ({ itemId }: { itemId: string }) => {
 
     const navigate = useNavigate();
 
-    const { data, error, isLoading } = useFrappeGetDoc(
+    const { data, error, isLoading, mutate } = useFrappeGetDoc(
         'Items',
         itemId,
         `Items ${itemId}`,
@@ -66,6 +66,7 @@ const ItemView = ({ itemId }: { itemId: string }) => {
         })
             .then(() => {
                 console.log("edited", itemId)
+                mutate()
                 setUnit('')
                 setCurItem('')
                 setCategory('')

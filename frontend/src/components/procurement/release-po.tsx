@@ -1,17 +1,17 @@
-import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import {  useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useState, useEffect, useRef } from "react"
-import React from 'react';
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 // import { Form, InputNumber } from 'antd';
 import { Button } from "../ui/button";
 import { ArrowLeft, X } from "lucide-react";
-import { MainLayout } from "../layout/main-layout";
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import { Controller, useForm } from "react-hook-form";
 import { Input } from '@/components/ui/input';
 import { Label } from "../ui/label";
+import TextArea from "antd/es/input/TextArea";
+import { useToast } from "../ui/use-toast";
 
 export const ReleasePO = () => {
     const { id } = useParams<{ id: string }>()
@@ -21,20 +21,19 @@ export const ReleasePO = () => {
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
-            fields: ['name', 'project_name', 'project_address', 'vendor_name', 'vendor_address', 'vendor_gst', 'order_list', 'creation', 'advance', 'loading_charges', 'freight_charges', 'category'],
+            fields: ["*"],
             limit: 1000
-        });
+        },
+        "Procurement Orders"
+    );
 
-    const { data: category_list, isLoading: category_list_loading, error: category_list_error, mutate: category_list_mutate } = useFrappeGetDocList("Category",
-        {
-            fields: ['work_package', 'name', 'tax'],
-            limit: 1000
-        })
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
-            fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
+            fields: ["*"],
             limit: 1000
-        });
+        },
+        "Address"
+    );
 
     const [orderData, setOrderData] = useState(null);
     const [projectAddress, setProjectAddress] = useState()
@@ -75,7 +74,8 @@ export const ReleasePO = () => {
     const [advance, setAdvance] = useState(0)
     const [loadingCharges, setLoadingCharges] = useState(0)
     const [freightCharges, setFreightcCharges] = useState(0)
-    const [totalAmount, setTotalAmount] = useState(100); // Example total amount
+    const [notes, setNotes] = useState("")
+    // const [totalAmount, setTotalAmount] = useState(100); // Example total amount
 
     // const handleAdvanceChange = (value) => {
     //     setAdvance(value);
@@ -102,11 +102,12 @@ export const ReleasePO = () => {
     // }
     // const [form] = Form.useForm();
 
-    const { control, handleSubmit, setValue, reset, formState: { errors } } = useForm({
+    const { control, handleSubmit, reset } = useForm({
         defaultValues: {
             advance: 0,
             loadingCharges: 0,
             freightCharges: 0,
+            notes: ""
             // afterDelivery: 0  // Initial values need to be set based on your state or props
         }
     });
@@ -120,10 +121,13 @@ export const ReleasePO = () => {
                     advance: parseInt(curOrder.advance || 0),
                     loadingCharges: parseInt(curOrder.loading_charges || 0),
                     freightCharges: parseInt(curOrder.freight_charges || 0),
+                    notes: curOrder.notes || ""
                     // afterDelivery: calculateAfterDelivery(curOrder) // Assuming you have a function to calculate this
                 });
+                setAdvance(parseInt(curOrder.advance || 0))
                 setLoadingCharges(parseInt(curOrder.loading_charges || 0))
                 setFreightcCharges(parseInt(curOrder.freight_charges || 0))
+                setNotes(curOrder.notes || "")
             }
             // setOrderData(curOrder);
             // setAdvance(parseInt(curOrder?.advance || 0));
@@ -144,15 +148,16 @@ export const ReleasePO = () => {
 
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
 
-
+    const {toast} = useToast()
 
     // handleSubmit
     const onSubmit = (data: any) => {
 
         const updateData = {
-            advance: data.advance,
-            loading_charges: !loadingCharges ? 0 : data.loadingCharges,
-            freight_charges: !freightCharges ? 0 : data.freightCharges,
+            advance: data.advance || 0,
+            loading_charges: data.loadingCharges || 0,
+            freight_charges: data.freightCharges || 0,
+            notes: data.notes || ""
         };
 
         updateDoc('Procurement Orders', orderData?.name, updateData)
@@ -163,8 +168,18 @@ export const ReleasePO = () => {
                 // }))
                 mutate()
                 console.log("orderData?.name", orderData?.name)
+                toast({
+                    title: "Success!",
+                    description: `${doc.name} updated successfully!`,
+                    variant: "success"
+                })
             }).catch(() => {
                 console.log("update_submit_error", update_submit_error)
+                toast({
+                    title: "Failed!",
+                    description: `Failed to update ${orderData?.name}`,
+                    variant: "destructive"
+                })
             })
     };
 
@@ -216,6 +231,8 @@ export const ReleasePO = () => {
             marginBottom: '10px',
         }
     };
+
+    // console.log("for", control._formValues)
 
 
     if (procurement_order_list_loading || address_list_loading) return <div>Loading</div>
@@ -339,7 +356,23 @@ export const ReleasePO = () => {
                                 <Controller
                                     control={control}
                                     name="advance"
-                                    render={({ field }) => <Input {...field} className="w-full" />}
+                                    render={({ field }) => <Input type="number" {...field} onChange={(e) => {
+                                        const value = parseInt(e.target.value)
+                                        field.onChange(value)
+                                        setAdvance(value)
+                                    }} className="w-full" />}
+                                />
+                            </div>
+                            <div className="flex-1 mt-2">
+                                <Label>Add Notes</Label>
+                                <Controller
+                                    control={control}
+                                    name="notes"
+                                    render={({ field }) => <TextArea {...field} onChange={(e) => {
+                                        const value = e.target.value
+                                        field.onChange(value)
+                                        setNotes(value)
+                                    }} className="w-full" />}
                                 />
                             </div>
                             <div className="mt-2">
@@ -349,11 +382,11 @@ export const ReleasePO = () => {
                                 <Button onClick={handlePrint}>
                                     Print
                                 </Button>
-                                {update_submit_complete &&
+                                {/* {update_submit_complete &&
                                     <div>
                                         <div className="font-semibold text-green-500">PO Update Successfull</div>
                                     </div>
-                                }
+                                } */}
                             </div>
 
                         </div>
@@ -421,7 +454,7 @@ export const ReleasePO = () => {
                                 </thead>
                                 <tbody className={`bg-white`}>
                                     {orderData?.order_list?.list.map((item: any, index: number) => {
-                                        return (<tr key={index} className={`${(!loadingCharges && !freightCharges && index === orderData?.order_list?.list.length - 1) && "border-b border-black"} page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
+                                        return (<tr key={index} className={`${(!loadingCharges && !freightCharges && index === orderData?.order_list?.list.length - 1) && "border-b border-black"} page-break-inside-avoid ${index === 15 ? 'page-break-before' : ''}`}>
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
                                             <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
@@ -433,14 +466,15 @@ export const ReleasePO = () => {
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity)).toFixed(2)}</td>
                                         </tr>)
                                     })}
-                                    {/* {[...Array(14)].map((_, index) => (
+                                    {/* {[...Array(19)].map((_, index) => (
                                         orderData?.order_list?.list.map((item) => (
                                              <tr className="">
                                                 <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index+1}.</td>
-                                                <td className="px-6 py-2 text-sm whitespace-nowrap">{item.item}</td>
+                                                <td className="px-6 py-2 text-sm whitespace-nowrap text-wrap">sijdoodsjfo sfjdofjdsofjdsofj sdifjsojfosdjfjs </td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                                 <td className="px-6 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                                                 <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quote}</td>
+                                                <td className="px-4 py-2 text-sm whitespace-nowrap">{item.tax}%</td>
                                                 <td className="px-4 py-2 text-sm whitespace-nowrap">{(item.quote) * (item.quantity)}</td>
                                             </tr>
                                         )
@@ -542,8 +576,13 @@ export const ReleasePO = () => {
                                     </tr> */}
                                     <tr className="end-of-page page-break-inside-avoid" >
                                         <td colSpan={6}>
-                                            <div className="text-gray-400 text-sm py-2">Note</div>
-                                            <div className="text-sm text-gray-900">Above Sheet to be used of Jindal or Tata</div>
+                                            {notes !== "" && (
+                                                <>
+                                                <div className="text-gray-400 text-sm py-2">Note</div>
+                                                <div className="text-sm text-gray-900">{notes}</div>
+                                                </>
+                                            )}
+                                            
 
                                             <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                             <div className="text-sm text-gray-900">

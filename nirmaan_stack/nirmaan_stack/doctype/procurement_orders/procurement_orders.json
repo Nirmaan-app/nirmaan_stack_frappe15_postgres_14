@@ -23,6 +23,7 @@
   "advance",
   "loading_charges",
   "freight_charges",
+  "notes",
   "tracking_details_section",
   "status"
  ],
@@ -135,11 +136,16 @@
    "fieldtype": "JSON",
    "label": "Category List",
    "options": "Category"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Data",
+   "label": "Notes"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-09-13 11:51:55.432467",
+ "modified": "2024-09-17 12:43:54.445353",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

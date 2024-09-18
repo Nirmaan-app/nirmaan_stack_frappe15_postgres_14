@@ -99,7 +99,11 @@ export default function ListPR() {
                                         return <TableRow key={item.name}>
                                             <TableCell className="text-sm text-center"><Link to={`${item.name}`} className="text-blue-500 underline-offset-1">{item.name.slice(-4)}</Link></TableCell>
                                             <TableCell className="text-sm text-center">{item.work_package}</TableCell>
-                                            <TableCell className="text-sm text-center">{item.workflow_state}</TableCell>
+                                            <TableCell className="text-sm text-center">
+                                            <Badge variant={`${item.workflow_state === "Pending" ? "yellow" : item.workflow_state === "Approved" ? "green" : item.workflow_state === "RFQ Generated" ? "blue" : item.workflow_state === "Quote Updated" ? "teal" : item.workflow_state === "Vendor Selected" ? "purple" : item.workflow_state === "Vendor Approved" ? "indigo" : item.workflow_state === "Partially Approved" ? "orange" : "red"}`}>
+                                                    {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "Ordered" : (item.workflow_state === "Rejected" && checkPoToPr(item.name)) ? "Ordered" : (item.workflow_state === "Rejected" && !checkPoToPr(item.name)) ? "Delayed" : item.workflow_state}
+                                                </Badge>
+                                            </TableCell>
                                         </TableRow>
                                     }
                                 })}

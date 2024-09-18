@@ -156,7 +156,7 @@ const router = createBrowserRouter(
 					{/* Procurement Request Paths */}
 					<Route path="procurement-request">
 						<Route index element={<ListPR />} />
-						<Route path=":id/new" element={<NewPR />} />
+						<Route path=":id/new" lazy={() => import('@/components/procurement-request/new-pr')} />
 						<Route path=":id" lazy={() => import('@/components/pr-summary')} />
 					</Route>
 
