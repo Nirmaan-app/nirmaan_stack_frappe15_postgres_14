@@ -1,4 +1,4 @@
-import {  FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -10,18 +10,45 @@ import { ArrowLeft } from "lucide-react";
 import useCustomFetchHook from "@/reactQuery/customFunctions";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {  useEffect } from "react";
+import {  useCallback, useEffect, useState } from "react";
 const CustomerFormSchema = z.object({
-    company_name: z.string().min(1, "Company Name is required"),
-    company_email: z.string().email("Invalid email address").min(1, "Company Email is required"),
-    company_phone: z.string().min(1, "Company Phone is required"), 
-    company_contact_person: z.string().min(1, "Contact Person is required"),
-    company_gst: z.string(),
-    address_line1: z.string().min(1, "Address Line 1 is required"),
-    address_line2: z.string(),
-    city: z.string().min(1, "City is required"),
-    state: z.string(),
-    pin_code: z.string().min(1, "Pin Code is required"),
+    company_name: z
+    .string({
+        required_error: "Company Name is Required"
+    })
+    .min(3, {
+        message: "Must be at least 3 characters.",
+    }),
+    company_email: z.string().email().optional().or(z.literal('')),
+    company_phone: z
+    .string({
+        required_error: "Must Provide Customer Contact"
+    })
+    .max(10, { message: "Mobile number must be of 10 digits" })
+    .min(10, { message: "Mobile number must be of 10 digits" }), 
+    company_contact_person: z.string({
+        required_error: "Contact Person is required"
+    }).min(3, "Must be at least 3 characters."),
+    company_gst: z.string({
+        required_error: "Customer GST Required"
+    })
+    .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+        message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
+    })
+    .optional(),
+    address_line1: z
+    .string({
+        required_error: "Address Line 1 Required"
+    }).min(1, {
+        message: "Address Line 1 Required"
+    }),
+    address_line2: z.string().optional(),
+    pin_code: z
+    .string({
+        required_error: "Must provide Pincode"
+    })
+    .max(6, { message: "Pincode must be of 6 digits" })
+    .min(6, { message: "Pincode must be of 6 digits" })
 });
 
 
@@ -33,48 +60,61 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
 
     const { id } = useParams<{ id: string }>();
 
-    // const { data, refetch } = useQuery({
-    //     queryKey: ["doc", "Customers", id],
-    //     queryFn: () => fetchDoc({doctype: "Customers", name: id}),
-    //     staleTime: 1000 * 60 * 5,
-    // });
-
     const {data, mutate : customerMutate} = useFrappeGetDoc("Customers", id, `Customers ${id}`, {
         revalidateIfStale: false
     })
 
     const companyAddress = data?.company_address;
 
-    // const { data: addressData, refetch: addressRefetch } = useQuery({
-    //     queryKey: ["doc","Address", companyAddress],
-    //     queryFn: () => fetchDoc({doctype: "Address", name: companyAddress}),
-    //     enabled: !!companyAddress,
-    //     staleTime: 1000 * 60 * 5,
-    // });
-
     const {data: addressData, mutate: addressMutate} = useFrappeGetDoc("Address", companyAddress, `Address ${companyAddress}`, {
         revalidateIfStale: false
     })
 
-    // const queryClient = useQueryClient()
     const { updateDoc, loading, error: submit_error } = useFrappeUpdateDoc();
     const {toast} = useToast()
     const {mutate} = useSWRConfig()
+    const [city, setCity] = useState(addressData?.city || "")
+    const [state, setState] = useState(addressData?.state || "")
+    const [pincode, setPincode] = useState("")
 
+    const { data: pincode_data, isLoading: pincode_loading, error: pincode_error } = useFrappeGetDoc("Pincodes", pincode, `Pincodes ${pincode}`)
+
+    const debouncedFetch = useCallback(
+        (value: string) => {
+            if (value.length >= 6) {
+                setPincode(value)
+            } else {
+                setPincode("")
+            }
+        }, [])
+
+    useEffect(() => {
+        if (pincode.length >= 6 && !pincode_data) {
+            setCity("Not Found")
+            setState("Not Found")
+        } else {
+            setCity(pincode_data?.city || "")
+            setState(pincode_data?.state || "")
+        }
+    }, [pincode_data])
+
+
+    const handlePincodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value
+        debouncedFetch(value)
+    }
 
     const form = useForm<CustomerFormValues>({
         resolver: zodResolver(CustomerFormSchema),
         defaultValues: {
             company_name: data?.company_name || "",
             company_email: data?.company_email || "",
-            company_phone: data?.company_phone || 0,
+            company_phone: data?.company_phone || "",
             company_contact_person: data?.company_contact_person || "",
             company_gst: data?.company_gst || "",
             address_line1: addressData?.address_line1 || "",
             address_line2: addressData?.address_line2 || "",
-            city: addressData?.city || "",
-            state: addressData?.state || "",
-            pin_code: addressData?.pincode || 0,
+            pin_code: addressData?.pincode || "",
         },
         mode: "onBlur",
     });
@@ -82,18 +122,18 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
     useEffect(() => {
         if (data && addressData) {
             form.reset({
-                company_name: data.company_name,
-                company_email: data.company_email,
-                company_phone: data.company_phone,
-                company_contact_person: data.company_contact_person,
-                company_gst: data.company_gst,
-                address_line1: addressData.address_line1,
-                address_line2: addressData.address_line2,
-                city: addressData.city,
-                state: addressData.state,
-                pin_code: addressData.pincode,
+                company_name: data?.company_name,
+                company_email: data?.company_email,
+                company_phone: data?.company_phone,
+                company_contact_person: data?.company_contact_person,
+                company_gst: data?.company_gst,
+                address_line1: addressData?.address_line1,
+                address_line2: addressData?.address_line2,
+                pin_code: addressData?.pincode,
             });
         }
+
+        setPincode(addressData?.pincode)
     }, [data, addressData, form]);
 
     const hasChanges = () => {
@@ -106,8 +146,6 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
             company_gst: data?.company_gst || "",
             address_line1: addressData?.address_line1 || "",
             address_line2: addressData?.address_line2 || "",
-            city: addressData?.city || "",
-            state: addressData?.state || "",
             pin_code: addressData?.pincode || "",
         };
         return JSON.stringify(values) !== JSON.stringify(originalValues);
@@ -138,8 +176,8 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
         const hasAddressChanged = (
             addressData?.address_line1 !== values.address_line1 ||
             addressData?.address_line2 !== values.address_line2 ||
-            addressData?.city !== values.city ||
-            addressData?.state !== values.state ||
+            addressData?.city !== city ||
+            addressData?.state !== state ||
             addressData?.pincode !== values.pin_code
         );
 
@@ -148,8 +186,8 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                 address_title: values.company_name,
                 address_line1: values.address_line1,
                 address_line2: values.address_line2,
-                city: values.city,
-                state: values.state,
+                city: city,
+                state: state,
                 pincode: values.pin_code,
                 email_id: values.company_email,
                 phone: values.company_phone
@@ -162,6 +200,9 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
 
     const onSubmit = async (values: CustomerFormValues) => {
         try {
+            if(city === "Not Found" || state === "Not Found") {
+                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+            }
             await updateCustomerDetails(values);
             await updateAddressDetails(values);
 
@@ -183,12 +224,17 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
             navigate(`/customers/${id}`);
             
         } catch (error) {
+            toast({
+                title: "Failed!",
+                description: `${error}`,
+                variant: "destructive"
+            });
             console.error("Error updating customer:", submit_error, error);
         }
     };
 
     return (
-        <div className="p-4">
+        <div className="flex-1 px-12 max-md:px-8 max-sm:px-4 pt-6">
             <div className="space-y-0.5">
                 <div className="flex space-x-2 items-center">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/customers/${id}`)} />
@@ -206,9 +252,9 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                         name="company_name"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Company Name</FormLabel>
+                                <FormLabel>Company Name<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input placeholder="Company Name" {...field} />
+                                    <Input {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -221,7 +267,7 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                             <FormItem>
                                 <FormLabel>Company Email</FormLabel>
                                 <FormControl>
-                                    <Input type="email" placeholder="Company Email" {...field} />
+                                    <Input type="email" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -232,9 +278,9 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                         name="company_phone"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Company Phone</FormLabel>
+                                <FormLabel>Company Phone<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input type="number" placeholder="Company Phone" {...field} />
+                                    <Input type="number" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -245,9 +291,9 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                         name="company_contact_person"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Company Contact Person</FormLabel>
+                                <FormLabel>Company Contact Person<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input placeholder="Company Contact Person" {...field} />
+                                    <Input {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -260,7 +306,7 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                             <FormItem>
                                 <FormLabel>Company GST number</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="Company GST number" {...field} />
+                                    <Input {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -273,9 +319,9 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                         name="address_line1"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Address Line 1</FormLabel>
+                                <FormLabel>Address Line 1<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input placeholder="Address Line 1" {...field} />
+                                    <Input {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -288,53 +334,57 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                             <FormItem>
                                 <FormLabel>Address Line 2</FormLabel>
                                 <FormControl>
-                                    <Input placeholder="Address Line 2" {...field} />
+                                    <Input {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
                         )}
                     />
-                    <FormField
-                        control={form.control}
-                        name="city"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>City</FormLabel>
-                                <FormControl>
-                                    <Input placeholder="City" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="state"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>State</FormLabel>
-                                <FormControl>
-                                    <Input placeholder="State" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
+                    <FormItem>
+                      <FormLabel>
+                        City<sup className="text-sm text-red-600">*</sup>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                            disabled 
+                          type="text" 
+                          value={city}
+                        />
+                      </FormControl>
+                    </FormItem>
+                    <FormItem>
+                      <FormLabel>
+                        State<sup className="text-sm text-red-600">*</sup>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                            disabled
+                          type="text" 
+                          value={state}
+                        />
+                      </FormControl>
+                    </FormItem>
                     <FormField
                         control={form.control}
                         name="pin_code"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Pin Code</FormLabel>
+                                <FormLabel>Pin Code<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input type="number" placeholder="Pin Code" {...field} />
+                                    <Input type="number" {...field} onChange={(e) => {
+                                        field.onChange(e)
+                                        handlePincodeChange(e)
+                                    }} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
                         )}
                     />
                     <div className="flex justify-end space-x-2">
-                        <Button type="button" variant="outline" onClick={() => form.reset()}>
+                        <Button type="button" variant="outline" onClick={() => {
+                            form.reset()
+                            form.clearErrors()
+                        }}>
                             Cancel
                         </Button>
                         <Button type="submit" disabled={!hasChanges() || loading}>

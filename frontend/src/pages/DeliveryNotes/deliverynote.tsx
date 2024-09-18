@@ -457,7 +457,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Check, ArrowLeft, X } from "lucide-react";
+import { Check, ArrowLeft, X, ArrowUp, ArrowDown } from "lucide-react";
 import { Badge } from '@/components/ui/badge';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from 'frappe-react-sdk';
@@ -527,20 +527,20 @@ export default function DeliveryNote() {
 
     // Handle change in received quantity
     const handleReceivedChange = (itemName, value) => {
-        const quantity = modifiedOrder.list.find(item => item.item === itemName)?.quantity;
-        const parsedValue = value !== "" ? parseFloat(value) : 0;
+        // const quantity = modifiedOrder.list.find(item => item.item === itemName)?.quantity;
+        const parsedValue = value !== "" ? parseInt(value) : 0;
 
-        if (parsedValue > quantity) {
-            toast({
-                title: "Error!",
-                description: `Entered received quantity is greater than actual quantity for ${itemName}`,
-                variant: "destructive",
-            });
+        // if (parsedValue > quantity) {
+        //     toast({
+        //         title: "Error!",
+        //         description: `Entered received quantity is greater than actual quantity for ${itemName}`,
+        //         variant: "destructive",
+        //     });
             // setValidateMessage(prev => ({
             //     ...prev,
             //     [itemName] : `Entered received quantity is greater than actual quantity for ${itemName}`
             // }))
-        } else {
+        // } else {
             setModifiedOrder(prevState => ({
                 ...prevState,
                 list: prevState.list.map(item => 
@@ -551,7 +551,7 @@ export default function DeliveryNote() {
             //     ...prev,
             //     [itemName] : ''
             // }))
-        }
+        // }
     };
 
     // console.log("modifiedOrder", modifiedOrder)
@@ -702,24 +702,38 @@ export default function DeliveryNote() {
                                     <TableCell>
                                         {show === false ? (
                                             item.received === item.quantity ? (
-                                            <Check className="h-5 w-5 text-green-500" />
+                                            <div className='flex gap-2'>
+                                                <Check className="h-5 w-5 text-green-500" />
+                                                <span>{item.received}</span>
+                                            </div>
                                         ) : (
+                                            <div className='flex gap-2'>
+                                                {(item.received || 0) > item.quantity ? (
+                                                    <ArrowUp className='text-primary' />
+                                                ) : (
+                                                    <ArrowDown className='text-primary' />
+                                                )}
                                                    <span className="text-sm text-gray-600">
-                                                     {item.received ? item.received : 0}
+                                                     {item.received || 0}
                                                    </span>
+                                            </div>
                                             )
                                             
                                         ) : (
-                                            <div>
-                                            <Input
-                                                type="text"
-                                                value={modifiedOrder?.list.find((mod) => mod.name === item.name).received || ''}
-                                                onChange={(e) => handleReceivedChange(item.item, e.target.value)}
-                                                placeholder="Qty"
-                                            />
+                                            item.received !== item.quantity ? (
+                                                <div>
+                                                <Input
+                                                    type="text"
+                                                    value={modifiedOrder?.list.find((mod) => mod.name === item.name).received || ''}
+                                                    onChange={(e) => handleReceivedChange(item.item, e.target.value)}
+                                                    placeholder="Qty"
+                                                />
 
-                                            {/* <span className='text-sm font-light text-red-500'>{validateMessage[item.item]}</span> */}
+                                                {/* <span className='text-sm font-light text-red-500'>{validateMessage[item.item]}</span> */}
                                             </div>
+                                            ) : (
+                                            <Check className="h-5 w-5 text-green-500" />
+                                            )
                                         )}
                                     </TableCell>
                                 </TableRow>
@@ -755,7 +769,7 @@ export default function DeliveryNote() {
                                              </div>
                                              <div className=" border-b-2 border-gray-600 pb-1 mb-1">
                                                  <div className="flex justify-between">
-                                                     <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                                                     <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
                                                      <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
                                                  </div>
                                              </div>

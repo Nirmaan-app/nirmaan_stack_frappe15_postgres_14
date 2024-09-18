@@ -1,48 +1,62 @@
-import {  useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk"
+import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
-import { ButtonLoading } from "@/components/button-loading"
 import ReactSelect from 'react-select';
-import { useState } from "react"
-import {  useNavigate, useParams } from "react-router-dom"
+import { useCallback, useEffect, useState } from "react"
+import { useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
+import { zodResolver } from "@hookform/resolvers/zod"
 
 const VendorFormSchema = z.object({
-    vendor_contact_person_name: z
-        .string({
-        }),
+    vendor_contact_person_name: z.string().optional(),
     vendor_name: z
-        .string({
-        }),
+    .string({
+        required_error: "Must provide Vendor Name"
+    })
+    .min(3, {
+        message: "Must be at least 3 characters.",
+    }),
     address_line_1: z
-        .string({
-        }),
+    .string({
+        required_error: "Address Line 1 Required"
+    }).min(1, {
+        message: "Address Line 1 Required"
+    }),
     address_line_2: z
-        .string({
-        }),
-    vendor_city: z
-        .string({
-        }),
-    vendor_state: z
-        .string({
-        }),
+    .string({
+        required_error: "Address Line 1 Required"
+    }).min(1, {
+        message: "Address Line 1 Required"
+    }),
     pin: z
-        .number({
-        }),
-    vendor_email: z
-        .string(),
+    .string({
+        required_error: "Must provide Pincode"
+    })
+    .max(6, { message: "Pincode must be of 6 digits" })
+    .min(6, { message: "Pincode must be of 6 digits" }),
+    email: z.string().email().optional().or(z.literal('')),
     vendor_mobile: z
-        .number({
-        }),
+    .string({
+        required_error: "Must Provide Vendor Contact"
+    })
+    .max(10, { message: "Mobile number must be of 10 digits" })
+    .min(10, { message: "Mobile number must be of 10 digits" })
+    .optional(),
     vendor_gst: z
-        .string({
-        }),
-    // vendor_categories: z
-    //     .array(z.string())
+    .string({
+        required_error: "Vendor GST Required"
+    })
+    .min(1, {
+        message: "Vendor GST Required"
+    })
+    .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+        message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
+    }),
 })
 
 type VendorFormValues = z.infer<typeof VendorFormSchema>
@@ -55,355 +69,331 @@ interface SelectOption {
 export const EditVendor = () => {
     const navigate = useNavigate()
     const { id } = useParams<{ id: string }>()
-    const { data, error, isValidating } = useFrappeGetDoc(
+    const { data, mutate: vendorMutate } = useFrappeGetDoc(
         'Vendors',
-        `${id}`
+        `${id}`,
+        `Vendors ${id}`
     );
-    const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
+
+    const {data: vendorAddress, isLoading: vendorAddressLoading, error: vendorAddressError, mutate: addressMutate} = useFrappeGetDoc(
+        "Address", 
+        data?.vendor_address, 
+        `Address ${data?.vendor_address}`, 
         {
-            fields: ['vendor', 'category'],
-            filters: [["vendor", "=", id]]
-    });
-    useFrappeDocTypeEventListener("Vendor Category", () => {
-        vendor_category_mutate()
-    })
+        revalidateIfStale: false
+        }
+    )
 
-
-    const form = useForm({
-        // resolver: zodResolver(VendorFormSchema),
+    const form = useForm<VendorFormValues>({
+        resolver: zodResolver(VendorFormSchema),
         defaultValues: {
-            vendor_contact_person_name: "",
-            vendor_name: "",
-            address_line_1: "",
-            address_line_2: "",
-            vendor_city: "",
-            vendor_state: "",
-            pin: 0,
-            vendor_email: data?.vendor_email,
-            vendor_mobile: data?.vendor_mobile,
-            vendor_gst: ""
-
+            vendor_contact_person_name: data?.vendor_contact_person_name || "",
+            vendor_name: data?.vendor_name || "",
+            address_line_1: vendorAddress?.address_line1 || "",
+            address_line_2: vendorAddress?.address_line2 || "",
+            pin: vendorAddress?.pincode || "",
+            email: data?.vendor_email || "",
+            vendor_mobile: data?.vendor_mobile || "",
+            vendor_gst: data?.vendor_gst || "",
         },
-        mode: "onChange",
+        mode: "onBlur",
     })
-    const { data: address, isLoading: address_isLoading, error: address_error, mutate: project_address_mutate } = useFrappeGetDocList('Address', {
-        fields: ["name", "address_title"],
-        filters: [["address_type", "=", "Shop"]],
-        limit: 1000
+
+    useEffect(() => {
+        if (data && vendorAddress) {
+            form.reset({
+                vendor_contact_person_name: data?.vendor_contact_person_name || "",
+                vendor_name: data?.vendor_name || "",
+                address_line_1: vendorAddress?.address_line1 || "",
+                address_line_2: vendorAddress?.address_line2 || "",
+                pin: vendorAddress?.pincode || "",
+                email: data?.vendor_email || "",
+                vendor_mobile: data?.vendor_mobile || "",
+                vendor_gst: data?.vendor_gst || "",
+            });
+            setPincode(vendorAddress?.pincode)
+        }
+    }, [data, vendorAddress, form]);
+
+    const { data: category_list } = useFrappeGetDocList("Category", {
+        fields: ["*"],
+        limit: 1000,
     });
-    const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
-        {
-            fields: ['category_name', 'work_package'],
-            orderBy: { field: 'work_package', order: 'asc' },
-            limit: 1000
-        });
 
-    // const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+    const [city, setCity] = useState(vendorAddress?.city || "")
+    const [state, setState] = useState(vendorAddress?.state || "")
 
-    function onSubmit(values: z.infer<typeof VendorFormSchema>) {
-        // Do something with the form values.
-        // ✅ This will be type-safe and validated.
-        let category_json = Object.values(categories).map((object) => { return object["value"] })
-        console.log(category_json)
-
-        updateDoc('Vendors', `${id}`, {
-            vendor_category: { "categories": category_json }
-        }).then((doc) => {
-            console.log(doc)
-            navigate("/vendors")
-        }).catch(() => {
-            console.log(submit_error)
-        })
-
-        // createDoc('Vendors', { ...values, vendor_category: { "categories": category_json } })
-        //     .then((doc) => {
-
-        //     })
-        //     .catch(() => {
-        //         console.log(submit_error)
-        //     })
-
-        // createDoc('Address', {
-        //     address_title: values.vendor_name,
-        //     address_type: "Shop",
-        //     address_line1: values.address_line_1,
-        //     address_line2: values.address_line_2,
-        //     city: values.vendor_city,
-        //     state: values.vendor_state,
-        //     country: "India",
-        //     pincode: values.pin,
-        //     email_id: values.vendor_email,
-        //     phone: values.vendor_mobile
-        // }).then(doc => {
-        //     createDoc('Vendors', {
-        //         vendor_name: values.vendor_name,
-        //         vendor_type: "Material",
-        //         vendor_address: doc.name,
-        //         vendor_city: doc.city,
-        //         vendor_state: doc.state,
-        //         vendor_contact_person_name: values.vendor_contact_person_name,
-        //         vendor_mobile: values.vendor_mobile,
-        //         vendor_email: values.vendor_email,
-        //         vendor_gst: values.vendor_gst,
-        //         vendor_category: { "categories": category_json }
-        //     })
-        //         .then(() => {
-        //             navigate("/vendors")
-        //         })
-        //         .catch(() => {
-        //             console.log(submit_error)
-        //         })
-        // })
-        //     .catch(() => {
-        //         console.log("address_error", submit_error)
-        //     })
-
-    }
-
-    const options: SelectOption[] = address?.map(item => ({
-        label: item.name,
-        value: item.name
+    const { updateDoc, loading } = useFrappeUpdateDoc()
+    const { toast } = useToast()
+    
+    const category_options: SelectOption[] = category_list
+    ?.map(item => ({
+        label: `${item.category_name}-(${item.work_package})`,
+        value: item.category_name
     })) || [];
 
-    const category_options: SelectOption[] = category_list
-        ?.map(item => ({
-            label: `${item.category_name}-(${item.work_package})`,
-            value: item.category_name
-        })) || [];
-
-    const default_options: SelectOption[] = vendor_category_list
-        ?.map(item => ({
-            label: item.category,
-            value: item.category
-        })) || null;
-    console.log(default_options)
+    const default_options: SelectOption[] = data && JSON.parse(data?.vendor_category)?.categories?.map(item => ({
+        label: item,
+        value: item,
+    })) || [];
 
     const [categories, setCategories] = useState(default_options)
 
-    const handleChange = (selectedOptions) => {
+    const handleChange = (selectedOptions: SelectOption[]) => {
         setCategories(selectedOptions)
-        console.log(categories)
+    }
+
+    const [pincode, setPincode] = useState("")
+
+    const { data: pincode_data, isLoading: pincode_loading, error: pincode_error } = useFrappeGetDoc("Pincodes", pincode, `Pincodes ${pincode}`)
+
+    const debouncedFetch = useCallback(
+        (value: string) => {
+            if (value.length >= 6) {
+                setPincode(value)
+            } else {
+                setPincode("")
+            }
+        }, [])
+
+    useEffect(() => {
+        if (pincode.length >= 6 && !pincode_data) {
+            setCity("Not Found")
+            setState("Not Found")
+        } else {
+            setCity(pincode_data?.city || "")
+            setState(pincode_data?.state || "")
+        }
+    }, [pincode_data])
+
+
+    const handlePincodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value
+        debouncedFetch(value)
+    }
+
+    const onSubmit = async (values: VendorFormValues) => {
+        let category_json = categories.map(c => c.value)
+        try {
+            if(city === "Not Found" || state === "Not Found") {
+                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+            }
+
+            await updateDoc('Address', `${data?.vendor_address}`, {
+                email_id: values.email,
+                phone: values.vendor_mobile,
+                address_line1: values.address_line_1,
+                address_line2: values.address_line_2,
+                city: city,
+                state: state,
+                pincode: values.pin
+            })
+
+            await updateDoc("Vendors", id, {
+                vendor_category : {categories : category_json},
+                vendor_city: city,
+                vendor_contact_person_name : values.vendor_contact_person_name,
+                vendor_email: values.email,
+                vendor_gst: values.vendor_gst,
+                vendor_mobile: values.vendor_mobile,
+                vendor_name: values.vendor_name,
+                vendor_state: state
+            })
+
+                await vendorMutate()
+                await addressMutate()
+
+                toast({
+                    title: "Success!",
+                    description: `Vendor: ${id} updated successfully!`,
+                    variant: "success",
+                })
+                navigate(`/vendors/${id}`)
+                
+        } catch (error) {
+            toast({
+                title: "Failed!",
+                description: `${error}`,
+                variant: "destructive",
+            })
+            console.log("Error while updating vendor", error)
+        }
     }
 
     return (
-            <div className="p-4">
-                <div className="space-y-0.5">
-                    <div className="flex space-x-2 items-center">
-                        <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/vendors/${id}`)} />
-                        <h2 className="text-2xl font-bold tracking-tight">Edit Vendor Categories</h2>
-                    </div>
-                    {/* <p className="text-muted-foreground">
-                        Fill out this to create a new Vendor
-                    </p> */}
+        <div className="flex-1 px-12 max-md:px-8 max-sm:px-4 pt-6">
+            <div className="space-y-0.5">
+                <div className="flex space-x-2 items-center">
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/vendors/${id}`)} />
+                    <h2 className="text-2xl font-bold tracking-tight">Edit Vendor</h2>
                 </div>
-                <Separator className="my-6" />
-                <Form {...form}>
-                    <form onSubmit={(event) => {
-                        event.stopPropagation();
-                        return form.handleSubmit(onSubmit)(event);
-                    }} className="space-y-8">
-                        <FormField
-                            control={form.control}
-                            name="vendor_name"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Vendor Name</FormLabel>
-                                    <FormControl>
-                                        <Input disabled={true} placeholder={data?.vendor_name} {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-
-                            )}
-                        />
-                        {/* <FormField
-                    control={form.control}
-                    name="vendor_address"
-                    render={({ field }) => {
-                        return (
+            </div>
+            <Separator className="my-6" />
+            <Form {...form}>
+            <form
+                    onSubmit={(event) => {
+                        event.preventDefault(); // Prevents page reload
+                        return form.handleSubmit(onSubmit)(event); // Calls your form submit logic
+                    }}
+                    className="space-y-8"
+                >
+                    <FormField
+                        control={form.control}
+                        name="vendor_name"
+                        render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Vendor Address Select</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <FormControl>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select an address" />
-                                        </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        {address_isLoading && <div>Loading...</div>}
-                                        {address_error && <div>Error: {address_error.message}</div>}
-                                        {options.map(option => (
-                                            <SelectItem value={option.value}>{option.label}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <Dialog>
-                                    <DialogTrigger asChild>
-                                        <Button variant="secondary"> + Add Vendor Address</Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="sm:max-w-[425px]">
-                                        <ScrollArea className="h-[600px] w-[350px]">
-                                            <DialogHeader>
-                                                <DialogTitle>Add New Vendor Address</DialogTitle>
-                                                <DialogDescription>
-                                                    Add new vendor address here.
-                                                </DialogDescription>
-                                            </DialogHeader>
-                                            <Separator className="my-6" />
-
-                                            <AddressForm type={"Shop"} project_address_mutate={project_address_mutate} />
-
-                                        </ScrollArea>
-                                    </DialogContent>
-                                </Dialog>
+                                <FormLabel>Vendor Name<sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormControl>
+                                    <Input {...field} />
+                                </FormControl>
                                 <FormMessage />
                             </FormItem>
-                        )
-                    }}
-                /> */}
-                        <FormField
-                            control={form.control}
-                            name="vendor_contact_person_name"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Name</FormLabel>
-                                    <FormControl>
-                                        <Input disabled={true} placeholder={data?.vendor_contact_person_name} {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-
-                            )}
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="vendor_contact_person_name"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Contact Person Name</FormLabel>
+                                <FormControl>
+                                    <Input {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="address_line_1"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Address Line 1<sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormControl>
+                                    <Input {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="address_line_2"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Address Line 2<sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormControl>
+                                    <Input {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormItem>
+                      <FormLabel>
+                        City<sup className="text-sm text-red-600">*</sup>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                            disabled 
+                          type="text" 
+                          value={city}
                         />
-
-                        <FormField
-                            control={form.control}
-                            name="vendor_gst"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>GST Number</FormLabel>
-                                    <FormControl>
-                                        <Input disabled={true} placeholder={data?.vendor_gst} {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-
-                            )}
+                      </FormControl>
+                    </FormItem>
+                    <FormItem>
+                      <FormLabel>
+                        State<sup className="text-sm text-red-600">*</sup>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                            disabled
+                          type="text" 
+                          value={state}
                         />
-                        <Separator className="my-3" />
-                        <p className="text-sky-600 font-semibold pb-2">Vendor Address Details</p>
-                        <FormField
-                            control={form.control}
-                            name="address"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Address Line 1: </FormLabel>
-                                    <FormControl>
-                                        <Input disabled={true} placeholder={data?.vendor_address} {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        {/* <FormField
-                            control={form.control}
-                            name="address_line_2"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Address Line 2: </FormLabel>
-                                    <FormControl>
-                                        <Input placeholder={data?.address_line_2} {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        /> */}
-                        <FormField
-                            control={form.control}
-                            name="vendor_city"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>City: </FormLabel>
-                                    <FormControl>
-                                        <Input disabled={true} placeholder={data?.vendor_city} {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="vendor_state"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>State: </FormLabel>
-                                    <FormControl>
-                                        <Input disabled={true} placeholder={data?.vendor_state}{...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-
-                            )}
-                        />
-                        {/* <FormField
-                            control={form.control}
-                            name="pin"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Pin Code: </FormLabel>
-                                    <FormControl>
-                                        <Input type="number" placeholder={data?.pin} {...field} onChange={event => field.onChange(+event.target.value)} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        /> */}
-                        <FormField
-                            control={form.control}
-                            name="vendor_mobile"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Phone: </FormLabel>
-                                    <FormControl>
-                                        <Input disabled={true} type="number" placeholder={data?.vendor_mobile} {...field} onChange={event => field.onChange(+event.target.value)} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="vendor_email"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Email: </FormLabel>
-                                    <FormControl>
-                                        <Input disabled={true} placeholder={data?.vendor_email} {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-
-                        <Separator className="my-3" />
-                        <p className="text-sky-600 font-semibold pb-2">Change Vendor Category</p>
-                        <div>
-                            <label>Add Category</label>
-                            {(category_options.length > 0 && default_options) && <ReactSelect options={category_options} defaultValue={default_options ? default_options : []} onChange={handleChange} isMulti />}
-                        </div>
-                        {(loading) ? (<ButtonLoading />) : (<Button type="submit">Update Vendor Category</Button>)}
-
-                        <div>
-                            {submit_complete &&
-                                <div>
-                                    <div className="font-semibold text-green-500">Vendor Updated</div>
-                                </div>
-                            }
-                            {submit_error && <div>{submit_error}</div>}
-                        </div>
-                    </form>
-                </Form>
-            </div>
+                      </FormControl>
+                    </FormItem>
+                    <FormField
+                        control={form.control}
+                        name="pin"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Pincode<sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormControl>
+                                    <Input type="number" {...field} onChange={(e) => {
+                                        field.onChange(e)
+                                        handlePincodeChange(e)
+                                    }} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="vendor_mobile"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Phone<sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormControl>
+                                    <Input type="number" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Email</FormLabel>
+                                <FormControl>
+                                    <Input {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="vendor_gst"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Vendor GST</FormLabel>
+                                <FormControl>
+                                    <Input {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <Separator className="my-3" />
+                    <p className="text-sky-600 font-semibold pb-2">Change Vendor Category</p>
+                    <div>
+                        <label>Add Category<sup className="text-sm text-red-600">*</sup></label>
+                        {(category_options.length > 0) && (
+                            <ReactSelect
+                                options={category_options}
+                                defaultValue={default_options}
+                                onChange={handleChange}
+                                isMulti
+                            />
+                        )}
+                    </div>
+                    <div className="flex justify-end space-x-2">
+                        <Button type="button" variant="outline" onClick={() => {
+                            form.reset()
+                            form.clearErrors()
+                        }}>
+                            Cancel
+                        </Button>
+                        <Button type="submit" disabled={loading}>
+                            {loading ? "Updating..." : "Update Vendor"}
+                        </Button>
+                    </div>
+                </form>
+            </Form>
+        </div>
     )
 }

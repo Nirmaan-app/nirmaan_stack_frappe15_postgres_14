@@ -1,5 +1,8 @@
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card"
+import { Button } from "./button"
+import { ArrowLeft, CirclePlus } from "lucide-react"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table";
 
 function Skeleton({
   className,
@@ -16,7 +19,7 @@ function Skeleton({
 export const TableSkeleton = () => {
   return  (
     <>
-    <div className="flex items-center justify-between pb-4">
+    <div className="flex items-center justify-between pt-8">
       <div className="flex gap-2 w-full">
         <Skeleton className="p-4 w-1/4" />
         <Skeleton className="p-4 w-[10%]" />
@@ -28,7 +31,7 @@ export const TableSkeleton = () => {
         <div className="flex flex-col space-y-2">
           {/* Simulating multiple header rows */}
           {[...Array(1)].map((_, index) => (
-            <div key={index} className="flex space-x-4">
+            <div key={index} className="flex space-x-10">
               {[...Array(4)].map((_, cellIndex) => (
                 <Skeleton
                   key={cellIndex}
@@ -40,10 +43,10 @@ export const TableSkeleton = () => {
         </div>
 
         {/* Skeleton for Table Body */}
-        <div className="flex flex-col space-y-2">
+        <div className="flex flex-col space-y-10">
           {/* Simulating multiple rows */}
-          {[...Array(2)].map((_, rowIndex) => (
-            <div key={rowIndex} className="flex space-x-4">
+          {[...Array(6)].map((_, rowIndex) => (
+            <div key={rowIndex} className="flex space-x-10">
               {[...Array(4)].map((_, cellIndex) => (
                 <Skeleton
                   key={cellIndex}
@@ -181,91 +184,74 @@ export const ProjectSkeleton = () => {
 
 export const UserProfileSkeleton = () => {
   return (
-    <div className="flex-1 space-y-4 p-8 pt-6">
-      {/* Header Section Skeleton */}
-      <div className="flex items-center justify-between mb-2 space-y-2">
-        <div className="flex">
-          <Skeleton className="h-6 w-6 rounded-full" />
-          <Skeleton className="h-8 w-1/2 md:w-1/3 rounded-md ml-2" />
+    <div className="min-h-screen p-12 pt-8 max-md:p-8 max-sm:p-4">
+      <div className="mx-auto space-y-6 sm:space-y-8">
+        {/* Header Section */}
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" className="flex items-center gap-2">
+            <ArrowLeft className="h-6 w-6" />
+            <Skeleton className="h-6 w-32" />
+          </Button>
         </div>
-        <div className="flex items-center space-x-2">
-          <Skeleton className="h-10 px-4 rounded-md" />
+
+        {/* Card Section */}
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              {/* Avatar */}
+              <Skeleton className="h-20 w-20 rounded-full" />
+
+              <div>
+                <Skeleton className="h-6 w-48 mb-2" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+            </div>
+            {/* Delete Button Placeholder */}
+            <Skeleton className="h-10 w-32" />
+          </CardHeader>
+
+          <CardContent className="grid gap-4">
+            {/* Info Section */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-48" />
+              </div>
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-48" />
+              </div>
+              <div className="flex items-center gap-2 sm:col-span-2">
+                <Skeleton className="h-4 w-96" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Assigned Projects Section */}
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-10 w-48" />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Project Cards Skeleton */}
+            {[...Array(3)].map((_, index) => (
+              <Card key={index} className="flex flex-col">
+                <CardHeader>
+                  <Skeleton className="h-5 w-40 mb-2" />
+                  <Skeleton className="h-4 w-24" />
+                </CardHeader>
+                <CardContent className="flex-grow">
+                  <Skeleton className="h-4 w-56 mb-2" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
-      </div>
-
-      {/* Grid Section Skeleton */}
-      <div className="grid gap-4 md:grid-cols-5 lg:grid-cols-5">
-        {/* User Avatar and Basic Info Card Skeleton */}
-        <Card className="md:col-span-2 hover:animate-shadow-drop-center">
-          <CardContent className="p-6">
-            <div className="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden">
-              <div className="flex items-center justify-center mt-6">
-                <Skeleton className="h-24 w-24 rounded-full bg-gray-300" />
-              </div>
-              <div className="text-center px-4 py-6">
-                <Skeleton className="h-6 w-3/4 mx-auto bg-gray-300" />
-                <Skeleton className="h-4 w-1/2 mx-auto bg-gray-300 mt-2" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* User Details Card Skeleton */}
-        <Card className="md:col-span-3 hover:animate-shadow-drop-center">
-          <CardContent className="p-6">
-            <div className="border-b border-gray-300 mb-4 pb-2">
-              <Skeleton className="h-8 w-1/3 bg-gray-300 mb-4" />
-              <div className="grid grid-cols-2 gap-x-4">
-                {[...Array(5)].map((_, index) => (
-                  <div key={index} className="flex justify-between py-2">
-                    <Skeleton className="h-4 w-1/2 bg-gray-300" />
-                    <Skeleton className="h-4 w-1/2 bg-gray-300" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Assigned Projects Card Skeleton */}
-        <Card className="md:col-span-2 hover:animate-shadow-drop-center">
-          <CardContent className="p-6">
-            <CardTitle className="text-lg font-bold pl-2">
-              <Skeleton className="h-6 w-1/2 bg-gray-300" />
-            </CardTitle>
-            <div className="mt-6">
-              <Skeleton className="h-6 w-full bg-gray-300 mb-4" />
-              <table className="min-w-full divide-y divide-gray-200 mt-6">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <Skeleton className="h-4 w-2/3 bg-gray-300" />
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <Skeleton className="h-4 w-2/3 bg-gray-300" />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {[...Array(5)].map((_, index) => (
-                    <tr key={index}>
-                      <td className="px-6 py-4">
-                        <Skeleton className="h-4 w-3/4 bg-gray-300" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <Skeleton className="h-4 w-3/4 bg-gray-300" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
-  )
-}
+  );
+};
 
 
 export const OverviewSkeleton = () => {
@@ -326,6 +312,204 @@ export const OverviewSkeleton = () => {
     </div>
   );
 };
+
+
+export function OverviewSkeleton2() {
+  return (
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-32" />
+        </CardHeader>
+        <CardContent className="flex flex-col gap-10 w-full">
+          <div className="flex max-lg:flex-col max-lg:gap-10">
+            {/* Left Column */}
+            <div className="space-y-4 lg:w-[50%]">
+              <CardDescription className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-6 w-48" />
+              </CardDescription>
+
+              <CardDescription className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-6 w-48" />
+              </CardDescription>
+
+              <CardDescription className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-6 w-48" />
+              </CardDescription>
+
+              <CardDescription className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-6 w-48" />
+              </CardDescription>
+            </div>
+
+            {/* Right Column */}
+            <div className="space-y-4">
+              <CardDescription className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-6 w-48" />
+              </CardDescription>
+
+              <CardDescription className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-6 w-48" />
+              </CardDescription>
+
+              <CardDescription className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-6 w-48" />
+              </CardDescription>
+
+              <CardDescription className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-6 w-48" />
+              </CardDescription>
+            </div>
+          </div>
+
+          {/* Work Packages & Health Score */}
+          <div className="space-y-4 w-full">
+            <CardDescription className="space-y-2">
+              <Skeleton className="h-4 w-32" />
+              <div className="flex gap-2 flex-wrap">
+                <Skeleton className="h-6 w-24" />
+                <Skeleton className="h-6 w-24" />
+                <Skeleton className="h-6 w-24" />
+              </div>
+            </CardDescription>
+
+            <CardDescription className="space-y-2">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-6 w-full" />
+            </CardDescription>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Assignees */}
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-32" />
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex gap-2 flex-wrap">
+              <Skeleton className="h-8 w-40" />
+              <Skeleton className="h-8 w-40" />
+              <Skeleton className="h-8 w-40" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export const ProcurementRequestsSkeleton = () => {
+  return (
+    <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
+      {/* Header Section */}
+      <div className="flex items-center pt-1 pb-4">
+        <ArrowLeft className="cursor-pointer" />
+        <Skeleton className="h-6 w-48 ml-2" />
+      </div>
+
+      {/* Project Select and Table Skeleton */}
+      <div className="gap-4 border border-gray-200 rounded-lg p-0.5">
+        {/* ProjectSelect Skeleton */}
+        <Skeleton className="h-10 w-full mb-4" />
+
+        {/* Created By User Section */}
+        <div className="mx-0 px-0 pt-4">
+          <Skeleton className="h-6 w-48 mb-2" />
+
+          <Table>
+            <TableHeader className="bg-red-100">
+              <TableRow>
+                <TableHead className="w-[30%] text-center">
+                  <Skeleton className="h-4 w-full" />
+                </TableHead>
+                <TableHead className="w-[35%] text-center">
+                  <Skeleton className="h-4 w-full" />
+                </TableHead>
+                <TableHead className="w-[35%] text-center">
+                  <Skeleton className="h-4 w-full" />
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {[...Array(3)].map((_, index) => (
+                <TableRow key={index}>
+                  <TableCell className="text-sm text-center">
+                    <Skeleton className="h-4 w-full" />
+                  </TableCell>
+                  <TableCell className="text-sm text-center">
+                    <Skeleton className="h-4 w-full" />
+                  </TableCell>
+                  <TableCell className="text-sm text-center">
+                    <Skeleton className="h-4 w-full" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Created By Others Section */}
+        <div className="mx-0 px-0 pt-4">
+          <Skeleton className="h-6 w-48 mb-2" />
+
+          <Table>
+            <TableHeader className="bg-red-100">
+              <TableRow>
+                <TableHead className="w-[30%] text-center">
+                  <Skeleton className="h-4 w-full" />
+                </TableHead>
+                <TableHead className="w-[35%] text-center">
+                  <Skeleton className="h-4 w-full" />
+                </TableHead>
+                <TableHead className="w-[35%] text-center">
+                  <Skeleton className="h-4 w-full" />
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {[...Array(3)].map((_, index) => (
+                <TableRow key={index}>
+                  <TableCell className="text-sm text-center">
+                    <Skeleton className="h-4 w-full" />
+                  </TableCell>
+                  <TableCell className="text-sm text-center">
+                    <Skeleton className="h-4 w-full" />
+                  </TableCell>
+                  <TableCell className="text-sm text-center">
+                    <Skeleton className="h-4 w-full" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Create New PR Button Skeleton */}
+        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+          <Button className="font-normal py-2 px-6">
+            <div className="flex items-center">
+              <CirclePlus className="w-5 h-5 mt- pr-1" />
+              <Skeleton className="h-5 w-32" />
+            </div>
+          </Button>
+        </div>
+      </div>
+
+      <div className="pt-10"></div>
+    </div>
+  );
+};
+
 
 
 export { Skeleton }

@@ -84,7 +84,8 @@ export const UserForm = () => {
             const userDoc = await createDoc("User", values);
             toast({
                 title: "Success",
-                description: `${userDoc.first_name} ${userDoc.last_name} created successfully!`
+                description: `${userDoc.full_name} created successfully!`,
+                variant: "success"
             })
             form.reset({
                 first_name: "",

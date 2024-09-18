@@ -372,7 +372,7 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                     {wp_list?.filter((item) => {
                         let wp_arr = JSON.parse(project.project_work_packages).work_packages.map((item) => item.work_package_name)
-                        if (wp_arr.includes(item.work_package_name)) return true
+                        if (item.work_package_name === "Tool & Equipments" || wp_arr.includes(item.work_package_name)) return true
                     }).map((item) => (
                         <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
                             <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">

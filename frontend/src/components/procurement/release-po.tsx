@@ -415,7 +415,7 @@ export const ReleasePO = () => {
 
                                             <div className=" border-b-2 border-gray-600 pb-1 mb-1">
                                                 <div className="flex justify-between">
-                                                    <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                                                    <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
                                                     <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
                                                 </div>
                                             </div>
@@ -617,7 +617,7 @@ export const ReleasePO = () => {
 
                                             <div className=" border-b-2 border-gray-600 pb-1 mb-1">
                                                 <div className="flex justify-between">
-                                                    <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
+                                                    <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
                                                     <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
                                                 </div>
                                             </div>
