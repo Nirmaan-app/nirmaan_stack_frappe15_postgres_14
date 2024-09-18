@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, useSWR } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeGetDoc, useSWR } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "./ui/form"
@@ -24,7 +24,6 @@ import { formatToLocalDateTimeString } from "@/utils/FormatDate"
 import { useToast } from "./ui/use-toast"
 import NewCustomer from "@/pages/customers/add-new-customer"
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogAction } from "./ui/alert-dialog"
-import { usePincode } from "@/hooks/usePincode"
 
 
 // 1.a Create Form Schema accordingly
@@ -75,19 +74,18 @@ const projectFormSchema = z.object({
             message: "Must Provide State"
         }),
     pin: z
-        .number()
-        .positive()
-        .gte(100000)
-        .lte(999999)
-        .or(z.string()),
+    .string({
+        required_error: "Must provide pincode"
+    })
+    .max(6, { message: "Pincode must be of 6 digits" })
+    .min(6, { message: "Pincode must be of 6 digits" })
+    .or(z.number()),
     email: z.string().email().optional().or(z.literal('')),
     phone: z
-        .number()
-        .positive()
-        .gte(1000000000)
-        .lte(9999999999)
-        .or(z.string())
-        .optional(),
+    .string()
+    .max(10, { message: "Mobile number must be of 10 digits" })
+    .min(10, { message: "Mobile number must be of 10 digits" })
+    .optional(),
     project_start_date: z
         .date({
             required_error: "Project must have a start date"
@@ -249,26 +247,28 @@ export const ProjectForm = () => {
 
 
     const [pincode, setPincode] = useState("")
-    const { city, state } = usePincode(pincode)
+    const { data: pincode_data, isLoading: pincode_loading, error: pincode_error } = useFrappeGetDoc("Pincodes", pincode)
 
     const debouncedFetch = useCallback(
         (value: string) => {
-            if (value.length === 6) {
+            if (value.length >= 6) {
                 setPincode(value)
+            } else {
+                setPincode("")
             }
         }, []
     )
 
     useEffect(() => {
-        if (pincode.length === 6) {
-            form.setValue("project_city", city || "")
-            form.setValue("project_state", state || "")
+        if (pincode.length >= 6 && !pincode_data) {
+            form.setValue("project_city", "Not Found")
+            form.setValue("project_state", "Not Found")
         }
-        else {
-            form.setValue("project_city", "")
-            form.setValue("project_state", "")
+         else {
+            form.setValue("project_city", pincode_data?.city || "")
+            form.setValue("project_state", pincode_data?.state || "")
         }
-    }, [city, state, form])
+    }, [pincode, pincode_data])
 
     const handleOpenDialog = () => {
         const button = document.getElementById("alertOpenProject")
@@ -277,6 +277,10 @@ export const ProjectForm = () => {
 
     async function onSubmit(values: z.infer<typeof projectFormSchema>) {
         try {
+            if(values.project_city === "Not Found" || values.project_state === "Not Found") {
+                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+                return
+            }
             // Format the dates
             const formatted_start_date = formatToLocalDateTimeString(values.project_start_date);
             const formatted_end_date = formatToLocalDateTimeString(values.project_end_date);
@@ -637,7 +641,7 @@ export const ProjectForm = () => {
                                 <FormLabel className="md:basis-2/12">City</FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
-                                        <Input placeholder={city || "City"} disabled={true} {...field} />
+                                        <Input placeholder={pincode_data?.city ? pincode_data?.city : "City"} disabled={true} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </div>
@@ -656,7 +660,7 @@ export const ProjectForm = () => {
                                 <FormLabel className="md:basis-2/12">State</FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
-                                        <Input placeholder={state || "State"} disabled={true} {...field} />
+                                        <Input placeholder={pincode_data?.state ? pincode_data?.state : "State"} disabled={true} {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </div>
@@ -680,7 +684,7 @@ export const ProjectForm = () => {
                                             placeholder="6 digit PIN"
                                             {...field}
                                             onChange={(e) => {
-                                                field.onChange(+e.target.value)
+                                                field.onChange(e)
                                                 handlePincodeChange(e)
                                             }}
                                         />
@@ -706,7 +710,6 @@ export const ProjectForm = () => {
                                             type="number"
                                             placeholder="Phone"
                                             {...field}
-                                            onChange={(event) => field.onChange(+event.target.value)}
                                         />
                                     </FormControl>
                                     <FormMessage />
