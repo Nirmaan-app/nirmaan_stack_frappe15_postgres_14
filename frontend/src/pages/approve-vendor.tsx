@@ -34,8 +34,8 @@ const columns: TableColumnsType<DataType> = [
         render: (text, record) => {
             return (
                 <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
-            {text}
-        </span>
+                    {text}
+                </span>
             )
         }
     },
