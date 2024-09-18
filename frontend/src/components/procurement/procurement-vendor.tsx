@@ -23,6 +23,7 @@ import Select from 'react-select'
 import { AddVendorCategories } from "../forms/addvendorcategories";
 import { Badge } from "../ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
+import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
 
 export const ProcurementOrder = () => {
 
@@ -172,7 +173,7 @@ export const ProcurementOrder = () => {
                                 <SheetTrigger>
                                     <button className="px-2 border flex gap-1 items-center rounded-md hover:bg-gray-200">
                                         <CirclePlus className="w-3 h-3" />
-                                        <span>Add</span>
+                                        <span>Add Category</span>
                                     </button>
                                 </SheetTrigger>
                                 <SheetContent>
@@ -307,32 +308,70 @@ export const ProcurementOrder = () => {
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft className='cursor-pointer' onClick={() => navigate("/procure-request")} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Order Summary </h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Summary </h2>
                         </div>
-                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
+                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div>
+                            </div> */}
                         </Card>
                         <div className="overflow-x-auto">
-                            <table className="min-w-full divide-gray-200">
+                            <div className="min-w-full inline-block align-middle">
+                                {orderData?.category_list.list.map((cat: any) => {
+                                    return <div className="p-5">
+                                        {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow className="bg-red-100">
+                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>Items</TableHead>
+                                                    <TableHead className="w-[20%]">UOM</TableHead>
+                                                    <TableHead className="w-[10%]">Qty</TableHead>
+                                                    <TableHead className="w-[10%]">Est. Amt</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {orderData?.procurement_list.list.map((item: any) => {
+                                                    if (item.category === cat.name) {
+                                                        const quotesForItem = quote_data
+                                                            ?.filter(value => value.item === item.name && value.quote != null)
+                                                            ?.map(value => value.quote);
+                                                        let minQuote;
+                                                        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                                                        return (
+                                                            <TableRow key={item.item}>
+                                                                <TableCell>{item.item}</TableCell>
+                                                                <TableCell>{item.unit}</TableCell>
+                                                                <TableCell>{item.quantity}</TableCell>
+                                                                <TableCell className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                                    {minQuote ? minQuote * item.quantity : "N/A"}
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        )
+                                                    }
+                                                })}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                })}
+                            </div>
+                            {/* <table className="min-w-full divide-gray-200">
                                 <thead className="border-b-2 border-black">
                                     <tr>
                                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
@@ -363,7 +402,7 @@ export const ProcurementOrder = () => {
                                         </tr>
                                     })}
                                 </tbody>
-                            </table>
+                            </table> */}
                         </div>
                         <div className="flex flex-col justify-end items-end">
                             <Button onClick={() => setPage('vendors')}>
@@ -377,36 +416,36 @@ export const ProcurementOrder = () => {
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage("approve")} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Select Vendors</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendors</h2>
                         </div>
-                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
+                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div>
+                            </div> */}
                         </Card>
                         {orderData?.category_list?.list.map((cat) => {
                             return <div>
                                 <div className="flex m-2 justify-between">
                                     <div>
-                                        <div className="text-xl font-bold py-2">{cat.name}</div>
-                                        <div className="text-sm text-gray-400">Select vendors for {cat.name}</div>
+                                        <div className="text-xl font-bold py-2 text-red-700">{cat.name}</div>
+                                        <div className="text-sm text-gray-400">Select vendors for <span className="text-red-700 italic">{cat.name}</span> category</div>
                                     </div>
                                     <Sheet>
                                         <SheetTrigger className="text-blue-500">
@@ -417,7 +456,14 @@ export const ProcurementOrder = () => {
                                         </SheetTrigger>
                                         <SheetContent className='overflow-auto'>
                                             <SheetHeader className="text-start">
-                                                <SheetTitle>Add Vendor for {cat.name}</SheetTitle>
+                                                <SheetTitle>
+                                                    <div className="flex-1">
+                                                        <span className="underline">Add Vendor for <span className="text-red-700">{cat.name}</span></span>
+                                                        <p className=" text-xs font-light text-slate-500 p-1">Add a new vendor here with at least <span className="text-red-700 italic">{cat.name}</span> added as category</p>
+                                                        <p className=" text-xs font-light text-slate-500 p-1"><span className="text-red-700 font-bold">NOTE: </span>Check if the vendor is already available. If yes, then add <span className="text-red-700 italic">{cat.name}</span> to that vendor</p>
+
+                                                    </div>
+                                                </SheetTitle>
                                                 {/* <SheetDescription> */}
                                                 {/* <VendorForm work_package={orderData.work_package} vendor_category_mutate={vendor_category_mutate} vendor_list_mutate={vendor_list_mutate} /> */}
                                                 <NewVendor dynamicCategories={category_list || []} renderCategorySelection={true} navigation={false} />
@@ -440,9 +486,12 @@ export const ProcurementOrder = () => {
                         <Accordion type="multiple" defaultValue={["Vendors"]}>
                             <AccordionItem value="Vendors">
                                 <AccordionTrigger>
-                                    <Button variant="ghost" size="lg" className="md:mb-2 text-base md:text-lg px-2  w-full justify-start">
-                                        <span className=" text-base mb-0.5 md:text-lg font-slim">Recently Added Vendors</span>
-                                    </Button>
+                                    <div className="md:mb-2 text-base md:text-lg px-2  w-full text-left">
+                                        <div className="flex-1">
+                                            <span className=" text-base mb-0.5 md:text-lg font-slim">Recently Added Vendors</span>
+                                            <div className="text-sm text-gray-400">Check if you have added a vendor previously and want to update their <span className="text-red-700 italic">category</span> </div>
+                                        </div>
+                                    </div>
                                 </AccordionTrigger>
                                 <AccordionContent>
                                     <div className="">
