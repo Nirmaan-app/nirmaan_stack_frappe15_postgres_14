@@ -466,29 +466,36 @@ export const SelectVendors = () => {
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Select Vendor</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendor/Item Quotes</h2>
                         </div>
-                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
+                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div>
+                            </div> */}
+                        </Card>
+                        <Card className="p-5 text-xs text-slate-500">
+                            <h1 className='text-red-700 underline'>Instructions</h1>
+                            <p>- Select a vendor's quote for each item.</p>
+                            <p>- You can edit the prices entered before by clicking <span className='text-red-700'>Edit Prices</span> button on the bottom left.</p>
+                            <p>- If quote of any vendor displays <span className='text-red-700'>Nan</span> or <span className='text-red-700'>NA</span>, it means the item price for that vendor is not updated.</p>
+                            <p>- If you dont select any vendor's quote for a particular item/s, it will display <span className='text-red-700'>Delayed</span> in the next page.</p>
                         </Card>
                         {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name;
@@ -496,7 +503,7 @@ export const SelectVendors = () => {
                                 <Card className="flex w-full shadow-none border border-grey-500" >
                                     <CardHeader className="w-full">
                                         <div className='flex justify-between py-5'>
-                                            <CardTitle className="font-bold text-xl">
+                                            <CardTitle className="font-bold text-xl text-red-700">
                                                 {cat.name}
                                             </CardTitle>
                                             <CardTitle className="font-bold text-xl">
@@ -506,7 +513,7 @@ export const SelectVendors = () => {
                                         <table className="w-full">
                                             <thead className="w-full border-b border-black">
                                                 <tr>
-                                                    <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></th>
+                                                    <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-slate-600'>Delivery Time:</div></th>
                                                     {selectedCategories[curCategory]?.map((item) => {
                                                         const isSelected = selectedVendors[curCategory] === item;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
@@ -601,27 +608,27 @@ export const SelectVendors = () => {
                                 <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
                                 <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
                             </div>
-                            <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                                <div className="border-0 flex flex-col items-center justify-center">
-                                    <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
+                            <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                                <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                                     <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
                                 </div>
-                                <div className="border-0 flex flex-col items-center justify-center">
-                                    <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
+                                <div className="border-0 flex flex-col justify-center">
+                                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
                                     <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                                 </div>
-                                <div className="border-0 flex flex-col items-center justify-center">
-                                    <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
+                                <div className="border-0 flex flex-col justify-center">
+                                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
                                     <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                                 </div>
-                                <div className="border-0 flex flex-col items-center justify-center">
-                                    <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
+                                <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
                                     <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
                                 </div>
-                                <div className="border-0 flex flex-col items-center justify-center">
-                                    <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
-                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                                </div>
+                                {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
+                            </div> */}
                             </Card>
                             {/* {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name
