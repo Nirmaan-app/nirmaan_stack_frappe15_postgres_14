@@ -1,9 +1,8 @@
-import {  useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import {  useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useState, useEffect, useRef } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
-// import { Form, InputNumber } from 'antd';
 import { Button } from "../ui/button";
 import { ArrowLeft, X } from "lucide-react";
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
@@ -12,6 +11,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from "../ui/label";
 import TextArea from "antd/es/input/TextArea";
 import { useToast } from "../ui/use-toast";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
+import { AlertDialogAction } from "@radix-ui/react-alert-dialog";
+import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
 export const ReleasePO = () => {
     const { id } = useParams<{ id: string }>()
@@ -39,11 +42,6 @@ export const ReleasePO = () => {
     const [projectAddress, setProjectAddress] = useState()
     const [vendorAddress, setVendorAddress] = useState()
 
-    // useEffect(() => {
-    //     const curOrder = procurement_order_list?.find(item => item.name === orderId);
-    //     setOrderData(curOrder)
-    // }, [procurement_order_list]);
-
     useEffect(() => {
         if (orderData?.project_address) {
             const doc = address_list?.find(item => item.name == orderData?.project_address);
@@ -56,7 +54,6 @@ export const ReleasePO = () => {
 
     }, [orderData, address_list]);
 
-    const [isPrinting, setIsPrinting] = useState(false);
     const componentRef = useRef<HTMLDivElement>(null);
 
     const handlePrint = useReactToPrint({
@@ -64,43 +61,10 @@ export const ReleasePO = () => {
         documentTitle: `${orderData?.name}_${orderData?.vendor_name}`
     });
 
-    const togglePrintMode = () => {
-        setIsPrinting(prevState => !prevState);
-        if (!isPrinting) {
-            handlePrint();
-        }
-    };
-
     const [advance, setAdvance] = useState(0)
     const [loadingCharges, setLoadingCharges] = useState(0)
-    const [freightCharges, setFreightcCharges] = useState(0)
+    const [freightCharges, setFreightCharges] = useState(0)
     const [notes, setNotes] = useState("")
-    // const [totalAmount, setTotalAmount] = useState(100); // Example total amount
-
-    // const handleAdvanceChange = (value) => {
-    //     setAdvance(value);
-
-    //     if (parseInt(value) > 100 || parseInt(value) < 0) {
-    //         alert("Invalid: Advance % should be between 0 and 100");
-    //     }
-    // };
-
-    // const handleLoadingChargesChange = (value) => {
-    //     setLoadingCharges(value);
-    //     console.log(value, loadingCharges)
-    //     if (parseInt(value) < 0) {
-    //         alert("Amount cannot be negative");
-    //     }
-    // }
-
-    // const handleFreightChargesChange = (value) => {
-    //     setFreightcCharges(value);
-    //     console.log(value, freightCharges)
-    //     if (parseInt(value) < 0) {
-    //         alert("Amount cannot be negative");
-    //     }
-    // }
-    // const [form] = Form.useForm();
 
     const { control, handleSubmit, reset } = useForm({
         defaultValues: {
@@ -126,46 +90,29 @@ export const ReleasePO = () => {
                 });
                 setAdvance(parseInt(curOrder.advance || 0))
                 setLoadingCharges(parseInt(curOrder.loading_charges || 0))
-                setFreightcCharges(parseInt(curOrder.freight_charges || 0))
+                setFreightCharges(parseInt(curOrder.freight_charges || 0))
                 setNotes(curOrder.notes || "")
             }
-            // setOrderData(curOrder);
-            // setAdvance(parseInt(curOrder?.advance || 0));
-            // setLoadingCharges(parseInt(curOrder?.loading_charges || 0));
-            // setFreightcCharges(parseInt(curOrder?.freight_charges || 0));
-            // form.setFieldsValue({
-            //     advance: parseInt(curOrder?.advance || 0),
-            //     loadingCharges: parseInt(curOrder?.loading_charges || 0),
-            //     freightCharges: parseInt(curOrder?.freight_charges || 0),
-            // });
         }
     }, [procurement_order_list, orderId, reset]);
 
-
-    // console.log("procurement_order_list", procurement_order_list)
-    // console.log("category_list", category_list)
-
-
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+    const { updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+    const {createDoc, loading: create_loading} = useFrappeCreateDoc()
 
     const {toast} = useToast()
 
-    // handleSubmit
-    const onSubmit = (data: any) => {
+    // console.log("values", control._formValues)
 
+    const onSubmit = (data: any) => {
         const updateData = {
-            advance: data.advance || 0,
-            loading_charges: data.loadingCharges || 0,
-            freight_charges: data.freightCharges || 0,
+            advance: data.advance !== "" ? parseInt(data.advance) : 0,
+            loading_charges: data.loadingCharges !== "" ? parseInt(data.loadingCharges) : 0,
+            freight_charges: data.freightCharges !== "" ? parseInt(data.freightCharges) : 0,
             notes: data.notes || ""
         };
 
         updateDoc('Procurement Orders', orderData?.name, updateData)
             .then((doc) => {
-                // setOrderData(prev => ({
-                //     ...prev,
-                //     advance: doc.advance
-                // }))
                 mutate()
                 console.log("orderData?.name", orderData?.name)
                 toast({
@@ -183,12 +130,9 @@ export const ReleasePO = () => {
             })
     };
 
-    // console.log("orderData", orderData)
-
     const getTotal = () => {
         let total: number = 0;
         let totalGst = 0;
-        // const orderDataa = procurement_order_list?.find(item => item.name === order_id)?.order_list;
         orderData?.order_list?.list?.map((item) => {
             const price = item.quote;
             const gst = (price) * (item.quantity) * (item.tax / 100)
@@ -198,42 +142,51 @@ export const ReleasePO = () => {
         })
 
         total += loadingCharges + freightCharges
-        totalGst += ((orderData?.loading_charges) * 0.18) + ((orderData?.freight_charges) * 0.18)
+        totalGst += ((loadingCharges) * 0.18) + ((freightCharges) * 0.18)
 
         return { total, totalGst: totalGst, totalAmt: total + totalGst };
     }
 
-    // console.log("total", getTotal().total)
-    // console.log("gst", getTotal().totalGst)
+    const handleCancelPo = async () => {
 
+        const categories = []
 
+        const itemList = []
 
+        orderData?.order_list?.list.map((item) => {
+            categories.push({name: item.category})
+            itemList.push({...item, status : "Pending"})
+        })
 
-    // const afterDelivery = totalAmount * (1 - advance / 100);
+        try {
+            await updateDoc("Procurement Orders", orderId, {
+                status: "Cancelled"
+            })
 
-    // let count = 1;
-    // console.log(advance)
-
-    const styles = {
-        container: {
-            maxWidth: '800px',
-            margin: 'auto',
-            padding: '20px',
-            color: '#333',
-        },
-        header: {
-            color: '#333',
-        },
-        list: {
-            paddingLeft: '20px',
-        },
-        listItem: {
-            marginBottom: '10px',
+            const newSentBack = await createDoc("Sent Back Category", {
+                type : "Cancelled",
+                procurement_request: orderData?.procurement_request,
+                project: orderData?.project,
+                category_list: {list : categories},
+                item_list: {list : itemList },
+                comments: ""
+            })
+            console.log("newSentBack", newSentBack)
+            toast({
+                title: "Success!",
+                description: `Cancelled Po & New Sent Back: ${newSentBack.name} created successfully!`,
+                variant: "success"
+            })
+            navigate("/release-po")
+        } catch (error) {
+            console.log("Error while cancelling po", error)
+            toast({
+                title: "Failed!",
+                description: `PO: ${orderId} Cancellation Failed!`,
+                variant: "destructive"
+            })
         }
-    };
-
-    // console.log("for", control._formValues)
-
+    }
 
     if (procurement_order_list_loading || address_list_loading) return <div>Loading</div>
     if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
@@ -241,126 +194,63 @@ export const ReleasePO = () => {
     return (
         <>
             <div className="flex justify-between">
-                <div className="mt-10 pl-24">
-                    <div className="flex py-4">
-                        <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
-                        <div className="font-semibold text-xl pl-2"><span className="text-red-700 text-2xl">Selected PO:</span> {(orderData?.name)?.toUpperCase()}</div>
+                <div className="mt-10 pl-4">
+                    <div className="flex gap-10 items-center">
+                            <div className="flex py-4">
+                            <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
+                            <div className="font-semibold text-xl pl-2"><span className="text-red-700 text-2xl">Selected PO:</span> {(orderData?.name)?.toUpperCase()}</div>
+                        </div>
+                        <Button disabled={advance > 100 || advance < 0} onClick={() => {
+                            onSubmit(control._formValues)
+                            handlePrint()
+                        }}>
+                            Print
+                        </Button>
                     </div>
-
-
-                    {/* <Form form={form} layout="vertical" initialValues={{ advance, afterDelivery: totalAmount * (1 - advance / 100), loadingCharges, freightCharges }}>
-                            <div className="flex-col p-4">
-                                {!loadingCharges ? <Button variant='outline' onClick={() => setLoadingCharges(1)}>Add Loading/Unloading Charges</Button>
-                                    :
-                                    <div className="flex-1">
-                                        <Form.Item
-                                            name="loadingCharges"
-                                            label="Loading Charges"
-                                        >
-                                            <Input
-                                                onChange={handleLoadingChargesChange}
-                                                value={loadingCharges}
-                                                className="w-full"
-                                            />
-                                        </Form.Item>
-                                        <Button className="mb-2" onClick={() => setLoadingCharges(0)}>Cancel</Button>
-                                    </div>}
-                                {
-                                    !freightCharges ? <Button variant='outline' onClick={() => setFreightcCharges(1)}>Add Freight Charges</Button>
-                                        :
-                                        <div className="flex-1">
-                                            <Form.Item
-                                                name="freightCharges"
-                                                label="Freight Charges"
-                                            >
-                                                <Input
-                                                    onChange={() => handleFreightChargesChange}
-                                                    value={freightCharges}
-                                                    className="w-full"
-                                                />
-
-                                            </Form.Item>
-                                            <Button className="mb-2" onClick={() => setFreightcCharges(0)}>Cancel</Button>
-                                        </div>
-                                }
-
-
-                                <Form.Item
-                                    name="advance"
-                                    label="Advance (%)"
-                                    rules={[{ required: true, message: 'Please input the advance percentage!' }]}
-                                >
-                                    <InputNumber
-                                        // type="number"
-                                        onChange={() => handleAdvanceChange}
-                                        value={advance}
-                                        className="w-full"
-
-                                    />
-                                </Form.Item>
-                                <Form.Item label="After Delivery Amount">
-                                    <Input
-                                        value={afterDelivery.toFixed(2)}
-                                        disabled
-                                        className="w-full"
-                                    />
-                                </Form.Item>
-                                <Form.Item>
-                                    {update_loading ? <div>loading...</div> : (<Button className="mr-2" disabled={advance > 100 || advance < 0} onClick={handleSubmit}>
-                                        Save
-                                    </Button>)}
-                                    <Button onClick={handlePrint}>
-                                        Print
-                                    </Button>
-                                    {update_submit_complete &&
-                                        <div>
-                                            <div className="font-semibold text-green-500">Advance Value Saved Successfully</div>
-                                        </div>
-                                    }
-                                </Form.Item>
-                            </div>
-                        </Form> */}
-                    <form onSubmit={handleSubmit(onSubmit)} className="p-4">
+                <form onSubmit={handleSubmit(onSubmit)} className="p-4">
                         <div className="flex-col">
-                            {!loadingCharges ? <Button variant='outline' onClick={() => setLoadingCharges(1)}>Add Loading/Unloading Charges</Button>
-                                :
-                                <div className="flex-1">
-                                    <Label>Loading Charges</Label>
-                                    <div className="flex">
-                                        <Controller
-                                            control={control}
-                                            name="loadingCharges"
-                                            render={({ field }) => <Input {...field} className="w-full" />}
-                                        />
-                                        <Button className="mb-2 ml-2" onClick={() => setLoadingCharges(0)}><X /></Button>
-                                    </div>
-                                </div>
-                            }
-                            {!freightCharges ? <Button variant='outline' className="mt-2" onClick={() => setFreightcCharges(1)}>Add Freight Charges</Button>
-                                :
-                                <div className="flex-1">
-                                    <Label>Freight Charges</Label>
-                                    <div className="flex">
-                                        <Controller
-                                            control={control}
-                                            name="freightCharges"
-                                            render={({ field }) => <Input {...field} className="w-full" />}
-                                        />
-                                        <Button className="mb-2 ml-2" onClick={() => setFreightcCharges(0)}><X /></Button>
-                                    </div>
-                                </div>
-
-                            }
+                            <h3 className="font-semibold text-lg mt-4">Additional Charges</h3>
+                            <div className="flex-1 mt-2">
+                                <Label>Loading Charges</Label>
+                                <Controller
+                                    control={control}
+                                    name="loadingCharges"
+                                    render={({ field }) => (
+                                        <Input {...field} className="w-full" onChange={(e) => {
+                                            const value = e.target.value
+                                            field.onChange(e);
+                                            setLoadingCharges(value !== "" ? parseInt(value) : 0);
+                                        }} />
+                                    )}
+                                />
+                            </div>
+                            <div className="flex-1 mt-2">
+                                <Label>Freight Charges</Label>
+                                <Controller
+                                    control={control}
+                                    name="freightCharges"
+                                    render={({ field }) => (
+                                        <Input {...field} className="w-full" onChange={(e) => {
+                                            const value = e.target.value
+                                            field.onChange(e);
+                                            setFreightCharges(value !== "" ? parseInt(value) : 0);
+                                        }} />
+                                    )}
+                                />
+                            </div>
+                            <h3 className="font-semibold text-lg mt-4">Terms and Other Description</h3>
                             <div className="flex-1 mt-2">
                                 <Label>Advance (in %)</Label>
                                 <Controller
                                     control={control}
                                     name="advance"
-                                    render={({ field }) => <Input type="number" {...field} onChange={(e) => {
-                                        const value = parseInt(e.target.value)
-                                        field.onChange(value)
-                                        setAdvance(value)
-                                    }} className="w-full" />}
+                                    render={({ field }) => (
+                                        <Input type="number" {...field} onChange={(e) => {
+                                            const value = e.target.value
+                                            field.onChange(e);
+                                            setAdvance(value !== "" ? parseInt(value) : 0);
+                                        }} className="w-full" />
+                                    )}
                                 />
                             </div>
                             <div className="flex-1 mt-2">
@@ -368,29 +258,76 @@ export const ReleasePO = () => {
                                 <Controller
                                     control={control}
                                     name="notes"
-                                    render={({ field }) => <TextArea {...field} onChange={(e) => {
-                                        const value = e.target.value
-                                        field.onChange(value)
-                                        setNotes(value)
-                                    }} className="w-full" />}
+                                    render={({ field }) => (
+                                        <TextArea {...field} onChange={(e) => {
+                                            const value = e.target.value;
+                                            field.onChange(value);
+                                            setNotes(value);
+                                        }} className="w-full" />
+                                    )}
                                 />
                             </div>
-                            <div className="mt-2">
-                                {update_loading ? <div>loading...</div> : (<Button className="mr-2" disabled={advance > 100 || advance < 0} onClick={handleSubmit}>
-                                    Save
-                                </Button>)}
-                                <Button onClick={handlePrint}>
-                                    Print
-                                </Button>
-                                {/* {update_submit_complete &&
-                                    <div>
-                                        <div className="font-semibold text-green-500">PO Update Successfull</div>
-                                    </div>
-                                } */}
+                            <div className="mt-2 text-center">
+                                    <Button className="mr-2 px-10" disabled={advance > 100 || advance < 0} >
+                                        {update_loading ? "Saving..." :"Save"}
+                                    </Button>
                             </div>
-
                         </div>
                     </form>
+
+                    {/* <Button className="w-full mt-10">Cancel PO</Button> */}
+
+                    <Card className="border-primary">
+                        <CardHeader>
+                            <CardTitle>Cancel PO</CardTitle>
+                            <CardContent>
+                                <CardDescription className="flex justify-between items-center">
+                                    <p className="w-[70%]">on clicking the cancel button will create a "Sent Back Request"</p>
+                                    {orderData?.status === "Generated" ? (
+                                        <Button 
+                                            variant={"outline"} 
+                                            onClick={() => document.getElementById("alertTrigger")?.click()} 
+                                            className="border-primary"
+                                        >
+                                            Cancel PO
+                                        </Button>
+                                    ) : (
+                                        <HoverCard>
+                                            <HoverCardTrigger>
+                                                <Button disabled variant={"outline"} className="border-primary cursor-not-allowed">Cancel PO</Button>
+                                            </HoverCardTrigger>
+                                            <HoverCardContent className="w-80">
+                                                <div>
+                                                    <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note has already been updated!
+                                                </div>
+                                            </HoverCardContent>
+                                        </HoverCard>
+                                    )}
+                                    <AlertDialog>
+                                        <AlertDialogTrigger>
+                                            <Button className="hidden" id="alertTrigger">trigger</Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>
+                                                Are you sure!
+                                            </AlertDialogTitle>
+
+                                            <AlertDialogDescription className="space-x-2 text-center">
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction onClick={handleCancelPo}>
+                                                    <Button>Confirm</Button>
+                                                </AlertDialogAction>
+                                            </AlertDialogDescription>
+
+                                        </AlertDialogHeader>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                </CardDescription>
+                                    
+                            </CardContent>
+                        </CardHeader>
+                    </Card>
                 </div>
 
                 <div className="w-[50%] p-4 m-4 border rounded-lg h-screen overflow-y-scroll">
@@ -485,11 +422,11 @@ export const ReleasePO = () => {
                                             <td className=" py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{orderData?.loading_charges}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{loadingCharges}</td>
                                             {/* <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.loading_charges) * 0.09).toFixed(2)}(9%)</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.loading_charges) * 0.09).toFixed(2)}(9%)</td> */}
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{(orderData?.loading_charges * 1).toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{loadingCharges.toFixed(2)}</td>
                                         </tr>
                                         :
                                         <></>
@@ -500,11 +437,11 @@ export const ReleasePO = () => {
                                             <td className=" py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{orderData?.freight_charges}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{freightCharges}</td>
                                             {/* <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.freight_charges) * 0.09).toFixed(2)}(9%)</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.freight_charges) * 0.09).toFixed(2)}(9%)</td> */}
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{(orderData?.freight_charges * 1).toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{freightCharges.toFixed(2)}</td>
                                         </tr>
                                         :
                                         <></>
@@ -586,7 +523,7 @@ export const ReleasePO = () => {
 
                                             <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                             <div className="text-sm text-gray-900">
-                                                {orderData?.advance}% advance {orderData?.advance === "100" ? "" : `and remaining ${100 - orderData?.advance}% on material readiness before delivery of material to site`}
+                                                {advance}% advance {advance === 100 ? "" : `and remaining ${100 - advance}% on material readiness before delivery of material to site`}
                                             </div>
 
                                             <img src={Seal} className="w-24 h-24" />
