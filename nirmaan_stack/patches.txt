@@ -9,3 +9,4 @@ nirmaan_stack.patches.v1_5.add_status_list_to_pwm
 nirmaan_stack.patches.v1_6.add_tax_to_po #v3
 nirmaan_stack.patches.v1_7.copy_pwm_to_pwp #r2
 nirmaan_stack.patches.v1_7.add_generated_to_po #v2
+nirmaan_stack.patches.v1_8.change_pr_rejected_to_delayed
