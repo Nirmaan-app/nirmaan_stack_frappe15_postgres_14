@@ -6,7 +6,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus } from 'lucide-react';
+import { ArrowLeft, CirclePlus, Download } from 'lucide-react';
 import SentBackQuotationForm from "./sent-back-quotation-form"
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -25,10 +25,9 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { DataTable } from "../data-table/data-table";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 import { useToast } from "../ui/use-toast";
-import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@radix-ui/react-dialog";
-import { DialogHeader } from "../ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { PrintRFQ } from "./rfq-pdf";
 
 export const SentBackUpdateQuote = () => {
     const { id } = useParams<{ id: string }>()
@@ -224,14 +223,12 @@ export const SentBackUpdateQuote = () => {
                             )}
                             {isButtonDisabled(vendorCategories) && (
                                 <HoverCard>
-                                    <HoverCardTrigger asChild>
-                                        <div>
+                                    <HoverCardTrigger>
                                             <Button disabled={isButtonDisabled(vendorCategories)} variant={"outline"} className="font-light max-md:text-xs border-green-500 py-6 flex flex-col items-start">
                                                 <div className="w-[300px] text-wrap flex flex-col">
                                                     <span className="text-red-500 font-semibold">{row.getValue("vendor_name")}</span> <span>Add to Sent Back</span>
                                                 </div>
                                             </Button>
-                                        </div>
                                     </HoverCardTrigger>
                                     <HoverCardContent className="w-80">
                                         <div>Please add <span className="font-semibold underline">All Associated Categories of Current Sent Back</span> to this vendor to enable</div>
@@ -297,6 +294,8 @@ export const SentBackUpdateQuote = () => {
         ],
         [orderData, isButtonDisabled, vendor_list]
     )
+
+    console.log("orderData", orderData)
 
     return (
         <>
@@ -412,6 +411,20 @@ export const SentBackUpdateQuote = () => {
                         {uniqueVendors.list.map((item) => {
                             return <div className="px-4 flex justify-between">
                                 <div className="py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
+                                <div className="flex space-x-2">
+                                <Sheet>
+                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
+                                        <SheetContent>
+                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
+                                            <SheetHeader>
+                                                <SheetTitle className="text-center">Print PDF</SheetTitle>
+                                                <SheetDescription>
+                                                    <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []}  />
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                            {/* </ScrollArea> */}
+                                        </SheetContent>
+                                    </Sheet>
                                 <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
                                     <SheetContent >
@@ -425,6 +438,7 @@ export const SentBackUpdateQuote = () => {
                                         {/* </ScrollArea> */}
                                     </SheetContent>
                                 </Sheet>
+                                </div>
                             </div>
                         })}
                         <Sheet>

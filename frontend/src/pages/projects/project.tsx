@@ -952,7 +952,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                       </div>
                       <div className="border-0 flex flex-col col-span-2">
                         <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_packages!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{data && JSON.parse(data?.project_work_packages!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
                       </div>
                     </div>
                   </th>
@@ -1029,7 +1029,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                       </div>
                       <div className="border-0 flex flex-col col-span-2">
                         <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_packages!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{data && JSON.parse(data?.project_work_packages!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
                       </div>
                     </div>
                   </th>
@@ -1096,7 +1096,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
                       </div>
                       <div className="border-0 flex flex-col col-span-2">
                         <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-                        <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_packages!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
+                        <p className="text-left font-bold font-semibold text-sm text-black">{data && JSON.parse(data?.project_work_packages!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
                       </div>
                     </div>
                   </th>

@@ -6,7 +6,7 @@ import React from 'react';
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 
-export const PrintRFQ = ({ pr_id, vendor_id }) => {
+export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
@@ -157,7 +157,7 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
                                 </th>
                             </tr>
                             <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-32">Items</th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-32">Item</th>
                                 <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Category</th>
                                 <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                 <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
@@ -165,17 +165,17 @@ export const PrintRFQ = ({ pr_id, vendor_id }) => {
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {quotation_request_list?.map((item) => {
-                                return <tr className="">
-                                    <td className="px-6 py-2 text-sm">{getItem(item.item)}</td>
-                                    <td className="px-2 py-2 text-sm whitespace-nowrap">
-                                        {item.category}
-                                    </td>
-                                    <td className="px-2 py-2 text-sm whitespace-nowrap">meter</td>
-                                    <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
-                                    <td className="px-2 py-2 text-sm whitespace-nowrap">{ }</td>
-                                </tr>
-                            })}
+                            {itemList?.list?.filter((item) => quotation_request_list?.some((q) => q.item === item.name)).map((i) => (
+                                 <tr className="">
+                                 <td className="px-6 py-2 text-sm">{i.item}</td>
+                                 <td className="px-2 py-2 text-sm whitespace-nowrap">
+                                     {i.category}
+                                 </td>
+                                 <td className="px-2 py-2 text-sm whitespace-nowrap">{i.unit}</td>
+                                 <td className="px-2 py-2 text-sm whitespace-nowrap">{i.quantity}</td>
+                                 <td className="px-2 py-2 text-sm whitespace-nowrap">{ }</td>
+                             </tr>
+                            ))}
 
                             {/* {[...Array(30)].map((_, index) => (
                                 quotation_request_list?.map((item) => {

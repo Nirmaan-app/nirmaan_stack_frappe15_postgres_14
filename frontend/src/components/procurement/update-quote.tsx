@@ -122,7 +122,7 @@ export const UpdateQuote = () => {
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft onClick={() => navigate("/update-quote")} />
+                            <ArrowLeft className="cursor-pointer" onClick={() => navigate("/update-quote")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
                         </div>
                         <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
@@ -162,22 +162,20 @@ export const UpdateQuote = () => {
                                             <SheetHeader>
                                                 <SheetTitle className="text-center">Print PDF</SheetTitle>
                                                 <SheetDescription>
-                                                    <PrintRFQ vendor_id={item} pr_id={orderData.name} />
+                                                    <PrintRFQ vendor_id={item} pr_id={orderData.name} itemList={orderData?.procurement_list || []} />
                                                 </SheetDescription>
                                             </SheetHeader>
                                             {/* </ScrollArea> */}
                                         </SheetContent>
                                     </Sheet>
                                     {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
-                                    <div className="flex space-x-2">
-
                                         <Sheet>
-                                            <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Prices</SheetTrigger>
+                                            <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price(s)</SheetTrigger>
                                             <SheetContent>
                                                 {/* <ScrollArea className="h-[90%] w-[600px] p-2"> */}
                                                 <SheetHeader className="text-start">
                                                     <div className="flex items-center gap-1">
-                                                        <SheetTitle className="text-xl">Enter Price</SheetTitle>
+                                                        <SheetTitle className="text-xl">Enter Price(s)</SheetTitle>
                                                         <Handshake className="w-5 h-5 text-primary" />
                                                     </div>
                                                     <SheetDescription>
@@ -189,7 +187,6 @@ export const UpdateQuote = () => {
                                                 {/* </ScrollArea> */}
                                             </SheetContent>
                                         </Sheet>
-                                    </div>
                                 </div>
                                 {/* <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
@@ -207,7 +204,7 @@ export const UpdateQuote = () => {
                             </div>
                         })}
                         <div className="font-light text-sm text-slate-500 p-10">
-                            <span className="text-red-700">Notes:</span> You can download RFQ PRFs for individual vendors for getting quotes
+                            <span className="text-red-700">Notes:</span> You can download RFQ PDFs for individual vendors for getting quotes
                         </div>
                         <div className="flex pt-10 pr-6 flex-col justify-end items-end">
                             <Button onClick={handleUpdateQuote}>
