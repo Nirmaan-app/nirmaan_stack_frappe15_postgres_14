@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from "react"
 import React from 'react';
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
+import { formatDate } from "@/utils/FormatDate";
 
 export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
 
@@ -139,7 +140,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                                     <div className="grid grid-cols-2 justify-between border border-gray-100 rounded-lg p-4">
                                         <div className="border-0 flex flex-col">
                                             <p className="text-left py-1 font-medium text-xs text-gray-500">Date</p>
-                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{orderData?.creation?.split(" ")[0]}</p>
+                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
                                         </div>
                                         <div className="border-0 flex flex-col ml-10">
                                             <p className="text-left py-1 font-medium text-xs text-gray-500">Project ID</p>
@@ -166,15 +167,15 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {itemList?.list?.filter((item) => quotation_request_list?.some((q) => q.item === item.name)).map((i) => (
-                                 <tr className="">
-                                 <td className="px-6 py-2 text-sm">{i.item}</td>
-                                 <td className="px-2 py-2 text-sm whitespace-nowrap">
-                                     {i.category}
-                                 </td>
-                                 <td className="px-2 py-2 text-sm whitespace-nowrap">{i.unit}</td>
-                                 <td className="px-2 py-2 text-sm whitespace-nowrap">{i.quantity}</td>
-                                 <td className="px-2 py-2 text-sm whitespace-nowrap">{ }</td>
-                             </tr>
+                                <tr className="">
+                                    <td className="px-6 py-2 text-sm">{i.item}</td>
+                                    <td className="px-2 py-2 text-sm whitespace-nowrap">
+                                        {i.category}
+                                    </td>
+                                    <td className="px-2 py-2 text-sm whitespace-nowrap">{i.unit}</td>
+                                    <td className="px-2 py-2 text-sm whitespace-nowrap">{i.quantity}</td>
+                                    <td className="px-2 py-2 text-sm whitespace-nowrap">{ }</td>
+                                </tr>
                             ))}
 
                             {/* {[...Array(30)].map((_, index) => (
