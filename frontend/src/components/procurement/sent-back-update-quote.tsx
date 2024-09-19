@@ -307,7 +307,7 @@ export const SentBackUpdateQuote = () => {
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate('/sent-back-request')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
@@ -324,10 +324,10 @@ export const SentBackUpdateQuote = () => {
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
                             </div>
-                            <div className="border-0 flex flex-col justify-center">
+                            {/* <div className="border-0 flex flex-col justify-center">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request}</p>
-                            </div>
+                            </div> */}
                             {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
@@ -379,7 +379,7 @@ export const SentBackUpdateQuote = () => {
                             <ArrowLeft className="cursor-pointer" onClick={() => setPage('summary')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
@@ -396,10 +396,10 @@ export const SentBackUpdateQuote = () => {
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
                             </div>
-                            <div className="border-0 flex flex-col justify-center">
+                            {/* <div className="border-0 flex flex-col justify-center">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request}</p>
-                            </div>
+                            </div> */}
                             {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>

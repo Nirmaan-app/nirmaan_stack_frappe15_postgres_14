@@ -589,7 +589,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                         <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-vendor")} />
                         <h2 className="text-base pl-2 font-bold tracking-tight">Approve PO: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
-                    <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                    <Card className="flex md:grid md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
@@ -597,6 +597,10 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                         <div className="border-0 flex flex-col justify-center">
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
+                        </div>
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Location</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{`${project_data?.project_city}, ${project_data?.project_state}`}</p>
                         </div>
                         <div className="border-0 flex flex-col justify-center">
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>

@@ -23,7 +23,6 @@ import { ReleasePO } from './components/procurement/release-po'
 import { QuoteUpdateSelect } from './components/procurement/quote-update-select'
 import { SelectVendorList } from './components/procurement/select-vendor-list'
 import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
-import { ApproveSentBack } from './pages/approve-sent-back'
 import { PDF } from './pages/pdf'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
@@ -89,7 +88,7 @@ const router = createBrowserRouter(
 					<Route path="approve-vendor" element={<ApproveSelectVendor />} />
 					<Route path="approve-vendor/:orderId" lazy={() => import('@/pages/approve-vendor')} />
 					<Route path="approve-sent-back" element={<ApproveSelectSentBack />} />
-					<Route path="approve-sent-back/:id" element={<ApproveSentBack />} />
+					<Route path="approve-sent-back/:id" lazy={() => import('@/pages/approve-sent-back')} />
 					<Route path="delayed-pr" element={<DelayedPRSelect />} />
 					<Route path="delayed-pr/:id" element={<DelayedPR />} />
 
