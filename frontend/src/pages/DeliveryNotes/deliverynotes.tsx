@@ -28,7 +28,7 @@ const DeliveryNotes = () => {
     console.log("data", procurementOrdersList, procurementRequestsList)
 
     const getPrsAssociated = (prId) => {
-        return procurementOrdersList?.filter((po) => po.procurement_request === prId) || []
+        return procurementOrdersList?.filter((po) => po.procurement_request === prId && po.status !== "Cancelled") || []
     }
 
     const [project, setProject] = useState(null)

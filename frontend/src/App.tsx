@@ -22,9 +22,7 @@ import { ReleasePOSelect } from './components/procurement/release-po-select'
 import { ReleasePO } from './components/procurement/release-po'
 import { QuoteUpdateSelect } from './components/procurement/quote-update-select'
 import { SelectVendorList } from './components/procurement/select-vendor-list'
-import { ProjectLeadComponent } from './pages/approve-order'
 import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
-import { ApproveSentBack } from './pages/approve-sent-back'
 import { PDF } from './pages/pdf'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/theme-provider'
@@ -36,8 +34,7 @@ import Users from './pages/users/users'
 import Roles from './pages/roles'
 import Debug from './pages/debug'
 import { ApproveSelectVendor } from './pages/approve-select-vendor'
-import { ApproveVendor } from './pages/approve-vendor'
-import { NewPR } from './components/procurement-request/new-pr'
+// import { ApproveVendor } from './pages/approve-vendor'
 // import { PRSummary } from './components/pr-summary'
 import { UserForm } from './pages/users/user-form'
 import Items from './pages/items'
@@ -87,11 +84,11 @@ const router = createBrowserRouter(
 					<Route path='/milestone-update' element={<NewMilestones />} />
 
 					<Route path="approve-order" element={<ApprovePR />} />
-					<Route path="/approve-order/:id" element={<ProjectLeadComponent />} />
+					<Route path="/approve-order/:id" lazy={() => import('@/pages/approve-order')} />
 					<Route path="approve-vendor" element={<ApproveSelectVendor />} />
-					<Route path="approve-vendor/:orderId" element={<ApproveVendor />} />
+					<Route path="approve-vendor/:orderId" lazy={() => import('@/pages/approve-vendor')} />
 					<Route path="approve-sent-back" element={<ApproveSelectSentBack />} />
-					<Route path="approve-sent-back/:id" element={<ApproveSentBack />} />
+					<Route path="approve-sent-back/:id" lazy={() => import('@/pages/approve-sent-back')} />
 					<Route path="delayed-pr" element={<DelayedPRSelect />} />
 					<Route path="delayed-pr/:id" element={<DelayedPR />} />
 

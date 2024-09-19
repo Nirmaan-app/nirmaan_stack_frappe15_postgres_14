@@ -6,18 +6,17 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, Handshake } from 'lucide-react';
+import { ArrowLeft, Download, Handshake } from 'lucide-react';
 import QuotationForm from "./quotation-form"
 
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom";
-import { MainLayout } from '../layout/main-layout';
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { PrintRFQ } from "./rfq-pdf";
 import { Card } from "../ui/card";
 import { Button } from '@/components/ui/button';
+import { formatDate } from "@/utils/FormatDate";
 
 export const UpdateQuote = () => {
     const { orderId } = useParams<{ orderId: string }>()
@@ -123,70 +122,71 @@ export const UpdateQuote = () => {
                 <div className="flex">
                     <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft onClick={() => navigate("/update-quote")} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Update Quote</h2>
+                            <ArrowLeft className="cursor-pointer" onClick={() => navigate("/update-quote")} />
+                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
                         </div>
-                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div>
+                            </div> */}
                         </Card>
+                        <div className="flex justify-between">
+                            <div className="p-2 pl-7 font-light underline text-red-700">Selected Vendor List</div>
+                            <div className="p-2 pl-7 font-light underline text-red-700 pr-32">Options</div>
+                        </div>
                         {uniqueVendors.list.map((item) => {
                             return <div className="px-4 flex justify-between">
                                 <div className="px-6 py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
                                 <div className="flex space-x-2">
                                     <Sheet>
-                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Download PDF</SheetTrigger>
+                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
                                         <SheetContent>
                                             {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-                                                <SheetHeader>
-                                                    <SheetTitle>Print PDF</SheetTitle>
-                                                    <SheetDescription>
-                                                        <PrintRFQ vendor_id={item} pr_id={orderData.name} />
-                                                    </SheetDescription>
-                                                </SheetHeader>
+                                            <SheetHeader>
+                                                <SheetTitle className="text-center">Print PDF</SheetTitle>
+                                                <SheetDescription>
+                                                    <PrintRFQ vendor_id={item} pr_id={orderData.name} itemList={orderData?.procurement_list || []} />
+                                                </SheetDescription>
+                                            </SheetHeader>
                                             {/* </ScrollArea> */}
                                         </SheetContent>
                                     </Sheet>
                                     {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
-                                    <div className="flex space-x-2">
-
                                         <Sheet>
-                                            <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
+                                            <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price(s)</SheetTrigger>
                                             <SheetContent>
                                                 {/* <ScrollArea className="h-[90%] w-[600px] p-2"> */}
-                                                    <SheetHeader className="text-start">
-                                                        <div className="flex items-center gap-1">
-                                                            <SheetTitle className="text-xl">Enter Price</SheetTitle>
-                                                            <Handshake className="w-5 h-5 text-primary" />
-                                                        </div>
-                                                        <SheetDescription>
-                                                            <Card className="p-5">
-                                                                <QuotationForm vendor_id={item} pr_id={orderData.name} />
-                                                            </Card>
-                                                        </SheetDescription>
-                                                    </SheetHeader>
+                                                <SheetHeader className="text-start">
+                                                    <div className="flex items-center gap-1">
+                                                        <SheetTitle className="text-xl">Enter Price(s)</SheetTitle>
+                                                        <Handshake className="w-5 h-5 text-primary" />
+                                                    </div>
+                                                    <SheetDescription>
+                                                        <Card className="p-5">
+                                                            <QuotationForm vendor_id={item} pr_id={orderData.name} />
+                                                        </Card>
+                                                    </SheetDescription>
+                                                </SheetHeader>
                                                 {/* </ScrollArea> */}
                                             </SheetContent>
                                         </Sheet>
-                                    </div>
                                 </div>
                                 {/* <Sheet>
                                     <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
@@ -203,7 +203,9 @@ export const UpdateQuote = () => {
                                 </Sheet> */}
                             </div>
                         })}
-                        {/* <div className="p-10"></div> */}
+                        <div className="font-light text-sm text-slate-500 p-10">
+                            <span className="text-red-700">Notes:</span> You can download RFQ PDFs for individual vendors for getting quotes
+                        </div>
                         <div className="flex pt-10 pr-6 flex-col justify-end items-end">
                             <Button onClick={handleUpdateQuote}>
                                 Update Quote

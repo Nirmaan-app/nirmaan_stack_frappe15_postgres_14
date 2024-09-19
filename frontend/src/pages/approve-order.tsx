@@ -9,24 +9,66 @@ import {
     DialogClose
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { ArrowLeft, SquareArrowDown } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
-import { MainLayout } from "@/components/layout/main-layout";
 import ReactSelect from 'react-select';
 import { CirclePlus } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Pencil, X } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectValue, SelectTrigger } from "@/components/ui/select";
+import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
-
 import { formatDate } from "@/utils/FormatDate";
+import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 
-export const ProjectLeadComponent = () => {
+// const ProjectInfo = (id: String) => {
+//     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", id);
+
+// }
+
+const ApprovePRList = () => {
+
     const { id } = useParams<{ id: string }>()
+    const [project, setProject] = useState()
+    const [owner, setOwner] = useState()
+    const { data: pr, isLoading: pr_loading, error: pr_error } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id);
+    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project || "");
+    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner === "Administrator" ? "" : owner || "");
+
+    useEffect(() => {
+        if (pr && !pr_loading) {
+            setProject(pr?.project)
+            setOwner(pr?.owner)
+        }
+        else {
+            return
+        }
+    }, [pr, pr_loading, project, owner])
+
+    console.log("within 1st component", owner_data)
+    if (pr_loading || project_loading || owner_loading) return <h1>Loading...</h1>
+    if (pr_error || project_error || owner_error) return <h1>Error</h1>
+    return (
+        <ApprovePRListPage pr_data={pr} project_data={project_data} owner_data={Array.isArray(owner_data) ? { full_name: "Administrator" } : owner_data} />
+    )
+}
+
+interface ApprovePRListPageProps {
+    pr_data: ProcurementRequestsType | undefined
+    project_data: ProjectsType | undefined
+    owner_data: NirmaanUsersType | undefined | { full_name: String }
+}
+
+
+
+const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListPageProps) => {
+
     const navigate = useNavigate()
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
@@ -41,15 +83,15 @@ export const ProjectLeadComponent = () => {
             orderBy: { field: 'creation', order: 'desc' },
             limit: 1000
         });
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-        {
-            fields: ['name', 'project_name', 'project_address']
-        });
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
-        {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'category_list'],
-            limit: 1000
-        });
+    // const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
+    //     {
+    //         fields: ['name', 'project_name', 'project_address']
+    //     });
+    // const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    //     {
+    //         fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'category_list'],
+    //         limit: 1000
+    //     });
 
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
@@ -108,20 +150,23 @@ export const ProjectLeadComponent = () => {
     })
     useEffect(() => {
         if (!orderData.project) {
-            procurement_request_list?.map(item => {
-                if (item.name === id) {
-                    setOrderData(item);
-                    item.procurement_list.list.map((items) => {
-                        const isDuplicate = categories.list.some(category => category.name === items.category);
-                        if (!isDuplicate) {
-                            setCategories(prevState => ({
-                                ...prevState,
-                                list: [...prevState.list, { name: items.category }]
-                            }));
-                        }
-                    });
+            // procurement_request_list?.map(item => {
+            // if (item.name === id) {
+            let mod_pr_data = { ...pr_data, procurement_list: JSON.parse(pr_data?.procurement_list) }
+            setOrderData(mod_pr_data);
+            console.log("within effect 1", pr_data, orderData)
+            JSON.parse(pr_data?.procurement_list).list.map((items) => {
+                const isDuplicate = categories.list.some(category => category.name === items.category);
+                if (!isDuplicate) {
+                    setCategories(prevState => ({
+                        ...prevState,
+                        list: [...prevState.list, { name: items.category }]
+                    }));
                 }
+                console.log("within effect 2", categories)
             });
+            // }
+            // });
             setCategories(prevState => ({
                 ...prevState,
                 list: prevState.list.filter((category, index, self) =>
@@ -131,7 +176,7 @@ export const ProjectLeadComponent = () => {
                 )
             }));
         }
-    }, [procurement_request_list]);
+    }, [pr_data]);
 
     const item_lists: string[] = [];
     const item_options: string[] = [];
@@ -322,10 +367,10 @@ export const ProjectLeadComponent = () => {
         <>
             {page == 'categorylist' &&
                 <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-6 pt-6">
-                        <div className="flex items-center space-y-2">
+                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                        <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
+                            <h2 className="text-lg pl-2 font-bold tracking-tight">Select Category</h2>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
                             {category_list?.map((item) => {
@@ -349,9 +394,9 @@ export const ProjectLeadComponent = () => {
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center pt-1  pb-4 ">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate("/approve-order")} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
+                            <h2 className="text-lg pl-2 font-bold tracking-tight">Approve Quantity: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
-                        <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
+                        {/* <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
                             <div className="">
                                 <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
                                 <h3 className=" font-semibold text-sm md:text-lg">{project_list?.find(item => item.name === orderData?.project)?.project_name}</h3>
@@ -360,80 +405,80 @@ export const ProjectLeadComponent = () => {
                                 <h5 className="text-gray-500 text-xs md:test-base">Package</h5>
                                 <h3 className=" font-semibold text-sm md:text-lg">{orderData.work_package}</h3>
                             </div>
-                        </div>
+                        </div> */}
 
-                        {/* <Card className="md:grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-red-300">Date</p>
+                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-red-700">Date:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-red-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{project_list?.find(item => item.name === orderData?.project)?.project_name}</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-red-700">Project:</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-red-300">Package</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-red-700">Package:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-red-300">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-red-700">Created By:</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-red-300">PR Number</p>
+                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-red-700">PR Number:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div>
+                            </div> */}
 
-                        </Card> */}
+                        </Card>
 
                         {curCategory === '' && <button className="text-lg text-blue-400 flex p-2" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1" /> Add Missing Items</button>}
 
-                        {curCategory && 
-                        <Card className="p-4 max-sm:p-2 mt-4 border border-gray-100 rounded-lg">
-                            <div className="flex justify-between">
-                                <button onClick={() => {
-                                    setCurItem("")
-                                    setMake("")
-                                    setPage('categorylist')
-                                }} className="text-blue-400 underline ml-2 mb-2">
-                                    <div className="flex">
-                                        <h3 className="font-bold pb-2">{curCategory}</h3>
-                                        <Pencil className="w-4 h-4 ml-1 mt-1" />
-                                    </div>
-                                </button>
-                                <button className="text-red-600 mb-1" onClick={() => {
-                                    setCurItem("")
-                                    setMake("")
-                                    setCurCategory('')
+                        {curCategory &&
+                            <Card className="p-4 max-sm:p-2 mt-4 border border-gray-100 rounded-lg">
+                                <div className="flex justify-between">
+                                    <button onClick={() => {
+                                        setCurItem("")
+                                        setMake("")
+                                        setPage('categorylist')
+                                    }} className="text-blue-400 underline ml-2 mb-2">
+                                        <div className="flex">
+                                            <h3 className="font-bold pb-2">{curCategory}</h3>
+                                            <Pencil className="w-4 h-4 ml-1 mt-1" />
+                                        </div>
+                                    </button>
+                                    <button className="text-red-600 mb-1" onClick={() => {
+                                        setCurItem("")
+                                        setMake("")
+                                        setCurCategory('')
                                     }}><X className="md:w-6 md:h-6 " /></button>
-                            </div>
+                                </div>
 
-                            <div className="flex space-x-2">
+                                <div className="flex space-x-2">
 
-                                <div className="w-1/2 md:w-2/3">
-                                    <h5 className="text-xs text-gray-400">Items</h5>
-                                    <ReactSelect value={{ value: curItem, label: `${curItem}${make ? "-" + make : ""}` }} options={item_options} onChange={handleChange} />
+                                    <div className="w-1/2 md:w-2/3">
+                                        <h5 className="text-xs text-gray-400">Items</h5>
+                                        <ReactSelect value={{ value: curItem, label: `${curItem}${make ? "-" + make : ""}` }} options={item_options} onChange={handleChange} />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h5 className="text-xs text-gray-400">UOM</h5>
+                                        <input className="h-[37px] w-full" type="text" placeholder={unit || "Unit"} value={unit} />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h5 className="text-xs text-gray-400">Qty</h5>
+                                        <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
+                                    </div>
                                 </div>
-                                <div className="flex-1">
-                                    <h5 className="text-xs text-gray-400">UOM</h5>
-                                    <input className="h-[37px] w-full" type="text" placeholder={unit || "Unit"} value={unit} />
+                                <div className="flex justify-between mt-4">
+                                    <div className="mt-3">
+                                        <button className="text-sm  md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create New Item</button>
+                                    </div>
+                                    {(curItem && Number(quantity)) ?
+                                        <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
+                                        :
+                                        <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>
+                                    }
                                 </div>
-                                <div className="flex-1">
-                                    <h5 className="text-xs text-gray-400">Qty</h5>
-                                    <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
-                                </div>
-                            </div>
-                            <div className="flex justify-between mt-4">
-                                <div className="mt-3">
-                                    <button className="text-sm  md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create New Item</button>
-                                </div>
-                                {(curItem && Number(quantity)) ?
-                                    <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
-                                    :
-                                    <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>
-                                }
-                            </div>
-                        </Card>
+                            </Card>
                         }
                         <AlertDialog>
                             <AlertDialogTrigger>
@@ -453,7 +498,7 @@ export const ProjectLeadComponent = () => {
                         </AlertDialog>
                         <Card className="p-4 border border-gray-100 rounded-lg">
                             <div className="text-xs text-red-700 pb-2">Added Items</div>
-                            {!orderData?.procurement_list?.list.length && <div className="text-sm">No Items to display, please reload the page to recover the deleted items or add at least an item to enable the "Next" button</div>}
+                            {orderData?.procurement_list.list.length === 0 && <div className="text-sm">No Items to display, please reload the page to recover the deleted items or add at least an item to enable the "Next" button</div>}
                             {orderData.category_list.list?.map((cat) => {
                                 return <div key={cat.name} className="">
                                     <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
@@ -535,31 +580,92 @@ export const ProjectLeadComponent = () => {
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('itemlist')} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Orders</h2>
+                            <h2 className="text-lg pl-2 font-bold tracking-tight">Quantity Summary: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
-                        <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
+                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-red-700">Date</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{project_list?.find(item => item.name === orderData?.project)?.project_name}</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-red-700">Project</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Package</p>
+                            <div className="border-0 flex flex-col justify-center">
+                                <p className="text-left py-1 font-light text-sm text-red-700">Package</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
+                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-red-700">Created By</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                             </div>
-                            <div className="border-0 flex flex-col items-center justify-center">
-                                <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div>
+                            </div> */}
                         </Card>
                         <div className="overflow-x-auto">
+
+                            <div className="min-w-full inline-block align-middle">
+                                {orderData?.category_list.list.map((cat: any) => {
+                                    return <div className="p-5">
+                                        {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow className="bg-red-100">
+                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>Items</TableHead>
+                                                    <TableHead className="w-[20%]">UOM</TableHead>
+                                                    <TableHead className="w-[10%]">Qty</TableHead>
+                                                    <TableHead className="w-[10%]">Est. Amt</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {orderData?.procurement_list.list.map((item: any) => {
+                                                    if (item.category === cat.name) {
+                                                        const quotesForItem = quote_data
+                                                            ?.filter(value => value.item === item.name && value.quote != null)
+                                                            ?.map(value => value.quote);
+                                                        let minQuote;
+                                                        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                                                        return (
+                                                            <TableRow key={item.item}>
+                                                                <TableCell>{item.item}</TableCell>
+                                                                <TableCell>{item.unit}</TableCell>
+                                                                <TableCell>{item.quantity}</TableCell>
+                                                                <TableCell className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                                    {minQuote ? minQuote * item.quantity : "N/A"}
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        )
+                                                    }
+                                                })}
+                                            </TableBody>
+                                        </Table>
+                                        {/* <table className="min-w-full divide-y divide-gray-200">
+                                                    <thead className="border-b-2 border-black">
+                                                        <tr>
+                                                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
+                                                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UOM</th>
+                                                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="bg-white divide-y divide-gray-200">
+                                                        {JSON.parse(pr_data.procurement_list).list.map((item: any) => {
+                                                            if (item.category === cat.name) {
+                                                                return <tr key={item.item}>
+                                                                    <td className="px-3 text-xs py-2 font-medium whitespace-nowrap">{item.item}</td>
+                                                                    <td className="px-3 text-xs py-2 font-medium whitespace-nowrap">{item.unit}</td>
+                                                                    <td className="px-3 text-xs py-2 font-medium whitespace-nowrap">{item.quantity}</td>
+                                                                </tr>
+                                                            }
+                                                        })}
+                                                    </tbody>
+                                                </table> */}
+                                    </div>
+                                })}
+                            </div>
+                        </div>
+                        {/* <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
                                 <thead className="border-b-2 border-black">
                                     <tr>
@@ -591,7 +697,7 @@ export const ProjectLeadComponent = () => {
                                     })}
                                 </tbody>
                             </table>
-                        </div>
+                        </div> */}
                         <div className="flex flex-col justify-end items-end">
                             <Dialog>
                                 <DialogTrigger asChild>
@@ -755,3 +861,5 @@ export const ProjectLeadComponent = () => {
         </>
     )
 }
+
+export const Component = ApprovePRList;

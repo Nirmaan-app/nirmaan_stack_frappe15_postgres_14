@@ -10,7 +10,7 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { useState } from "react";
 import { DialogClose } from "@radix-ui/react-dialog";
@@ -73,6 +73,7 @@ export default function Profile() {
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { deleteDoc: deleteDoc, loading: delete_loading, isCompleted: delete_complete, error: delete_error } = useFrappeDeleteDoc()
+    const {mutate} = useSWRConfig()
 
     const handleSubmit = () => {
         createDoc('User Permission', {
@@ -99,19 +100,19 @@ export default function Profile() {
 
     const handleDeleteUser = () => {
         deleteDoc('Nirmaan Users', data.email)
-            .then((doc) => {
-                console.log(doc)
+            .then(() => {
+                mutate("Nirmaan Users")
                 toast({
                     title: "Success!",
-                    description: `${doc.message}`,
+                    description: `User: ${data?.full_name} deleted Successfully!`,
                     variant: "success"
                 })
-                permission_list_mutate()
-            }).catch((doc) => {
+                navigate("/users")
+            }).catch(() => {
                 console.log(submit_error)
                 toast({
                     title: "Failed!",
-                    description: `Failed to delete ${doc.full_name}`,
+                    description: `Failed to delete User: ${data?.full_name}`,
                     variant: "destructive"
                 })
             })
@@ -159,7 +160,7 @@ export default function Profile() {
         })
     }
     return (
-        <div className="min-h-screen  p-4 sm:p-6">
+        <div className="min-h-screen p-12 pt-8 max-md:p-8 max-sm:p-4">
             <div className="mx-auto space-y-6 sm:space-y-8">
                 <div className="flex items-center justify-between ">
                     <Button variant="ghost" className="flex items-center gap-2">

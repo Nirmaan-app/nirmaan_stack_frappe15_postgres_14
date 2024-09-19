@@ -30,19 +30,19 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2024-05-27 12:06:48.794270",
-  "name": "RFQ Generated",
+  "modified": "2024-09-19 17:02:16.004936",
+  "name": "Sent Back",
   "style": "",
-  "workflow_state_name": "RFQ Generated"
+  "workflow_state_name": "Sent Back"
  },
  {
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2024-05-17 19:24:17.060880",
-  "name": "Quote Updated",
+  "modified": "2024-05-17 19:24:30.798890",
+  "name": "Vendor Selected",
   "style": "",
-  "workflow_state_name": "Quote Updated"
+  "workflow_state_name": "Vendor Selected"
  },
  {
   "docstatus": 0,
@@ -52,6 +52,15 @@
   "name": "Partially Approved",
   "style": "",
   "workflow_state_name": "Partially Approved"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2024-09-19 17:02:07.723412",
+  "name": "Delayed",
+  "style": "",
+  "workflow_state_name": "Delayed"
  },
  {
   "docstatus": 0,
@@ -66,9 +75,18 @@
   "docstatus": 0,
   "doctype": "Workflow State",
   "icon": "",
-  "modified": "2024-05-17 19:24:30.798890",
-  "name": "Vendor Selected",
+  "modified": "2024-05-27 12:06:48.794270",
+  "name": "RFQ Generated",
   "style": "",
-  "workflow_state_name": "Vendor Selected"
+  "workflow_state_name": "RFQ Generated"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2024-05-17 19:24:17.060880",
+  "name": "Quote Updated",
+  "style": "",
+  "workflow_state_name": "Quote Updated"
  }
 ]

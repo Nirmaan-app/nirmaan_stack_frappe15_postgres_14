@@ -2,12 +2,13 @@ import { ArrowLeft, CirclePlus } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom";
 import ProjectSelect from "@/components/custom-select/project-select";
 import { useState } from "react";
-import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
+import {  useFrappeGetDocList } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useUserData } from "@/hooks/useUserData";
 import { Badge } from "../ui/badge";
+import { ProcurementRequestsSkeleton } from "../ui/skeleton";
 
 export default function ListPR() {
 
@@ -21,7 +22,7 @@ export default function ListPR() {
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList<ProcurementRequests>("Procurement Requests",
         {
-            fields: ['name', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'workflow_state'],
+            fields: ["*"],
             orderBy: { field: "creation", order: "desc" },
             limit: 1000
         });
@@ -43,7 +44,7 @@ export default function ListPR() {
         sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
     };
 
-    if (procurement_request_list_loading) return <h1>LOADING</h1>;
+    if (procurement_request_list_loading ) return <ProcurementRequestsSkeleton />
     if (procurement_request_list_error) return <h1>ERROR</h1>;
 
     return (
@@ -72,8 +73,8 @@ export default function ListPR() {
                                             <TableCell className="text-sm text-center"><Link to={`${item.name}`} className="text-blue-500 underline-offset-1">{item.name.slice(-4)}</Link></TableCell>
                                             <TableCell className="text-sm text-center">{item.work_package}</TableCell>
                                             <TableCell className="text-sm text-center">
-                                            <Badge variant={`${item.workflow_state === "Pending" ? "yellow" : item.workflow_state === "Approved" ? "green" : item.workflow_state === "RFQ Generated" ? "blue" : item.workflow_state === "Quote Updated" ? "teal" : item.workflow_state === "Vendor Selected" ? "purple" : item.workflow_state === "Vendor Approved" ? "indigo" : item.workflow_state === "Partially Approved" ? "orange" : "red"}`}>
-                                                    {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "Ordered" : (item.workflow_state === "Rejected" && checkPoToPr(item.name)) ? "Ordered" : (item.workflow_state === "Rejected" && !checkPoToPr(item.name)) ? "Delayed" : item.workflow_state}
+                                                <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(item.workflow_state) && checkPoToPr(item.name)) ? "green" : (["Delayed", "Sent Back"].includes(item.workflow_state) && !checkPoToPr(item.name)) ? "orange" : item.workflow_state === "Rejected" ? "red" : "yellow"}`}>
+                                                    {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(item.workflow_state) && checkPoToPr(item.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(item.workflow_state) && !checkPoToPr(item.name)) ? "In Progress" : item.workflow_state}
                                                 </Badge>
                                             </TableCell>
                                         </TableRow>
@@ -100,8 +101,8 @@ export default function ListPR() {
                                             <TableCell className="text-sm text-center"><Link to={`${item.name}`} className="text-blue-500 underline-offset-1">{item.name.slice(-4)}</Link></TableCell>
                                             <TableCell className="text-sm text-center">{item.work_package}</TableCell>
                                             <TableCell className="text-sm text-center">
-                                            <Badge variant={`${item.workflow_state === "Pending" ? "yellow" : item.workflow_state === "Approved" ? "green" : item.workflow_state === "RFQ Generated" ? "blue" : item.workflow_state === "Quote Updated" ? "teal" : item.workflow_state === "Vendor Selected" ? "purple" : item.workflow_state === "Vendor Approved" ? "indigo" : item.workflow_state === "Partially Approved" ? "orange" : "red"}`}>
-                                                    {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "Ordered" : (item.workflow_state === "Rejected" && checkPoToPr(item.name)) ? "Ordered" : (item.workflow_state === "Rejected" && !checkPoToPr(item.name)) ? "Delayed" : item.workflow_state}
+                                                <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(item.workflow_state) && checkPoToPr(item.name)) ? "green" : (["Delayed", "Sent Back"].includes(item.workflow_state) && !checkPoToPr(item.name)) ? "orange" : item.workflow_state === "Rejected" ? "red" : "yellow"}`}>
+                                                    {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(item.workflow_state) && checkPoToPr(item.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(item.workflow_state) && !checkPoToPr(item.name)) ? "In Progress" : item.workflow_state}
                                                 </Badge>
                                             </TableCell>
                                         </TableRow>

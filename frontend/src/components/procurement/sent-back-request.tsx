@@ -8,6 +8,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
+import { Badge } from "../ui/badge";
 
 
 type PRTable = {
@@ -84,9 +85,10 @@ export const SentBackRequest = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const type = row.getValue("type")
                     return (
                         <div className="font-medium">
-                            {row.getValue("type") ? row.getValue("type") : "Rejected"}
+                            <Badge variant={type === "Rejected" ? "destructive" : type === "Delayed" ? "orange" : "gray"}>{type ? type : "Rejected"}</Badge>
                         </div>
                     )
                 }

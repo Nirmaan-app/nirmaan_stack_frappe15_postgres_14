@@ -638,7 +638,7 @@ export const ProjectForm = () => {
                         name="project_city"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">City</FormLabel>
+                                <FormLabel className="md:basis-2/12">City<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
                                         <Input placeholder={pincode_data?.city ? pincode_data?.city : "City"} disabled={true} {...field} />
@@ -657,7 +657,7 @@ export const ProjectForm = () => {
                         name="project_state"
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">State</FormLabel>
+                                <FormLabel className="md:basis-2/12">State<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
                                         <Input placeholder={pincode_data?.state ? pincode_data?.state : "State"} disabled={true} {...field} />

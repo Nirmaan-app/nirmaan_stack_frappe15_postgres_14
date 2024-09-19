@@ -7,7 +7,7 @@
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { OverviewSkeleton, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
+import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { ColumnDef } from "@tanstack/react-table"
 import { Menu, MenuProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
@@ -231,7 +231,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
         }, {});
       
         return grouped;
-      }, [Categories, vendorCategories]);
+      }, [Categories, data]);
 
      const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -354,7 +354,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     if (error || vendorAddressError || procurementOrdersError || procurementRequestsError) return <h1 className="text-red-700">There is an error while fetching the document, please check!</h1>
 
     return ( 
-        <div className="flex-1 space-y-4 p-12 pt-8">
+        <div className="flex-1 space-y-4 px-12 pt-6 max-md:px-8 max-sm:px-4">
             <div className="flex items-center">
                 <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/vendors")} />
                     {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
@@ -364,7 +364,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
             <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items}/>
              {/* Overview Section */}
              {current === "overview" && (
-                (isLoading || vendorAddressLoading ? <OverviewSkeleton /> : (
+                (isLoading || vendorAddressLoading ? <OverviewSkeleton2 /> : (
                 <div className="flex flex-col gap-4">
                     <Card>
                         <CardHeader>
@@ -413,6 +413,10 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                                       <CardDescription className="space-y-2">
                                           <span>State</span>
                                           <p className="font-bold text-black">{vendorAddress?.state}</p>
+                                      </CardDescription>
+                                      <CardDescription className="space-y-2">
+                                          <span>pincode</span>
+                                          <p className="font-bold text-black">{vendorAddress?.pincode}</p>
                                       </CardDescription>
                                       
                                       {/* <CardDescription className="space-y-2">

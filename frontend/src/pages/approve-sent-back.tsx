@@ -1,13 +1,17 @@
 import { ArrowLeft } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import { useToast } from '@/components/ui/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { formatDate } from '@/utils/FormatDate';
+import { SentBackCategory as SentBackCategoryType } from '@/types/NirmaanStack/SentBackCategory';
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -33,8 +37,8 @@ const columns: TableColumnsType<DataType> = [
         render: (text, record) => {
             return (
                 <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
-            {text}
-        </span>
+                    {text}
+                </span>
             )
         }
     },
@@ -86,9 +90,43 @@ const columns: TableColumnsType<DataType> = [
     },
 ];
 
+const ApproveSentBack = () => {
 
-export const ApproveSentBack = () => {
     const { id } = useParams<{ id: string }>()
+    const [project, setProject] = useState()
+    const [owner, setOwner] = useState()
+    const { data: sb, isLoading: sb_loading, error: sb_error, mutate: sb_mutate } = useFrappeGetDoc<SentBackCategoryType>("Sent Back Category", id);
+    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project || "");
+    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner === "Administrator" ? "" : owner || "");
+
+    useEffect(() => {
+        if (sb && !sb_loading) {
+            setProject(sb?.project)
+            setOwner(sb?.modified_by)
+        }
+        else {
+            return
+        }
+    }, [sb, sb_loading, project, owner])
+
+    console.log("within 1st component", owner_data)
+    if (sb_loading || project_loading || owner_loading) return <h1>Loading...</h1>
+    if (sb_error || project_error || owner_error) return <h1>Error</h1>
+    return (
+        <ApproveSentBackPage sb_data={sb} project_data={project_data} owner_data={Array.isArray(owner_data) ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
+    )
+}
+
+interface ApproveSentBackPageProps {
+    sb_data: SentBackCategoryType | undefined
+    project_data: ProjectsType | undefined
+    owner_data: NirmaanUsersType | undefined | { full_name: String }
+    sent_back_list_mutate: any
+}
+
+
+const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
+    // const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
@@ -96,17 +134,17 @@ export const ApproveSentBack = () => {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst'],
             limit: 200
         });
-    const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-        {
-            fields: ['name', 'project_name', 'project_address'],
-            limit: 1000
-        });
-    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sent_back_list_mutate } = useFrappeGetDocList("Sent Back Category",
-        {
-            fields: ["*"],
-            filters: [["name", "=", id]],
-            limit: 1000
-        });
+    // const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
+    //     {
+    //         fields: ['name', 'project_name', 'project_address'],
+    //         limit: 1000
+    //     });
+    // const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sent_back_list_mutate } = useFrappeGetDocList("Sent Back Category",
+    //     {
+    //         fields: ["*"],
+    //         filters: [["name", "=", id]],
+    //         limit: 1000
+    //     });
 
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
@@ -124,28 +162,28 @@ export const ApproveSentBack = () => {
     const [checkStrictly, setCheckStrictly] = useState(false);
 
     useEffect(() => {
-        if (sent_back_list) {
-            const newOrderData = sent_back_list[0];
-            const newCategories: { name: string }[] = [];
-            const newList: DataType[] = [];
-            newOrderData.item_list.list.forEach((item) => {
-                if (item.status === "Pending") newList.push(item);
-                if (!newCategories.some(category => category.name === item.category)) {
-                    newCategories.push({ name: item.category });
-                }
-            });
+        // if (sent_back_list) {
+        const newOrderData = sb_data;
+        const newCategories: { name: string }[] = [];
+        const newList: DataType[] = [];
+        JSON.parse(newOrderData.item_list).list.forEach((item) => {
+            if (item.status === "Pending") newList.push(item);
+            if (!newCategories.some(category => category.name === item.category)) {
+                newCategories.push({ name: item.category });
+            }
+        });
 
-            setOrderData(() => ({
-                ...newOrderData,
-                item_list: {
-                    list: newList
-                },
-                category_list: {
-                    list: newCategories
-                }
-            }));
-        }
-    }, [sent_back_list]);
+        setOrderData(() => ({
+            ...newOrderData,
+            item_list: {
+                list: newList
+            },
+            category_list: {
+                list: newCategories
+            }
+        }));
+        // }
+    }, [sb_data]);
 
     useEffect(() => {
         if (orderData.project) {
@@ -223,12 +261,12 @@ export const ApproveSentBack = () => {
     const getVendorId = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.vendor_name === vendorName)?.name;
     }
-    const getProjectName = (projectName: string) => {
-        return project_list?.find(project => project.name === projectName)?.project_name;
-    }
-    const getProjectAddress = (projectName: string) => {
-        return project_list?.find(project => project.name === projectName)?.project_address;
-    }
+    // const getProjectName = (projectName: string) => {
+    //     return project_list?.find(project => project.name === projectName)?.project_name;
+    // }
+    // const getProjectAddress = (projectName: string) => {
+    //     return project_list?.find(project => project.name === projectName)?.project_address;
+    // }
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
@@ -251,7 +289,7 @@ export const ApproveSentBack = () => {
         return results;
     };
 
-    const {mutate} = useSWRConfig()
+    const { mutate } = useSWRConfig()
 
     const newHandleApprove = async () => {
 
@@ -286,8 +324,8 @@ export const ApproveSentBack = () => {
                 const newProcurementOrder = {
                     procurement_request: orderData.procurement_request,
                     project: orderData.project,
-                    project_name: getProjectName(orderData.project),
-                    project_address: getProjectAddress(orderData.project),
+                    project_name: project_data?.project_name,
+                    project_address: project_data?.project_address,
                     vendor: getVendorId(key),
                     vendor_name: key,
                     vendor_address: getVendorAddress(getVendorId(key)),
@@ -306,13 +344,39 @@ export const ApproveSentBack = () => {
                 await createDocBatch('Procurement Orders', batch);
             }
 
-            const currentState = sent_back_list?.[0]?.workflow_state;
-            const allItemsApproved = filteredData.length === orderData.item_list.list.length;
-            const newWorkflowState = currentState === "Vendor Selected"
-                ? allItemsApproved ? "Approved" : "Partially Approved"
-                : currentState;
+            // const currentState = sb_data?.workflow_state;
+            // const allItemsApproved = filteredData.length === orderData.item_list.list.length;
+            // const newWorkflowState = currentState === "Vendor Selected"
+            //     ? allItemsApproved ? "Approved" : "Partially Approved"
+            //     : currentState;
 
-            const updatedItemList = sent_back_list?.[0].item_list.list.map(item => {
+            // Update item statuses and workflow state
+            const currentState = sb_data?.workflow_state;
+            const totalItems = orderData.item_list.list.length;
+            const approvedItems = filteredData.length;
+            const allItemsApproved = approvedItems === totalItems;
+
+            // Get count of items with status "Pending"
+            const pendingItemsCount = orderData.item_list.list.filter(item => item.status === "Pending").length;
+            const onlyPendingOrApproved = orderData.item_list.list.every(item =>
+                item.status === "Pending" || item.status === "Approved"
+            );
+
+            let newWorkflowState;
+
+            if (currentState === "Vendor Selected" && allItemsApproved) {
+                newWorkflowState = "Approved";
+            } else if (
+                currentState === "Partially Approved" &&
+                onlyPendingOrApproved &&
+                approvedItems === pendingItemsCount
+            ) {
+                newWorkflowState = "Approved";
+            } else {
+                newWorkflowState = "Partially Approved";
+            }
+
+            const updatedItemList = JSON.parse(sb_data?.item_list).list.map(item => {
                 if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
                     return { ...item, status: "Approved" };
                 }
@@ -323,8 +387,8 @@ export const ApproveSentBack = () => {
                 !filteredData.some(setItem => setItem.key === procItem.name)
             );
 
-            await updateDoc('Sent Back Category', id, {
-                item_list: {list : updatedItemList},
+            await updateDoc('Sent Back Category', sb_data?.name, {
+                item_list: { list: updatedItemList },
                 workflow_state: newWorkflowState,
             })
 
@@ -336,7 +400,7 @@ export const ApproveSentBack = () => {
 
             mutate("Sent Back Category(filters,in,Vendor Selected, Partially Approved)");
             sent_back_list_mutate()
-            
+
             if (filteredList.length === 0) {
                 navigate("/approve-sent-back")
             }
@@ -393,35 +457,53 @@ export const ApproveSentBack = () => {
                 type: "Rejected"
             }
 
-            if(itemList.length > 0) {
+            if (itemList.length > 0) {
                 await createDoc("Sent Back Category", newSendBack)
             }
 
-            const currentState = sent_back_list?.[0]?.workflow_state;
-            const newWorkflowState = currentState === "Vendor Selected" && itemList.length > 0
-                ? "Partially Approved"
-                : currentState;
+            // const currentState = sb_data?.workflow_state;
+            // const newWorkflowState = currentState === "Vendor Selected" && itemList.length > 0
+            //     ? "Partially Approved"
+            //     : currentState;
 
-            const updatedItemList = sent_back_list?.[0].item_list.list.map(item => {
+             // Workflow state logic
+             const totalItems = orderData.item_list.list.length;
+             const sentBackItems = filteredData.length;
+             const allItemsSentBack = sentBackItems === totalItems;
+             
+             const currentState = sb_data?.workflow_state;
+             
+             // Check if no items are "Approved"
+             const noApprovedItems = orderData.item_list.list.every(item => item.status !== "Approved");
+             
+             // Count the number of "Pending" items
+             const pendingItemsCount = orderData.item_list.list.filter(item => item.status === "Pending").length;
+             
+             let newWorkflowState;
+             
+             if (currentState === "Vendor Selected" && allItemsSentBack) {
+                 newWorkflowState = "Sent Back";
+             } else if (noApprovedItems && sentBackItems === pendingItemsCount) {
+                 newWorkflowState = "Sent Back";
+             } else {
+                 newWorkflowState = "Partially Approved";
+             }
+
+            const updatedItemList = JSON.parse(sb_data?.item_list).list.map(item => {
                 if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
                     return { ...item, status: "Sent Back" };
                 }
-                console.log("item", item)
                 return item;
             });
 
-            // console.log("updatedItemList", updatedItemList)
-            
             const filteredList = orderData.item_list?.list.filter(procItem =>
                 !filteredData.some(selItem => selItem.key === procItem.name)
             );
 
-            const res = await updateDoc('Sent Back Category', id, {
+            await updateDoc('Sent Back Category', sb_data?.name, {
                 item_list: { list: updatedItemList },
                 workflow_state: newWorkflowState
             });
-
-            // console.log("response", res)
 
             toast({
                 title: "Success!",
@@ -497,29 +579,34 @@ export const ApproveSentBack = () => {
                 <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                     <div className="flex items-center pt-1 pb-4">
                         <ArrowLeft onClick={() => { navigate('/approve-sent-back') }} />
-                        <h2 className="text-base pl-2 font-bold tracking-tight">Approve</h2>
+                        <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">{orderData?.type} SB-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
-                    <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">Sent Back ID</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.split("-")[3]}</p>
-                        </div>
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">Date</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.creation?.split(" ")[0]}</p>
-                        </div>
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">Project</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                        </div>
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">Project Lead</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                        </div>
-                        <div className="border-0 flex flex-col items-center justify-center">
-                            <p className="text-left py-1 font-semibold text-sm text-gray-300">PR Number</p>
+                    <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
                         </div>
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
+                        </div>
+                        <div className="border-0 flex flex-col justify-center">
+                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
+                        </div>
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Location</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{`${project_data?.project_city}, ${project_data?.project_state}`}</p>
+                        </div>
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Procurement by</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
+                        </div>
+
+                        {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
+                            </div> */}
                     </Card>
                     {/* <div className="w-full">
                         <div className="font-bold text-xl py-2">{orderData?.category}</div>
@@ -674,14 +761,14 @@ export const ApproveSentBack = () => {
                 }}
             >
                 {data.length > 0 &&
-                <div className='px-6'>
-                 <Table
-                    dataSource={data}
-                    rowSelection={{ ...rowSelection, checkStrictly }}
-                    expandable={{ defaultExpandAllRows: true }}
-                    columns={columns}
-                />
-                </div>
+                    <div className='px-6'>
+                        <Table
+                            dataSource={data}
+                            rowSelection={{ ...rowSelection, checkStrictly }}
+                            expandable={{ defaultExpandAllRows: true }}
+                            columns={columns}
+                        />
+                    </div>
                 }
 
             </ConfigProvider>
@@ -780,3 +867,5 @@ export const ApproveSentBack = () => {
         </>
     )
 }
+
+export const Component = ApproveSentBack;

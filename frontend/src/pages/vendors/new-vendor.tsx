@@ -32,8 +32,11 @@ const VendorFormSchema = z.object({
             message: "Address Line 1 Required"
         }),
     address_line_2: z
-        .string()
-        .optional(),
+    .string({
+        required_error: "Address Line 2 Required"
+    }).min(1, {
+        message: "Address Line 2 Required"
+    }),
     vendor_city: z
         .string({
             required_error: "Must Provide City"
@@ -90,8 +93,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     const navigate = useNavigate()
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
-        defaultValues: {}
-        ,
+        defaultValues: {},
         mode: "onBlur",
     })
 
@@ -141,6 +143,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         });
         setCategories([]);
         form.clearErrors();
+        document.getElementById("vendorShopName")?.focus()
     }
 
 
@@ -212,9 +215,9 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     // }
 
     const onSubmit = async (values: VendorFormValues) => {
-    
+
         try {
-            if(values.vendor_city === "Not Found" || values.vendor_state === "Not Found") {
+            if (values.vendor_city === "Not Found" || values.vendor_state === "Not Found") {
                 throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
             }
 
@@ -232,7 +235,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 email_id: values.vendor_email,
                 phone: values.vendor_mobile,
             });
-    
+
             try {
                 // Create the vendor document using the address document reference
                 const vendorDoc = await createDoc('Vendors', {
@@ -251,7 +254,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                             : category_json
                     }
                 });
-    
+
                 // Create quotation requests
                 const promises = [];
                 sentBackData?.item_list?.list.forEach((item) => {
@@ -264,20 +267,20 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                     };
                     promises.push(createDoc("Quotation Requests", newItem));
                 });
-    
+
                 await Promise.all(promises);
-    
+
                 // Mutate the vendor-related data
                 await mutate("Vendors");
                 await mutate("Quotation Requests");
                 await mutate("Vendor Category");
-    
+
                 toast({
                     title: "Success!",
                     description: "Vendor Created Successfully!",
                     variant: "success"
                 });
-    
+
                 // Navigate or close window
                 if (navigation) {
                     navigate("/vendors");
@@ -298,7 +301,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
             console.error("Submit Error", error);
         }
     };
-    
+
 
     const [pincode, setPincode] = useState("")
 
@@ -332,7 +335,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     }
 
     return (
-        <div className={`flex-1 space-x-2 ${navigation ? " md:space-y-4 p-4 md:p-8 pt-6" : ""} `}>
+        <div className={`flex-1 space-x-2 ${navigation ? " md:space-y-4 px-12 max-md:px-8 max-sm:px-4 pt-6" : ""} `}>
             {navigation && (
                 <div className="flex gap-1">
                     <Link to="/vendors"><ArrowLeft className="mt-1.5" /></Link>
@@ -358,7 +361,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                             <FormItem>
                                 <FormLabel className="flex">Vendor Shop Name<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
-                                    <Input placeholder="enter shop name..." {...field} />
+                                    <Input id="vendorShopName" placeholder="enter shop name..." {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -407,7 +410,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         name="address_line_1"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Address Line 1: <sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormLabel className="flex">Address Line 1<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="Building name, floor" {...field} />
                                 </FormControl>
@@ -420,7 +423,9 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         name="address_line_2"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Address Line 2:</FormLabel>
+
+                                <FormLabel className="flex">Address Line 2<sup className="text-sm text-red-600">*</sup></FormLabel>
+
                                 <FormControl>
                                     <Input placeholder="Street name, area, landmark" {...field} />
                                 </FormControl>
@@ -433,7 +438,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         name="vendor_city"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">City: <sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormLabel className="flex">City<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder={pincode_data?.city ? pincode_data?.city : "City"} disabled={true} {...field} />
                                 </FormControl>
@@ -446,7 +451,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         name="vendor_state"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">State: <sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormLabel className="flex">State<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder={pincode_data?.state ? pincode_data?.state : "State"} disabled={true} {...field} />
                                 </FormControl>
@@ -460,7 +465,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         name="pin"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Pin Code:</FormLabel>
+                                <FormLabel className="flex">Pin Code<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input
                                         type="number"
@@ -481,7 +486,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         name="vendor_mobile"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">Phone: <sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormLabel className="flex">Phone</FormLabel>
                                 <FormControl>
                                     <Input type="number" placeholder="Contact No" {...field} />
                                 </FormControl>
@@ -494,7 +499,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         name="vendor_email"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Email: </FormLabel>
+                                <FormLabel>Email</FormLabel>
                                 <FormControl>
                                     <Input placeholder="Enter Email ID" {...field} />
                                 </FormControl>
