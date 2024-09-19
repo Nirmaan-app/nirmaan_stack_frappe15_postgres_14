@@ -21,7 +21,7 @@ export const DelayedPRSelect = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
-            filters: [["workflow_state", "=", "Rejected"]],
+            filters: [["workflow_state", "=", "Delayed"]],
             limit: 100
         });
 
