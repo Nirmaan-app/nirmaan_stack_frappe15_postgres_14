@@ -4,7 +4,7 @@
   "doctype": "Workflow",
   "document_type": "Procurement Requests",
   "is_active": 1,
-  "modified": "2024-09-19 17:13:59.490345",
+  "modified": "2024-09-19 19:17:27.118307",
   "name": "Procurement Request Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -292,6 +292,30 @@
     "parenttype": "Workflow",
     "state": "Vendor Selected",
     "workflow_builder_id": null
+   },
+   {
+    "action": "Approve",
+    "allow_self_approval": 1,
+    "allowed": "All",
+    "condition": null,
+    "next_state": "Vendor Approved",
+    "parent": "Procurement Request Workflow",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "state": "Partially Approved",
+    "workflow_builder_id": null
+   },
+   {
+    "action": "Reject",
+    "allow_self_approval": 1,
+    "allowed": "All",
+    "condition": null,
+    "next_state": "Sent Back",
+    "parent": "Procurement Request Workflow",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "state": "Partially Approved",
+    "workflow_builder_id": null
    }
   ],
   "workflow_data": null,
@@ -303,7 +327,7 @@
   "doctype": "Workflow",
   "document_type": "Sent Back Category",
   "is_active": 1,
-  "modified": "2024-09-19 17:12:57.803568",
+  "modified": "2024-09-19 19:18:15.010963",
   "name": "Sent Back Category Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -431,6 +455,30 @@
     "parentfield": "transitions",
     "parenttype": "Workflow",
     "state": "Vendor Selected",
+    "workflow_builder_id": null
+   },
+   {
+    "action": "Approve",
+    "allow_self_approval": 1,
+    "allowed": "All",
+    "condition": null,
+    "next_state": "Approved",
+    "parent": "Sent Back Category Workflow",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "state": "Partially Approved",
+    "workflow_builder_id": null
+   },
+   {
+    "action": "Reject",
+    "allow_self_approval": 1,
+    "allowed": "All",
+    "condition": null,
+    "next_state": "Sent Back",
+    "parent": "Sent Back Category Workflow",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "state": "Partially Approved",
     "workflow_builder_id": null
    }
   ],

@@ -380,16 +380,6 @@
   "work_package": "PA System"
  },
  {
-  "category_name": "Amplifier",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped pa/amplifier.jpg",
-  "modified": "2024-09-07 12:37:49.481537",
-  "name": "Amplifier",
-  "tax": "18",
-  "work_package": "PA System"
- },
- {
   "category_name": "PA Accessories",
   "docstatus": 0,
   "doctype": "Category",
@@ -620,26 +610,6 @@
   "work_package": "CCTV System"
  },
  {
-  "category_name": "Conduits",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/conduits.jpg",
-  "modified": "2024-09-06 13:32:22.761673",
-  "name": "Conduits",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "DB & Switch Gear",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/db_switch_gear.jpg",
-  "modified": "2024-09-06 13:32:51.130797",
-  "name": "DB & Switch Gear",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
   "category_name": "Raceway",
   "docstatus": 0,
   "doctype": "Category",
@@ -678,5 +648,45 @@
   "name": "Wires & Cables",
   "tax": "18",
   "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Conduits",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/conduits.jpg",
+  "modified": "2024-09-06 13:32:22.761673",
+  "name": "Conduits",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "DB & Switch Gear",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/db_switch_gear.jpg",
+  "modified": "2024-09-06 13:32:51.130797",
+  "name": "DB & Switch Gear",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Amplifier",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped pa/amplifier.jpg",
+  "modified": "2024-09-07 12:37:49.481537",
+  "name": "Amplifier",
+  "tax": "18",
+  "work_package": "PA System"
+ },
+ {
+  "category_name": "Sprinkler Piping",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-08-19 13:26:09.991438",
+  "name": "Sprinkler Piping",
+  "tax": "18",
+  "work_package": "Fire Fighting System"
  }
 ]

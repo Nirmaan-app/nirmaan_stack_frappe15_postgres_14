@@ -344,11 +344,37 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 await createDocBatch('Procurement Orders', batch);
             }
 
+            // const currentState = sb_data?.workflow_state;
+            // const allItemsApproved = filteredData.length === orderData.item_list.list.length;
+            // const newWorkflowState = currentState === "Vendor Selected"
+            //     ? allItemsApproved ? "Approved" : "Partially Approved"
+            //     : currentState;
+
+            // Update item statuses and workflow state
             const currentState = sb_data?.workflow_state;
-            const allItemsApproved = filteredData.length === orderData.item_list.list.length;
-            const newWorkflowState = currentState === "Vendor Selected"
-                ? allItemsApproved ? "Approved" : "Partially Approved"
-                : currentState;
+            const totalItems = orderData.item_list.list.length;
+            const approvedItems = filteredData.length;
+            const allItemsApproved = approvedItems === totalItems;
+
+            // Get count of items with status "Pending"
+            const pendingItemsCount = orderData.item_list.list.filter(item => item.status === "Pending").length;
+            const onlyPendingOrApproved = orderData.item_list.list.every(item =>
+                item.status === "Pending" || item.status === "Approved"
+            );
+
+            let newWorkflowState;
+
+            if (currentState === "Vendor Selected" && allItemsApproved) {
+                newWorkflowState = "Approved";
+            } else if (
+                currentState === "Partially Approved" &&
+                onlyPendingOrApproved &&
+                approvedItems === pendingItemsCount
+            ) {
+                newWorkflowState = "Approved";
+            } else {
+                newWorkflowState = "Partially Approved";
+            }
 
             const updatedItemList = JSON.parse(sb_data?.item_list).list.map(item => {
                 if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
@@ -435,31 +461,49 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 await createDoc("Sent Back Category", newSendBack)
             }
 
-            const currentState = sb_data?.workflow_state;
-            const newWorkflowState = currentState === "Vendor Selected" && itemList.length > 0
-                ? "Partially Approved"
-                : currentState;
+            // const currentState = sb_data?.workflow_state;
+            // const newWorkflowState = currentState === "Vendor Selected" && itemList.length > 0
+            //     ? "Partially Approved"
+            //     : currentState;
+
+             // Workflow state logic
+             const totalItems = orderData.item_list.list.length;
+             const sentBackItems = filteredData.length;
+             const allItemsSentBack = sentBackItems === totalItems;
+             
+             const currentState = sb_data?.workflow_state;
+             
+             // Check if no items are "Approved"
+             const noApprovedItems = orderData.item_list.list.every(item => item.status !== "Approved");
+             
+             // Count the number of "Pending" items
+             const pendingItemsCount = orderData.item_list.list.filter(item => item.status === "Pending").length;
+             
+             let newWorkflowState;
+             
+             if (currentState === "Vendor Selected" && allItemsSentBack) {
+                 newWorkflowState = "Sent Back";
+             } else if (noApprovedItems && sentBackItems === pendingItemsCount) {
+                 newWorkflowState = "Sent Back";
+             } else {
+                 newWorkflowState = "Partially Approved";
+             }
 
             const updatedItemList = JSON.parse(sb_data?.item_list).list.map(item => {
                 if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
                     return { ...item, status: "Sent Back" };
                 }
-                console.log("item", item)
                 return item;
             });
-
-            // console.log("updatedItemList", updatedItemList)
 
             const filteredList = orderData.item_list?.list.filter(procItem =>
                 !filteredData.some(selItem => selItem.key === procItem.name)
             );
 
-            const res = await updateDoc('Sent Back Category', sb_data?.name, {
+            await updateDoc('Sent Back Category', sb_data?.name, {
                 item_list: { list: updatedItemList },
                 workflow_state: newWorkflowState
             });
-
-            // console.log("response", res)
 
             toast({
                 title: "Success!",

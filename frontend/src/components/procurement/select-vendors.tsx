@@ -314,7 +314,7 @@ export const SelectVendors = () => {
         }
         if (itemlist.length === orderData.procurement_list?.list.length) {
             updateDoc('Procurement Requests', orderId, {
-                workflow_state: "Rejected",
+                workflow_state: "Delayed",
                 procurement_list: { list: updatedProcurementList }
             })
                 .then(() => {

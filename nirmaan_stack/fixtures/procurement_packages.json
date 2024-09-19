@@ -26,14 +26,6 @@
  {
   "docstatus": 0,
   "doctype": "Procurement Packages",
-  "modified": "2024-09-09 14:05:00.052710",
-  "name": "PA System",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/pa.jpg",
-  "work_package_name": "PA System"
- },
- {
-  "docstatus": 0,
-  "doctype": "Procurement Packages",
   "modified": "2024-09-09 14:05:00.057019",
   "name": "Data & Networking",
   "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/network.jpg",
@@ -58,17 +50,25 @@
  {
   "docstatus": 0,
   "doctype": "Procurement Packages",
-  "modified": "2024-09-09 14:05:00.082229",
-  "name": "Electrical Work",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/electrical_work.jpg.jpg",
-  "work_package_name": "Electrical Work"
- },
- {
-  "docstatus": 0,
-  "doctype": "Procurement Packages",
   "modified": "2024-09-09 14:05:00.075561",
   "name": "Tool & Equipments",
   "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/tool.jpg",
   "work_package_name": "Tool & Equipments"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.052710",
+  "name": "PA System",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/pa.jpg",
+  "work_package_name": "PA System"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Procurement Packages",
+  "modified": "2024-09-09 14:05:00.082229",
+  "name": "Electrical Work",
+  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/electrical_work.jpg.jpg",
+  "work_package_name": "Electrical Work"
  }
 ]
