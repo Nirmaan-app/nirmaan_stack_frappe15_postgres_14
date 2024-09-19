@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Space, Switch, Table, ConfigProvider, Collapse, Checkbox } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
+import { toast } from '../ui/use-toast';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -266,8 +267,19 @@ export const SentBackSelectVendor = () => {
         })
             .then(() => {
                 console.log("item", id)
+
+                toast({
+                    title: "Success!",
+                    description: `Sent Back: ${id} sent for Approval!`,
+                    variant: "success"
+                })
                 navigate("/")
-            }).catch(() => {
+            }).catch((error) => {
+                toast({
+                    title: "Failed!",
+                    description: `Failed to send Sent Back: ${id} for Approval`,
+                    variant: "destructive"
+                })
                 console.log("submit_error", submit_error)
             })
     }

@@ -438,11 +438,37 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             }
 
             // Update item statuses and workflow state
+            // const currentState = pr_data?.workflow_state;
+            // const allItemsApproved = filteredData.length === orderData.procurement_list.list.length;
+            // const newWorkflowState = currentState === "Vendor Selected"
+            //     ? allItemsApproved ? "Vendor Approved" : "Partially Approved"
+            //     : currentState;
+
+            // Update item statuses and workflow state
             const currentState = pr_data?.workflow_state;
-            const allItemsApproved = filteredData.length === orderData.procurement_list.list.length;
-            const newWorkflowState = currentState === "Vendor Selected"
-                ? allItemsApproved ? "Vendor Approved" : "Partially Approved"
-                : currentState;
+            const totalItems = orderData.procurement_list.list.length;
+            const approvedItems = filteredData.length;
+            const allItemsApproved = approvedItems === totalItems;
+
+            // Get count of items with status "Pending"
+            const pendingItemsCount = orderData.procurement_list.list.filter(item => item.status === "Pending").length;
+            const onlyPendingOrApproved = orderData.procurement_list.list.every(item =>
+                item.status === "Pending" || item.status === "Approved"
+            );
+
+            let newWorkflowState;
+
+            if (currentState === "Vendor Selected" && allItemsApproved) {
+                newWorkflowState = "Vendor Approved";
+            } else if (
+                currentState === "Partially Approved" &&
+                onlyPendingOrApproved &&
+                approvedItems === pendingItemsCount
+            ) {
+                newWorkflowState = "Vendor Approved";
+            } else {
+                newWorkflowState = "Partially Approved";
+            }
 
             const updatedProcurementList = JSON.parse(pr_data?.procurement_list).list.map(item => {
                 if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
@@ -525,10 +551,34 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             }
 
             // Update item statuses and workflow state
+            // const allItemsSentBack = filteredData.length === orderData.procurement_list.list.length;
+            // const currentState = pr_data?.workflow_state;
+            // const newWorkflowState = currentState === "Vendor Selected"
+            //     ? "Partially Approved"
+            //     : currentState;
+
+             // Workflow state logic
+            const totalItems = orderData.procurement_list.list.length;
+            const sentBackItems = filteredData.length;
+            const allItemsSentBack = sentBackItems === totalItems;
+            
             const currentState = pr_data?.workflow_state;
-            const newWorkflowState = currentState === "Vendor Selected" && itemlist.length > 0
-                ? "Partially Approved"
-                : currentState;
+            
+            // Check if no items are "Approved"
+            const noApprovedItems = orderData.procurement_list.list.every(item => item.status !== "Approved");
+            
+            // Count the number of "Pending" items
+            const pendingItemsCount = orderData.procurement_list.list.filter(item => item.status === "Pending").length;
+            
+            let newWorkflowState;
+            
+            if (currentState === "Vendor Selected" && allItemsSentBack) {
+                newWorkflowState = "Sent Back";
+            } else if (noApprovedItems && sentBackItems === pendingItemsCount) {
+                newWorkflowState = "Sent Back";
+            } else {
+                newWorkflowState = "Partially Approved";
+            }
 
             const updatedProcurementList = JSON.parse(pr_data?.procurement_list).list.map(item => {
                 if (filteredData.some(selectedItem => selectedItem.key === item.name)) {
