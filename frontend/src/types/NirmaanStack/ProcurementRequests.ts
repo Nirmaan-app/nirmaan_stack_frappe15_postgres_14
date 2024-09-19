@@ -12,7 +12,7 @@ export interface ProcurementRequests{
 	idx?: number
 	/**	Project : Link - Projects	*/
 	project?: string
-	/**	Work Package : Link - Work Packages	*/
+	/**	Procurement Package : Link - Procurement Packages	*/
 	work_package?: string
 	/**	Procurement List : JSON	*/
 	procurement_list?: any
@@ -20,6 +20,8 @@ export interface ProcurementRequests{
 	amended_from?: string
 	/**	Category List : JSON	*/
 	category_list?: any
+	/**	Comment : Long Text	*/
+	comment?: string
 	/**	Project Lead : Link - Nirmaan Users	*/
 	project_lead?: string
 	/**	Procurement Executive : Link - Nirmaan Users	*/
