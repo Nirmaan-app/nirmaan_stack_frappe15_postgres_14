@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 
 interface DataTableFacetedFilterProps<TData, TValue> {
     column?: Column<TData, TValue>;
@@ -40,7 +41,7 @@ export function DataTableFacetedFilter<TData, TValue>({
             <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8 border-dashed">
                     <PlusCircledIcon className="mr-2 h-4 w-4" />
-                    {title}
+                    Filter by {title}
                     {selectedValues?.size > 0 && (
                         <>
                             <Separator orientation="vertical" className="mx-2 h-4" />
@@ -50,7 +51,27 @@ export function DataTableFacetedFilter<TData, TValue>({
                             <div className="hidden space-x-1 lg:flex">
                                 {selectedValues.size > 2 ? (
                                     <Badge variant="secondary" className="rounded-sm px-1 font-normal">
-                                        {selectedValues.size} {"Selected"}
+                                        <HoverCard>
+                                            <HoverCardTrigger>
+                                                {selectedValues.size} {"Selected"}
+                                            </HoverCardTrigger>
+                                            <HoverCardContent>
+                                                <div className="flex flex-col items-start gap-2">
+                                                {
+                                                    options
+                                                    .filter((option) => selectedValues.has(option.value))
+                                                    .map((option) => (
+                                                        <Badge
+                                                            variant="destructive"
+                                                            key={option.value}
+                                                            className="rounded-sm px-1 font-normal">
+                                                            {option.label}
+                                                        </Badge>
+                                                    ))
+                                                }
+                                                </div>
+                                            </HoverCardContent>
+                                        </HoverCard>
                                     </Badge>
                                 ) : (
                                     options
@@ -71,7 +92,7 @@ export function DataTableFacetedFilter<TData, TValue>({
             </PopoverTrigger>
             <PopoverContent className="w-[200px] p-0" align="start">
                 <Command>
-                    <CommandInput placeholder={"Search here.."} />
+                    <CommandInput placeholder={`Search ${title}..`} />
                     <CommandList>
                         <CommandEmpty>{"No Filter results"}</CommandEmpty>
                         <CommandGroup>
