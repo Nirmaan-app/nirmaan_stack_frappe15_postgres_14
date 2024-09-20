@@ -74,18 +74,19 @@ const projectFormSchema = z.object({
             message: "Must Provide State"
         }),
     pin: z
-    .string({
-        required_error: "Must provide pincode"
-    })
-    .max(6, { message: "Pincode must be of 6 digits" })
-    .min(6, { message: "Pincode must be of 6 digits" })
-    .or(z.number()),
+        .string({
+            required_error: "Must provide pincode"
+        })
+        .max(6, { message: "Pincode must be of 6 digits" })
+        .min(6, { message: "Pincode must be of 6 digits" })
+        .or(z.number()),
     email: z.string().email().optional().or(z.literal('')),
     phone: z
-    .string()
-    .max(10, { message: "Mobile number must be of 10 digits" })
-    .min(10, { message: "Mobile number must be of 10 digits" })
-    .optional(),
+        .string()
+        .max(10, { message: "Mobile number must be of 10 digits" })
+        .min(10, { message: "Mobile number must be of 10 digits" })
+        .optional()
+        .or(z.literal('')),
     project_start_date: z
         .date({
             required_error: "Project must have a start date"
@@ -264,7 +265,7 @@ export const ProjectForm = () => {
             form.setValue("project_city", "Not Found")
             form.setValue("project_state", "Not Found")
         }
-         else {
+        else {
             form.setValue("project_city", pincode_data?.city || "")
             form.setValue("project_state", pincode_data?.state || "")
         }
@@ -277,7 +278,7 @@ export const ProjectForm = () => {
 
     async function onSubmit(values: z.infer<typeof projectFormSchema>) {
         try {
-            if(values.project_city === "Not Found" || values.project_state === "Not Found") {
+            if (values.project_city === "Not Found" || values.project_state === "Not Found") {
                 throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
                 return
             }

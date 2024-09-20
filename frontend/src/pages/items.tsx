@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
+import { ArrowLeft, CirclePlus, HardHat, ShoppingCart } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -33,7 +33,7 @@ export default function Items() {
     const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
 
         fields: ["*"],
-        orderBy: { field: 'category_name', order: 'asc' },
+        orderBy: { field: 'work_package', order: 'asc' },
         limit: 1000
     })
 
@@ -287,7 +287,7 @@ export default function Items() {
                         <CardTitle className="text-sm font-medium">
                             Total Items
                         </CardTitle>
-                        <HardHat className="h-4 w-4 text-muted-foreground" />
+                        <ShoppingCart className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">

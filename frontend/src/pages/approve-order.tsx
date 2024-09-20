@@ -38,8 +38,8 @@ const ApprovePRList = () => {
     const [project, setProject] = useState()
     const [owner, setOwner] = useState()
     const { data: pr, isLoading: pr_loading, error: pr_error } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id);
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project || "");
-    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner === "Administrator" ? "" : owner || "");
+    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
+    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
 
     useEffect(() => {
         if (pr && !pr_loading) {
@@ -55,7 +55,7 @@ const ApprovePRList = () => {
     if (pr_loading || project_loading || owner_loading) return <h1>Loading...</h1>
     if (pr_error || project_error || owner_error) return <h1>Error</h1>
     return (
-        <ApprovePRListPage pr_data={pr} project_data={project_data} owner_data={Array.isArray(owner_data) ? { full_name: "Administrator" } : owner_data} />
+        <ApprovePRListPage pr_data={pr} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} />
     )
 }
 

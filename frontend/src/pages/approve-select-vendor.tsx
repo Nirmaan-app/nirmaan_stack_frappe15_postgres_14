@@ -143,14 +143,14 @@ export const ApproveSelectVendor = () => {
             }
 
         ],
-        [project_values]
+        [project_values, procurement_request_list]
     )
 
-    // let filteredList;
+    let filteredList;
 
-    // if (procurement_request_list) {
-    //     filteredList = procurement_request_list.filter((item) => item.procurement_list?.list?.some((i) => i.status === "Pending"))
-    // }
+    if (procurement_request_list) {
+        filteredList = procurement_request_list.filter((item) => item.procurement_list?.list?.some((i) => i.status === "Pending"))
+    }
 
     const { toast } = useToast()
 
@@ -170,7 +170,7 @@ export const ApproveSelectVendor = () => {
                     <h2 className="text-lg font-bold tracking-tight">Approve PO</h2>
                 </div>
                 {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
+                    <DataTable columns={columns} data={filteredList || []} project_values={project_values} />
                 )}
                 {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">

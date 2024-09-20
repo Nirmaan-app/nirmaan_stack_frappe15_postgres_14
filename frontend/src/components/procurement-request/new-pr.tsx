@@ -254,7 +254,7 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
 
     const handleSubmit = () => {
         console.log(userData)
-        if (userData?.role === "Nirmaan Project Manager Profile" || userData?.role === "Nirmaan Admin Profile") {
+        if (userData?.role === "Nirmaan Project Manager Profile" || userData?.role === "Nirmaan Admin Profile" || userData?.role === "Nirmaan Procurement Executive Profile" || userData?.role === "Nirmaan Project Lead Profile") {
             createDoc('Procurement Requests', orderData)
                 .then((res) => {
                     console.log("newPR", res)
@@ -273,32 +273,32 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
                     })
                 })
         }
-        if (userData?.role === "Nirmaan Procurement Executive Profile" || userData?.role === "Nirmaan Project Lead Profile") {
-            createDoc('Procurement Requests', orderData)
-                .then((doc) => {
-                    updateDoc('Procurement Requests', doc.name, {
-                        workflow_state: "Approved",
-                    })
-                        .then(() => {
-                            console.log("doc", doc)
-                            toast({
-                                title: "Success!",
-                                description: `New PR: ${doc?.name} with workflow_state: "Approved" created successfully!`,
-                                variant: "success"
-                            })
-                            navigate("/")
-                        }).catch(() => {
-                            console.log("update_submit_error", update_submit_error)
-                        })
-                }).catch(() => {
-                    console.log("submit_error", submit_error)
-                    toast({
-                        title: "Failed!",
-                        description: `PR Creation failed!`,
-                        variant: "destructive"
-                    })
-                })
-        }
+        // if (userData?.role === "Nirmaan Procurement Executive Profile" || userData?.role === "Nirmaan Project Lead Profile") {
+        //     createDoc('Procurement Requests', orderData)
+        //         .then((doc) => {
+        //             updateDoc('Procurement Requests', doc.name, {
+        //                 workflow_state: "Approved",
+        //             })
+        //                 .then(() => {
+        //                     console.log("doc", doc)
+        //                     toast({
+        //                         title: "Success!",
+        //                         description: `New PR: ${doc?.name} with workflow_state: "Approved" created successfully!`,
+        //                         variant: "success"
+        //                     })
+        //                     navigate("/")
+        //                 }).catch(() => {
+        //                     console.log("update_submit_error", update_submit_error)
+        //                 })
+        //         }).catch(() => {
+        //             console.log("submit_error", submit_error)
+        //             toast({
+        //                 title: "Failed!",
+        //                 description: `PR Creation failed!`,
+        //                 variant: "destructive"
+        //             })
+        //         })
+        // }
     }
     const handleAddItem = () => {
         const itemData = {

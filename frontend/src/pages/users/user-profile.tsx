@@ -73,7 +73,7 @@ export default function Profile() {
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { deleteDoc: deleteDoc, loading: delete_loading, isCompleted: delete_complete, error: delete_error } = useFrappeDeleteDoc()
-    const {mutate} = useSWRConfig()
+    const { mutate } = useSWRConfig()
 
     const handleSubmit = () => {
         createDoc('User Permission', {
@@ -107,7 +107,6 @@ export default function Profile() {
                     description: `User: ${data?.full_name} deleted Successfully!`,
                     variant: "success"
                 })
-                navigate("/users")
             }).catch(() => {
                 console.log(submit_error)
                 toast({
@@ -115,7 +114,7 @@ export default function Profile() {
                     description: `Failed to delete User: ${data?.full_name}`,
                     variant: "destructive"
                 })
-            })
+            }).finally(() => navigate("/users"))
 
     }
 

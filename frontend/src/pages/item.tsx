@@ -36,7 +36,7 @@ const ItemView = ({ itemId }: { itemId: string }) => {
 
     const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["category_name", "work_package"],
-        orderBy: { field: 'category_name', order: 'asc' },
+        orderBy: { field: 'work_package', order: 'asc' },
         limit: 1000
     })
 

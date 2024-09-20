@@ -123,7 +123,7 @@ export const SentBackSelectVendor = () => {
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'category_list', 'project', 'creation', 'item_list'],
+            fields: ['*'],
             filters: [["workflow_state", "=", "Pending"]],
             limit: 1000
         });
@@ -260,7 +260,19 @@ export const SentBackSelectVendor = () => {
     };
 
     const handleSubmit = () => {
-        console.log("submit orderData", orderData)
+        // console.log("submit orderData", orderData)
+        quotation_request_list?.map((item) => {
+            if (selectedVendors[item.item] === item.vendor && orderData?.procurement_request === item.procurement_task) {
+                updateDoc('Quotation Requests', item.name, {
+                    status: "Selected",
+                })
+                    .then(() => {
+                        console.log("item", item.name)
+                    }).catch(() => {
+                        console.log(update_submit_error)
+                    })
+            }
+        })
         updateDoc('Sent Back Category', id, {
             workflow_state: "Vendor Selected",
             item_list: orderData.item_list,
