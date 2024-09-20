@@ -13,7 +13,7 @@ import { Menu, MenuProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, FilePenLine } from "lucide-react"
 import { useMemo, useState } from "react"
-import {  useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 
 
 
@@ -101,139 +101,126 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     const { data, error, isLoading } = useFrappeGetDoc(
         'Vendors',
         vendorId,
-        `Vendors ${vendorId}`,
-        {
-            revalidateIfStale: false,
-        }
+        `Vendors ${vendorId}`
     );
 
-    const {data: vendorAddress, isLoading: vendorAddressLoading, error: vendorAddressError} = useFrappeGetDoc(
-        "Address", 
-        data?.vendor_address, 
-        `Address ${data?.vendor_address}`, 
-        {
-        revalidateIfStale: false
-        }
+    const { data: vendorAddress, isLoading: vendorAddressLoading, error: vendorAddressError } = useFrappeGetDoc(
+        "Address",
+        data?.vendor_address,
+        `Address ${data?.vendor_address}`
     )
 
-    const {data: procurementOrders, isLoading: procurementOrdersLoading, error: procurementOrdersError} = useFrappeGetDocList("Procurement Orders", 
+    const { data: procurementOrders, isLoading: procurementOrdersLoading, error: procurementOrdersError } = useFrappeGetDocList("Procurement Orders",
         {
-        fields: ["*"],
-        filters: [['vendor', '=', vendorId]],
-        limit: 1000
+            fields: ["*"],
+            filters: [['vendor', '=', vendorId]],
+            limit: 1000
         },
-        `Procurement Orders ${vendorId}`,
-        {
-            revalidateIfStale: false
-        }
+        `Procurement Orders ${vendorId}`
     )
 
-    const {data: Categories, isLoading: categoriesLoading, error: categoriesError} = useFrappeGetDocList("Category", {
+    const { data: Categories, isLoading: categoriesLoading, error: categoriesError } = useFrappeGetDocList("Category", {
         fields: ["*"],
         limit: 1000
-        },
-        "Category",
-        {
-            revalidateIfStale: false
-        }
+    },
+        "Category"
     )
 
-    const {data: procurementRequests, isLoading: procurementRequestsLoading, error: procurementRequestsError} = useFrappeGetDocList("Procurement Requests", {
+    const { data: procurementRequests, isLoading: procurementRequestsLoading, error: procurementRequestsError } = useFrappeGetDocList("Procurement Requests", {
         fields: ["*"],
         limit: 1000
-    }, `Procurement Requests`, {
-        revalidateIfStale: false
-    })
+    }, `Procurement Requests`,
+    )
 
     type MenuItem = Required<MenuProps>['items'][number];
 
     const items: MenuItem[] = [
-    {
-        label: 'Overview',
-        key: 'overview',
-    },
-    {
-        label: 'Previous Orders',
-        key: 'previousOrders',
-    },
-    {
-        label: 'Open Orders',
-        key: 'openOrders',
-    },
-    {
-        label: 'Transactions',
-        key: 'transactions'
-    }
+        {
+            label: 'Overview',
+            key: 'overview',
+        },
+        {
+            label: 'Previous Orders',
+            key: 'previousOrders',
+        },
+        {
+            label: 'Open Orders',
+            key: 'openOrders',
+        },
+        {
+            label: 'Transactions',
+            key: 'transactions'
+        }
     ];
 
     const [current, setCurrent] = useState('overview')
-   
-   const onClick: MenuProps['onClick'] = (e) => {
-       setCurrent(e.key);
-     };
 
-     const getWorkPackage = (pr : any, procRequests : any) => {
-        return procRequests?.find((proc) => proc.name === pr)?.work_package
-        
-     }
-
-     const getCategories = (ol : any) => {
-        return Array.from(new Set(ol?.list?.map((order : any) => order.category)))
-     }
-
-     type Item = {
-        quantity : number,
-        quote: number
-     }
-
-     interface OrderList {
-        list : Item[]
-     }
-
-     const getTotal = (ol : OrderList) => {
-        return useMemo(() => ol.list.reduce((total : number, item) =>  {
-            return total + item.quantity * item.quote
-        }, 0), [ol])
-     }
-
-     type ExpandedPackagesState = {
-        [key: string] : boolean;
-     }
-
-     const [expandedPackages, setExpandedPackages] = useState<ExpandedPackagesState>({});
-
-    const toggleExpand = (packageName : string) => {
-      setExpandedPackages((prev) => ({
-        ...prev,
-        [packageName]: !prev[packageName],
-      }));
+    const onClick: MenuProps['onClick'] = (e) => {
+        setCurrent(e.key);
     };
 
-     const vendorCategories = data && (JSON.parse(data?.vendor_category)?.categories) || []
+    const getWorkPackage = (pr: any, procRequests: any) => {
+        return procRequests?.find((proc) => proc.name === pr)?.work_package
 
-     const groupedCategories : {[key : string] : string[]} = useMemo(() => {
+    }
+
+    const getCategories = (ol: any) => {
+        return Array.from(new Set(ol?.list?.map((order: any) => order.category)))
+    }
+
+    type Item = {
+        quantity: number,
+        quote: number
+    }
+
+    interface OrderList {
+        list: Item[]
+    }
+
+    const getTotal = (ol: OrderList) => {
+        return useMemo(() => ol.list.reduce((total: number, item) => {
+            return total + item.quantity * item.quote
+        }, 0), [ol])
+    }
+
+    type ExpandedPackagesState = {
+        [key: string]: boolean;
+    }
+
+    const [expandedPackages, setExpandedPackages] = useState<ExpandedPackagesState>({});
+
+    const toggleExpand = (packageName: string) => {
+        setExpandedPackages((prev) => ({
+            ...prev,
+            [packageName]: !prev[packageName],
+        }));
+    };
+
+    const vendorCategories = data && (JSON.parse(data?.vendor_category)?.categories) || []
+
+    const groupedCategories: { [key: string]: string[] } = useMemo(() => {
         if (!Categories || !vendorCategories.length) return {};
-      
-        const filteredCategories = Categories.filter(category =>
-          vendorCategories.includes(category.name)
-        );
-      
-        const grouped = filteredCategories.reduce((acc, category) => {
-          const { work_package, name } = category;
-      
-          if (!acc[work_package]) {
-            acc[work_package] = [];
-          }
-      
-          acc[work_package].push(name);
-      
-          return acc;
-        }, {});
-      
-        return grouped;
-      }, [Categories, data]);
 
-     const columns: ColumnDef<PRTable>[] = useMemo(
+        const filteredCategories = Categories.filter(category =>
+            vendorCategories.includes(category.name)
+        );
+
+        const grouped = filteredCategories.reduce((acc, category) => {
+            const { work_package, name } = category;
+
+            if (!acc[work_package]) {
+                acc[work_package] = [];
+            }
+
+            acc[work_package].push(name);
+
+            return acc;
+        }, {});
+
+        return grouped;
+    }, [Categories, data]);
+
+    const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -298,7 +285,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                     )
                 }
             },
-            
+
             {
                 accessorKey: "procurement_request",
                 header: ({ column }) => {
@@ -333,12 +320,12 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
             },
             {
                 id: "total",
-                header: ({column}) => {
+                header: ({ column }) => {
                     return (
                         <DataTableColumnHeader className="text-black font-bold" column={column} title="Order Price" />
                     )
                 },
-                cell: ({row}) => {
+                cell: ({ row }) => {
                     return (
                         <div className="text-[#11050599]">
                             {getTotal(row.getValue("order_list")).toFixed(2)}
@@ -353,73 +340,73 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
 
     if (error || vendorAddressError || procurementOrdersError || procurementRequestsError) return <h1 className="text-red-700">There is an error while fetching the document, please check!</h1>
 
-    return ( 
+    return (
         <div className="flex-1 space-y-4 px-12 pt-6 max-md:px-8 max-sm:px-4">
             <div className="flex items-center">
                 <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/vendors")} />
-                    {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
-                <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.vendor_name}</h2>}
+                {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
+                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.vendor_name}</h2>}
                 <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
             </div>
-            <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items}/>
-             {/* Overview Section */}
-             {current === "overview" && (
+            <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
+            {/* Overview Section */}
+            {current === "overview" && (
                 (isLoading || vendorAddressLoading ? <OverviewSkeleton2 /> : (
-                <div className="flex flex-col gap-4">
-                    <Card>
-                        <CardHeader>
-                          <CardTitle>
-                              {data?.vendor_name}
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="flex flex-col gap-10 w-full">
-                            {/* <Card className="bg-[#F9FAFB]">
+                    <div className="flex flex-col gap-4">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>
+                                    {data?.vendor_name}
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="flex flex-col gap-10 w-full">
+                                {/* <Card className="bg-[#F9FAFB]">
                               <CardHeader>
                                 <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
                                 <div className="flex max-lg:flex-col max-lg:gap-10">
                                     <div className="space-y-4 lg:w-[50%]">
-                                      <CardDescription className="space-y-2">
-                                          <span>Vendor ID</span>
-                                          <p className="font-bold text-black">{data?.name}</p>
-                                      </CardDescription>
+                                        <CardDescription className="space-y-2">
+                                            <span>Vendor ID</span>
+                                            <p className="font-bold text-black">{data?.name}</p>
+                                        </CardDescription>
 
-                                      <CardDescription className="space-y-2">
-                                          <span>Contact Person</span>
-                                          <p className="font-bold text-black">{data?.vendor_contact_person_name}</p>
-                                      </CardDescription>
+                                        <CardDescription className="space-y-2">
+                                            <span>Contact Person</span>
+                                            <p className="font-bold text-black">{data?.vendor_contact_person_name === "" ? "N.A." : data?.vendor_contact_person_name}</p>
+                                        </CardDescription>
 
-                                      <CardDescription className="space-y-2">
-                                          <span>Contact Number</span>
-                                          <p className="font-bold text-black">{data?.vendor_mobile}</p>
-                                      </CardDescription>
-                                      <CardDescription className="space-y-2">
-                                          <span>GST Number</span>
-                                          <p className="font-bold text-black">{data?.vendor_gst}</p>
-                                      </CardDescription>
-                                      
+                                        <CardDescription className="space-y-2">
+                                            <span>Contact Number</span>
+                                            <p className="font-bold text-black">{data?.vendor_mobile === "" ? "N.A." : data?.vendor_mobile}</p>
+                                        </CardDescription>
+                                        <CardDescription className="space-y-2">
+                                            <span>GST Number</span>
+                                            <p className="font-bold text-black">{data?.vendor_gst}</p>
+                                        </CardDescription>
+
                                     </div>
-                                      
+
                                     <div className="space-y-4">
-                                      <CardDescription className="space-y-2">
-                                          <span>Address</span>
-                                          <p className="font-bold text-black">{vendorAddress?.address_line1}, {vendorAddress?.address_line2}, {vendorAddress?.city}, {vendorAddress?.state}</p>
-                                      </CardDescription>
-                                      
-                                      <CardDescription className="space-y-2">
-                                          <span>City</span>
-                                          <p className="font-bold text-black">{vendorAddress?.city}</p>
-                                      </CardDescription>
-                                      
-                                      <CardDescription className="space-y-2">
-                                          <span>State</span>
-                                          <p className="font-bold text-black">{vendorAddress?.state}</p>
-                                      </CardDescription>
-                                      <CardDescription className="space-y-2">
-                                          <span>pincode</span>
-                                          <p className="font-bold text-black">{vendorAddress?.pincode}</p>
-                                      </CardDescription>
-                                      
-                                      {/* <CardDescription className="space-y-2">
+                                        <CardDescription className="space-y-2">
+                                            <span>Address</span>
+                                            <p className="font-bold text-black">{vendorAddress?.address_line1}, {vendorAddress?.address_line2}, {vendorAddress?.city}, {vendorAddress?.state}</p>
+                                        </CardDescription>
+
+                                        <CardDescription className="space-y-2">
+                                            <span>City</span>
+                                            <p className="font-bold text-black">{vendorAddress?.city}</p>
+                                        </CardDescription>
+
+                                        <CardDescription className="space-y-2">
+                                            <span>State</span>
+                                            <p className="font-bold text-black">{vendorAddress?.state}</p>
+                                        </CardDescription>
+                                        <CardDescription className="space-y-2">
+                                            <span>pincode</span>
+                                            <p className="font-bold text-black">{vendorAddress?.pincode}</p>
+                                        </CardDescription>
+
+                                        {/* <CardDescription className="space-y-2">
                                           <span>Categories</span>
                                         <ul className="space-y-2">
                                               {vendorCategories.map((cat, index) => (
@@ -434,55 +421,55 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                                         </ul>
                                       </CardDescription> */}
                                     </div>
-                                    </div>
+                                </div>
                                 {/* </CardContent>
                               </CardHeader>
                             </Card> */}
-                        </CardContent>      
-                    </Card>
-                    <Card>
-                    <CardHeader>
-              <CardTitle>Packages-Categories Offered</CardTitle>
-            </CardHeader>
-            <CardContent>
-                    <CardDescription className="space-y-2">
-                                              <ul className={`flex gap-2 flex-wrap`}>
-                                                {Object.entries(groupedCategories).map(([workPackage, categoryList], index) => (
-                                                  <li key={index} className={`border p-1 max-md:p-2 bg-white rounded-lg shadow-sm max-sm:w-full`}>
-                                                    <div
-                                                      className="flex items-center gap-4 justify-between max-md:gap-2 cursor-pointer hover:bg-gray-100 p-2 max-md:p-1 rounded-md transition-all duration-200"
-                                                      onClick={() => toggleExpand(workPackage)}
-                                                    >
-                                                      <div className="flex items-center gap-2">
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Packages-Categories Offered</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <CardDescription className="space-y-2">
+                                    <ul className={`flex gap-2 flex-wrap`}>
+                                        {Object.entries(groupedCategories).map(([workPackage, categoryList], index) => (
+                                            <li key={index} className={`border p-1 max-md:p-2 bg-white rounded-lg shadow-sm max-sm:w-full`}>
+                                                <div
+                                                    className="flex items-center gap-4 justify-between max-md:gap-2 cursor-pointer hover:bg-gray-100 p-2 max-md:p-1 rounded-md transition-all duration-200"
+                                                    onClick={() => toggleExpand(workPackage)}
+                                                >
+                                                    <div className="flex items-center gap-2">
                                                         {expandedPackages[workPackage] ? (
-                                                          <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                                                            <ChevronDownIcon className="w-5 h-5 text-gray-500" />
                                                         ) : (
-                                                          <ChevronRightIcon className="w-5 h-5 text-gray-500" />
+                                                            <ChevronRightIcon className="w-5 h-5 text-gray-500" />
                                                         )}
                                                         <span className="text-md font-medium text-gray-800">{workPackage}</span>
-                                                      </div>
-                                                      <span className="text-sm text-gray-500">{categoryList.length} items</span>
                                                     </div>
-                                                    {expandedPackages[workPackage] && (
-                                                      <ul className="pl-8 mt-2 space-y-2">
+                                                    <span className="text-sm text-gray-500">{categoryList.length} items</span>
+                                                </div>
+                                                {expandedPackages[workPackage] && (
+                                                    <ul className="pl-8 mt-2 space-y-2">
                                                         {categoryList.map((cat, index) => (
-                                                          <li
-                                                            key={index}
-                                                            className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
-                                                          >
-                                                            <CheckCircleIcon className="w-5 h-5 text-green-500" />
-                                                            <span className="text-sm font-medium text-gray-600">{cat}</span>
-                                                          </li>
+                                                            <li
+                                                                key={index}
+                                                                className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
+                                                            >
+                                                                <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                                                                <span className="text-sm font-medium text-gray-600">{cat}</span>
+                                                            </li>
                                                         ))}
-                                                      </ul>
-                                                    )}
-                                                  </li>
-                                                ))}
-                                              </ul>
-                                        </CardDescription>
-                                        </CardContent>
-                                        </Card>
-                </div>
+                                                    </ul>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </CardDescription>
+                            </CardContent>
+                        </Card>
+                    </div>
                 ))
             )}
 
@@ -491,7 +478,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
             {current === "previousOrders" && (
                 (procurementOrdersLoading || procurementRequestsLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurementOrders} />
-                    )
+                )
             )}
 
             {/* Open Orders Section  */}
