@@ -392,6 +392,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState<string | null>(null);
 
+    console.log("selectedItems", selectedItems)
+
     const newHandleApprove = async () => {
         try {
             setIsLoading('newHandleApprove');
@@ -491,6 +493,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 description: "New PO(s) created Successfully!",
                 variant: "success"
             });
+
+            setSelectedItems(undefined)
 
             // Update state and navigate if all items are processed
             // setOrderData(prevOrderData => ({
@@ -595,6 +599,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 procurement_list: { list: updatedProcurementList },
                 workflow_state: newWorkflowState
             });
+            setSelectedItems(undefined)
 
             toast({
                 title: "Success!",

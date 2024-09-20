@@ -89,7 +89,7 @@ interface SelectOption {
     value: string;
 }
 
-export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined }) => {
+export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined, prData=undefined }) => {
     const navigate = useNavigate()
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
@@ -257,22 +257,38 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
 
                 // Create quotation requests
                 const promises = [];
-                sentBackData?.item_list?.list.forEach((item) => {
-                    const newItem = {
-                        procurement_task: sentBackData.procurement_request,
-                        category: item.category,
-                        item: item.name,
-                        vendor: vendorDoc.name,
-                        quantity: item.quantity
-                    };
-                    promises.push(createDoc("Quotation Requests", newItem));
-                });
-
+                if(sentBackData) {
+                    sentBackData?.item_list?.list.forEach((item) => {
+                        const newItem = {
+                            procurement_task: sentBackData.procurement_request,
+                            category: item.category,
+                            item: item.name,
+                            vendor: vendorDoc.name,
+                            quantity: item.quantity
+                        };
+                        promises.push(createDoc("Quotation Requests", newItem));
+                    });
+                } else if(prData) {
+                    prData?.procurement_list?.list.forEach((item) => {
+                        const newItem = {
+                            procurement_task: prData.name,
+                            category: item.category,
+                            item: item.name,
+                            vendor: vendorDoc.name,
+                            quantity: item.quantity
+                        };
+                        promises.push(createDoc("Quotation Requests", newItem));
+                    });
+                }
+                
                 await Promise.all(promises);
 
                 // Mutate the vendor-related data
                 await mutate("Vendors");
                 await mutate("Quotation Requests");
+                if(prData) {
+                    await mutate(`Quotations Requests, Procurement_task=${prData?.name}`)
+                }
                 await mutate("Vendor Category");
 
                 toast({
