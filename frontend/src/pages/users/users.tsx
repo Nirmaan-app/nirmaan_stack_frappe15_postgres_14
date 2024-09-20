@@ -7,7 +7,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { formatDate } from "@/utils/FormatDate";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, Building2, CirclePlus } from "lucide-react";
+import { ArrowLeft, UsersRound, CirclePlus } from "lucide-react";
 import { useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
@@ -92,8 +92,8 @@ export default function Users() {
                 },
                 cell: ({ row }) => (
                     <Link className="underline hover:underline-offset-2" to={`/users/${row.getValue("name")}`}>
-                <div className="font-medium">{row.getValue("full_name")}</div>
-                </Link>
+                        <div className="font-medium">{row.getValue("full_name")}</div>
+                    </Link>
                 )
             },
             {
@@ -188,7 +188,7 @@ export default function Users() {
                             <CardTitle className="text-sm font-medium">
                                 Total Users
                             </CardTitle>
-                            <Building2 className="h-4 w-4 text-muted-foreground" />
+                            <UsersRound className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">

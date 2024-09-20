@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, Ellipsis, CirclePlus, HardHat } from "lucide-react";
+import { ArrowLeft, Ellipsis, CirclePlus, HardHat, Package } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
@@ -193,7 +193,7 @@ export default function Vendors() {
                         <CardTitle className="text-sm font-medium">
                             Total Vendors
                         </CardTitle>
-                        <HardHat className="h-4 w-4 text-muted-foreground" />
+                        <Package className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">
