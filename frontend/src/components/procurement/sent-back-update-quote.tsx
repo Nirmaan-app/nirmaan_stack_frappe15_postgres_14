@@ -224,11 +224,11 @@ export const SentBackUpdateQuote = () => {
                             {isButtonDisabled(vendorCategories) && (
                                 <HoverCard>
                                     <HoverCardTrigger>
-                                            <Button disabled={isButtonDisabled(vendorCategories)} variant={"outline"} className="font-light max-md:text-xs border-green-500 py-6 flex flex-col items-start">
-                                                <div className="w-[300px] text-wrap flex flex-col">
-                                                    <span className="text-red-500 font-semibold">{row.getValue("vendor_name")}</span> <span>Add to Sent Back</span>
-                                                </div>
-                                            </Button>
+                                        <Button disabled={isButtonDisabled(vendorCategories)} variant={"outline"} className="font-light max-md:text-xs border-green-500 py-6 flex flex-col items-start">
+                                            <div className="w-[300px] text-wrap flex flex-col">
+                                                <span className="text-red-500 font-semibold">{row.getValue("vendor_name")}</span> <span>Add to Sent Back</span>
+                                            </div>
+                                        </Button>
                                     </HoverCardTrigger>
                                     <HoverCardContent className="w-80">
                                         <div>Please add <span className="font-semibold underline">All Associated Categories of Current Sent Back</span> to this vendor to enable</div>
@@ -340,8 +340,8 @@ export const SentBackUpdateQuote = () => {
                                         <TableHead className="w-[60%]">Items</TableHead>
                                         <TableHead className="w-[10%]">UOM</TableHead>
                                         <TableHead className="w-[10%]">Quantity</TableHead>
-                                        <TableHead className="w-[10%]">Rate</TableHead>
-                                        <TableHead className="w-[10%]">Amount</TableHead>
+                                        {/* <TableHead className="w-[10%]">Rate</TableHead>
+                                        <TableHead className="w-[10%]">Amount</TableHead> */}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody className="bg-white divide-y divide-gray-200">
@@ -350,8 +350,8 @@ export const SentBackUpdateQuote = () => {
                                             <TableCell>{item.item}</TableCell>
                                             <TableCell>{item.unit}</TableCell>
                                             <TableCell>{item.quantity}</TableCell>
-                                            <TableCell>{item.quote}</TableCell>
-                                            <TableCell>{item.quote * item.quantity}</TableCell>
+                                            {/* <TableCell>{item.quote}</TableCell>
+                                            <TableCell>{item.quote * item.quantity}</TableCell> */}
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -412,32 +412,32 @@ export const SentBackUpdateQuote = () => {
                             return <div className="px-4 flex justify-between">
                                 <div className="py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
                                 <div className="flex space-x-2">
-                                <Sheet>
+                                    <Sheet>
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
                                         <SheetContent>
                                             {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
                                             <SheetHeader>
                                                 <SheetTitle className="text-center">Print PDF</SheetTitle>
                                                 <SheetDescription>
-                                                    <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []}  />
+                                                    <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []} />
                                                 </SheetDescription>
                                             </SheetHeader>
                                             {/* </ScrollArea> */}
                                         </SheetContent>
                                     </Sheet>
-                                <Sheet>
-                                    <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
-                                    <SheetContent >
-                                        {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-                                        <SheetHeader className="text-start">
-                                            <SheetTitle>Enter Price</SheetTitle>
-                                            <SheetDescription>
-                                                <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
-                                            </SheetDescription>
-                                        </SheetHeader>
-                                        {/* </ScrollArea> */}
-                                    </SheetContent>
-                                </Sheet>
+                                    <Sheet>
+                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
+                                        <SheetContent >
+                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
+                                            <SheetHeader className="text-start">
+                                                <SheetTitle>Enter Price</SheetTitle>
+                                                <SheetDescription>
+                                                    <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                            {/* </ScrollArea> */}
+                                        </SheetContent>
+                                    </Sheet>
                                 </div>
                             </div>
                         })}
