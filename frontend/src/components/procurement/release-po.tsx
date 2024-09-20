@@ -1,4 +1,4 @@
-import {  useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useState, useEffect, useRef } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
@@ -97,9 +97,9 @@ export const ReleasePO = () => {
     }, [procurement_order_list, orderId, reset]);
 
     const { updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
-    const {createDoc, loading: create_loading} = useFrappeCreateDoc()
+    const { createDoc, loading: create_loading } = useFrappeCreateDoc()
 
-    const {toast} = useToast()
+    const { toast } = useToast()
 
     // console.log("values", control._formValues)
 
@@ -154,8 +154,8 @@ export const ReleasePO = () => {
         const itemList = []
 
         orderData?.order_list?.list.map((item) => {
-            categories.push({name: item.category})
-            itemList.push({...item, status : "Pending"})
+            categories.push({ name: item.category })
+            itemList.push({ ...item, status: "Pending" })
         })
 
         try {
@@ -164,11 +164,11 @@ export const ReleasePO = () => {
             })
 
             const newSentBack = await createDoc("Sent Back Category", {
-                type : "Cancelled",
+                type: "Cancelled",
                 procurement_request: orderData?.procurement_request,
                 project: orderData?.project,
-                category_list: {list : categories},
-                item_list: {list : itemList },
+                category_list: { list: categories },
+                item_list: { list: itemList },
                 comments: ""
             })
             console.log("newSentBack", newSentBack)
@@ -196,7 +196,7 @@ export const ReleasePO = () => {
             <div className="flex justify-between">
                 <div className="mt-10 pl-4">
                     <div className="flex gap-10 items-center">
-                            <div className="flex py-4">
+                        <div className="flex py-4">
                             <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
                             <div className="font-semibold text-xl pl-2"><span className="text-red-700 text-2xl">Selected PO:</span> {(orderData?.name)?.toUpperCase()}</div>
                         </div>
@@ -207,7 +207,7 @@ export const ReleasePO = () => {
                             Print
                         </Button>
                     </div>
-                <form onSubmit={handleSubmit(onSubmit)} className="p-4">
+                    <form onSubmit={handleSubmit(onSubmit)} className="p-4">
                         <div className="flex-col">
                             <h3 className="font-semibold text-lg mt-4">Additional Charges</h3>
                             <div className="flex-1 mt-2">
@@ -268,9 +268,9 @@ export const ReleasePO = () => {
                                 />
                             </div>
                             <div className="mt-2 text-center">
-                                    <Button className="mr-2 px-10" disabled={advance > 100 || advance < 0} >
-                                        {update_loading ? "Saving..." :"Save"}
-                                    </Button>
+                                <Button className="mr-2 px-10" disabled={advance > 100 || advance < 0} >
+                                    {update_loading ? "Saving..." : "Save"}
+                                </Button>
                             </div>
                         </div>
                     </form>
@@ -284,9 +284,9 @@ export const ReleasePO = () => {
                                 <CardDescription className="flex justify-between items-center">
                                     <p className="w-[70%]">on clicking the cancel button will create a "Sent Back Request"</p>
                                     {orderData?.status === "Generated" ? (
-                                        <Button 
-                                            variant={"outline"} 
-                                            onClick={() => document.getElementById("alertTrigger")?.click()} 
+                                        <Button
+                                            variant={"outline"}
+                                            onClick={() => document.getElementById("alertTrigger")?.click()}
                                             className="border-primary"
                                         >
                                             Cancel PO
@@ -308,23 +308,24 @@ export const ReleasePO = () => {
                                             <Button className="hidden" id="alertTrigger">trigger</Button>
                                         </AlertDialogTrigger>
                                         <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>
-                                                Are you sure!
-                                            </AlertDialogTitle>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>
+                                                    <h1 className="justify-center">Are you sure!</h1>
+                                                </AlertDialogTitle>
 
-                                            <AlertDialogDescription className="space-x-2 text-center">
-                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                <AlertDialogAction onClick={handleCancelPo}>
-                                                    <Button>Confirm</Button>
-                                                </AlertDialogAction>
-                                            </AlertDialogDescription>
+                                                <AlertDialogDescription className="space-x-2 text-center">
+                                                    Cancelling this PO will create a new cancelled Sent Back. Continue?
+                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction onClick={handleCancelPo}>
+                                                        <Button>Confirm</Button>
+                                                    </AlertDialogAction>
+                                                </AlertDialogDescription>
 
-                                        </AlertDialogHeader>
+                                            </AlertDialogHeader>
                                         </AlertDialogContent>
                                     </AlertDialog>
                                 </CardDescription>
-                                    
+
                             </CardContent>
                         </CardHeader>
                     </Card>
@@ -515,11 +516,11 @@ export const ReleasePO = () => {
                                         <td colSpan={6}>
                                             {notes !== "" && (
                                                 <>
-                                                <div className="text-gray-400 text-sm py-2">Note</div>
-                                                <div className="text-sm text-gray-900">{notes}</div>
+                                                    <div className="text-gray-400 text-sm py-2">Note</div>
+                                                    <div className="text-sm text-gray-900">{notes}</div>
                                                 </>
                                             )}
-                                            
+
 
                                             <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                             <div className="text-sm text-gray-900">
