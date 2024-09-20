@@ -14,7 +14,7 @@ interface SelectOption {
 
 export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= false}) => {
 
-    const {data} = useFrappeGetDocList("Vendors", {
+    const {data, mutate: VendorMutate} = useFrappeGetDocList("Vendors", {
         fields: ["*"],
         filters: [["vendor_name", "=", vendor_name]],
     })
@@ -60,6 +60,8 @@ export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= f
                 description: `Categories(s) updated successfully`,
                 variant: "success"
             })
+            VendorMutate()
+            vendor_category_mutate()
             mutate("Vendors")
             mutate("Vendor Category")
             document.getElementById("sheetCloseButton")?.click()

@@ -47,7 +47,7 @@ export default function Profile() {
             fields: ["*"]
         });
 
-    const { data: addressData } = useFrappeGetDocList("Address", {
+    const { data: addressData, isLoading: addressDataLoading } = useFrappeGetDocList("Address", {
         fields: ["*"],
         limit: 1000
     },
@@ -107,6 +107,7 @@ export default function Profile() {
                     description: `User: ${data?.full_name} deleted Successfully!`,
                     variant: "success"
                 })
+                navigate("/users")
             }).catch(() => {
                 console.log(submit_error)
                 toast({
@@ -114,7 +115,7 @@ export default function Profile() {
                     description: `Failed to delete User: ${data?.full_name}`,
                     variant: "destructive"
                 })
-            }).finally(() => navigate("/users"))
+            })
 
     }
 
@@ -149,7 +150,7 @@ export default function Profile() {
         }
     }
 
-    if (isLoading) return <UserProfileSkeleton />;
+    if (isLoading || permission_list_loading || project_list_loading || addressDataLoading) return <UserProfileSkeleton />;
     if (error) {
         console.log("Error in user-profile.tsx", error?.message)
         toast({
@@ -193,7 +194,7 @@ export default function Profile() {
                                     </DialogTrigger>
                                     <DialogContent>
                                         <DialogHeader>
-                                            <DialogTitle>Delete user {data.full_name}</DialogTitle>
+                                            <DialogTitle>Delete user {data?.full_name}</DialogTitle>
                                         </DialogHeader>
                                         <span>This action will delete user from the system</span>
                                         <div className="flex justify-end">
