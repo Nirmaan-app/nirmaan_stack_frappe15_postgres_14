@@ -7,7 +7,7 @@
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
+import {  OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { ColumnDef } from "@tanstack/react-table"
 import { Menu, MenuProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
@@ -372,12 +372,12 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
 
                                         <CardDescription className="space-y-2">
                                             <span>Contact Person</span>
-                                            <p className="font-bold text-black">{data?.vendor_contact_person_name === "" ? "N.A." : data?.vendor_contact_person_name}</p>
+                                            <p className="font-bold text-black">{!data?.vendor_contact_person_name ? "N.A." : data.vendor_contact_person_name}</p>
                                         </CardDescription>
 
                                         <CardDescription className="space-y-2">
                                             <span>Contact Number</span>
-                                            <p className="font-bold text-black">{data?.vendor_mobile === "" ? "N.A." : data?.vendor_mobile}</p>
+                                            <p className="font-bold text-black">{!data?.vendor_mobile ? "N.A." : data?.vendor_mobile}</p>
                                         </CardDescription>
                                         <CardDescription className="space-y-2">
                                             <span>GST Number</span>

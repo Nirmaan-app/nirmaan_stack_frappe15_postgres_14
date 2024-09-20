@@ -63,16 +63,16 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
 
                 <CardDescription className="space-y-2">
                   <span>Contact Person</span>
-                  <p className="font-bold text-black">{data?.company_contact_person === "" ? "N.A." : data?.company_contact_person}</p>
+                  <p className="font-bold text-black">{!data.company_contact_person ? "N.A." : data.company_contact_person}</p>
                 </CardDescription>
 
                 <CardDescription className="space-y-2">
                   <span>Contact Number</span>
-                  <p className="font-bold text-black">{data?.company_phone === "" ? "N.A." : data?.company_phone}</p>
+                  <p className="font-bold text-black">{!data.company_phone ? "N.A." : data.company_phone}</p>
                 </CardDescription>
                 <CardDescription className="space-y-2">
                   <span>Email Address</span>
-                  <p className="font-bold text-black">{data?.company_email === "" ? "N.A." : data?.company_email}</p>
+                  <p className="font-bold text-black">{!data.company_email ? "N.A." : data.company_email}</p>
                 </CardDescription>
                 <CardDescription className="space-y-2">
                   <span>GST Number</span>

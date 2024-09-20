@@ -131,7 +131,7 @@ export const SentBackUpdateQuote = () => {
 
     // console.log("orderData", orderData)
 
-    console.log("uniquevendors", uniqueVendors)
+    // console.log("uniquevendors", uniqueVendors)
 
     const handleUpdateQuote = () => {
         navigate(`/sent-back-request/select-vendor/${id}`);
