@@ -600,7 +600,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                         </div>
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Procurement by</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
 
                         {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
