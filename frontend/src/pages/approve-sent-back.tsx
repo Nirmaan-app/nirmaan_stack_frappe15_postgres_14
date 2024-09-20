@@ -96,8 +96,8 @@ const ApproveSentBack = () => {
     const [project, setProject] = useState()
     const [owner, setOwner] = useState()
     const { data: sb, isLoading: sb_loading, error: sb_error, mutate: sb_mutate } = useFrappeGetDoc<SentBackCategoryType>("Sent Back Category", id);
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project || "");
-    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner === "Administrator" ? "" : owner || "");
+    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
+    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
 
     useEffect(() => {
         if (sb && !sb_loading) {
@@ -113,7 +113,7 @@ const ApproveSentBack = () => {
     if (sb_loading || project_loading || owner_loading) return <h1>Loading...</h1>
     if (sb_error || project_error || owner_error) return <h1>Error</h1>
     return (
-        <ApproveSentBackPage sb_data={sb} project_data={project_data} owner_data={Array.isArray(owner_data) ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
+        <ApproveSentBackPage sb_data={sb} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
     )
 }
 
@@ -466,28 +466,28 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             //     ? "Partially Approved"
             //     : currentState;
 
-             // Workflow state logic
-             const totalItems = orderData.item_list.list.length;
-             const sentBackItems = filteredData.length;
-             const allItemsSentBack = sentBackItems === totalItems;
-             
-             const currentState = sb_data?.workflow_state;
-             
-             // Check if no items are "Approved"
-             const noApprovedItems = orderData.item_list.list.every(item => item.status !== "Approved");
-             
-             // Count the number of "Pending" items
-             const pendingItemsCount = orderData.item_list.list.filter(item => item.status === "Pending").length;
-             
-             let newWorkflowState;
-             
-             if (currentState === "Vendor Selected" && allItemsSentBack) {
-                 newWorkflowState = "Sent Back";
-             } else if (noApprovedItems && sentBackItems === pendingItemsCount) {
-                 newWorkflowState = "Sent Back";
-             } else {
-                 newWorkflowState = "Partially Approved";
-             }
+            // Workflow state logic
+            const totalItems = orderData.item_list.list.length;
+            const sentBackItems = filteredData.length;
+            const allItemsSentBack = sentBackItems === totalItems;
+
+            const currentState = sb_data?.workflow_state;
+
+            // Check if no items are "Approved"
+            const noApprovedItems = orderData.item_list.list.every(item => item.status !== "Approved");
+
+            // Count the number of "Pending" items
+            const pendingItemsCount = orderData.item_list.list.filter(item => item.status === "Pending").length;
+
+            let newWorkflowState;
+
+            if (currentState === "Vendor Selected" && allItemsSentBack) {
+                newWorkflowState = "Sent Back";
+            } else if (noApprovedItems && sentBackItems === pendingItemsCount) {
+                newWorkflowState = "Sent Back";
+            } else {
+                newWorkflowState = "Partially Approved";
+            }
 
             const updatedItemList = JSON.parse(sb_data?.item_list).list.map(item => {
                 if (filteredData.some(selectedItem => selectedItem.key === item.name)) {

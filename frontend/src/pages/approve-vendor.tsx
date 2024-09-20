@@ -109,8 +109,8 @@ const ApproveVendor = () => {
     const [project, setProject] = useState()
     const [owner, setOwner] = useState()
     const { data: pr, isLoading: pr_loading, error: pr_error, mutate: pr_mutate } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", orderId);
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project || "");
-    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner === "Administrator" ? "" : owner || "");
+    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
+    const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
 
     useEffect(() => {
         if (pr && !pr_loading) {
@@ -126,7 +126,7 @@ const ApproveVendor = () => {
     if (pr_loading || project_loading || owner_loading) return <h1>Loading...</h1>
     if (pr_error || project_error || owner_error) return <h1>Error</h1>
     return (
-        <ApproveVendorPage pr_data={pr} project_data={project_data} owner_data={Array.isArray(owner_data) ? { full_name: "Administrator" } : owner_data} procurement_list_mutate={pr_mutate} />
+        <ApproveVendorPage pr_data={pr} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} procurement_list_mutate={pr_mutate} />
     )
 }
 
@@ -557,21 +557,21 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             //     ? "Partially Approved"
             //     : currentState;
 
-             // Workflow state logic
+            // Workflow state logic
             const totalItems = orderData.procurement_list.list.length;
             const sentBackItems = filteredData.length;
             const allItemsSentBack = sentBackItems === totalItems;
-            
+
             const currentState = pr_data?.workflow_state;
-            
+
             // Check if no items are "Approved"
             const noApprovedItems = orderData.procurement_list.list.every(item => item.status !== "Approved");
-            
+
             // Count the number of "Pending" items
             const pendingItemsCount = orderData.procurement_list.list.filter(item => item.status === "Pending").length;
-            
+
             let newWorkflowState;
-            
+
             if (currentState === "Vendor Selected" && allItemsSentBack) {
                 newWorkflowState = "Sent Back";
             } else if (noApprovedItems && sentBackItems === pendingItemsCount) {
