@@ -501,9 +501,6 @@ export default function DeliveryNote() {
   const [projectAddress, setProjectAddress] = useState()
   const [vendorAddress, setVendorAddress] = useState()
   const [show, setShow] = useState(false)  
-//   const [validateMessage, setValidateMessage] = useState({})
-    // Validation schema using zod
-    // const receivedQuantitySchema = z.number().min(0, { message: "Received quantity cannot be less than 0" });
 
     useEffect(() => {
         if (data) {
@@ -527,34 +524,14 @@ export default function DeliveryNote() {
 
     // Handle change in received quantity
     const handleReceivedChange = (itemName, value) => {
-        // const quantity = modifiedOrder.list.find(item => item.item === itemName)?.quantity;
         const parsedValue = value !== "" ? parseInt(value) : 0;
-
-        // if (parsedValue > quantity) {
-        //     toast({
-        //         title: "Error!",
-        //         description: `Entered received quantity is greater than actual quantity for ${itemName}`,
-        //         variant: "destructive",
-        //     });
-            // setValidateMessage(prev => ({
-            //     ...prev,
-            //     [itemName] : `Entered received quantity is greater than actual quantity for ${itemName}`
-            // }))
-        // } else {
             setModifiedOrder(prevState => ({
                 ...prevState,
                 list: prevState.list.map(item => 
                     item.item === itemName ? { ...item, received: parsedValue } : item
                 )
             }));
-            // setValidateMessage(prev => ({
-            //     ...prev,
-            //     [itemName] : ''
-            // }))
-        // }
     };
-
-    // console.log("modifiedOrder", modifiedOrder)
 
     // Handle save
     const handleSave = async () => {
@@ -564,24 +541,6 @@ export default function DeliveryNote() {
             const noValueItems = modifiedOrder.list.filter(item => !item.received || item.received === 0);
             if (noValueItems.length > 0) {
                 document.getElementById("alertDialogOpen")?.click()
-                // if (proceed) {
-                //     const updatedOrder = {
-                //         ...modifiedOrder,
-                //         list: modifiedOrder.list.map(item => 
-                //             noValueItems.includes(item) ? { ...item, received: 0 } : item
-                //         ),
-                //     };
-
-                //     await updateDoc("Procurement Orders", poId, {
-                //         order_list: JSON.stringify(updatedOrder),
-                //         status: allDelivered ? "Delivered" : "Partially Delivered",
-                //     });
-                //     toast({
-                //         title: "Success!",
-                //         description:  `Delivery Note: ${poId.split('/')[1]} updated successfully`,
-                //         variant: "success",
-                //     });
-                // }
             } else {
                 await updateDoc("Procurement Orders", poId, {
                     order_list: JSON.stringify(modifiedOrder),
@@ -678,11 +637,11 @@ export default function DeliveryNote() {
             <Card>
                 <CardHeader className='flex flex-row items-center justify-between'>
                     <CardTitle className="text-xl font-semibold text-red-600">Item List</CardTitle>
-                    {show === false && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)}>Update</Button>)}
+                    {!show && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)}>Update</Button>)}
                 </CardHeader>
                 <CardContent>
                     {show && 
-                    <div className='pl-2'>
+                    <div className='pl-2 transition-all duration-500 ease-in-out'>
                         <i className="text-sm text-gray-600">"Please Update the quantity received for delivered items"</i>
                     </div>
                     }
@@ -700,7 +659,7 @@ export default function DeliveryNote() {
                                     <TableCell className="font-medium">{item.item}</TableCell>
                                     <TableCell>{item.unit}</TableCell>
                                     <TableCell>
-                                        {show === false ? (
+                                        {!show ? (
                                             item.received === item.quantity ? (
                                             <div className='flex gap-2'>
                                                 <Check className="h-5 w-5 text-green-500" />
@@ -740,7 +699,7 @@ export default function DeliveryNote() {
                             ))}
                         </TableBody>
                     </Table>
-                    {data?.status !== "Delivered" && show === true && (
+                    {data?.status !== "Delivered" && show && (
                         <Button onClick={handleSave} className="w-full mt-6 bg-red-600 hover:bg-red-700">
                             Update
                         </Button>

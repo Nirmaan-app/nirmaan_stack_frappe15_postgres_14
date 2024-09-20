@@ -398,6 +398,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 variant: "success"
             });
 
+            setSelectedItems(undefined)
             mutate("Sent Back Category(filters,in,Vendor Selected, Partially Approved)");
             sent_back_list_mutate()
 
@@ -504,6 +505,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 item_list: { list: updatedItemList },
                 workflow_state: newWorkflowState
             });
+
+            setSelectedItems(undefined)
 
             toast({
                 title: "Success!",

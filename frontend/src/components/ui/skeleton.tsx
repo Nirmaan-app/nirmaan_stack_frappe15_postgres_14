@@ -510,6 +510,108 @@ export const ProcurementRequestsSkeleton = () => {
   );
 };
 
+export const PRSummarySkeleton = () => {
+  return (
+    <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
+  <div className="flex items-center pt-1">
+    <Skeleton className="w-6 h-6 mb-3" /> {/* For ArrowLeft */}
+    <Skeleton className="h-6 w-1/3 ml-2" /> {/* For Summary */}
+    <Skeleton className="h-6 w-1/4 ml-2" /> {/* For PR Number */}
+  </div>
+  
+  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+    {/* PR Details Card Skeleton */}
+    <Card className="w-full">
+      <CardHeader>
+        <Skeleton className="h-6 w-1/4" /> {/* PR Details Title */}
+      </CardHeader>
+      <CardContent className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="space-y-1">
+          <Skeleton className="h-4 w-1/3" /> {/* Label */}
+          <Skeleton className="h-4 w-2/3" /> {/* Project Name */}
+        </div>
+        <div className="space-y-1">
+          <Skeleton className="h-4 w-1/3" /> {/* Label */}
+          <Skeleton className="h-4 w-2/3" /> {/* Package */}
+        </div>
+        <div className="space-y-1">
+          <Skeleton className="h-4 w-1/3" /> {/* Label */}
+          <Skeleton className="h-4 w-2/3" /> {/* Date Created */}
+        </div>
+      </CardContent>
+    </Card>
+
+    {/* Order Details Card Skeleton */}
+    <Card className="w-full">
+      <CardHeader>
+        <Skeleton className="h-6 w-1/4" /> {/* Order Details Title */}
+      </CardHeader>
+      <div className="overflow-x-auto">
+        <div className="min-w-full inline-block align-middle">
+          {/* Categories */}
+          <div className="p-5">
+            <Skeleton className="h-5 w-1/3 mb-4" /> {/* Category Name */}
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-red-100">
+                  <TableHead>
+                    <Skeleton className="h-4 w-full" /> {/* Table Head */}
+                  </TableHead>
+                  <TableHead>
+                    <Skeleton className="h-4 w-full" /> {/* Table Head */}
+                  </TableHead>
+                  <TableHead>
+                    <Skeleton className="h-4 w-full" /> {/* Table Head */}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...Array(7)].map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell>
+                      <Skeleton className="h-4 w-full" /> {/* Item */}
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-full" /> {/* UOM */}
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-full" /> {/* Qty */}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      </div>
+    </Card>
+  </div>
+</div>
+
+  )
+}
+
+
+export const NewPRSkeleton = () => {
+  return (
+    <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
+       <div className="flex items-center pt-1">
+        <Skeleton className="w-6 h-6" />
+        <Skeleton className="h-6 w-1/3 ml-2" />
+      </div>
+  
+      <div className="flex gap-4">
+      {[...Array(5)].map((_, i) => (
+        <div className="flex flex-col gap-4 p-4 border border-gray-300 rounded-xl">
+          <Skeleton className="w-28 h-32" />
+          <Skeleton className="w-28 h-4" />
+        </div>
+      ))}
+      </div>
+    </div>
+  )
+}
+
 
 
 export { Skeleton }

@@ -6,6 +6,7 @@ import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Label } from "./ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import { PRSummarySkeleton } from "./ui/skeleton";
 
 const PRSummary = () => {
 
@@ -13,18 +14,21 @@ const PRSummary = () => {
 
     const project_id = id?.split('-')[1];
 
-    const { data: pr_data, error: pr_error } = useFrappeGetDoc<ProcurementRequests>("Procurement Requests", id);
+    const { data: pr_data, error: pr_error, isLoading: prLoading } = useFrappeGetDoc<ProcurementRequests>("Procurement Requests", id);
 
-    const { data: project, error: project_error } = useFrappeGetDocList<Projects>("Projects", {
+    const { data: project, error: project_error, isLoading: projectLoading } = useFrappeGetDocList<Projects>("Projects", {
         fields: ['name', 'project_name', 'project_address'],
         filters: [['name', 'like', `%${project_id}`]]
     });
+
+    const { data: address, error: address_error, isLoading: addressLoading } = useFrappeGetDoc("Address", project?.project_address);
 
     return (
         <>
             {pr_error && <h1>{pr_error.message}</h1>}
             {project_error && <h1>{project_error.message}</h1>}
-            {(pr_data && project) && <PRSummaryPage pr_data={pr_data} project={project[0]} />}
+            {address_error && <h1>{address_error.message}</h1>}
+            {(prLoading || projectLoading || addressLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} project={project[0]} address={address} />}
         </>
     )
 };
@@ -34,16 +38,12 @@ interface PRSummaryPageProps {
     project: Projects
 }
 
-const PRSummaryPage = ({ pr_data, project }: PRSummaryPageProps) => {
+const PRSummaryPage = ({ pr_data, project, address }: PRSummaryPageProps) => {
     const navigate = useNavigate();
     const pr_no = pr_data.name.split("-").slice(-1)
 
-    const { data: address, error: address_error } = useFrappeGetDoc("Address", project.project_address);
-
     return (
         <>
-            {address_error && <h1>{address_error.message}</h1>}
-            {address &&
                     <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
                         <div className="flex items-center pt-1">
                             <ArrowLeft className="mb-3 cursor-pointer" onClick={() => navigate("/procurement-request")} />
@@ -139,7 +139,6 @@ const PRSummaryPage = ({ pr_data, project }: PRSummaryPageProps) => {
                             </Card>
                         </div>
                     </div>
-                }
         </>
     );
 

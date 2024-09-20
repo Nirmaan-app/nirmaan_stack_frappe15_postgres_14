@@ -3,21 +3,19 @@ import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpda
 import { MessageCircleMore, PackagePlus } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
-
 import { ArrowLeft } from 'lucide-react';
 import ReactSelect from 'react-select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "../ui/dialog"
 import { Button } from "../ui/button"
 import { CirclePlus } from 'lucide-react';
 import { Pencil } from 'lucide-react';
-
-
 import imageUrl from "@/assets/user-icon.jpeg"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Input } from "../ui/input";
 import { useUserData } from "@/hooks/useUserData";
 import { useToast } from "../ui/use-toast";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { NewPRSkeleton } from "../ui/skeleton";
 
 const NewPR = () => {
 
@@ -27,9 +25,8 @@ const NewPR = () => {
     const { data: project, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", id);
 
     return (
-        <>  {project_loading && <h1>Loading...</h1>}
+        <>  {project_loading ? <NewPRSkeleton /> : <NewPRPage project={project} />}
             {project_error && <h1>{project_error.message}</h1>}
-            {project && <NewPRPage project={project} />}
         </>
     )
 };
@@ -68,9 +65,6 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
         }
     })
 
-
-
-
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
         {
             fields: ['work_package_name', "work_package_image"],
@@ -91,9 +85,6 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
         });
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
-
 
     useEffect(() => {
         const newCategories = [];
@@ -162,33 +153,13 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
         setPage('additem');
     };
 
-    const handleClick = (value: string) => {
-        setPage(value);
-    };
-    const item_lists: string[] = [];
     const item_options: string[] = [];
-    const project_lists: string[] = [];
     if (curCategory) {
         item_list?.map((item) => {
             if (item.category === curCategory) item_options.push({ value: item.item_name, label: `${item.item_name}${item.make_name ? "-" + item.make_name : ""}` })
         })
     }
 
-    // if (project_list?.length != project_lists.length) {
-    //     project_list?.map((item) => {
-    //         project_lists.push(item.project_name)
-    //     })
-    // }
-
-    const handleSelect = (selectedItem: string) => {
-        console.log('Selected item:', selectedItem);
-        setCurItem(selectedItem)
-        item_list?.map((item) => {
-            if (item.item_name == selectedItem) {
-                setUnit(item.unit_name)
-            }
-        })
-    };
     const handleChange = (selectedItem) => {
         console.log('Selected item:', selectedItem);
         setCurItem(selectedItem.value)
@@ -273,32 +244,6 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
                     })
                 })
         }
-        // if (userData?.role === "Nirmaan Procurement Executive Profile" || userData?.role === "Nirmaan Project Lead Profile") {
-        //     createDoc('Procurement Requests', orderData)
-        //         .then((doc) => {
-        //             updateDoc('Procurement Requests', doc.name, {
-        //                 workflow_state: "Approved",
-        //             })
-        //                 .then(() => {
-        //                     console.log("doc", doc)
-        //                     toast({
-        //                         title: "Success!",
-        //                         description: `New PR: ${doc?.name} with workflow_state: "Approved" created successfully!`,
-        //                         variant: "success"
-        //                     })
-        //                     navigate("/")
-        //                 }).catch(() => {
-        //                     console.log("update_submit_error", update_submit_error)
-        //                 })
-        //         }).catch(() => {
-        //             console.log("submit_error", submit_error)
-        //             toast({
-        //                 title: "Failed!",
-        //                 description: `PR Creation failed!`,
-        //                 variant: "destructive"
-        //             })
-        //         })
-        // }
     }
     const handleAddItem = () => {
         const itemData = {
@@ -360,7 +305,7 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
         setCurItem('')
     }
 
-    console.log("project", JSON.parse(project.project_work_packages))
+    // console.log("project", JSON.parse(project.project_work_packages))
 
     return (
         <>
