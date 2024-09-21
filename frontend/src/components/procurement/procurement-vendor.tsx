@@ -458,7 +458,7 @@ export const ProcurementOrder = () => {
                                                     <div className="flex-1">
                                                         <span className="underline">Add Vendor for <span className="text-red-700">{cat.name}</span></span>
                                                         <p className=" text-xs font-light text-slate-500 p-1">Add a new vendor here with at least <span className="text-red-700 italic">{cat.name}</span> added as category</p>
-                                                        <p className=" text-xs font-light text-slate-500 p-1"><span className="text-red-700 font-bold">NOTE: </span>Check if the vendor is already available. If yes, then add <span className="text-red-700 italic">{cat.name}</span> to that vendor</p>
+                                                        <p className=" text-xs font-light text-slate-500 p-1"><span className="text-red-700 font-bold">NOTE: </span>Check if the vendor is already available! If yes, then click on cross at top right, scroll down to add <span className="text-red-700 italic">{cat.name}</span> to that vendor.</p>
 
                                                     </div>
                                                 </SheetTitle>

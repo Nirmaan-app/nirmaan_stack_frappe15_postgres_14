@@ -171,7 +171,7 @@ export const SentBackUpdateQuote = () => {
 
             toast({
                 title: "Success!",
-                description: "Vendor Added Successfully!",
+                description: `Vendor: ${vendor_name} Added Successfully!`,
                 variant: "success"
             });
         } catch (error) {
@@ -180,7 +180,7 @@ export const SentBackUpdateQuote = () => {
                 description: `${error?.message}`,
                 variant: "destructive"
             });
-            console.error("Submit Error", error);
+            console.error("There was an error while adding the vendor in sent-back-update-quote", error);
         }
     }
 
