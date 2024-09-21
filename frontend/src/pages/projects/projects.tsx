@@ -16,6 +16,17 @@ import { formatDate } from "@/utils/FormatDate";
 export default function Projects() {
     const navigate = useNavigate()
 
+    const {data: projectTypesList, isLoading: projectTypesListLoading} = useFrappeGetDocList("Project Types", {
+        fields: ["*"],
+        limit: 1000
+    },
+    "Project Types"
+    )
+
+    const projectTypeOptions = projectTypesList?.map((pt) => ({label : pt.name, value: pt.name}))
+
+    console.log("projecttype", projectTypeOptions)
+
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
             {
@@ -81,6 +92,9 @@ export default function Projects() {
                             {row.getValue("project_type")}
                         </div>
                     )
+                },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.getValue(id))
                 }
             },
             {
@@ -147,10 +161,10 @@ export default function Projects() {
                 </Card>
             </div>
             <div className="pl-0 pr-2">
-                {isLoading ? (
+                {isLoading || projectTypesListLoading ? (
                     <TableSkeleton />
                 ) : (
-                    <DataTable columns={columns} data={data || []} />
+                    <DataTable columns={columns} data={data || []} projectTypeOptions={projectTypeOptions} />
                 )}
             </div>
         </div>

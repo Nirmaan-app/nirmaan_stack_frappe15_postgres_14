@@ -41,7 +41,7 @@ interface DataTableProps<TData, TValue> {
     error?: any
 }
 
-export function DataTable<TData, TValue>({ columns, data, project_values, category_options }: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions=undefined, roleTypeOptions=undefined }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([
         {
             id: "creation",
@@ -104,7 +104,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                     onChange={value => setGlobalFilter(String(value))}
                     className="max-w-sm"
                 />
-                <DataTableToolbar table={table} project_values={project_values} category_options={category_options} />
+                <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} roleTypeOptions={roleTypeOptions}/>
                 {/* <DataTableViewOptions table={table} /> */}
             </div>
 

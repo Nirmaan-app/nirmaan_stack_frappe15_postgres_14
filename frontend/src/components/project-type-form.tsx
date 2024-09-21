@@ -1,9 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
-import { useEffect } from "react"
-
 import * as z from "zod"
-
 import { Button } from "@/components/ui/button"
 import {
     Form,
@@ -17,10 +14,8 @@ import {DialogClose} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
 import { ButtonLoading } from "./button-loading"
+import { toast } from "./ui/use-toast"
 
-
-
-// 1.a Create Form Schema accordingly
 const projectTypeFormSchema = z.object({
     project_type_name: z
         .string({
@@ -30,41 +25,47 @@ const projectTypeFormSchema = z.object({
             message: "Type Name must be at least 3 characters.",
         }),
     standard_project_duration: z
-        .number({
-            required_error: "Enter standard duration in days"
+        .string({
+            required_error: "Must provide Duration"
         })
-        .nonnegative(),
+        .min(1, {
+            message: "Must provide Duration"
+        })
+        .or(z.number()),
 })
 
 type ProjectTypeFormValues = z.infer<typeof projectTypeFormSchema>
 
 export default function ProjectTypeForm({project_types_mutate}){
-    // 1.b Define your form.
-    // Has handleSubmit, control functions
     const form = useForm<ProjectTypeFormValues>({
         resolver: zodResolver(projectTypeFormSchema),
         defaultValues: {
             project_type_name: ""
         },
-        mode: "onChange",
+        mode: "onBlur",
     })
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    // 2. Define a submit handler.
+
     function onSubmit(values: z.infer<typeof projectTypeFormSchema>) {
-        // Do something with the form values.
-        // ✅ This will be type-safe and validated.
         createDoc('Project Types', values)
-            .then(() => {
+            .then((doc) => {
                 console.log(values)
+                project_types_mutate()
+                toast({
+                    title: "Success!",
+                    description: `Project Type: ${doc.name} created successfully!`,
+                    variant: "success"
+                })
+                document.getElementById("dialogClose")?.click()
             }).catch(() => {
-                console.log(submit_error)
+                console.log("Error while creating Project Type", submit_error)
+                toast({
+                    title: "Failed!",
+                    description: `Project Type: ${submit_error?.message} created successfully!`,
+                    variant: "destructive"
+                })
             })
-    }
-    function closewindow(){
-        var button = document.getElementById('dialogClose');
-        project_types_mutate()
-        button.click();
     }
 
     return (
@@ -79,7 +80,7 @@ export default function ProjectTypeForm({project_types_mutate}){
                     name="project_type_name"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Project Type Name</FormLabel>
+                            <FormLabel>Project Type Name<sup>*</sup></FormLabel>
                             <FormControl>
                                 <Input placeholder="Project Type Name" {...field} />
                             </FormControl>
@@ -93,13 +94,12 @@ export default function ProjectTypeForm({project_types_mutate}){
                     name="standard_project_duration"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Standard Project Duration</FormLabel>
+                            <FormLabel>Standard Project Duration<sup>*</sup></FormLabel>
                             <FormControl>
                                 <Input
                                     type="number"
                                     placeholder="Duration in days"
                                     {...field}
-                                    onChange={event => field.onChange(+event.target.value)}
                                 />
                             </FormControl>
                             <FormMessage />
@@ -107,16 +107,7 @@ export default function ProjectTypeForm({project_types_mutate}){
                     )}
                 />
                 {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
-                <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose>
-                <div>
-                    {submit_complete && 
-                    <div>
-                    <div className="font-semibold text-green-500"> Customer added</div>
-                    {closewindow()}
-                    </div>
-                    }
-                    {submit_error && <div>{submit_error}</div>}
-                </div>
+                <DialogClose asChild><Button id="dialogClose" className="hidden"></Button></DialogClose>
             </form>
         </Form>
     )

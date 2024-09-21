@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { AlertDialogAction } from "@radix-ui/react-alert-dialog";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
 
 export const ReleasePO = () => {
     const { id } = useParams<{ id: string }>()
@@ -193,21 +194,23 @@ export const ReleasePO = () => {
 
     return (
         <>
-            <div className="flex justify-between">
+            <div >
+                <ResizablePanelGroup className="flex gap-6" direction="horizontal">
+                    <ResizablePanel>
                 <div className="mt-10 pl-4">
-                    <div className="flex gap-10 items-center">
+                    <div className="flex justify-between items-center">
                         <div className="flex py-4">
                             <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
                             <div className="font-semibold text-xl pl-2"><span className="text-red-700 text-2xl">Selected PO:</span> {(orderData?.name)?.toUpperCase()}</div>
                         </div>
-                        <Button disabled={advance > 100 || advance < 0} onClick={() => {
+                        <Button className="px-8" disabled={advance > 100 || advance < 0} onClick={() => {
                             onSubmit(control._formValues)
                             handlePrint()
                         }}>
                             Print
                         </Button>
                     </div>
-                    <form onSubmit={handleSubmit(onSubmit)} className="p-4">
+                    <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4">
                         <div className="flex-col">
                             <h3 className="font-semibold text-lg mt-4">Additional Charges</h3>
                             <div className="flex-1 mt-2">
@@ -330,8 +333,10 @@ export const ReleasePO = () => {
                         </CardHeader>
                     </Card>
                 </div>
-
-                <div className="w-[50%] p-4 m-4 border rounded-lg h-screen overflow-y-scroll">
+                </ResizablePanel>
+                <ResizableHandle />
+                <ResizablePanel>
+                <div className=" p-4 m-4 border rounded-lg h-screen overflow-y-scroll">
                     <div ref={componentRef} className="w-full p-4">
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
@@ -623,6 +628,8 @@ export const ReleasePO = () => {
                         </div>
                     </div>
                 </div>
+                </ResizablePanel>
+                </ResizablePanelGroup>
             </div>
             {/* <button onClick={handlePrint} className="m-8 p-2 bg-blue-500 text-white">Print</button> */}
         </>

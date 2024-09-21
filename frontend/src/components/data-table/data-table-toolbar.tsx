@@ -18,7 +18,7 @@ interface DataTableToolbarProps<TData> {
     category_options?: ProjectOptions[];
 }
 
-export function DataTableToolbar<TData>({ table, project_values, category_options }: DataTableToolbarProps<TData>) {
+export function DataTableToolbar<TData>({ table, project_values, category_options, vendorOptions=undefined, projectTypeOptions=undefined, roleTypeOptions=undefined }: DataTableToolbarProps<TData>) {
 
     const [projectValues, setProjectValues] = useState(false)
     const [categoryValues, setCategoryValues] = useState(false)
@@ -39,7 +39,7 @@ export function DataTableToolbar<TData>({ table, project_values, category_option
                 {projectValues && (table.getColumn("project") ? (
                     <DataTableFacetedFilter
                         column={table.getColumn("project")}
-                        title={"Filter by Project"}
+                        title={"Project"}
                         options={project_values || []}
                     />
                 ) : null)}
@@ -47,17 +47,40 @@ export function DataTableToolbar<TData>({ table, project_values, category_option
                 {(categoryValues && table.getAllColumns().map(item => item.id).find(id => id === "vendor_category") !== undefined ? (
                     <DataTableFacetedFilter
                         column={table.getColumn("vendor_category")}
-                        title={"Filter by Category"}
+                        title={"Category"}
                         options={category_options || []}
                     />
                 ) : (categoryValues &&
                     table.getAllColumns().map(item => item.id).find(id => id === "category") !== undefined ? (
                     <DataTableFacetedFilter
                         column={table.getColumn("category")}
-                        title={"Filter by Category"}
+                        title={"Category"}
                         options={category_options || []}
                     />
                 ) : null))}
+
+                {vendorOptions && (table.getColumn("vendor_name") ? (
+                    <DataTableFacetedFilter
+                        column={table.getColumn("vendor_name")}
+                        title={"Vendor"}
+                        options={vendorOptions || []}
+                    />
+                ) : null)}
+                {projectTypeOptions && (table.getColumn("project_type") ? (
+                    <DataTableFacetedFilter
+                        column={table.getColumn("project_type")}
+                        title={"Project Type"}
+                        options={projectTypeOptions || []}
+                    />
+                ) : null)}
+
+                {roleTypeOptions && (table.getColumn("role_profile") ? (
+                    <DataTableFacetedFilter
+                        column={table.getColumn("role_profile")}
+                        title={"Role"}
+                        options={roleTypeOptions || []}
+                    />
+                ) : null)}
 
                 {isFiltered && (
                     <Button
