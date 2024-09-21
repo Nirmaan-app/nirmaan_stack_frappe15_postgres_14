@@ -33,8 +33,14 @@ export const ReleasePOSelect = () => {
         limit: 1000
     })
 
+    const {data : vendorsList, isLoading: vendorsListLoading, error: vendorsError} = useFrappeGetDocList("Vendors", {
+        fields: ["vendor_name"],
+        limit: 1000
+    },
+    "Vendors"
+    )
 
-
+    const vendorOptions = vendorsList?.map((ven) => ({label : ven.vendor_name, value: ven.vendor_name}))
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const getTotal = (order_id: string) => {
@@ -115,7 +121,6 @@ export const ReleasePOSelect = () => {
                     return (
                         <div className="font-medium">
                             {project.label}
-                            {/* {row.getValue("project")} */}
                         </div>
                     )
                 },
@@ -136,6 +141,9 @@ export const ReleasePOSelect = () => {
                             {row.getValue("vendor_name")}
                         </div>
                     )
+                },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.getValue(id))
                 }
             },
             {
@@ -159,11 +167,11 @@ export const ReleasePOSelect = () => {
 
     const { toast } = useToast()
 
-    if (procurement_order_list_error || projects_error ) {
-        console.log("Error in release-po-select.tsx", procurement_order_list_error?.message, projects_error?.message)
+    if (procurement_order_list_error || projects_error || vendorsError ) {
+        console.log("Error in release-po-select.tsx", procurement_order_list_error?.message, projects_error?.message, vendorsError?.message)
         toast({
             title: "Error!",
-            description: `Error ${procurement_order_list_error?.message || projects_error?.message}`,
+            description: `Error ${procurement_order_list_error?.message || projects_error?.message || vendorsError?.message}`,
             variant: "destructive"
         })
     }
@@ -174,8 +182,8 @@ export const ReleasePOSelect = () => {
                     <div className="flex items-center justify-between space-y-2">
                         <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Release PO</h2>
                     </div>
-                    {(procurement_order_list_loading || projects_loading) ? (<TableSkeleton />) : (
-                        <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} />
+                    {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
+                        <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} />
                     )}
                 </div>
             

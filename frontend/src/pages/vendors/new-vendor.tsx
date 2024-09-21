@@ -523,14 +523,14 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                             </FormItem>
                         )}
                     />
-                    {(loading) ? (<ButtonLoading />) : (
-
                         <div className="flex space-x-2 items-center justify-end">
-                            <Button type="button" variant="outline" onClick={() => resetForm()}>Reset</Button>
-                            <Button type="submit" >Submit</Button>
+                            {(loading) ? (<ButtonLoading />) : (
+                                <>
+                                    <Button type="button" variant="outline" onClick={() => resetForm()}>Reset</Button>
+                                    <Button type="submit" >Submit</Button>
+                                </>
+                            )}
                         </div>
-
-                    )}
                     {!navigation && (
                         <SheetClose asChild><Button id="sheetClose" className="w-0 h-0 invisible"></Button></SheetClose>
                     )}
