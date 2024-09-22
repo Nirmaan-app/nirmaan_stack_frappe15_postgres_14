@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/sheet"
 import { Button } from "../ui/button";
 import { TailSpin } from "react-loader-spinner";
+import { ScrollArea } from "@radix-ui/react-scroll-area";
 
 
 interface Category {
@@ -223,29 +224,29 @@ export default function QuotationForm({ vendor_id, pr_id }) {
             </div>
             {categories.list.map((cat, index) => {
                 return <div key={index}>
-                            <div className="py-2 text-xl font-bold">
-                                <span>{index + 1}. </span>
-                                {cat.name}
+                    <div className="py-2 text-xl font-bold">
+                        <span>{index + 1}. </span>
+                        {cat.name}
+                    </div>
+                    {quotation_request_list?.map((q) => {
+                        if (q.category === cat.name && q.vendor === vendor_id) {
+                            return <div className="flex space-x-2">
+                                <ul className="mt-2 pl-5 w-1/2 text-black flex-shrink-0 list-disc">
+                                    <li className="">{getItem(q.item)}</li>
+                                </ul>
+                                <div className="flex-1">
+                                    <Input type="text" disabled={true} placeholder={getUnit(q.item)} />
+                                </div>
+                                <div className="flex-1">
+                                    <Input type="text" disabled={true} placeholder={getQuantity(q.item)} />
+                                </div>
+                                <div className="flex-1">
+                                    <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
+                                </div>
                             </div>
-                            {quotation_request_list?.map((q) => {
-                                if (q.category === cat.name && q.vendor === vendor_id) {
-                                    return <div className="flex space-x-2">
-                                        <ul className="mt-2 pl-5 w-1/2 text-black flex-shrink-0 list-disc">
-                                            <li className="">{getItem(q.item)}</li>
-                                        </ul>
-                                        <div className="flex-1">
-                                            <Input type="text" disabled={true} placeholder={getUnit(q.item)} />
-                                        </div>
-                                        <div className="flex-1">
-                                            <Input type="text" disabled={true} placeholder={getQuantity(q.item)} />
-                                        </div>
-                                        <div className="flex-1">
-                                            <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
-                                        </div>
-                                    </div>
-                                }
-                            })}
-                        </div>
+                        }
+                    })}
+                </div>
             })}
             <div className="flex flex-col justify-end items-end bottom-4 right-4 pt-10">
                 {(upload_loading || create_loading || loading) ?
