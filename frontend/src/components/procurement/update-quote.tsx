@@ -11,7 +11,7 @@ import QuotationForm from "./quotation-form"
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
 import { useState, useEffect, useMemo, useCallback } from "react"
-import {  useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { PrintRFQ } from "./rfq-pdf";
 import { Card, CardContent, CardHeader } from "../ui/card";
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 import { useToast } from "../ui/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { NewVendor } from "@/pages/vendors/new-vendor";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export const UpdateQuote = () => {
     const { orderId } = useParams<{ orderId: string }>()
@@ -40,11 +41,11 @@ export const UpdateQuote = () => {
         "Vendors"
     );
 
-    const {data: procurement_request_list} = useFrappeGetDocList("Procurement Requests", {
+    const { data: procurement_request_list } = useFrappeGetDocList("Procurement Requests", {
         fields: ["*"],
         limit: 1000
     })
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error, mutate : quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
+    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error, mutate: quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ["*"],
             filters: [["procurement_task", "=", orderId]],
@@ -59,7 +60,7 @@ export const UpdateQuote = () => {
     })
 
     const { updateDoc: updateDoc, error: update_error } = useFrappeUpdateDoc()
-    const {createDoc} = useFrappeCreateDoc()
+    const { createDoc } = useFrappeCreateDoc()
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName).vendor_name;
@@ -327,21 +328,23 @@ export const UpdateQuote = () => {
                                     <Sheet>
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
                                         <SheetContent>
-                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-                                            <SheetHeader>
-                                                <SheetTitle className="text-center">Print PDF</SheetTitle>
-                                                <SheetDescription>
-                                                    <PrintRFQ vendor_id={item} pr_id={orderData.name} itemList={orderData?.procurement_list || []} />
-                                                </SheetDescription>
-                                            </SheetHeader>
-                                            {/* </ScrollArea> */}
+                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                                <SheetHeader>
+                                                    <SheetTitle className="text-center">Print PDF</SheetTitle>
+                                                    <SheetDescription>
+                                                        <div className="overflow-auto">
+                                                            <PrintRFQ vendor_id={item} pr_id={orderData.name} itemList={orderData?.procurement_list || []} />
+                                                        </div>
+                                                    </SheetDescription>
+                                                </SheetHeader>
+                                            </ScrollArea>
                                         </SheetContent>
                                     </Sheet>
                                     {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
-                                        <Sheet>
-                                            <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price(s)</SheetTrigger>
-                                            <SheetContent>
-                                                {/* <ScrollArea className="h-[90%] w-[600px] p-2"> */}
+                                    <Sheet>
+                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price(s)</SheetTrigger>
+                                        <SheetContent>
+                                            <ScrollArea className="h-[90%] w-[600px] p-2">
                                                 <SheetHeader className="text-start">
                                                     <div className="flex items-center gap-1">
                                                         <SheetTitle className="text-xl">Enter Price(s)</SheetTitle>
@@ -353,9 +356,9 @@ export const UpdateQuote = () => {
                                                         </Card>
                                                     </SheetDescription>
                                                 </SheetHeader>
-                                                {/* </ScrollArea> */}
-                                            </SheetContent>
-                                        </Sheet>
+                                            </ScrollArea>
+                                        </SheetContent>
+                                    </Sheet>
                                 </div>
                             </div>
                         })}
@@ -368,6 +371,11 @@ export const UpdateQuote = () => {
                                 <SheetHeader className="text-start">
                                     <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
                                     <SheetDescription>
+                                        <div className="flex-1">
+                                            <span className=" text-slim text-sm text-red-700">Note:</span>
+                                            <p className="text-xs"> - This will add a new vendor entry within the system. Only add new vendors here.</p>
+                                            <p className="text-xs"> - This form will automatically add vendors categories from this PR/SB to the vendor.</p>
+                                        </div>
                                         <NewVendor dynamicCategories={orderData?.category_list?.list?.map(item => item.name) || []} prData={orderData} renderCategorySelection={false} navigation={false} />
                                     </SheetDescription>
                                 </SheetHeader>
@@ -384,8 +392,8 @@ export const UpdateQuote = () => {
                                 <AccordionTrigger>
                                     <div className="md:mb-2 text-base md:text-lg px-2  w-full text-left">
                                         <div className="flex-1">
-                                            <span className=" text-base mb-0.5 md:text-lg font-slim">Recently Added Vendors</span>
-                                            <div className="text-sm text-gray-400">Check if you have added a vendor previously and want to update their <span className="text-red-700 italic">category</span> </div>
+                                            <span className=" text-base mb-0.5 md:text-lg font-slim">Recently Added Vendors List</span>
+                                            <div className="text-sm text-gray-400">Here you can add previosuly added vendors to this PR. You can also update a previously added vendor`s <span className="text-red-700 italic">category</span> </div>
                                         </div>
                                     </div>
                                 </AccordionTrigger>

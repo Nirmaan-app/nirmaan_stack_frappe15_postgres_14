@@ -26,7 +26,7 @@ export default function Users() {
 
     console.log("data", data)
 
-    const roleTypeOptions = data?.map((u) => ({label : u?.role_profile.split(" ").slice(1, 3).join(" "), value : u.role_profile}))
+    // const roleTypeOptions = data?.map((u) => ({ label: u?.role_profile.split(" ").slice(1, 3).join(" "), value: u.role_profile }))
 
 
     const columns: ColumnDef<NirmaanUsers>[] = useMemo(
@@ -210,7 +210,8 @@ export default function Users() {
                 {isLoading ? (
                     <TableSkeleton />
                 ) : (
-                    <DataTable columns={columns} data={data || []} roleTypeOptions={roleTypeOptions} />
+                    // <DataTable columns={columns} data={data || []} roleTypeOptions={roleTypeOptions} />
+                    <DataTable columns={columns} data={data || []} />
                 )}
             </div>
         </div>

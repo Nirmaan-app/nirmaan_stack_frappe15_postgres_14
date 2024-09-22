@@ -27,6 +27,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 import { useToast } from "../ui/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { ScrollArea } from "../ui/scroll-area";
 import { PrintRFQ } from "./rfq-pdf";
 
 export const SentBackUpdateQuote = () => {
@@ -415,27 +416,27 @@ export const SentBackUpdateQuote = () => {
                                     <Sheet>
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
                                         <SheetContent>
-                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-                                            <SheetHeader>
-                                                <SheetTitle className="text-center">Print PDF</SheetTitle>
-                                                <SheetDescription>
-                                                    <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []} />
-                                                </SheetDescription>
-                                            </SheetHeader>
-                                            {/* </ScrollArea> */}
+                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                                <SheetHeader>
+                                                    <SheetTitle className="text-center">Print PDF</SheetTitle>
+                                                    <SheetDescription>
+                                                        <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []} />
+                                                    </SheetDescription>
+                                                </SheetHeader>
+                                            </ScrollArea>
                                         </SheetContent>
                                     </Sheet>
                                     <Sheet>
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
                                         <SheetContent >
-                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-                                            <SheetHeader className="text-start">
-                                                <SheetTitle>Enter Price</SheetTitle>
-                                                <SheetDescription>
-                                                    <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
-                                                </SheetDescription>
-                                            </SheetHeader>
-                                            {/* </ScrollArea> */}
+                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
+                                                <SheetHeader className="text-start">
+                                                    <SheetTitle>Enter Price</SheetTitle>
+                                                    <SheetDescription>
+                                                        <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
+                                                    </SheetDescription>
+                                                </SheetHeader>
+                                            </ScrollArea>
                                         </SheetContent>
                                     </Sheet>
                                 </div>
@@ -447,6 +448,11 @@ export const SentBackUpdateQuote = () => {
                                 <SheetHeader className="text-start">
                                     <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
                                     <SheetDescription>
+                                        <div className="flex-1">
+                                            <span className=" text-slim text-sm text-red-700">Note:</span>
+                                            <p className="text-xs"> - This will add a new vendor entry within the system. Only add new vendors here.</p>
+                                            <p className="text-xs"> - This form will automatically add vendors categories from this PR/SB to the vendor.</p>
+                                        </div>
                                         {/* <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} /> */}
                                         <NewVendor dynamicCategories={orderData?.category_list?.list?.map(item => item.name) || []} sentBackData={orderData} renderCategorySelection={false} navigation={false} />
                                     </SheetDescription>
