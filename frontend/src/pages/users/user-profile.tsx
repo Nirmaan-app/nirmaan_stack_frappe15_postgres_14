@@ -41,7 +41,9 @@ export default function Profile() {
         {
             fields: ['name', 'for_value'],
             filters: [["user", "=", id], ["allow", "=", "Projects"]]
-        });
+        },
+        userData.role === "Nirmaan Admin Profile" ? undefined : null
+    );
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
             fields: ["*"]
