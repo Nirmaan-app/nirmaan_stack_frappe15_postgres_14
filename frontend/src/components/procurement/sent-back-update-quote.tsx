@@ -6,7 +6,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus, Download } from 'lucide-react';
+import { ArrowLeft, CirclePlus, Download, Handshake } from 'lucide-react';
 import SentBackQuotationForm from "./sent-back-quotation-form"
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -27,7 +27,6 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 import { useToast } from "../ui/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { ScrollArea } from "../ui/scroll-area";
 import { PrintRFQ } from "./rfq-pdf";
 
 export const SentBackUpdateQuote = () => {
@@ -279,7 +278,7 @@ export const SentBackUpdateQuote = () => {
                                         <span>Add categories</span>
                                     </button>
                                 </SheetTrigger>
-                                <SheetContent>
+                                <SheetContent className="overflow-auto">
                                     <AddVendorCategories vendor_name={vendor_name} isSheet={true} isSentBack={true} />
                                 </SheetContent>
                             </Sheet>
@@ -301,8 +300,7 @@ export const SentBackUpdateQuote = () => {
     return (
         <>
             {page == 'summary' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate('/sent-back-request')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
@@ -359,22 +357,20 @@ export const SentBackUpdateQuote = () => {
                             </Table>
                         </div>
                         <div className="flex items-center space-y-2 pt-8">
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Sent Back Comments</h2>
+                            <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Sent Back Comments</h2>
                         </div>
                         <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
                             {orderData.comments}
                         </div>
-                        <div className="flex flex-col justify-end items-end mt-4">
+                        <div className="flex flex-col justify-end items-end">
                             <Button onClick={() => setPage('quotation')}>
                                 Next
                             </Button>
                         </div>
-                    </div>
-                </div>}
+                    </div>}
             {
                 page == 'quotation' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => setPage('summary')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
@@ -415,28 +411,33 @@ export const SentBackUpdateQuote = () => {
                                 <div className="flex space-x-2">
                                     <Sheet>
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
-                                        <SheetContent>
-                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                                <SheetHeader>
-                                                    <SheetTitle className="text-center">Print PDF</SheetTitle>
-                                                    <SheetDescription>
-                                                        <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []} />
-                                                    </SheetDescription>
-                                                </SheetHeader>
-                                            </ScrollArea>
+                                        <SheetContent className="overflow-auto">
+                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
+                                            <SheetHeader>
+                                                <SheetTitle className="text-center">Print PDF</SheetTitle>
+                                                <SheetDescription>
+                                                    <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []} />
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                            {/* </ScrollArea> */}
                                         </SheetContent>
                                     </Sheet>
                                     <Sheet>
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
-                                        <SheetContent >
-                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                                <SheetHeader className="text-start">
-                                                    <SheetTitle>Enter Price</SheetTitle>
-                                                    <SheetDescription>
-                                                        <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
-                                                    </SheetDescription>
-                                                </SheetHeader>
-                                            </ScrollArea>
+                                        <SheetContent className="overflow-auto">
+                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
+                                            <SheetHeader className="text-start">
+                                                    <div className="flex items-center gap-1">
+                                                        <SheetTitle className="text-xl">Enter Price(s)</SheetTitle>
+                                                        <Handshake className="w-5 h-5 text-primary" />
+                                                    </div>
+                                                <SheetDescription>
+                                                <Card className="p-5">
+                                                    <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
+                                                </Card>
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                            {/* </ScrollArea> */}
                                         </SheetContent>
                                     </Sheet>
                                 </div>
@@ -493,7 +494,6 @@ export const SentBackUpdateQuote = () => {
                             </AccordionItem>
                         </Accordion>
                     </div>
-                </div>
             }
         </>
     )

@@ -26,7 +26,13 @@ export default function Users() {
 
     console.log("data", data)
 
-    // const roleTypeOptions = data?.map((u) => ({ label: u?.role_profile.split(" ").slice(1, 3).join(" "), value: u.role_profile }))
+    const roleTypeOptions = [{label: "Project Manager", value : "Nirmaan Project Manager Profile"}, 
+                             {label: "Project Lead", value : "Nirmaan Project Lead Profile"}, 
+                             {label: "Procurement Executive", value : "Nirmaan Procurement Executive Profile"}, 
+                             {label: "Admin Profile", value : "Nirmaan Admin Profile"},
+                             {label: "Design Executive", value : "Nirmaan Design Executive Profile"}
+                            ]
+
 
 
     const columns: ColumnDef<NirmaanUsers>[] = useMemo(
@@ -155,7 +161,7 @@ export default function Users() {
     if (isLoading) return <h1>Loading</h1>
     if (error) return <h1>error.message</h1>
     return (
-        <div className="flex-1 space-y-4 p-8 pt-6">
+        <div className="flex-1 md:space-y-4 p-4">
             {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
@@ -210,8 +216,7 @@ export default function Users() {
                 {isLoading ? (
                     <TableSkeleton />
                 ) : (
-                    // <DataTable columns={columns} data={data || []} roleTypeOptions={roleTypeOptions} />
-                    <DataTable columns={columns} data={data || []} />
+                    <DataTable columns={columns} data={data || []} roleTypeOptions={roleTypeOptions} />
                 )}
             </div>
         </div>

@@ -25,7 +25,9 @@ export default function ListPR() {
             fields: ["*"],
             orderBy: { field: "creation", order: "desc" },
             limit: 1000
-        });
+        },
+        "Procurement Requests, orderBy(creation-desc)"
+    );
 
     const {data : procurementOrdersList} = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
@@ -48,7 +50,7 @@ export default function ListPR() {
     if (procurement_request_list_error) return <h1>ERROR</h1>;
 
     return (
-            <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
+            <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate('/prs&milestones')} />
                     <h2 className="text-xl pl-2  font-bold tracking-tight">Procurement Requests</h2>

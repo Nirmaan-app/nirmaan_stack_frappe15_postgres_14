@@ -132,8 +132,8 @@ export const ProjectManager = () => {
     return (
         <>
             {/* <MainLayout> */}
-            {page == 'dashboard' && <div className="flex">
-                <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            {page == 'dashboard' &&
+                <div className="flex-1 md:space-y-4 p-4">
                     <div className="flex items-center">
                         {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
                         <h2 className="text-2xl pt-1 pl-2 font-bold tracking-tight">Dashboard</h2>
@@ -152,9 +152,8 @@ export const ProjectManager = () => {
                             <p className="p-4 text-center py-6 font-bold text-white">Update Delivery Notes</p>
                         </div>
                     </div>
-                </div>
             </div>}
-            {page == 'newprlist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
+            {page == 'newprlist' && <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft onClick={() => setPage('dashboard')} />
                     <h2 className="text-base pl-2  font-bold tracking-tight">Procurement Requests</h2>

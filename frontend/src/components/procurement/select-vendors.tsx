@@ -463,8 +463,7 @@ export const SelectVendors = () => {
     return (
         <>
             {page == 'updatequotation' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendor/Item Quotes</h2>
@@ -599,12 +598,10 @@ export const SelectVendors = () => {
                                 </DialogContent>
                             </Dialog>
                         </div>
-                    </div>
-                </div>}
+                    </div>}
             {page == 'approvequotation' &&
                 <>
-                    <div className="flex">
-                        <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                        <div className="flex-1 md:space-y-4 p-4">
                             <div className="flex items-center pt-1 pb-4">
                                 <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
                                 <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
@@ -776,8 +773,6 @@ export const SelectVendors = () => {
                             </Dialog>
                         </div> */}
                         </div>
-
-                    </div>
                     <div className='pl-7'>
                         <ConfigProvider
                             theme={{

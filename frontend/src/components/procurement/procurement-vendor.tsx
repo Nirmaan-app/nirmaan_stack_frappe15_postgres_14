@@ -304,8 +304,7 @@ export const ProcurementOrder = () => {
     return (
         <>
             {page == 'approve' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft className='cursor-pointer' onClick={() => navigate("/procure-request")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Summary </h2>
@@ -407,11 +406,9 @@ export const ProcurementOrder = () => {
                                 Select Vendors
                             </Button>
                         </div>
-                    </div>
-                </div>}
+                    </div>}
             {page == 'vendors' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage("approve")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendors</h2>
@@ -516,8 +513,7 @@ export const ProcurementOrder = () => {
                             </Card>
                         </div>
                         )} */}
-                    </div>
-                </div>}
+                    </div>}
         </>
     )
 }

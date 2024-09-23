@@ -11,8 +11,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react"
-import { ArrowLeft, SquareArrowDown } from 'lucide-react';
+import { useState, useEffect, useRef } from "react"
+import { ArrowLeft, Check, MessageCircleMore, SquareArrowDown, Ticket } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
 import ReactSelect from 'react-select';
 import { CirclePlus } from 'lucide-react';
@@ -115,6 +115,29 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
     const [tax, setTax] = useState<number | null>(null)
+    const [dynamicPage, setDynamicPage] = useState(null)
+    const [comments, setComments] = useState({});
+    const [editingItem, setEditingItem] = useState(null);
+    const inputRef = useRef(null);
+
+    const handleEditClick = (item) => {
+        setEditingItem(item.item);  // Set current editing item
+        setTimeout(() => {
+            inputRef.current?.focus();  // Automatically focus input
+        }, 100);
+    };
+
+    const handleSaveClick = (item) => {
+        const commentValue = inputRef.current.value;
+        // Save comment to the state
+        setComments((prevComments) => ({
+            ...prevComments,
+            [item.item]: commentValue,
+        }));
+        // Disable editing mode
+        setEditingItem(null);
+    };
+
 
     // const [dialogVisible, setDialogVisible] = useState(false)
     const [dialogMessage, setDialogMessage] = useState("")
@@ -299,16 +322,21 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 list: curRequest
             }
         }));
+        setComments(prev => {
+            delete prev[item]
+            return prev
+        })
         setQuantity('')
         setCurItem('')
     }
 
     const { toast } = useToast()
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
-    const handleSubmit = () => {
 
+    const handleApprove = () => {
+        let orderList = orderData.procurement_list.list.map((item) => ({...item, comment : comments[item.item] === undefined ? item.comment || "" :  comments[item.item]}))
         updateDoc('Procurement Requests', orderData.name, {
-            procurement_list: orderData.procurement_list,
+            procurement_list: {list : orderList},
             category_list: orderData.category_list,
             workflow_state: "Approved"
         })
@@ -316,7 +344,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 console.log("orderData2", res)
                 toast({
                     title: "Success!",
-                    description: `PR: ${res?.name} is successfully approved!`,
+                    description: `PR: ${res?.name} is successfully Approved!`,
                     variant: "success"
                 })
                 navigate("/")
@@ -328,6 +356,31 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 })
                 console.log("submit_error", submit_error)
             })
+    }
+
+    const handleReject = async () => {
+        let orderList = orderData.procurement_list.list.map((item) => ({...item, comment : comments[item.item] === undefined ? item.comment || "" :  comments[item.item]}))
+        try {
+            const res = await updateDoc("Procurement Requests", orderData.name, {
+                procurement_list: {list : orderList},
+                category_list: orderData.category_list,
+                workflow_state: "Rejected"
+            })
+
+            toast({
+                title: "Success!",
+                description: `PR: ${res?.name} is successfully Rejected!`,
+                variant: "success"
+            })
+            navigate("/")
+        } catch (error) {
+            toast({
+                title: "Failed!",
+                description: `There was an error while Rejected PR: ${orderData.name}`,
+                variant: "destructive"
+            })
+            console.log("error occured while rejecting PR", error, submit_error)
+        }
     }
 
     const handleCreateItem = () => {
@@ -363,11 +416,13 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             })
     }
 
+    console.log("comments", comments)
+
     return (
         <>
             {page == 'categorylist' &&
                 <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
                             <h2 className="text-lg pl-2 font-bold tracking-tight">Select Category</h2>
@@ -389,12 +444,11 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         </div>
                     </div></div>}
             {page == 'itemlist' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center pt-1  pb-4 ">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate("/approve-order")} />
-                            <h2 className="text-lg pl-2 font-bold tracking-tight">Approve Quantity: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
+                            <h2 className="text-lg pl-2 font-bold tracking-tight">Approve or Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
                         {/* <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
                             <div className="">
@@ -514,8 +568,32 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                         <tbody>
                                             {orderData.procurement_list.list?.map((item) => {
                                                 if (item.category === cat.name) {
+                                                    const isEditing = editingItem === item.item;
                                                     return <tr key={item.item} >
-                                                        <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm text-cent">{item.item}</td>
+                                                        <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm text-cent">
+                                                            {item.item}
+                                                            <div className="flex gap-1 items-center pt-1">
+                                                                <MessageCircleMore className="max-md:w-6 max-md:h-6 h-8 w-8"  />
+                                                                <textarea
+                                                                    ref={isEditing ? inputRef : null}
+                                                                    disabled={!isEditing}
+                                                                    className="block p-1 border-gray-300 border-b w-full"
+                                                                    placeholder="Add comment..."
+                                                                    defaultValue={comments[item.item] === undefined ? item.comment || "" : comments[item.item]}
+                                                                />
+                                                                {isEditing ? (
+                                                                    <Check 
+                                                                        className="max-md:w-6 max-md:h-6 h-8 w-8 text-green-500 cursor-pointer"
+                                                                        onClick={() => handleSaveClick(item)}
+                                                                    />
+                                                                ) : (
+                                                                    <Pencil 
+                                                                        className="max-md:w-6 max-md:h-6 h-8 w-8 text-blue-500 cursor-pointer"
+                                                                        onClick={() => handleEditClick(item)}
+                                                                    />
+                                                                )}
+                                                            </div>
+                                                            </td>
                                                         <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
                                                         <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
                                                         <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
@@ -563,20 +641,32 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                 </div>
                             })}
                         </Card>
-                        <div className="pt-10"></div>
-                        <div className="flex flex-col justify-end items-end">
-                            <Button disabled={!orderData.procurement_list.list.length} className="" onClick={() => setPage('approve')}>
-                                Next
+                        <div className="flex items-center space-y-2 pt-8">
+                            <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
+                        </div>
+                        <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
+                            {orderData.comment}
+                        </div>
+                        <div className="flex gap-4 justify-end items-end mt-4">
+                            <Button disabled={!orderData.procurement_list.list.length} className="" onClick={() => {
+                                setPage('summary')
+                                setDynamicPage("reject")
+                                 }}>
+                                Reject
+                            </Button>
+                            <Button disabled={!orderData.procurement_list.list.length} className="" onClick={() => {
+                                setPage('summary')
+                                setDynamicPage("approve")
+                            }}>
+                                Approve
                             </Button>
                         </div>
 
 
                         {/* <button className="bottom-0 h-8 w-full bg-red-700 rounded-md text-sm text-white" onClick={()=>handleSubmit()}>Next</button> */}
-                    </div>
-                </div>}
-            {page == 'approve' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    </div>}
+            {page == 'summary' &&
+                    <div className="flex-1 md:space-y-4 p-4">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('itemlist')} />
@@ -629,7 +719,15 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
                                                         return (
                                                             <TableRow key={item.item}>
-                                                                <TableCell>{item.item}</TableCell>
+                                                                <TableCell>{item.item}
+                                                                    {dynamicPage === "reject" && (
+                                                                    <div className="flex gap-1 pt-2 items-center">
+                                                                        <MessageCircleMore className="max-md:w-6 max-md:h-6 h-8 w-8" />
+                                                                        <span className="font-semibold">Comments-</span>
+                                                                        <p className={`text-xs ${((comments[item.item] === undefined && !item.comment) || comments[item.item] === "") ? "text-gray-400" : ""}`}>{comments[item.item] === undefined ? item.comment || "No Comments Added" :  comments[item.item] || "No Comments Added"}</p>
+                                                                    </div>
+                                                                    )}
+                                                                </TableCell>
                                                                 <TableCell>{item.unit}</TableCell>
                                                                 <TableCell>{item.quantity}</TableCell>
                                                                 <TableCell className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -700,27 +798,43 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         </div> */}
                         <div className="flex flex-col justify-end items-end">
                             <Dialog>
+                                <div className="flex gap-4">
+                                    <Button onClick={() => setPage("itemlist")}>
+                                        Go Back
+                                    </Button>
                                 <DialogTrigger asChild>
+                                    {dynamicPage === "reject" ? (
                                     <Button>
+                                        Reject
+                                    </Button>
+                                    ) : (
+                                        <Button>
                                         Approve
                                     </Button>
+                                    )}
                                 </DialogTrigger>
+                                </div>
                                 <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>
                                         <DialogTitle>Are you Sure?</DialogTitle>
                                         <DialogDescription>
-                                            Click on Confirm to Approve.
+                                            {dynamicPage === "reject" ? "Click on Confirm to Reject." : "Click on Confirm to Approve."}
                                         </DialogDescription>
                                     </DialogHeader>
                                     <DialogClose>
-                                        <Button variant="default" onClick={() => handleSubmit()}>Confirm</Button>
+                                        {
+                                            dynamicPage === "reject" ? (
+                                                <Button variant="default" onClick={() => handleReject()}>Confirm</Button>
+                                            ) : (
+                                                 <Button variant="default" onClick={() => handleApprove()}>Confirm</Button>
+                                            )
+                                        }
                                     </DialogClose>
                                 </DialogContent>
                             </Dialog>
                         </div>
-                    </div>
-                </div>}
-            {page == 'additem' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
+                    </div>}
+            {page == 'additem' && <div className="flex-1 md:space-y-4 p-4">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => {
@@ -835,7 +949,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
 
                 </div>
             </div>}
-            {page == 'categorylist2' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            {page == 'categorylist2' && <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center space-y-2">
                     <ArrowLeft onClick={() => setPage('additem')} />
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>

@@ -425,11 +425,9 @@ export const SentBackSelectVendor = () => {
     let count: number = 0;
 
     return (
-        // <MainLayout>
         <>
             {page == 'updatequotation' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => navigate(`/sent-back-request/${id}`)} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Select Vendor Quotes</h2>
@@ -545,11 +543,10 @@ export const SentBackSelectVendor = () => {
                                 Confirm
                             </Button>
                         </div>
-                    </div>
-                </div>}
+                    </div>}
             {page == 'approvequotation' &&
-                <><div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                <>
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('updatequotation')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Comparison</h2>
@@ -648,8 +645,8 @@ export const SentBackSelectVendor = () => {
 
 
                         </div>
-                    </div>
                 </div>
+                <div className='pl-7'>
                     <ConfigProvider
                         theme={{
                             token: {
@@ -670,7 +667,8 @@ export const SentBackSelectVendor = () => {
                         />
 
                     </ConfigProvider>
-                    <div className="flex flex-col justify-end items-end">
+                    </div>
+                    <div className="flex flex-col justify-end items-end mr-2">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button>
@@ -700,12 +698,8 @@ export const SentBackSelectVendor = () => {
                             </DialogContent>
                         </Dialog>
                     </div>
-                    <div className="flex flex-col justify-end items-end">
-                        {/* <Button onClick={()=>handleSubmit()}>Send For Approval</Button> */}
-                    </div>
                 </>
             }
         </>
-        // </MainLayout>
     )
 }
