@@ -162,7 +162,7 @@ export default function Profile() {
         })
     }
     return (
-        <div className="min-h-screen p-12 pt-8 max-md:p-8 max-sm:p-4">
+        <div className="flex-1 md:space-y-4 p-4">
             <div className="mx-auto space-y-6 sm:space-y-8">
                 <div className="flex items-center justify-between ">
                     <Button variant="ghost" className="flex items-center gap-2">

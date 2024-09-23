@@ -197,7 +197,7 @@ export default function Items() {
 
     return (
 
-        <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 md:space-y-4 p-4">
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />

@@ -158,8 +158,7 @@ export const ApproveSelectSentBack = () => {
 
 
     return (
-        <div className="flex">
-            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center justify-between space-y-2 pl-2">
                     <h2 className="text-lg font-bold tracking-tight">Approve Sent Back PO</h2>
                 </div>
@@ -198,6 +197,5 @@ export const ApproveSelectSentBack = () => {
                         </table>
                     </div> */}
             </div>
-        </div>
     )
 }

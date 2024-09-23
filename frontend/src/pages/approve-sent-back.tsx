@@ -579,7 +579,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
     return (
         <>
             <div className="flex" >
-                <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                <div className="flex-1 md:space-y-4 p-4">
                     <div className="flex items-center pt-1 pb-4">
                         <ArrowLeft onClick={() => { navigate('/approve-sent-back') }} />
                         <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">{orderData?.type} SB-{orderData?.name?.slice(-4)}</span></h2>

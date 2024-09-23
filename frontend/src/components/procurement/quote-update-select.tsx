@@ -176,8 +176,7 @@ export const QuoteUpdateSelect = () => {
     }
 
     return (
-        <div className="flex">
-            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center justify-between space-y-2">
                     <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Quote Update PR</h2>
                 </div>
@@ -215,6 +214,5 @@ export const QuoteUpdateSelect = () => {
                         </table>
                     </div> */}
             </div>
-        </div>
     )
 }

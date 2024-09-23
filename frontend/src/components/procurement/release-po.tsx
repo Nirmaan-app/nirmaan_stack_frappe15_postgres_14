@@ -194,10 +194,10 @@ export const ReleasePO = () => {
 
     return (
         <>
-            <div >
+            <div className="flex-1 md:space-y-4 p-4">
                 <ResizablePanelGroup className="flex gap-6" direction="horizontal">
                     <ResizablePanel>
-                <div className="mt-10 pl-4">
+                <div className="">
                     <div className="flex justify-between items-center">
                         <div className="flex py-4">
                             <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
