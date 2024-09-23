@@ -1,5 +1,5 @@
 import { Card, CardHeader, CardTitle } from "../ui/card";
-import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { MessageCircleMore, PackagePlus } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
@@ -31,14 +31,7 @@ const NewPR = () => {
     )
 };
 
-interface NewPRPageProps {
-    project: ProjectsType
-}
-
-const NewPRPage = ({ project }: NewPRPageProps) => {
-
-    console.log("bottom", project)
-
+export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setSection }) => {
 
     const navigate = useNavigate();
     const userData = useUserData()
@@ -65,6 +58,13 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
         }
     })
 
+    useEffect(() => {
+        if(rejected_pr_data) {
+            setOrderData(rejected_pr_data)
+            setPage("itemlist")
+        }
+    }, [rejected_pr_data])
+
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
         {
             fields: ['work_package_name', "work_package_image"],
@@ -85,6 +85,7 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
         });
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const {updateDoc, error: update_error} = useFrappeUpdateDoc()
 
     useEffect(() => {
         const newCategories = [];
@@ -197,13 +198,18 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
                 const isDuplicate = curRequest.some((item) => item.name === curValue.name);
                 if (!isDuplicate) {
                     curRequest.push(curValue);
+                    setOrderData((prevState) => ({
+                        ...prevState,
+                        procurement_list: {
+                            list: curRequest,
+                        },
+                    }));
+                } else {
+                    toast({
+                        title : "Invalid Request!",
+                        description: (<span>You are trying to add the <b>item: {curItem}</b> multiple times which is not allowed, instead edit the quantity directly!</span>)
+                    })
                 }
-                setOrderData((prevState) => ({
-                    ...prevState,
-                    procurement_list: {
-                        list: curRequest,
-                    },
-                }));
                 setQuantity('');
                 setCurItem('');
                 setUnit('');
@@ -222,6 +228,7 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
         }));
     }
 
+    const {mutate} = useSWRConfig()
 
     const handleSubmit = () => {
         console.log(userData)
@@ -229,6 +236,8 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
             createDoc('Procurement Requests', orderData)
                 .then((res) => {
                     console.log("newPR", res)
+                    mutate("Procurement Requests, orderBy(creation-desc)")
+                    mutate("Procurement Orders")
                     toast({
                         title: "Success!",
                         description: `New PR: ${res?.name} created successfully!`,
@@ -243,6 +252,32 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
                         variant: "destructive"
                     })
                 })
+        }
+    }
+
+    const handleResolePR = async () => {
+        try {
+            const res = updateDoc("Procurement Requests", orderData.name, {
+                category_list : orderData.category_list,
+                procurement_list: orderData.procurement_list,
+                workflow_state: "Pending"
+            })
+            console.log("newPR", res)
+            mutate("Procurement Requests, orderBy(creation-desc)")
+            mutate("Procurement Orders")
+            toast({
+                title: "Success!",
+                description: `PR: ${orderData?.name} Resolved successfully and Sent for Approval!`,
+                variant: "success"
+            })
+            navigate("/procurement-request")
+        } catch (error) {
+            console.log("Error while resolving Rejected PR", error, update_error)
+            toast({
+                title: "Failed!",
+                description: `Resolving PR: ${orderData.name} Failed!`,
+                variant: "destructive"
+            })
         }
     }
     const handleAddItem = () => {
@@ -306,10 +341,11 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
     }
 
     // console.log("project", JSON.parse(project.project_work_packages))
+    console.log("orderData", orderData)
 
     return (
         <>
-            {page == 'wplist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
+            {(page == 'wplist' && !rejected_pr_data)  && <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/procurement-request")} />
                     <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
@@ -331,26 +367,27 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
                     ))}
                 </div>
             </div>}
-            {page == 'categorylist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
+            {page == 'categorylist' && <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center pt-1 pb-4">
+                {!rejected_pr_data && (
                     <Dialog>
-                        <DialogTrigger asChild>
-                            <ArrowLeft className="cursor-pointer" />
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-[425px]">
-                            <DialogHeader>
-                                <DialogTitle>Reset Order List?</DialogTitle>
-                                <DialogDescription>
-                                    Going back to work package selection will clear your current order list. Are you sure?
-                                </DialogDescription>
-                            </DialogHeader>
-                            <DialogClose>
-                                <Button onClick={() => setPage('wplist')}>Yes</Button>
-                                <Button variant="secondary" className="ml-3">No</Button>
-                            </DialogClose>
-                        </DialogContent>
-                    </Dialog>
-
+                    <DialogTrigger asChild>
+                        <ArrowLeft className="cursor-pointer" />
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                            <DialogTitle>Reset Order List?</DialogTitle>
+                            <DialogDescription>
+                                Going back to work package selection will clear your current order list. Are you sure?
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogClose>
+                            <Button onClick={() => setPage('wplist')}>Yes</Button>
+                            <Button variant="secondary" className="ml-3">No</Button>
+                        </DialogClose>
+                    </DialogContent>
+                </Dialog>
+                )}
                     <h2 className="text-base pl-2 font-bold tracking-tight">Select Category</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -371,14 +408,25 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
                     })}
                 </div>
             </div>}
-            {page == 'itemlist' && <div className="flex-1 space-x-2 space-y-2.5 md:space-y-4 p-2 md:p-12 pt-6">
+            {page == 'itemlist' && <div className="flex-1 md:space-y-4 p-4">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => {
-                        setCurItem("")
-                        setMake("")
-                        setPage('categorylist')
-                    }} />
+                    {
+                        !rejected_pr_data ? (
+                            <ArrowLeft className="cursor-pointer" onClick={() => {
+                                setCurItem("")
+                                setMake("")
+                                setPage('categorylist')
+                            }} />
+                        ) : (
+                            <ArrowLeft className="cursor-pointer" onClick={() => {
+                                setCurItem("")
+                                setMake("")
+                                setSection("pr-summary")
+                            }} />
+                        )
+                    }
+                    
                     <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                 </div>
                 <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
@@ -497,29 +545,30 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
 
                 <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
                     <h3 className="font-bold py-1 flex"><MessageCircleMore className="w-5 h-5 mt-0.5" />Comments</h3>
-                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Write comments here..." onChange={handleCommentChange} />
+                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Write comments here..." defaultValue={orderData.comment || ""} onChange={handleCommentChange} />
                 </Card>
                 <Dialog>
                     <DialogTrigger asChild>
-                        {Object.keys(orderData.procurement_list.list).length !== 0 ?
-                            <Button className="bottom-0 h-8 w-[95%] mt-4 md:w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</Button>
-                            :
-                            <Button disabled={true} variant="secondary" className="bottom-0 h-8 w-[95%] mt-4 md:w-full rounded-md text-sm">Confirm and Submit</Button>}
+                            <Button disabled={!orderData.procurement_list.list.length ? true : false} variant={`${!orderData.procurement_list.list.length ? "secondary" : "destructive"}`} className="bottom-0 h-8 w-[95%] mt-4 md:w-full rounded-md text-sm">{!rejected_pr_data ? "Confirm and Submit" : "Resolve PR"}</Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
                             <DialogTitle>Are you Sure</DialogTitle>
                             <DialogDescription>
-                                Click on Confirm to create new PR.
+                                {!rejected_pr_data ? "Click on Confirm to create new PR." : "Click on Confirm to resolve and send the PR for Approval"}
                             </DialogDescription>
                         </DialogHeader>
                         <DialogClose>
-                            <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
+                            {!rejected_pr_data ? (
+                                <Button onClick={() => handleSubmit()}>Confirm</Button>
+                            ) : (
+                                <Button onClick={handleResolePR}>Confirm</Button>
+                            )}
                         </DialogClose>
                     </DialogContent>
                 </Dialog>
             </div>}
-            {page == 'additem' && <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-12 pt-6">
+            {page == 'additem' && <div className="flex-1 md:space-y-4 p-4">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => {
@@ -631,7 +680,7 @@ const NewPRPage = ({ project }: NewPRPageProps) => {
 
                 </div>
             </div>}
-            {page == 'categorylist2' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            {page == 'categorylist2' && <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center space-y-2">
                     {/* <ArrowLeft onClick={() => setPage('wplist')} /> */}
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
