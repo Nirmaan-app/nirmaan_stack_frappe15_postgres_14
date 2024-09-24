@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ColumnDef } from "@tanstack/react-table";
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeDocTypeEventListener, useFrappeEventListener, FrappeContext } from "frappe-react-sdk";
 import { ArrowLeft, CirclePlus, HardHat, ShoppingCart } from "lucide-react";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useContext } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,9 @@ import { Badge } from "@/components/ui/badge";
 import { Items as ItemsType } from "@/types/NirmaanStack/Items"
 
 export default function Items() {
+
+    const context = useContext(FrappeContext)
+    console.log(context)
 
     const [curItem, setCurItem] = useState('');
     const [make, setMake] = useState('');
@@ -51,6 +54,10 @@ export default function Items() {
             setCategoryOptions(currOptions);
         }
     }, [category_list]);
+
+    useFrappeEventListener("items:created", (event) => {
+        console.log("ITEMS ADDED REALTIME EVENT")
+    })
 
     const columns: ColumnDef<ItemsType>[] = useMemo(
         () => [

@@ -147,6 +147,9 @@ doc_events = {
         # IMPLEMENT ON_UPDATE
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.update_vendor_category",
         "on_trash": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.delete_vendor_category"
+    },
+    "Items": {
+        "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert" 
     }
     # "Procurement Requests": {
     #     "on_submit": "nirmaan_stack.nirmaan_stack.doctype.pr_category.pr_category.generate_pr_category"

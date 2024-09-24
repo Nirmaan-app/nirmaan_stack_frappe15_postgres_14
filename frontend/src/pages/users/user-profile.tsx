@@ -10,9 +10,9 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeEventListener, useFrappeDocTypeEventListener, useSWRConfig, FrappeContext } from "frappe-react-sdk";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
-import { useState } from "react";
+import { useState, useContext } from "react";
 import { DialogClose } from "@radix-ui/react-dialog";
 import { ArrowLeft, CirclePlus, Mail, MapPin, Phone, Plus, Trash2 } from "lucide-react";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
@@ -26,6 +26,10 @@ interface SelectOption {
 }
 
 export default function Profile() {
+
+    const context = useContext(FrappeContext)
+    console.log(context)
+
     const [curProj, setCurProj] = useState('')
 
     const { id } = useParams<{ id: string }>()
@@ -77,13 +81,29 @@ export default function Profile() {
     const { deleteDoc: deleteDoc, loading: delete_loading, isCompleted: delete_complete, error: delete_error } = useFrappeDeleteDoc()
     const { mutate } = useSWRConfig()
 
+    useFrappeEventListener('user: project added', () => {
+        console.log("SOMETHING HAPPENED")
+    })
+
+    useFrappeDocTypeEventListener("User Permission", () => {
+        console.log("New UP added!!!")
+    })
+
+    useFrappeDocTypeEventListener('Items', () => {
+        toast({
+            title: "triggered",
+            description: `triggered notification`,
+            variant: "destructive"
+        })
+    })
+
     const handleSubmit = () => {
         createDoc('User Permission', {
             user: id,
             allow: "Projects",
             for_value: curProj
-        }).then(() => {
-            console.log(id)
+        }).then((doc) => {
+            console.log("after_create", doc.user)
             toast({
                 title: "Success!",
                 description: `Successfully assigned ${getProjectName(curProj).projectName}`,
@@ -127,7 +147,7 @@ export default function Profile() {
         if (permission_id) {
             deleteDoc("User Permission", permission_id.name)
                 .then((doc) => {
-                    console.log(doc)
+                    console.log('after_delete', doc)
                     toast({
                         title: "Success!",
                         description: `${project} unlinked for ${id}`,
