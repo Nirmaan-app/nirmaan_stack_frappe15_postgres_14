@@ -16,6 +16,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { useToast } from "../ui/use-toast";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NewPRSkeleton } from "../ui/skeleton";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 const NewPR = () => {
 
@@ -41,11 +42,25 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
     const [curItem, setCurItem] = useState<string>('')
     const [curCategory, setCurCategory] = useState<string>('')
     const [unit, setUnit] = useState<string>('')
-    const [quantity, setQuantity] = useState<number | string>('')
+    const [quantity, setQuantity] = useState<number | null | string>(null)
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
     const [tax, setTax] = useState<number | null>(null)
+    const [comments, setComments] = useState({});
+    const [universalComment, setUniversalComment] = useState<string | null>(null)
+
+    const handleCommentChange = (e) => {
+        setUniversalComment(e.target.value === "" ? null : e.target.value)
+    }
+
+
+    const handleItemCommentChange = (item, e) => {
+        setComments((prevComments) => ({
+            ...prevComments,
+            [item.item]: e.target.value,
+        }));
+    };
 
     const [orderData, setOrderData] = useState({
         project: project.name,
@@ -63,7 +78,15 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
             setOrderData(rejected_pr_data)
             setPage("itemlist")
         }
-    }, [rejected_pr_data])
+    }, [])
+
+    const {data: universalComments} = useFrappeGetDocList("Comment", {
+        fields: ["*"],
+        filters: [["reference_name", "=", rejected_pr_data?.name]],
+        orderBy: {field: "creation", order: "desc"}
+    },
+    `${rejected_pr_data ? `Comment,filters(reference_name,${rejected_pr_data.name})` : null}`
+    )
 
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
         {
@@ -219,52 +242,75 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
         }
     };
 
-
-
-    const handleCommentChange = (e) => {
-        setOrderData((prevState) => ({
-            ...prevState,
-            comment: e.target.value,
-        }));
-    }
-
     const {mutate} = useSWRConfig()
 
-    const handleSubmit = () => {
-        console.log(userData)
-        if (userData?.role === "Nirmaan Project Manager Profile" || userData?.role === "Nirmaan Admin Profile" || userData?.role === "Nirmaan Procurement Executive Profile" || userData?.role === "Nirmaan Project Lead Profile") {
-            createDoc('Procurement Requests', orderData)
-                .then((res) => {
-                    console.log("newPR", res)
-                    mutate("Procurement Requests, orderBy(creation-desc)")
-                    mutate("Procurement Orders")
-                    toast({
-                        title: "Success!",
-                        description: `New PR: ${res?.name} created successfully!`,
-                        variant: "success"
-                    })
-                    navigate("/procurement-request")
-                }).catch(() => {
-                    console.log("submit_error", submit_error)
-                    toast({
-                        title: "Failed!",
-                        description: `PR Creation failed!`,
-                        variant: "destructive"
-                    })
-                })
-        }
-    }
+    console.log("quantity", quantity)
 
-    const handleResolePR = async () => {
+    const handleSubmit = async () => {
+        if (
+            userData?.role === "Nirmaan Project Manager Profile" || 
+            userData?.role === "Nirmaan Admin Profile" || 
+            userData?.role === "Nirmaan Procurement Executive Profile" || 
+            userData?.role === "Nirmaan Project Lead Profile"
+        ) {
+            try {
+                const res = await createDoc('Procurement Requests', orderData);
+
+                if(universalComment) {
+                    await createDoc("Comment", {
+                        comment_type : "Comment",
+                        reference_doctype : "Procurement Requests",
+                        reference_name : res.name,
+                        comment_by : userData?.user_id,
+                        content: universalComment
+                    })
+                }
+                console.log("newPR", res);
+                await mutate("Procurement Requests, orderBy(creation-desc)");
+                await mutate("Procurement Orders");
+    
+                toast({
+                    title: "Success!",
+                    description: `New PR: ${res?.name} created successfully!`,
+                    variant: "success",
+                });
+    
+                navigate("/procurement-request");
+            } catch (error) {
+                console.log("submit_error", error);
+    
+                toast({
+                    title: "Failed!",
+                    description: `PR Creation failed!`,
+                    variant: "destructive",
+                });
+            }
+        }
+    };
+    
+
+    const handleResolvePR = async () => {
         try {
             const res = updateDoc("Procurement Requests", orderData.name, {
                 category_list : orderData.category_list,
                 procurement_list: orderData.procurement_list,
+                comment: orderData.comment,
                 workflow_state: "Pending"
             })
+
+            if(universalComment) {
+                await createDoc("Comment", {
+                    comment_type : "Comment",
+                    reference_doctype : "Procurement Requests",
+                    reference_name : res.name,
+                    comment_by : userData?.user_id,
+                    content: universalComment
+                })
+            }
             console.log("newPR", res)
             mutate("Procurement Requests, orderBy(creation-desc)")
             mutate("Procurement Orders")
+            mutate(`Procurement Requests ${orderData.name}`)
             toast({
                 title: "Success!",
                 description: `PR: ${orderData?.name} Resolved successfully and Sent for Approval!`,
@@ -310,9 +356,11 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
 
     const handleSave = (itemName: string, newQuantity: string) => {
         let curRequest = orderData.procurement_list.list;
+
+        console.log("comments of item name", comments[itemName])
         curRequest = curRequest.map((curValue) => {
             if (curValue.item === itemName) {
-                return { ...curValue, quantity: parseInt(newQuantity) };
+                return { ...curValue, quantity: parseInt(newQuantity), comment : comments[itemName] === undefined ? curValue.comment || "" :  comments[itemName] || "" };
             }
             return curValue;
         });
@@ -327,6 +375,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
         setQuantity('')
         setCurItem('')
     };
+
     const handleDelete = (item: string) => {
         let curRequest = orderData.procurement_list.list;
         curRequest = curRequest.filter(curValue => curValue.item !== item);
@@ -339,9 +388,6 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
         setQuantity('')
         setCurItem('')
     }
-
-    // console.log("project", JSON.parse(project.project_work_packages))
-    console.log("orderData", orderData)
 
     return (
         <>
@@ -400,7 +446,6 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                                             <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.image_url === null ? imageUrl : item.image_url} alt="Category" />
                                             <span>{item.category_name}</span>
                                         </CardTitle>
-                                        {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
                                     </CardHeader>
                                 </Card>
                             );
@@ -409,19 +454,20 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                 </div>
             </div>}
             {page == 'itemlist' && <div className="flex-1 md:space-y-4 p-4">
-                {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
                     {
                         !rejected_pr_data ? (
                             <ArrowLeft className="cursor-pointer" onClick={() => {
                                 setCurItem("")
                                 setMake("")
+                                setQuantity(null)
                                 setPage('categorylist')
                             }} />
                         ) : (
                             <ArrowLeft className="cursor-pointer" onClick={() => {
                                 setCurItem("")
                                 setMake("")
+                                setQuantity(null)
                                 setSection("pr-summary")
                             }} />
                         )
@@ -443,6 +489,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                     <button className="text-sm py-2 md:text-lg text-blue-400 flex" onClick={() => {
                         setCurItem("")
                         setMake("")
+                        setQuantity(null)
                         setPage('categorylist')
                     }}><PackagePlus className="w-5 h-5 mt- pr-1" />Change Category</button>
                 </div>
@@ -450,7 +497,6 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                 <div className="flex space-x-2">
                     <div className="w-1/2 md:w-2/3">
                         <h5 className="text-xs text-gray-400">Items</h5>
-                        {/* <DropdownMenu items={item_lists} onSelect={handleSelect} /> */}
                         <ReactSelect value={{ value: curItem, label: `${curItem}${make ? "-" + make : ""}` }} options={item_options} onChange={handleChange} />
                     </div>
                     <div className="flex-1">
@@ -459,7 +505,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                     </div>
                     <div className="flex-1">
                         <h5 className="text-xs text-gray-400">Qty</h5>
-                        <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
+                        <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value === "" ? null : parseInt(e.target.value))} value={quantity} type="number" />
                     </div>
                 </div>
                 <div className="flex justify-between md:space-x-0 mt-2">
@@ -476,60 +522,76 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                         orderData.category_list?.list?.map((cat) => {
                             return <div className="container mb-4 mx-0 px-0">
                                 <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
-                                <table className="table-auto w-[95%]">
+                                <table className="table-auto md:w-full">
                                     <thead>
                                         <tr className="bg-gray-200">
-                                            <th className="px-4 py-1 text-xs">Item Name</th>
-                                            <th className="px-4 py-1 pl-10 text-xs">Unit</th>
-                                            <th className="px-4 py-1 text-xs">Quantity</th>
-                                            <th className="px-4 py-1 text-xs">Edit</th>
+                                            <th className="w-[60%] text-left px-4 py-1 text-xs">Item Name</th>
+                                            <th className="w-[20%] px-4 py-1 text-xs text-center">Unit</th>
+                                            <th className="w-[10%] px-4 py-1 text-xs text-center">Quantity</th>
+                                            <th className="w-[10%] px-4 py-1 text-xs text-center">Edit</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {orderData.procurement_list.list?.map((item) => {
                                             if (item.category === cat.name) {
                                                 return <tr key={item.item} >
-                                                    <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.item}</td>
-                                                    <td className="border-b-2 px-4 py-1 pl-10 text-xs text-gray-700 text-center">{item.unit}</td>
-                                                    <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">{item.quantity}</td>
-                                                    <td className="border-b-2 px-4 py-1 text-xs text-gray-700 text-center">
-                                                        <Dialog className="border border-gray-200">
-                                                            <DialogTrigger><Pencil className="w-4 h-4" /></DialogTrigger>
-                                                            <DialogContent>
-                                                                <DialogHeader>
-                                                                    <DialogTitle className="text-left py-2">Edit Item</DialogTitle>
-                                                                    <DialogDescription className="flex flex-row">
-                                                                    </DialogDescription>
-                                                                    <DialogDescription className="flex flex-row">
-                                                                        <div className="flex space-x-2">
-                                                                            <div className="w-1/2 md:w-2/3">
-                                                                                <h5 className="text-xs text-gray-400 text-left">Items</h5>
-                                                                                <div className=" w-full border rounded-lg px-1 py-2 text-left">
-                                                                                    {item.item}
+                                                    <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
+                                                        {item.item}
+                                                            {item.comment && 
+                                                            <div className="flex gap-1 items-center">
+                                                                <MessageCircleMore className="w-6 h-6" />
+                                                                <input disabled type="text" value={item.comment} className="block border rounded-md p-1 md:w-[60%]" />
+                                                            </div>
+                                                            }
+                                                    </td>
+                                                    <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
+                                                    <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
+                                                    <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
+                                                        <AlertDialog>
+                                                                <AlertDialogTrigger onClick={() => setQuantity(parseInt(item.quantity))}><Pencil className="w-4 h-4" /></AlertDialogTrigger>
+                                                                <AlertDialogContent>
+                                                                    <AlertDialogHeader>
+                                                                        <AlertDialogTitle className="flex justify-between">Edit Item
+                                                                            <AlertDialogCancel onClick={() => setQuantity('')} className="border-none shadow-none p-0">X</AlertDialogCancel>
+                                                                        </AlertDialogTitle>
+                                                                        <AlertDialogDescription className="flex flex-col gap-2">
+                                                                            <div className="flex space-x-2">
+                                                                                <div className="w-1/2 md:w-2/3">
+                                                                                    <h5 className="text-base text-gray-400 text-left mb-1">Item Name</h5>
+                                                                                    <div className="w-full  p-1 text-left">
+                                                                                        {item.item}
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="w-[30%]">
+                                                                                    <h5 className="text-base text-gray-400 text-left mb-1">UOM</h5>
+                                                                                    <div className=" w-full  p-2 text-center justify-left flex">
+                                                                                        {item.unit}
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="w-[25%]">
+                                                                                    <h5 className="text-base text-gray-400 text-left mb-1">Qty</h5>
+                                                                                    <input type="number" defaultValue={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value !== "" ? parseInt(e.target.value) : null)} />
                                                                                 </div>
                                                                             </div>
-                                                                            <div className="w-[30%]">
-                                                                                <h5 className="text-xs text-gray-400 text-left">UOM</h5>
-                                                                                <div className="h-[37px] w-full pt-1 text-left">
-                                                                                    {item.unit}
-                                                                                </div>
+                                                                            <div className="flex gap-1 items-center pt-1">
+                                                                                <MessageCircleMore className="h-8 w-8"  />
+                                                                                <textarea
+                                                                                    className="block p-2 border-gray-300 border rounded-md w-full"
+                                                                                    placeholder="Add comment..."
+                                                                                    onChange={(e) => handleItemCommentChange(item, e)}
+                                                                                    defaultValue={item.comment || ""}
+                                                                                />
                                                                             </div>
-                                                                            <div className="w-[25%]">
-                                                                                <h5 className="text-xs text-gray-400 text-left">Qty</h5>
-                                                                                <input type="number" placeholder={item.quantity} className="min-h-[30px] rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
+                                                                        </AlertDialogDescription>
+                                                                        <AlertDialogDescription className="flex justify-end">
+                                                                            <div className="flex gap-2">
+                                                                                <AlertDialogAction className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</AlertDialogAction>
+                                                                                <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}>Save</AlertDialogAction>
                                                                             </div>
-                                                                        </div>
-                                                                    </DialogDescription>
-                                                                    <DialogDescription className="flex flex-row justify-between">
-                                                                        <div></div>
-                                                                        <div className="flex botton-4 right-4 gap-2">
-                                                                            <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                            <DialogClose><Button disabled={quantity === "0"} onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
-                                                                        </div>
-                                                                    </DialogDescription>
-                                                                </DialogHeader>
-                                                            </DialogContent>
-                                                        </Dialog>
+                                                                        </AlertDialogDescription>
+                                                                    </AlertDialogHeader>
+                                                                </AlertDialogContent>
+                                                            </AlertDialog>
                                                     </td>
                                                 </tr>
                                             }
@@ -545,11 +607,17 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
 
                 <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
                     <h3 className="font-bold py-1 flex"><MessageCircleMore className="w-5 h-5 mt-0.5" />Comments</h3>
-                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Write comments here..." defaultValue={orderData.comment || ""} onChange={handleCommentChange} />
+                    {rejected_pr_data && (
+                        <div className="relative py-4">
+                            <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
+                            <span className="relative left-[15%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span>
+                        </div>
+                    )}
+                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Write comments here..." defaultValue={orderData.comment || ""} onChange={(e) => handleCommentChange(e)} />
                 </Card>
                 <Dialog>
                     <DialogTrigger asChild>
-                            <Button disabled={!orderData.procurement_list.list.length ? true : false} variant={`${!orderData.procurement_list.list.length ? "secondary" : "destructive"}`} className="bottom-0 h-8 w-[95%] mt-4 md:w-full rounded-md text-sm">{!rejected_pr_data ? "Confirm and Submit" : "Resolve PR"}</Button>
+                            <Button disabled={!orderData.procurement_list.list.length ? true : false} variant={`${!orderData.procurement_list.list.length ? "secondary" : "destructive"}`} className="h-8 w-full mt-4 w-full rounded-md text-sm">{!rejected_pr_data ? "Confirm and Submit" : "Resolve PR"}</Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
@@ -562,18 +630,18 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                             {!rejected_pr_data ? (
                                 <Button onClick={() => handleSubmit()}>Confirm</Button>
                             ) : (
-                                <Button onClick={handleResolePR}>Confirm</Button>
+                                <Button onClick={handleResolvePR}>Confirm</Button>
                             )}
                         </DialogClose>
                     </DialogContent>
                 </Dialog>
             </div>}
             {page == 'additem' && <div className="flex-1 md:space-y-4 p-4">
-                {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => {
                         setCurItem("")
                         setMake("")
+                        setQuantity(null)
                         setPage('itemlist')
                     }} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
@@ -607,16 +675,6 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
                 </div>
-                {/* <div className="mb-4">
-                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
-                    <input
-                        type="text"
-                        id="itemUnit"
-                        value={unit}
-                        onChange={(e) => setUnit(e.target.value)}
-                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    />
-                </div> */}
                 <div className="mb-4">
                     <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
                     <Select onValueChange={(value) => setUnit(value)}>
@@ -635,26 +693,14 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                             <SelectItem value="PAIRS">PAIRS</SelectItem>
                             <SelectItem value="PACKS">PACKS</SelectItem>
                             <SelectItem value="DRUM">DRUM</SelectItem>
-                            {/* <SelectItem value="COIL">COIL</SelectItem> */}
                             <SelectItem value="SQMTR">SQMTR</SelectItem>
                             <SelectItem value="LTR">LTR</SelectItem>
-                            {/* <SelectItem value="PAC">PAC</SelectItem> */}
-                            {/* <SelectItem value="BAG">BAG</SelectItem> */}
                             <SelectItem value="BUNDLE">BUNDLE</SelectItem>
                             <SelectItem value="FEET">FEET</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
-                {/* <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Image</label>
-                    <input
-                        type="text"
-                        id="itemUnit"
-                        value={unit}
-                        onChange={(e) => setUnit(e.target.value)}
-                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    /> */}
                 <div className="py-8">
-                    <div className="">
                         <Dialog>
                             <DialogTrigger asChild>
                                 {(curItem && unit) ?
@@ -676,8 +722,6 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                                 </DialogClose>
                             </DialogContent>
                         </Dialog>
-                    </div>
-
                 </div>
             </div>}
             {page == 'categorylist2' && <div className="flex-1 md:space-y-4 p-4">
