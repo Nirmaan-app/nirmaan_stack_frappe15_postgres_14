@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, MessageCircleMore } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
@@ -14,6 +14,7 @@ import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanS
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { formatDate } from '@/utils/FormatDate';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -38,9 +39,23 @@ const columns: TableColumnsType<DataType> = [
         key: 'item',
         render: (text, record) => {
             return (
-                <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
-                    {text}
-                </span>
+                <div className="inline items-baseline">
+                        <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+                            {text}
+                            </span>
+                        {(!record.children && record.comment) && (
+                          <HoverCard>
+                          <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                          <HoverCardContent className="max-w-[300px]">
+                          <div className="relative pb-4">
+                              <span className="block">{record.comment}</span>
+                              <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                          </div>
+
+                            </HoverCardContent>
+                        </HoverCard>
+                        )}
+                        </div>
             )
         }
     },
@@ -152,6 +167,11 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst'],
             limit: 1000
         });
+        const {data: universalComments} = useFrappeGetDocList("Comment", {
+            fields: ["*"],
+            filters: [["reference_name", "=", pr_data.name]],
+            orderBy: {field: "creation", order: "desc"}
+        })
     // const { data: project_list } = useFrappeGetDocList("Projects",
     //     {
     //         fields: ['name', 'project_name', 'project_address', 'procurement_lead'],
@@ -336,6 +356,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             unit: item.unit,
                             quantity: item.quantity,
                             category: item.category,
+                            comment : item.comment,
                             tax: Number(item.tax),
                             rate: price,
                             amount: price * item.quantity,
@@ -415,7 +436,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                         unit: item.unit,
                         item: item.item,
                         category: item.category,
-                        tax: item.tax
+                        tax: item.tax,
+                        comment : item.comment
                     });
                 }
             });
@@ -534,7 +556,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     quote: price,
                     unit: value.unit,
                     category: value.category,
-                    status: "Pending"
+                    status: "Pending",
+                    comment : value.comment
                 };
             });
 
@@ -988,6 +1011,12 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
+                {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by)).length ? (
+                <div className="relative py-4 px-10">
+                    <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
+                    <span className="relative left-[5%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span>
+                </div>
+                ) : ""}
             <div className="flex items-center pt-1  pb-4">
                 <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
             </div>
