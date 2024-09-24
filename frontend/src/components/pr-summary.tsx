@@ -1,6 +1,6 @@
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, MessageCircleMore } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -18,7 +18,7 @@ const PRSummary = () => {
 
     const project_id = id?.split('-')[1];
 
-    const { data: pr_data, error: pr_error, isLoading: prLoading } = useFrappeGetDoc<ProcurementRequests>("Procurement Requests", id);
+    const { data: pr_data, error: pr_error, isLoading: prLoading } = useFrappeGetDoc<ProcurementRequests>("Procurement Requests", id, `Procurement Requests ${id}`);
 
     const { data: project, error: project_error, isLoading: projectLoading } = useFrappeGetDocList<Projects>("Projects", {
         fields: ['name', 'project_name', 'project_address'],
@@ -133,12 +133,13 @@ const PRSummaryPage = ({ pr_data, project, address, po_data }: PRSummaryPageProp
                                                                 return (
                                                                     <TableRow key={item.item}>
                                                                         <TableCell>{item.item}
-                                                                            {pr_data.workflow_state === "Rejected" && (
+                                                                            {/* {pr_data.workflow_state === "Rejected" && ( */}
                                                                                 <div className="flex gap-1 pt-2 items-center">
-                                                                                    <span className="font-semibold">Comments-</span>
-                                                                                    <p className={`text-xs ${!item.comment ? "text-gray-400" : ""}`}>{item.comment || "No Comments Added"}</p>
+                                                                                    {/* <span className="font-semibold">Comments-</span> */}
+                                                                                    <MessageCircleMore className="w-6 h-6 text-blue-400" />
+                                                                                    <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
                                                                                 </div>
-                                                                            )}
+                                                                            {/* )} */}
                                                                         </TableCell>
                                                                         <TableCell>{item.unit}</TableCell>
                                                                         <TableCell>{item.quantity}</TableCell>

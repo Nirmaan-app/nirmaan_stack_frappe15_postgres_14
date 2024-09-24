@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, MessageCircleMore } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
@@ -17,6 +17,7 @@ import { Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import { useToast } from '../ui/use-toast';
 import { formatDate } from '@/utils/FormatDate';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -38,7 +39,28 @@ const columns: TableColumnsType<DataType> = [
     {
         title: 'Items',
         dataIndex: 'item',
-        key: 'item'
+        key: 'item',
+        render: (text, record) => {
+            return (
+                    <div className="inline items-baseline">
+                        <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+                            {text}
+                            </span>
+                        {(!record.children && record.comment) && (
+                          <HoverCard>
+                          <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                          <HoverCardContent className="max-w-[300px]">
+                          <div className="relative pb-4">
+                              <span className="block">{record.comment}</span>
+                              <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                          </div>
+
+                            </HoverCardContent>
+                        </HoverCard>
+                        )}
+                        </div>
+            )
+        }
     },
     {
         title: 'Unit',
@@ -175,6 +197,7 @@ export const SelectVendors = () => {
                             key: item.name,
                             unit: item.unit,
                             quantity: item.quantity,
+                            comment : item.comment || "",
                             category: item.category,
                             rate: selectedVendors[item.name] ? price : "Delayed",
                             amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
@@ -269,7 +292,8 @@ export const SelectVendors = () => {
                     unit: value.unit,
                     category: value.category,
                     tax: value.tax,
-                    status: "Pending"
+                    status: "Pending",
+                    comment: value.comment || ""
                 })
 
                 delayedItems.push(value.name);
@@ -534,8 +558,22 @@ export const SelectVendors = () => {
 
                                                     if (item.category === cat.name) {
                                                         return <tr>
-                                                            <td className="py-2 text-sm px-2 font-slim border-b w-[40%]">
-                                                                {item.item}
+                                                            <td className="py-2 text-sm px-2 font-slim w-[40%]">
+                                                                <div className="inline items-baseline">
+                                                                  <span>{item.item}</span>
+                                                                  {item.comment && (
+                                                                    <HoverCard>
+                                                                    <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                                                                    <HoverCardContent className="max-w-[300px]">
+                                                                    <div className="relative pb-4">
+                                                                        <span className="block">{item.comment}</span>
+                                                                        <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                                                                    </div>
+                    
+                                                                    </HoverCardContent>
+                                                                </HoverCard>
+                                                                )}
+                                                                </div>
                                                             </td>
                                                             {selectedCategories[curCategory]?.map((value) => {
                                                                 const price = getPrice(value, item.name);

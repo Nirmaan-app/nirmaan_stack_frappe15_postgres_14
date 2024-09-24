@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
-import { FileArgs, useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk"
+import {  useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk"
 import {
     SheetClose
 } from "@/components/ui/sheet"
 import { Button } from "../ui/button";
 import { TailSpin } from "react-loader-spinner";
-import { ScrollArea } from "@radix-ui/react-scroll-area";
-
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import { MessageCircleMore } from "lucide-react";
 
 interface Category {
     name: string;
@@ -33,9 +33,11 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            fields: ["*"],
             limit: 1000
-        });
+        },
+        "Procurement Requests"
+    );
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
             fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
@@ -92,6 +94,17 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         const quantity = procurement_list?.list.find(value => value.name === item)?.quantity
         return quantity
     }
+
+    const getComment = (item) => {
+        const procurement_list = procurement_request_list?.find(value => value.name === pr_id)?.procurement_list.list
+        return procurement_list?.find((i) => i.name === item)?.comment || ""
+    }
+
+    const procurement_list = procurement_request_list?.find(value => value.name === pr_id)?.procurement_list.list
+
+    console.log("procurement_list", procurement_list)
+
+
     const handlePriceChange = (item: string, value: number) => {
         const new_qrid = quotation_request_list?.find(q => q.item === item)?.name;
         const existingIndex = quotationData.list.findIndex(q => q.qr_id === new_qrid);
@@ -232,7 +245,20 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                         if (q.category === cat.name && q.vendor === vendor_id) {
                             return <div className="flex space-x-2">
                                 <ul className="mt-2 pl-5 w-1/2 text-black flex-shrink-0 list-disc">
-                                    <li className="">{getItem(q.item)}</li>
+                                    <li className="flex gap-1 items-center">{getItem(q.item)}
+                                        {getComment(q.item) && (
+                                                <HoverCard>
+                                                <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6" /></HoverCardTrigger>
+                                                <HoverCardContent className="max-w-[300px]">
+                                                <div className="relative pb-4">
+                                                    <span className="block">{getComment(q.item)}</span>
+                                                    <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                                                </div>
+
+                                                </HoverCardContent>
+                                            </HoverCard>
+                                        )}
+                                    </li>
                                 </ul>
                                 <div className="flex-1">
                                     <Input type="text" disabled={true} placeholder={getUnit(q.item)} />

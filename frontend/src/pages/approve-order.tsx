@@ -1,4 +1,4 @@
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Dialog,
     DialogContent,
@@ -11,12 +11,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect, useRef } from "react"
-import { ArrowLeft, Check, MessageCircleMore, SquareArrowDown, Ticket } from 'lucide-react';
+import { useState, useEffect } from "react"
+import { ArrowLeft, MessageCircleMore } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
 import ReactSelect from 'react-select';
 import { CirclePlus } from 'lucide-react';
-import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Pencil, X } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectValue, SelectTrigger } from "@/components/ui/select";
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
@@ -26,18 +26,15 @@ import { formatDate } from "@/utils/FormatDate";
 import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-
-// const ProjectInfo = (id: String) => {
-//     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", id);
-
-// }
+import TextArea from "antd/es/input/TextArea";
+import { useUserData } from "@/hooks/useUserData";
 
 const ApprovePRList = () => {
 
     const { id } = useParams<{ id: string }>()
     const [project, setProject] = useState()
     const [owner, setOwner] = useState()
-    const { data: pr, isLoading: pr_loading, error: pr_error } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id);
+    const { data: pr, isLoading: pr_loading, error: pr_error } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id, `Procurement Requests ${id}`);
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
     const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
 
@@ -46,12 +43,9 @@ const ApprovePRList = () => {
             setProject(pr?.project)
             setOwner(pr?.owner)
         }
-        else {
-            return
-        }
     }, [pr, pr_loading, project, owner])
 
-    console.log("within 1st component", owner_data)
+    // console.log("within 1st component", owner_data)
     if (pr_loading || project_loading || owner_loading) return <h1>Loading...</h1>
     if (pr_error || project_error || owner_error) return <h1>Error</h1>
     return (
@@ -70,6 +64,7 @@ interface ApprovePRListPageProps {
 const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListPageProps) => {
 
     const navigate = useNavigate()
+    const userData = useUserData()
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -83,21 +78,18 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             orderBy: { field: 'creation', order: 'desc' },
             limit: 1000
         });
-    // const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-    //     {
-    //         fields: ['name', 'project_name', 'project_address']
-    //     });
-    // const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
-    //     {
-    //         fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'category_list'],
-    //         limit: 1000
-    //     });
 
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['item', 'quote'],
             limit: 2000
         });
+    
+    const {data: universalComments} = useFrappeGetDocList("Comment", {
+        fields: ["*"],
+        filters: [["reference_name", "=", pr_data.name]],
+        orderBy: {field: "creation", order: "desc"}
+    })
 
     const { createDoc: createDoc, error: update_error } = useFrappeCreateDoc()
 
@@ -110,38 +102,27 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const [curItem, setCurItem] = useState<string>('')
     const [curCategory, setCurCategory] = useState<string>('')
     const [unit, setUnit] = useState<string>('')
-    const [quantity, setQuantity] = useState<number | string>('')
+    const [quantity, setQuantity] = useState<number | null | string>(null)
     const [item_id, setItem_id] = useState<string>('');
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
     const [tax, setTax] = useState<number | null>(null)
-    const [dynamicPage, setDynamicPage] = useState(null)
+    const [dynamicPage, setDynamicPage] = useState<string | null>(null)
     const [comments, setComments] = useState({});
-    const [editingItem, setEditingItem] = useState(null);
-    const inputRef = useRef(null);
+    const [universalComment, setUniversalComment] = useState<string | null>(null)
 
-    const handleEditClick = (item) => {
-        setEditingItem(item.item);  // Set current editing item
-        setTimeout(() => {
-            inputRef.current?.focus();  // Automatically focus input
-        }, 100);
-    };
-
-    const handleSaveClick = (item) => {
-        const commentValue = inputRef.current.value;
-        // Save comment to the state
+    const handleCommentChange = (item, e) => {
         setComments((prevComments) => ({
             ...prevComments,
-            [item.item]: commentValue,
+            [item.item]: e.target.value,
         }));
-        // Disable editing mode
-        setEditingItem(null);
     };
 
+    const handleUniversalCommentChange = (e) => {
+        setUniversalComment(e.target.value === "" ? null : e.target.value)
+    }
 
-    // const [dialogVisible, setDialogVisible] = useState(false)
     const [dialogMessage, setDialogMessage] = useState("")
-
 
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
@@ -153,8 +134,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 list: [...prevState.list, { name: categoryName }]
             }));
         }
-        console.log("categories2", categories)
     };
+
     const handleCategoryClick = (category: string, value: string) => {
         addCategory(category);
         setPage(value);
@@ -173,11 +154,9 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     })
     useEffect(() => {
         if (!orderData.project) {
-            // procurement_request_list?.map(item => {
-            // if (item.name === id) {
             let mod_pr_data = { ...pr_data, procurement_list: JSON.parse(pr_data?.procurement_list) }
             setOrderData(mod_pr_data);
-            console.log("within effect 1", pr_data, orderData)
+            // console.log("within effect 1", pr_data, orderData)
             JSON.parse(pr_data?.procurement_list).list.map((items) => {
                 const isDuplicate = categories.list.some(category => category.name === items.category);
                 if (!isDuplicate) {
@@ -186,10 +165,9 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         list: [...prevState.list, { name: items.category }]
                     }));
                 }
-                console.log("within effect 2", categories)
+                // console.log("within effect 2", categories)
             });
-            // }
-            // });
+
             setCategories(prevState => ({
                 ...prevState,
                 list: prevState.list.filter((category, index, self) =>
@@ -201,7 +179,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         }
     }, [pr_data]);
 
-    const item_lists: string[] = [];
     const item_options: string[] = [];
 
     if (curCategory) {
@@ -298,7 +275,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         let curRequest = orderData.procurement_list.list;
         curRequest = curRequest.map((curValue) => {
             if (curValue.item === itemName) {
-                return { ...curValue, quantity: parseInt(newQuantity) };
+                return { ...curValue, quantity: parseInt(newQuantity), comment : comments[itemName] === undefined ? curValue.comment || "" :  comments[itemName] || "" };
             }
             return curValue;
         });
@@ -312,7 +289,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         setCurItem('')
     };
 
-    console.log("orderData", orderData)
     const handleDelete = (item: string) => {
         let curRequest = orderData.procurement_list.list;
         curRequest = curRequest.filter(curValue => curValue.item !== item);
@@ -330,42 +306,66 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         setCurItem('')
     }
 
+    console.log("userdata", userData)
     const { toast } = useToast()
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
 
-    const handleApprove = () => {
-        let orderList = orderData.procurement_list.list.map((item) => ({...item, comment : comments[item.item] === undefined ? item.comment || "" :  comments[item.item]}))
-        updateDoc('Procurement Requests', orderData.name, {
-            procurement_list: {list : orderList},
-            category_list: orderData.category_list,
-            workflow_state: "Approved"
-        })
-            .then((res) => {
-                console.log("orderData2", res)
-                toast({
-                    title: "Success!",
-                    description: `PR: ${res?.name} is successfully Approved!`,
-                    variant: "success"
-                })
-                navigate("/")
-            }).catch(() => {
-                toast({
-                    title: "Failed!",
-                    description: `${submit_error?.message}`,
-                    variant: "destructive"
-                })
-                console.log("submit_error", submit_error)
-            })
-    }
+    const handleApprove = async () => {
+        try {
+            const res = await updateDoc('Procurement Requests', orderData.name, {
+                procurement_list: orderData.procurement_list,
+                category_list: orderData.category_list,
+                workflow_state: "Approved"
+            });
 
+            if(universalComment) {
+                await createDoc("Comment", {
+                    comment_type : "Comment",
+                    reference_doctype : "Procurement Requests",
+                    reference_name : res.name,
+                    comment_by : userData?.user_id,
+                    content: universalComment
+                })
+            }
+    
+            console.log("orderData2", res);
+    
+            toast({
+                title: "Success!",
+                description: `PR: ${res?.name} is successfully Approved!`,
+                variant: "success"
+            });
+    
+            navigate("/");
+        } catch (submit_error) {
+            toast({
+                title: "Failed!",
+                description: `${submit_error?.message}`,
+                variant: "destructive"
+            });
+    
+            console.log("submit_error", submit_error);
+        }
+    };    
+
+    console.log("universal", universalComment)
     const handleReject = async () => {
-        let orderList = orderData.procurement_list.list.map((item) => ({...item, comment : comments[item.item] === undefined ? item.comment || "" :  comments[item.item]}))
         try {
             const res = await updateDoc("Procurement Requests", orderData.name, {
-                procurement_list: {list : orderList},
+                procurement_list: orderData.procurement_list,
                 category_list: orderData.category_list,
                 workflow_state: "Rejected"
             })
+
+            if(universalComment) {
+                await createDoc("Comment", {
+                    comment_type : "Comment",
+                    reference_doctype : "Procurement Requests",
+                    reference_name : orderData.name,
+                    comment_by : userData?.user_id,
+                    content: universalComment
+                })
+            }
 
             toast({
                 title: "Success!",
@@ -416,8 +416,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             })
     }
 
-    console.log("comments", comments)
-
     return (
         <>
             {page == 'categorylist' &&
@@ -436,7 +434,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                 <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.image_url === null ? imageUrl : item.image_url} alt="Category" />
                                                 <span>{item.category_name}</span>
                                             </CardTitle>
-                                            {/* <HardHat className="h-4 w-4 text-muted-foreground" /> */}
                                         </CardHeader>
                                     </Card>
                                 }
@@ -445,22 +442,10 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     </div></div>}
             {page == 'itemlist' &&
                     <div className="flex-1 md:space-y-4 p-4">
-                        {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center pt-1  pb-4 ">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate("/approve-order")} />
                             <h2 className="text-lg pl-2 font-bold tracking-tight">Approve or Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
-                        {/* <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
-                            <div className="">
-                                <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
-                                <h3 className=" font-semibold text-sm md:text-lg">{project_list?.find(item => item.name === orderData?.project)?.project_name}</h3>
-                            </div>
-                            <div className="">
-                                <h5 className="text-gray-500 text-xs md:test-base">Package</h5>
-                                <h3 className=" font-semibold text-sm md:text-lg">{orderData.work_package}</h3>
-                            </div>
-                        </div> */}
-
                         <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-red-700">Date:</p>
@@ -478,11 +463,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                 <p className="text-left py-1 font-light text-sm text-red-700">Created By:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                             </div>
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-red-700">PR Number:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-
                         </Card>
 
                         {curCategory === '' && <button className="text-lg text-blue-400 flex p-2" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1" /> Add Missing Items</button>}
@@ -519,7 +499,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                     </div>
                                     <div className="flex-1">
                                         <h5 className="text-xs text-gray-400">Qty</h5>
-                                        <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value)} value={quantity} type="number" />
+                                        <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value === "" ? null : parseInt(e.target.value))} value={quantity} type="number" />
                                     </div>
                                 </div>
                                 <div className="flex justify-between mt-4">
@@ -560,49 +540,35 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                         <thead>
                                             <tr className="bg-gray-200">
                                                 <th className="w-[60%] text-left px-4 py-1 text-xs">Item Name</th>
-                                                <th className="w-[20%] px-4 py-1 text-xs">Unit</th>
-                                                <th className="w-[10%] px-4 py-1 text-xs">Quantity</th>
-                                                <th className="w-[10%] px-4 py-1 text-xs">Edit</th>
+                                                <th className="w-[20%] px-4 py-1 text-xs text-center">Unit</th>
+                                                <th className="w-[10%] px-4 py-1 text-xs text-center">Quantity</th>
+                                                <th className="w-[10%] px-4 py-1 text-xs text-center">Edit</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {orderData.procurement_list.list?.map((item) => {
                                                 if (item.category === cat.name) {
-                                                    const isEditing = editingItem === item.item;
-                                                    return <tr key={item.item} >
-                                                        <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm text-cent">
+                                                    return <tr key={item.item}>
+                                                        <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
                                                             {item.item}
-                                                            <div className="flex gap-1 items-center pt-1">
-                                                                <MessageCircleMore className="max-md:w-6 max-md:h-6 h-8 w-8"  />
-                                                                <textarea
-                                                                    ref={isEditing ? inputRef : null}
-                                                                    disabled={!isEditing}
-                                                                    className="block p-1 border-gray-300 border-b w-full"
-                                                                    placeholder="Add comment..."
-                                                                    defaultValue={comments[item.item] === undefined ? item.comment || "" : comments[item.item]}
-                                                                />
-                                                                {isEditing ? (
-                                                                    <Check 
-                                                                        className="max-md:w-6 max-md:h-6 h-8 w-8 text-green-500 cursor-pointer"
-                                                                        onClick={() => handleSaveClick(item)}
-                                                                    />
-                                                                ) : (
-                                                                    <Pencil 
-                                                                        className="max-md:w-6 max-md:h-6 h-8 w-8 text-blue-500 cursor-pointer"
-                                                                        onClick={() => handleEditClick(item)}
-                                                                    />
-                                                                )}
+                                                            {item.comment && 
+                                                            <div className="flex gap-1 items-center">
+                                                                <MessageCircleMore className="w-6 h-6" />
+                                                                <input disabled type="text" value={item.comment} className="block border rounded-md p-1 md:w-[60%]" />
                                                             </div>
-                                                            </td>
+                                                            }
+                                                        </td>
                                                         <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
                                                         <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
                                                         <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
-                                                            <Dialog className="border border-gray-200">
-                                                                <DialogTrigger><Pencil className="w-4 h-4" /></DialogTrigger>
-                                                                <DialogContent>
-                                                                    <DialogHeader>
-                                                                        <DialogTitle>Edit Item</DialogTitle>
-                                                                        <DialogDescription className="flex flex-row">
+                                                            <AlertDialog>
+                                                                <AlertDialogTrigger onClick={() => setQuantity(parseInt(item.quantity))}><Pencil className="w-4 h-4" /></AlertDialogTrigger>
+                                                                <AlertDialogContent>
+                                                                    <AlertDialogHeader>
+                                                                        <AlertDialogTitle className="flex justify-between">Edit Item
+                                                                            <AlertDialogCancel onClick={() => setQuantity('')} className="border-none shadow-none p-0">X</AlertDialogCancel>
+                                                                        </AlertDialogTitle>
+                                                                        <AlertDialogDescription className="flex flex-col gap-2">
                                                                             <div className="flex space-x-2">
                                                                                 <div className="w-1/2 md:w-2/3">
                                                                                     <h5 className="text-base text-gray-400 text-left mb-1">Item Name</h5>
@@ -618,20 +584,28 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                                                 </div>
                                                                                 <div className="w-[25%]">
                                                                                     <h5 className="text-base text-gray-400 text-left mb-1">Qty</h5>
-                                                                                    <input type="number" placeholder={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value)} />
+                                                                                    <input type="number" defaultValue={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value !== "" ? parseInt(e.target.value) : null)} />
                                                                                 </div>
                                                                             </div>
-                                                                        </DialogDescription>
-                                                                        <DialogDescription className="flex flex-row justify-between">
-                                                                            <div></div>
-                                                                            <div className="flex botton-4 right-4 gap-2">
-                                                                                <Button className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</Button>
-                                                                                <DialogClose><Button disabled={quantity === "0"} onClick={() => handleSave(item.item, quantity)}>Save</Button></DialogClose>
+                                                                            <div className="flex gap-1 items-center pt-1">
+                                                                                <MessageCircleMore className="h-8 w-8"  />
+                                                                                <textarea
+                                                                                    className="block p-2 border-gray-300 border rounded-md w-full"
+                                                                                    placeholder="Add comment..."
+                                                                                    onChange={(e) => handleCommentChange(item, e)}
+                                                                                    defaultValue={item.comment || ""}
+                                                                                />
                                                                             </div>
-                                                                        </DialogDescription>
-                                                                    </DialogHeader>
-                                                                </DialogContent>
-                                                            </Dialog>
+                                                                        </AlertDialogDescription>
+                                                                        <AlertDialogDescription className="flex justify-end">
+                                                                            <div className="flex gap-2">
+                                                                                <AlertDialogAction className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</AlertDialogAction>
+                                                                                <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}>Save</AlertDialogAction>
+                                                                            </div>
+                                                                        </AlertDialogDescription>
+                                                                    </AlertDialogHeader>
+                                                                </AlertDialogContent>
+                                                            </AlertDialog>
                                                         </td>
                                                     </tr>
                                                 }
@@ -645,7 +619,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
                         </div>
                         <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
-                            {orderData.comment}
+                            {universalComments?.filter((comment) => ["Nirmaan Admin Profile", "Nirmaan Project Manager Profile"].includes(comment.comment_by))[0]?.content}
                         </div>
                         <div className="flex gap-4 justify-end items-end mt-4">
                             <Button disabled={!orderData.procurement_list.list.length} className="" onClick={() => {
@@ -720,13 +694,10 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                         return (
                                                             <TableRow key={item.item}>
                                                                 <TableCell>{item.item}
-                                                                    {dynamicPage === "reject" && (
                                                                     <div className="flex gap-1 pt-2 items-center">
-                                                                        <MessageCircleMore className="max-md:w-6 max-md:h-6 h-8 w-8" />
-                                                                        <span className="font-semibold">Comments-</span>
-                                                                        <p className={`text-xs ${((comments[item.item] === undefined && !item.comment) || comments[item.item] === "") ? "text-gray-400" : ""}`}>{comments[item.item] === undefined ? item.comment || "No Comments Added" :  comments[item.item] || "No Comments Added"}</p>
+                                                                        <MessageCircleMore className="h-6 w-6 text-blue-400" />
+                                                                        <p className={`text-xs ${!item.comment ? "text-gray-400" : ""}`}>{item.comment || "No Comments"}</p>
                                                                     </div>
-                                                                    )}
                                                                 </TableCell>
                                                                 <TableCell>{item.unit}</TableCell>
                                                                 <TableCell>{item.quantity}</TableCell>
@@ -761,6 +732,10 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                 </table> */}
                                     </div>
                                 })}
+                                <div className="flex flex-col gap-2 py-4 px-4">
+                                    <h2 className="text-base font-bold tracking-tight">Add Comments</h2>
+                                    <TextArea placeholder="type here..." defaultValue={universalComment || ""} onChange={handleUniversalCommentChange} />
+                                </div>
                             </div>
                         </div>
                         {/* <div className="overflow-x-auto">

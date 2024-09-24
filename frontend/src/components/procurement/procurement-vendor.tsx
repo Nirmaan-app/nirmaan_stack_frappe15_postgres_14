@@ -5,7 +5,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus } from 'lucide-react';
+import { ArrowLeft, CirclePlus, MessageCircleMore } from 'lucide-react';
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -24,6 +24,7 @@ import { AddVendorCategories } from "../forms/addvendorcategories";
 import { Badge } from "../ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 
 export const ProcurementOrder = () => {
 
@@ -63,7 +64,7 @@ export const ProcurementOrder = () => {
             filters: [["name", "=", orderId]],
             limit: 1000
         },
-        `Procurement Requests ${orderId}`
+        `Procurement Requests, filters(name,${orderId})`
     );
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
@@ -301,6 +302,8 @@ export const ProcurementOrder = () => {
         }
     };
 
+    console.log("orderdata", orderData)
+
     return (
         <>
             {page == 'approve' &&
@@ -355,7 +358,20 @@ export const ProcurementOrder = () => {
                                                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
                                                         return (
                                                             <TableRow key={item.item}>
-                                                                <TableCell>{item.item}</TableCell>
+                                                                <TableCell className="flex gap-1 items-center">{item.item}
+                                                                    {item.comment && (
+                                                                    <HoverCard>
+                                                                        <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6" /></HoverCardTrigger>
+                                                                        <HoverCardContent className="max-w-[300px]">
+                                                                        <div className="relative pb-4">
+                                                                            <span className="block">{item.comment}</span>
+                                                                            <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                                                                        </div>
+
+                                                                        </HoverCardContent>
+                                                                    </HoverCard>
+                                                                    )}
+                                                                </TableCell>
                                                                 <TableCell>{item.unit}</TableCell>
                                                                 <TableCell>{item.quantity}</TableCell>
                                                                 <TableCell>{minQuote ? minQuote * item.quantity : "N/A"}</TableCell>
