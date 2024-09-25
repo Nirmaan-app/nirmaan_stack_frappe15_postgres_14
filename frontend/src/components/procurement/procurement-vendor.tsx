@@ -13,7 +13,7 @@ import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom";
 import { Button } from '@/components/ui/button'
 import { NewVendor } from '@/pages/vendors/new-vendor';
-import { ButtonLoading } from '../button-loading';
+import { ButtonLoading } from '../ui/button-loading';
 import { DataTable } from '../data-table/data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ColumnDef } from "@tanstack/react-table";

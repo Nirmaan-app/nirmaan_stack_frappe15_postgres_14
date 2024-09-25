@@ -234,19 +234,19 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
     };
 
     return (
-        <div className="flex-1 px-12 max-md:px-8 max-sm:px-4 pt-6">
+        <div className="flex-1 md:space-y-4 p-4">
             <div className="space-y-0.5">
                 <div className="flex space-x-2 items-center">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/customers/${id}`)} />
                     <h2 className="text-2xl font-bold tracking-tight">Edit Customer</h2>
                 </div>
             </div>
-            <Separator className="my-6" />
+            <Separator className="my-6 max-md:my-2" />
             <Form {...form}>
                 <form onSubmit={(event) => {
                     event.stopPropagation();
                     return form.handleSubmit(onSubmit)(event);
-                }} className="space-y-8">
+                }} className="space-y-8 px-6 max-md:px-2">
                     <FormField
                         control={form.control}
                         name="company_name"

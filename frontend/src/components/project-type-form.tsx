@@ -13,7 +13,7 @@ import {
 import {DialogClose} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
-import { ButtonLoading } from "./button-loading"
+import { ButtonLoading } from "./ui/button-loading"
 import { toast } from "./ui/use-toast"
 
 const projectTypeFormSchema = z.object({

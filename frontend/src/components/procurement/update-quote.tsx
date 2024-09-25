@@ -174,14 +174,14 @@ export const UpdateQuote = () => {
                 },
                 cell: ({ row }) => {
                     const vendor_name = row.getValue("vendor_name")
-                    const vendorCategories = row.getValue("vendor_category").categories || [];
+                    const vendorCategories = row.getValue("vendor_category")?.categories || [];
                     return (
                         <>
                             {!isButtonDisabled(vendorCategories) && (
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                         <Button variant={"outline"} className="font-light max-md:text-xs border-green-500 py-6 flex flex-col items-start">
-                                            <div className="w-[300px] text-wrap flex flex-col">
+                                            <div className="w-[250px] text-wrap flex flex-col">
                                                 <span className="text-red-500 font-semibold">{vendor_name}</span>
                                                 <span>Add to PR</span>
                                             </div>
@@ -284,6 +284,8 @@ export const UpdateQuote = () => {
             })
     }
 
+    const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
+
     return (
         <>
             {page == 'quotation' &&
@@ -382,6 +384,13 @@ export const UpdateQuote = () => {
                             </Button>
                         </div>
 
+                        <div className="pl-2 flex gap-1 items-center pt-10 flex-wrap">
+                            <span className="font-light max-md:text-sm">All Categories of this PR: </span>
+                            {orderData?.category_list?.list.map((cat) => (
+                                <Badge>{cat.name}</Badge>
+                            ))}
+                        </div>
+
                         <Accordion type="multiple" defaultValue={["Vendors"]}>
                             <AccordionItem value="Vendors">
                                 <AccordionTrigger>
@@ -397,7 +406,7 @@ export const UpdateQuote = () => {
                                         <Card className=''>
                                             <CardHeader>
                                                 <CardContent>
-                                                    <DataTable columns={columns} data={vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name)) || []} category_options={categoryOptions} />
+                                                    <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
                                                 </CardContent>
                                             </CardHeader>
                                         </Card>

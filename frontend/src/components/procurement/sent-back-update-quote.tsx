@@ -38,12 +38,6 @@ export const SentBackUpdateQuote = () => {
         limit: 1000
     })
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
-        {
-            fields: ['*'],
-            limit: 1000
-        });
-
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
             fields: ["*"],
@@ -70,9 +64,6 @@ export const SentBackUpdateQuote = () => {
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
-    }
-    const getPackage = (name: string) => {
-        return procurement_request_list?.find(item => item.name === name)?.work_package;
     }
 
     const [page, setPage] = useState<string>('summary')
@@ -197,7 +188,7 @@ export const SentBackUpdateQuote = () => {
                 },
                 cell: ({ row }) => {
                     const vendor_name = row.getValue("vendor_name")
-                    const vendorCategories = row.getValue("vendor_category").categories || [];
+                    const vendorCategories = row.getValue("vendor_category")?.categories || [];
                     return (
                         <>
                             {!isButtonDisabled(vendorCategories) && (
@@ -295,7 +286,9 @@ export const SentBackUpdateQuote = () => {
         [orderData, isButtonDisabled, vendor_list]
     )
 
-    console.log("orderData", orderData)
+    // console.log("orderData", orderData)
+
+    const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
 
     return (
         <>
@@ -481,15 +474,13 @@ export const SentBackUpdateQuote = () => {
                                     </Button>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                    <div className="">
-                                        <Card className=''>
+                                        <Card>
                                             <CardHeader>
                                                 <CardContent>
-                                                    <DataTable columns={columns} data={vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name)) || []} category_options={categoryOptions} />
+                                                    <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
                                                 </CardContent>
                                             </CardHeader>
                                         </Card>
-                                    </div>
                                 </AccordionContent>
                             </AccordionItem>
                         </Accordion>

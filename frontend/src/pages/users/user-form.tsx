@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
-import { ButtonLoading } from "@/components/button-loading"
+import { ButtonLoading } from "@/components/ui/button-loading"
 import { useNavigate } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
@@ -118,12 +118,12 @@ export const UserForm = () => {
                         </div>
                 </div>
                 
-            <Separator className="my-6" />
+            <Separator className="my-6 max-md:my-2" />
             <Form {...form}>
                 <form onSubmit={(event) => {
                     event.stopPropagation();
                     return form.handleSubmit(onSubmit)(event);
-                }} className="px-8 flex flex-col gap-4">
+                }} className="px-6 max-md:px-2 flex flex-col gap-4">
                         <p className="text-sky-600 font-semibold">User Details</p>
                         <FormField
                             control={form.control}
@@ -229,7 +229,7 @@ export const UserForm = () => {
                                 </FormItem>
                             )}
                         />
-                        <div className="flex items-center lg:justify-center">
+                        <div className="flex items-center justify-end lg:justify-center">
                             {loading ? (
                                 <ButtonLoading />
                             ) : (

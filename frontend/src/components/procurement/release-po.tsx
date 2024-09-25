@@ -607,6 +607,9 @@ export const ReleasePO = () => {
                                         <br />
                                         <br />
                                         <br />
+                                        <br />
+                                        <br />
+
                                         <h1 className="text-xl font-bold mb-4">General Terms & Conditions for Purchase Order</h1>
                                         <ol className="list-decimal pl-6 space-y-2 text-sm">
                                             <li className="pl-2"><div className="font-semibold">Liquidity Damages:</div> Liquidity damages shall be applied at 2.5% of the order value for every day of delay.</li>

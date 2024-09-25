@@ -244,7 +244,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
 
     const {mutate} = useSWRConfig()
 
-    console.log("quantity", quantity)
+    // console.log("quantity", quantity)
 
     const handleSubmit = async () => {
         if (

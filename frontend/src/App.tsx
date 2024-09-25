@@ -1,15 +1,14 @@
 // import { useState } from 'react'
 import { FrappeProvider } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
-import { Routes, Route, RouterProvider, createBrowserRouter, createHashRouter, createRoutesFromElements } from 'react-router-dom'
+import {  Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
 import Login from './pages/auth/old-login'
 import Projects from './pages/projects/projects'
 import Customers from './pages/customers/customers'
 import WorkPackages from './pages/work-packages'
-import EditProject from './pages/projects/edit-project'
 import Profile from './pages/users/user-profile'
-import { EditProjectForm } from './components/edit-project-form'
+import { EditProjectForm } from './pages/projects/edit-project-form'
 import { ApprovePR } from './pages/approve-pr'
 import { PRList } from './components/procurement/procurement-approved'
 import { ProcurementOrder } from './components/procurement/procurement-vendor'
@@ -25,8 +24,8 @@ import { SelectVendorList } from './components/procurement/select-vendor-list'
 import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
 import { PDF } from './pages/pdf'
 //import { useStickyState } from './hooks/useStickyState'
-import { ThemeProvider } from './components/theme-provider'
-import { AdminRoute, LeadRoute, ProtectedRoute } from './utils/auth/ProtectedRoute'
+import { ThemeProvider } from './components/ui/theme-provider'
+import {  ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
 
 //import AuthenticationPage from './pages/auth/login-shadcn'
@@ -37,12 +36,12 @@ import { ApproveSelectVendor } from './pages/approve-select-vendor'
 // import { ApproveVendor } from './pages/approve-vendor'
 // import { PRSummary } from './components/pr-summary'
 import { UserForm } from './pages/users/user-form'
-import Items from './pages/items'
+import Items from './pages/Items/items'
 
 import Vendors from './pages/vendors/vendors'
 
 import ListPR from './components/procurement-request/list-pr'
-import { EditVendor } from './pages/edit-vendor'
+import { EditVendor } from './pages/vendors/edit-vendor'
 import { FC } from 'react'
 import { MainLayout } from './components/layout/main-layout'
 import { ProjectManager } from './components/dashboard-pm'
@@ -56,6 +55,7 @@ import { NewVendor } from './pages/vendors/new-vendor'
 import NewMilestones from './components/updates/NewMilestones'
 import DeliveryNotes from './pages/DeliveryNotes/deliverynotes'
 import DeliveryNote from './pages/DeliveryNotes/deliverynote'
+import { ProjectForm } from './pages/projects/project-form'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -108,7 +108,7 @@ const router = createBrowserRouter(
 
 					<Route path="projects">
 						<Route index element={<Projects />} />
-						<Route path="new" element={<EditProject />} />
+						<Route path="new" element={<ProjectForm />} />
 						<Route
 							path=":projectId"
 							// loader={(({ params }) => {
@@ -130,7 +130,7 @@ const router = createBrowserRouter(
 
 					<Route path="items" >
 						<Route index element={<Items />} />
-						<Route path=":itemId" lazy={() => import('@/pages/item')} />
+						<Route path=":itemId" lazy={() => import('@/pages/Items/item')} />
 					</Route>
 
 					<Route path="vendors">
