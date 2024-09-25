@@ -6,7 +6,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
-import { ButtonLoading } from "@/components/button-loading"
+import { ButtonLoading } from "@/components/ui/button-loading"
 import ReactSelect from 'react-select';
 import { useState, useEffect, useCallback } from "react"
 import { Link, useNavigate } from "react-router-dom"
@@ -351,7 +351,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     }
 
     return (
-        <div className={`flex-1 space-x-2 ${navigation ? " md:space-y-4 px-12 max-md:px-8 max-sm:px-4 pt-6" : ""} `}>
+        <div className={`flex-1 space-x-2 ${navigation ? "flex-1 md:space-y-4 p-4" : ""} `}>
             {navigation && (
                 <div className="flex gap-1">
                     <Link to="/vendors"><ArrowLeft className="mt-1.5" /></Link>
@@ -364,12 +364,12 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 </div>
             )}
 
-            <Separator className="my-6" />
+            <Separator className="my-6 max-md:my-2" />
             <Form {...form}>
                 <form onSubmit={(event) => {
                     event.stopPropagation();
                     return form.handleSubmit(onSubmit)(event);
-                }} className="space-y-8">
+                }} className="space-y-8 px-6 max-md:px-2">
                     <FormField
                         control={form.control}
                         name="vendor_name"
