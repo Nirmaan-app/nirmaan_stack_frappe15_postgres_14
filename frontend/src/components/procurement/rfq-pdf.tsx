@@ -1,13 +1,76 @@
-import { MainLayout } from "@/components/layout/main-layout";
-import { useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
+import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useState, useEffect, useRef } from "react"
-import React from 'react';
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 import { formatDate } from "@/utils/FormatDate";
+import * as pdfjsLib from 'pdfjs-dist';
+import sample_pdf2 from "@/assets/somatosensory.pdf"
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
 
 export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
+
+    const {data : boqAttachments} = useFrappeGetDocList("Category BOQ Attachments", {
+        fields: ["*"],
+        filters: [["procurement_request", "=", pr_id]]
+    })
+
+    console.log("BOQ Attachments", boqAttachments)
+
+    const [pdfImages, setPdfImages] = useState({});
+
+    const [categoryForVendor, setCategoryVendor] = useState(new Set())
+
+        const loadPdfAsImages = async (pdfData, category) => {
+          try {
+        
+            const response = await fetch(pdfData, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/pdf',
+              },
+            });
+        
+            if (!response.ok) {
+              throw new Error(`Failed to fetch PDF: ${response.statusText}`);
+            }
+        
+            const pdfArrayBuffer = await response.arrayBuffer();
+        
+            const loadingTask = pdfjsLib.getDocument({ data: pdfArrayBuffer });
+            const pdf = await loadingTask.promise;
+        
+            const pages = [];
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+              const page = await pdf.getPage(pageNum);
+            
+              const viewport = page.getViewport({ scale: 1.5 });
+              const canvas = document.createElement('canvas');
+              const context = canvas.getContext('2d');
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+            
+              await page.render({ canvasContext: context, viewport }).promise;
+              const imgData = canvas.toDataURL();
+              pages.push(imgData);
+            }
+        
+            setPdfImages((prevData) => ({
+              ...prevData,
+              [category]: pages,
+            }));
+          } catch (error) {
+            console.error('Failed to load PDF as images:', error);
+          }
+        };
+
+        useEffect(() => {
+            boqAttachments?.forEach((boq) => {
+                loadPdfAsImages(`http://localhost:8000${boq.boq}`, boq.category)
+            })
+        }, [boqAttachments]);
+
+        console.log("pdfImages", pdfImages)
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
@@ -41,21 +104,37 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
         name: ''
     });
 
+    const addCategory = (category) => {
+        setCategoryVendor((prevSet) => new Set([...prevSet, category]));
+      };
+    
+      // useEffect to extract and add unique categories when itemList changes
+      useEffect(() => {
+        if (itemList && itemList.list) {
+          // Extract unique categories based on the provided condition
+          const uniqueCategories = new Set(
+            itemList.list
+              .filter((item) => 
+                quotation_request_list?.some((q) => q.item === item.name)
+              )
+              .map((item) => item.category) // Get the `category` field
+          );
+    
+          // Add the unique categories to the state
+          setCategoryVendor(uniqueCategories);
+        }
+      }, [itemList, quotation_request_list]);
+
     useEffect(() => {
         if (Array.isArray(procurement_request_list) && procurement_request_list.length > 0) {
             setOrderData(procurement_request_list[0]);
         }
     }, [procurement_request_list]);
 
-    const getItem = (item: string) => {
-        const item_name = orderData?.procurement_list?.list.find(value => value.name === item)?.item;
-        return item_name
-    }
     const getProjectAddress = (item: string) => {
         const id = project_list?.find(value => value.name === item)?.project_address;
         const doc = address_list?.find(item => item.name === id);
         const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}-${doc?.pincode}, ${doc?.state}`
-        // return `${project_list?.at(0).project_city}, ${project_list?.at(0).project_state}`
         return address
     }
     const getVendorName = (item: string) => {
@@ -66,23 +145,16 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
         const name = vendor_list?.find(value => value.name === item)?.vendor_city;
         return name
     }
-    const getProjectName = (item: string) => {
-        const name = project_list?.find(value => value.name === item)?.project_name;
-        return name
-    }
 
-
-    const [isPrinting, setIsPrinting] = useState(false);
-    const componentRef = React.useRef();
+    const componentRef = useRef();
 
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
         documentTitle: `${getVendorName(vendor_id)}_${getVendorCity(vendor_id)}`
     });
-    // const testQuotationRequestList = [];
-    // if(quotation_request_list){for (let i = 0; i < 100; i++) {
-    //     testQuotationRequestList.push(...quotation_request_list);
-    // }}
+
+
+    console.log("categories", categoryForVendor)
 
     return (
         <div className="align-center">
@@ -166,8 +238,9 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {itemList?.list?.filter((item) => quotation_request_list?.some((q) => q.item === item.name)).map((i) => (
-                                <tr className="">
+                            {itemList?.list?.filter((item) => quotation_request_list?.some((q) => q.item === item.name)).map((i) => {
+                                return (
+                                    <tr className="">
                                     <td className="px-6 py-2 text-sm">{i.item}</td>
                                     <td className="px-2 py-2 text-sm whitespace-nowrap">
                                         {i.category}
@@ -176,7 +249,8 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                                     <td className="px-2 py-2 text-sm whitespace-nowrap">{i.quantity}</td>
                                     <td className="px-2 py-2 text-sm whitespace-nowrap">{ }</td>
                                 </tr>
-                            ))}
+                                )
+                            })}
 
                             {/* {[...Array(30)].map((_, index) => (
                                 quotation_request_list?.map((item) => {
@@ -206,6 +280,25 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                     <div className="pt-24">
                         <p className="text-md font-bold text-red-700 underline">Note</p>
                         <p className="text-xs">Please share the quotes as soon as possible</p>
+                    </div>
+                    <div className="flex flex-col gap-4">
+                        {
+                            [...categoryForVendor].map((cat) => (
+                                <div>
+                                    <p className="text-lg font-semibold mb-4">{cat}</p>
+                                    {pdfImages[cat] && pdfImages[cat].map((imgSrc, index) => (
+                                        <img key={index} src={imgSrc} alt={`PDF page ${index + 1}`} style={{ width: '100%', marginBottom: '20px' }} />
+                                    ))}
+                                </div>
+                            ))
+                        }
+                      {/* {pdfImages.length > 0 ? (
+                        pdfImages.map((imgSrc, index) => (
+                          <img key={index} src={imgSrc} alt={`PDF page ${index + 1}`} style={{ width: '100%', marginBottom: '20px' }} />
+                        ))
+                      ) : (
+                        <p>Loading PDF content...</p>
+                      )} */}
                     </div>
                 </div>
             </div>

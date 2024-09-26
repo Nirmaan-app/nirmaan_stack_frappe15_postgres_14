@@ -342,7 +342,7 @@ export const ProcurementOrder = () => {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow className="bg-red-100">
-                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>Items</TableHead>
+                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
                                                     <TableHead className="w-[20%]">UOM</TableHead>
                                                     <TableHead className="w-[10%]">Qty</TableHead>
                                                     <TableHead className="w-[10%]">Est. Amt</TableHead>

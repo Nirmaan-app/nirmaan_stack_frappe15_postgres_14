@@ -9,10 +9,10 @@ import {
     DialogClose
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react"
-import { ArrowLeft, MessageCircleMore } from 'lucide-react';
+import { useState, useEffect, useRef } from "react"
+import { ArrowLeft, MessageCircleMore, Paperclip, Undo } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
 import ReactSelect from 'react-select';
 import { CirclePlus } from 'lucide-react';
@@ -28,6 +28,7 @@ import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import TextArea from "antd/es/input/TextArea";
 import { useUserData } from "@/hooks/useUserData";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 
 const ApprovePRList = () => {
 
@@ -91,6 +92,14 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         orderBy: {field: "creation", order: "desc"}
     })
 
+    const {data: usersList} = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["*"],
+        limit: 1000,
+        filters: [["role_profile", "=", "Nirmaan Project Manager Profile"]]
+    })
+
+    // console.log("universalCOmment", universalComments)
+
     const { createDoc: createDoc, error: update_error } = useFrappeCreateDoc()
 
 
@@ -110,6 +119,23 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const [dynamicPage, setDynamicPage] = useState<string | null>(null)
     const [comments, setComments] = useState({});
     const [universalComment, setUniversalComment] = useState<string | null>(null)
+    const [stack, setStack] = useState([]);
+    const [uploadedFiles, setUploadedFiles] = useState({});
+    const [managersIdList, setManagersIdList] = useState(null)
+
+    useEffect(() => {
+        if (usersList) {
+            let ids = usersList.map((user) => user.name)
+            setManagersIdList(ids)
+        }
+    }, [usersList])
+
+    // console.log("managers", managersIdList)
+    // const fileInputRefs = useRef({});
+
+    const getFullName = (id) => {
+        return usersList?.filter((user) => user.name === id)?.full_name
+    }
 
     const handleCommentChange = (item, e) => {
         setComments((prevComments) => ({
@@ -121,8 +147,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const handleUniversalCommentChange = (e) => {
         setUniversalComment(e.target.value === "" ? null : e.target.value)
     }
-
-    const [dialogMessage, setDialogMessage] = useState("")
 
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
@@ -139,7 +163,36 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const handleCategoryClick = (category: string, value: string) => {
         addCategory(category);
         setPage(value);
+    };
 
+    const triggerFileInput = (name: string) => {
+        // console.log("triggering input", name)
+        // if (fileInputRefs.current[name]) {
+        //     fileInputRefs.current[name].click();
+        // }
+        document.getElementById(`file-upload-${name}`)?.click()
+    };
+
+    const handleFileChange = (event, catName) => {
+        const file = event.target.files[0];
+        if (file && file.type !== "application/pdf") {
+            alert("Please upload a valid PDF file.");
+            return;
+          }
+        if (file) {
+            setUploadedFiles(prev => ({
+                ...prev,
+                [catName]: file,
+            }));
+        }
+    };
+
+    const removeFile = (catName) => {
+        setUploadedFiles(prev => {
+            const newFiles = { ...prev };
+            delete newFiles[catName];
+            return newFiles;
+        });
     };
 
     const [orderData, setOrderData] = useState({
@@ -237,21 +290,20 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     status: "Pending"
                 };
                 const isDuplicate = curRequest.some((item) => item.name === curValue.name);
-                if (isDuplicate) {
-                    // setDialogVisible(true)
-                    setDialogMessage(`${curItem} Already exists!!!`)
-                    var button = document.getElementById('alert');
-                    button.click();
-                }
-                else {
+                if (!isDuplicate) {
                     curRequest.push(curValue);
+                    setOrderData((prevState) => ({
+                        ...prevState,
+                        procurement_list: {
+                            list: curRequest,
+                        },
+                    }));
+                } else {
+                    toast({
+                        title : "Invalid Request!",
+                        description: (<span>You are trying to add the <b>item: {curItem}</b> multiple times which is not allowed, instead edit the quantity directly!</span>)
+                    })
                 }
-                setOrderData((prevState) => ({
-                    ...prevState,
-                    procurement_list: {
-                        list: curRequest,
-                    },
-                }));
                 setUnit('');
                 setQuantity('');
                 setItem_id('');
@@ -289,8 +341,12 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         setCurItem('')
     };
 
+
     const handleDelete = (item: string) => {
         let curRequest = orderData.procurement_list.list;
+        let itemToPush = curRequest.find(curValue => curValue.item === item);
+
+        setStack(prevStack => [...prevStack, itemToPush]);
         curRequest = curRequest.filter(curValue => curValue.item !== item);
         setOrderData(prevState => ({
             ...prevState,
@@ -306,12 +362,65 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         setCurItem('')
     }
 
-    console.log("userdata", userData)
+    const UndoDeleteOperation = () => {
+        let curRequest = orderData.procurement_list.list;
+        let itemToRestore = stack.pop();
+        
+            curRequest.push(itemToRestore);
+
+            setOrderData(prevState => ({
+                ...prevState,
+                procurement_list: {
+                    list: curRequest
+                }
+            }));
+
+            setStack([...stack]);
+    };
+
+    // console.log("userdata", userData)
     const { toast } = useToast()
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+    const {upload} = useFrappeFileUpload()
+    const { call } = useFrappePostCall('frappe.client.set_value');
+
+    const handleFileUpload = async (category: string) => {
+
+        if (uploadedFiles[category]) {
+            try {
+                const doc = await createDoc("Category BOQ Attachments", {
+                    procurement_request: orderData.name,
+                    category: category,
+                });
+
+                const fileArgs = {
+                    doctype: "Category BOQ Attachments",
+                    docname: doc.name,
+                    fieldname: "boq",
+                    isPrivate: true
+                };
+
+                const uploadResult = await upload(uploadedFiles[category], fileArgs);
+                await call({
+                    doctype: "Category BOQ Attachments",
+                    name: doc.name,
+                    fieldname: "boq",
+                    value: uploadResult.file_url
+                });
+                setUploadedFiles(prev => ({ ...prev, [category]: null }));
+            } catch (error) {
+                console.error("Error uploading file:", error);
+            }
+        }
+    };
 
     const handleApprove = async () => {
         try {
+
+            await Promise.all(
+                Object.keys(uploadedFiles).map(cat => handleFileUpload(cat))
+            );
+
             const res = await updateDoc('Procurement Requests', orderData.name, {
                 procurement_list: orderData.procurement_list,
                 category_list: orderData.category_list,
@@ -324,7 +433,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     reference_doctype : "Procurement Requests",
                     reference_name : res.name,
                     comment_by : userData?.user_id,
-                    content: universalComment
+                    content: universalComment,
+                    subject: "approving pr"
                 })
             }
     
@@ -348,9 +458,13 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         }
     };    
 
-    console.log("universal", universalComment)
     const handleReject = async () => {
         try {
+
+            await Promise.all(
+                Object.keys(uploadedFiles).map(cat => handleFileUpload(cat))
+            );
+
             const res = await updateDoc("Procurement Requests", orderData.name, {
                 procurement_list: orderData.procurement_list,
                 category_list: orderData.category_list,
@@ -363,7 +477,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     reference_doctype : "Procurement Requests",
                     reference_name : orderData.name,
                     comment_by : userData?.user_id,
-                    content: universalComment
+                    content: universalComment,
+                    subject: "rejecting pr"
                 })
             }
 
@@ -416,10 +531,12 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             })
     }
 
+    // console.log("stack", stack)
+    // console.log("uploadedFiles", uploadedFiles)
+
     return (
         <>
             {page == 'categorylist' &&
-                <div className="flex">
                     <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
@@ -439,7 +556,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                 }
                             })}
                         </div>
-                    </div></div>}
+                    </div>}
             {page == 'itemlist' &&
                     <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1  pb-4 ">
@@ -514,28 +631,86 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                 </div>
                             </Card>
                         }
-                        <AlertDialog>
-                            <AlertDialogTrigger>
-                                <button className="hidden" id="alert"></button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Oops</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                        {dialogMessage}
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogAction >Continue</AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
                         <Card className="p-4 border border-gray-100 rounded-lg">
-                            <div className="text-xs text-red-700 pb-2">Added Items</div>
-                            {orderData?.procurement_list.list.length === 0 && <div className="text-sm">No Items to display, please reload the page to recover the deleted items or add at least an item to enable the "Next" button</div>}
+                            <div className="flex justify-between items-center">
+                                <p className="text-xs text-red-700 pb-2">Added Items</p>
+                                {/* {stack.length !== 0 && (
+                                    <div>
+                                        <HoverCard>
+                                            <HoverCardTrigger>
+                                                <p onClick={() => UndoDeleteOperation()}>Undo</p>
+                                            </HoverCardTrigger>
+                                        <HoverCardContent>
+                                            Click on to undo the last deleted operation
+                                        </HoverCardContent>
+                                        </HoverCard>
+                                    </div>
+                                )} */}
+                                {stack.length !== 0 && (
+                                    <div className="flex items-center space-x-2">
+                                        <HoverCard>
+                                            <HoverCardTrigger>
+                                                <button
+                                                    onClick={() => UndoDeleteOperation()}
+                                                    className="flex items-center max-md:text-sm max-md:px-2 max-md:py-1  px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-600 transition duration-200 ease-in-out"
+                                                >
+                                                    <Undo className="mr-2 max-md:w-4 max-md:h-4" /> {/* Undo Icon */}
+                                                    Undo
+                                                </button>
+                                            </HoverCardTrigger>
+                                            <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
+                                                Click to undo the last deleted operation
+                                            </HoverCardContent>
+                                        </HoverCard>
+                                    </div>
+                                )}
+                            </div>
+                            {orderData?.procurement_list.list.length === 0 && <div className="text-sm">No Items to display, please click on "Undo" button to recover the deleted items or add at least an item to enable the "Approve" or "Reject" button</div>}
                             {orderData.category_list.list?.map((cat) => {
                                 return <div key={cat.name} className="">
-                                    <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
+                                    {/* <div className="flex gap-1 items-center">
+                                        <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
+                                        <div className={`text-blue-500 cursor-pointer flex gap-1 items-center border rounded-md border-blue-500 px-1`}
+                                            // onClick={() => triggerFileInput(item.name)}
+                                            >
+                                            <Paperclip size="15px" />
+                                            <span className="p-0 text-sm">Attach</span>
+                                            <input type="file" className="hidden"
+                                                // ref={(el) => (fileInputRefs.current[item.name] = el)}
+                                                // onChange={(event) => handleFileChange(event, item.name)} 
+                                                />
+                                        </div>
+                                    </div> */}
+
+                                    <div key={cat.id} className="flex gap-1 items-center">
+                                        <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
+                                        <div className={`text-blue-500 cursor-pointer flex gap-1 items-center border rounded-md border-blue-500 px-1 ${uploadedFiles[cat.name] && "opacity-50 cursor-not-allowed"}`}
+                                             onClick={() => triggerFileInput(cat.name)}
+                                        >
+                                            <Paperclip size="15px" />
+                                            <span className="p-0 text-sm">Attach</span>
+                                            <input
+                                                type="file"
+                                                id={`file-upload-${cat.name}`}
+                                                className="hidden"
+                                                accept=".pdf"
+                                                // ref={(el) => (fileInputRefs.current[cat.name] = el)}
+                                                onChange={(event) => handleFileChange(event, cat.name)}
+                                                disabled={uploadedFiles[cat.name] ? true : false}
+                                            />
+                                        </div>
+                                        {uploadedFiles[cat.name] && (
+                                            <div className="flex items-center ml-2">
+                                                <span className="text-sm">{uploadedFiles[cat.name].name}</span>
+                                                <button
+                                                    className="ml-1 text-red-500"
+                                                    onClick={() => removeFile(cat.name)}
+                                                >
+                                                    ✖
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                     <table className="table-auto md:w-full">
                                         <thead>
                                             <tr className="bg-gray-200">
@@ -618,8 +793,19 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         <div className="flex items-center space-y-2 pt-8">
                             <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
                         </div>
-                        <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
-                            {universalComments?.filter((comment) => ["Nirmaan Admin Profile", "Nirmaan Project Manager Profile"].includes(comment.comment_by))[0]?.content}
+                        <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2">
+                            {/* {universalComments?.filter((comment) => ["Administrator", "Nirmaan Project Manager Profile"].includes(comment.comment_by))[0]?.content} */}
+                            {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).length ? 
+                            universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).map((cmt) => (
+                                <div className="flex justify-between items-end">
+                                    <p className="font-semibold text-[15px]">{cmt.content}</p>
+                                    {cmt.comment_by === "Administrator" ? (
+                                        <span className="text-sm italic">- Administrator</span>
+                                    ) : (
+                                        <span>- {getFullName(cmt.comment_by)}</span>
+                                    )}
+                                </div>
+                            )) : <span className="text-sm flex items-center justify-center">No Comments Found.</span>}
                         </div>
                         <div className="flex gap-4 justify-end items-end mt-4">
                             <Button disabled={!orderData.procurement_list.list.length} className="" onClick={() => {
@@ -677,7 +863,14 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                         <Table>
                                             <TableHeader>
                                                 <TableRow className="bg-red-100">
-                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>Items</TableHead>
+                                                    <TableHead className="w-[50%]">
+                                                        <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
+                                                        {uploadedFiles[cat.name] && (
+                                                            <div className="flex gap-1 items-end">
+                                                            <p>Attached File:</p> <span className="text-red-700">{uploadedFiles[cat.name].name}</span>
+                                                            </div>
+                                                        )}
+                                                        </TableHead>
                                                     <TableHead className="w-[20%]">UOM</TableHead>
                                                     <TableHead className="w-[10%]">Qty</TableHead>
                                                     <TableHead className="w-[10%]">Est. Amt</TableHead>

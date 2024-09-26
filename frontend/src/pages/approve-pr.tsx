@@ -21,9 +21,10 @@ type PRTable = {
 export const ApprovePR = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'category_list', 'procurement_list', 'creation'],
+            fields: ["*"],
             filters: [["workflow_state", "=", "Pending"]],
-            limit: 1000
+            limit: 1000,
+            orderBy: {field: "modified", order: "desc"}
         });
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects",
         {

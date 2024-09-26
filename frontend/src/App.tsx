@@ -56,6 +56,7 @@ import NewMilestones from './components/updates/NewMilestones'
 import DeliveryNotes from './pages/DeliveryNotes/deliverynotes'
 import DeliveryNote from './pages/DeliveryNotes/deliverynote'
 import { ProjectForm } from './pages/projects/project-form'
+import { ReleasePONew } from './components/updates/ReleasePONew'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -102,7 +103,8 @@ const router = createBrowserRouter(
 					<Route path="/procure-request/quote-update/:orderId" element={<UpdateQuote />} />
 					<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
 					<Route path="release-po" element={<ReleasePOSelect />} />
-					<Route path="/release-po/:id" element={<ReleasePO />} />
+					{/* <Route path="/release-po/:id" element={<ReleasePO />} /> */}
+					<Route path="/release-po/:id" element={<ReleasePONew />} />
 					<Route path="delivery-notes" element={<DeliveryNotes />} />
 					<Route path="/delivery-notes/:id" element={<DeliveryNote />} />
 

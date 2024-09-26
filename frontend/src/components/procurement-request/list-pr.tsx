@@ -114,8 +114,8 @@ export default function ListPR() {
                         </Table>
                     </div>}
 
-                    <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                        {project && <Button className="font-normal py-2 px-6">
+                    <div className="flex flex-col justify-end items-end fixed bottom-10 right-4">
+                        {project && <Button className="font-normal py-2 px-6 shadow-red-950">
                             <Link to={`${project}/new`}>
                                 <div className="flex">
                                     <CirclePlus className="w-5 h-5 mt- pr-1" />

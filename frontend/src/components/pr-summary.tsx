@@ -20,6 +20,13 @@ const PRSummary = () => {
 
     const { data: pr_data, error: pr_error, isLoading: prLoading } = useFrappeGetDoc<ProcurementRequests>("Procurement Requests", id, `Procurement Requests ${id}`);
 
+    const {data : universalComments} = useFrappeGetDocList("Comment", {
+        fields: ["*"],
+        limit: 1000,
+        filters: [["reference_name", "=", id]],
+        orderBy: {field: "creation", order: "asc"}
+    })
+
     const { data: project, error: project_error, isLoading: projectLoading } = useFrappeGetDocList<Projects>("Projects", {
         fields: ['name', 'project_name', 'project_address'],
         filters: [['name', 'like', `%${project_id}`]]
@@ -40,7 +47,7 @@ const PRSummary = () => {
             {project_error && <h1>{project_error.message}</h1>}
             {address_error && <h1>{address_error.message}</h1>}
             {procurementOrdersError && <h1>{procurementOrdersError.message}</h1>}
-            {(prLoading || projectLoading || addressLoading || procurementOrdersLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} project={project[0]} address={address} po_data={procurementOrdersList} />}
+            {(prLoading || projectLoading || addressLoading || procurementOrdersLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} project={project[0]} address={address} po_data={procurementOrdersList} universalComments={universalComments || []} />}
         </>
     )
 };
@@ -50,13 +57,22 @@ interface PRSummaryPageProps {
     project: Projects
 }
 
-const PRSummaryPage = ({ pr_data, project, address, po_data }: PRSummaryPageProps) => {
+const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments }: PRSummaryPageProps) => {
     const navigate = useNavigate();
     const pr_no = pr_data.name.split("-").slice(-1)
 
     const orderData = {name: pr_data.name, work_package : pr_data.work_package, comment : pr_data.comment, project: pr_data.project, category_list : JSON.parse(pr_data.category_list), procurement_list : JSON.parse(pr_data.procurement_list)}
 
     const [section, setSection] =  useState("pr-summary")
+
+    const {data: usersList} = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["*"],
+        limit: 1000,
+    })
+
+    const getFullName = (id) => {
+        return usersList?.filter((user) => user.name === id)?.full_name
+    }
 
     const checkPoToPr = (prId) => {
         return po_data?.some((po) => po.procurement_request === prId)
@@ -85,7 +101,8 @@ const PRSummaryPage = ({ pr_data, project, address, po_data }: PRSummaryPageProp
                                     </Badge>
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                                <CardContent className="flex flex-col gap-4">
+                                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                                     {/* <div className="space-y-1">
                                         <Label className="text-slim text-red-300">ID:</Label>
                                         <p className="font-semibold">{pr_data.name}</p>
@@ -105,6 +122,26 @@ const PRSummaryPage = ({ pr_data, project, address, po_data }: PRSummaryPageProp
                                     <div className="space-y-1">
                                         <Label className="text-slim text-red-300">Date Created:</Label>
                                         <p className="font-semibold">{new Date(pr_data.creation).toDateString()}</p>
+                                    </div>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <Label className="text-slim text-red-300">Comments:</Label>
+                                        <div className="flex flex-col gap-2">
+                                            {
+                                                universalComments.length ? 
+                                                universalComments?.map((cmt) => (
+                                                    <div className="flex justify-between items-end">
+                                                        <p className="font-semibold text-[15px]">{cmt.content}</p>
+                                                        {cmt.comment_by === "Administrator" ? (
+                                                            <span className="text-sm italic">-Administrator</span>
+                                                        ) : (
+                                                            <span>- {getFullName(cmt.comment_by)}</span>
+                                                        )}
+                                                    </div>
+                                                )) : <span className="flex justify-center text-[15px]">No Comments Found</span>
+                                            }
+                                        </div>
                                     </div>
                                 </CardContent>
                             </Card>
@@ -173,7 +210,6 @@ const PRSummaryPage = ({ pr_data, project, address, po_data }: PRSummaryPageProp
                                         })}
                                     </div>
                                 </div>
-
                             </Card>
                         </div>
                             </>

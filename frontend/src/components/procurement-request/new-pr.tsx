@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle } from "../ui/card";
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import { MessageCircleMore, PackagePlus } from "lucide-react";
+import { MessageCircleMore, PackagePlus, Undo } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { ArrowLeft } from 'lucide-react';
@@ -17,6 +17,7 @@ import { useToast } from "../ui/use-toast";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NewPRSkeleton } from "../ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 
 const NewPR = () => {
 
@@ -38,6 +39,12 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
     const userData = useUserData()
     const { toast } = useToast()
 
+    const {data: usersList} = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["*"],
+        limit: 1000,
+        filters: [["role_profile", "=", "Nirmaan Project Lead Profile"]]
+    })
+
     const [page, setPage] = useState<string>('wplist')
     const [curItem, setCurItem] = useState<string>('')
     const [curCategory, setCurCategory] = useState<string>('')
@@ -49,6 +56,15 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
     const [tax, setTax] = useState<number | null>(null)
     const [comments, setComments] = useState({});
     const [universalComment, setUniversalComment] = useState<string | null>(null)
+    const [managersIdList, setManagersIdList] = useState(null)
+    const [stack, setStack] = useState([]);
+
+    useEffect(() => {
+        if (usersList) {
+            let ids = usersList.map((user) => user.name)
+            setManagersIdList(ids)
+        }
+    }, [usersList])
 
     const handleCommentChange = (e) => {
         setUniversalComment(e.target.value === "" ? null : e.target.value)
@@ -262,7 +278,8 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                         reference_doctype : "Procurement Requests",
                         reference_name : res.name,
                         comment_by : userData?.user_id,
-                        content: universalComment
+                        content: universalComment,
+                        subject: "creating pr"
                     })
                 }
                 console.log("newPR", res);
@@ -294,7 +311,6 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
             const res = updateDoc("Procurement Requests", orderData.name, {
                 category_list : orderData.category_list,
                 procurement_list: orderData.procurement_list,
-                comment: orderData.comment,
                 workflow_state: "Pending"
             })
 
@@ -302,9 +318,10 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                 await createDoc("Comment", {
                     comment_type : "Comment",
                     reference_doctype : "Procurement Requests",
-                    reference_name : res.name,
+                    reference_name : orderData.name,
                     comment_by : userData?.user_id,
-                    content: universalComment
+                    content: universalComment,
+                    subject: "resolving pr"
                 })
             }
             console.log("newPR", res)
@@ -356,28 +373,41 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
 
     const handleSave = (itemName: string, newQuantity: string) => {
         let curRequest = orderData.procurement_list.list;
-
-        console.log("comments of item name", comments[itemName])
+        // console.log("comments of item name", comments[itemName])
         curRequest = curRequest.map((curValue) => {
             if (curValue.item === itemName) {
                 return { ...curValue, quantity: parseInt(newQuantity), comment : comments[itemName] === undefined ? curValue.comment || "" :  comments[itemName] || "" };
             }
             return curValue;
         });
-        if (quantity) {
             setOrderData((prevState) => ({
                 ...prevState,
                 procurement_list: {
                     list: curRequest,
                 },
             }));
-        }
         setQuantity('')
         setCurItem('')
     };
 
+    // const handleDelete = (item: string) => {
+    //     let curRequest = orderData.procurement_list.list;
+    //     curRequest = curRequest.filter(curValue => curValue.item !== item);
+    //     setOrderData(prevState => ({
+    //         ...prevState,
+    //         procurement_list: {
+    //             list: curRequest
+    //         }
+    //     }));
+    //     setQuantity('')
+    //     setCurItem('')
+    // }
+
     const handleDelete = (item: string) => {
         let curRequest = orderData.procurement_list.list;
+        let itemToPush = curRequest.find(curValue => curValue.item === item);
+
+        setStack(prevStack => [...prevStack, itemToPush]);
         curRequest = curRequest.filter(curValue => curValue.item !== item);
         setOrderData(prevState => ({
             ...prevState,
@@ -385,9 +415,29 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                 list: curRequest
             }
         }));
+        setComments(prev => {
+            delete prev[item]
+            return prev
+        })
         setQuantity('')
         setCurItem('')
     }
+
+    const UndoDeleteOperation = () => {
+        let curRequest = orderData.procurement_list.list;
+        let itemToRestore = stack.pop();
+        
+            curRequest.push(itemToRestore);
+
+            setOrderData(prevState => ({
+                ...prevState,
+                procurement_list: {
+                    list: curRequest
+                }
+            }));
+
+            setStack([...stack]);
+    };
 
     return (
         <>
@@ -516,7 +566,28 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                         <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>}
                     {/* <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button> */}
                 </div>
-                <div className="max-md:text-xs text-rose-700">Added Items</div>
+                {/* <div className="max-md:text-xs text-rose-700">Added Items</div> */}
+                <div className="flex justify-between items-center max-md:py-4">
+                                <p className="max-md:text-xs text-rose-700">Added Items</p>
+                                {stack.length !== 0 && (
+                                    <div className="flex items-center space-x-2">
+                                        <HoverCard>
+                                            <HoverCardTrigger>
+                                                <button
+                                                    onClick={() => UndoDeleteOperation()}
+                                                    className="flex items-center max-md:text-sm max-md:px-2 max-md:py-1  px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-600 transition duration-200 ease-in-out"
+                                                >
+                                                    <Undo className="mr-2 max-md:w-4 max-md:h-4" /> {/* Undo Icon */}
+                                                    Undo
+                                                </button>
+                                            </HoverCardTrigger>
+                                            <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
+                                                Click to undo the last deleted operation
+                                            </HoverCardContent>
+                                        </HoverCard>
+                                    </div>
+                                )}
+                            </div>
                 {
                     orderData.category_list.list.length ? (
                         orderData.category_list?.list?.map((cat) => {
@@ -608,12 +679,24 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                 <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
                     <h3 className="font-bold py-1 flex"><MessageCircleMore className="w-5 h-5 mt-0.5" />Comments</h3>
                     {rejected_pr_data && (
-                        <div className="relative py-4">
-                            <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
-                            <span className="relative left-[15%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span>
+                        <div className="py-4 w-full flex flex-col gap-2">
+                            {/* <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
+                            <span className="relative left-[15%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span> */}
+                            {
+                                universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && comment.subject === "rejecting pr")).map((cmt) => (
+                                    <div className="flex justify-between items-end">
+                                        <p className="font-semibold text-[15px]">{cmt.content}</p>
+                                        {cmt.comment_by === "Administrator" ? (
+                                            <span className="text-sm italic">-Administrator</span>
+                                        ) : (
+                                            <span>- {getFullName(cmt.comment_by)}</span>
+                                        )}
+                                    </div>
+                                ))
+                            }
                         </div>
                     )}
-                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Write comments here..." defaultValue={orderData.comment || ""} onChange={(e) => handleCommentChange(e)} />
+                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder={`${rejected_pr_data ? "Write Resolving Comments here..." : "Write comments here..."}`} value={universalComment || ""} onChange={(e) => handleCommentChange(e)} />
                 </Card>
                 <Dialog>
                     <DialogTrigger asChild>
