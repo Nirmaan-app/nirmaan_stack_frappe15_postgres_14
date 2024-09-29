@@ -216,8 +216,7 @@ export const ReleasePONew: React.FC = () => {
                             <div className="font-semibold text-xl pl-2"><span className="text-red-700 text-2xl">Selected PO:</span> {(orderData?.name)?.toUpperCase()}</div>
                         </div>
     <Layout>
-      <Sider theme='light' className='w-40 bg-red-500' collapsedWidth={0} width={500}  trigger={null} collapsible collapsed={collapsed}>
-              <div className="">
+      <Sider theme='light' collapsedWidth={0} width={500}  trigger={null} collapsible collapsed={collapsed}>
                     <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4">
                         <div className="flex-col">
                             <h3 className="font-semibold text-lg mt-4">Additional Charges</h3>
@@ -285,7 +284,6 @@ export const ReleasePONew: React.FC = () => {
                             </div>
                         </div>
                     </form>
-      </div>
       </Sider>
       <Layout className='bg-white'>
         <div className="flex">

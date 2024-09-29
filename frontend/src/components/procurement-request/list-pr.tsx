@@ -26,7 +26,7 @@ export default function ListPR() {
             orderBy: { field: "creation", order: "desc" },
             limit: 1000
         },
-        "Procurement Requests, orderBy(creation-desc)"
+        "Procurement Requests,orderBy(creation-desc)"
     );
 
     const {data : procurementOrdersList} = useFrappeGetDocList("Procurement Orders", {

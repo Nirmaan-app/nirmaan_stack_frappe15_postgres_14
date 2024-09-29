@@ -1,4 +1,4 @@
-import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, MessageCircleMore } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -11,6 +11,10 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { useState } from "react";
 import { NewPRPage } from "./procurement-request/new-pr";
+import {  Timeline } from "antd";
+import { formatDate } from "@/utils/FormatDate";
+import { toast } from "./ui/use-toast";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTrigger } from "./ui/alert-dialog";
 
 const PRSummary = () => {
 
@@ -64,12 +68,12 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments }
     const orderData = {name: pr_data.name, work_package : pr_data.work_package, comment : pr_data.comment, project: pr_data.project, category_list : JSON.parse(pr_data.category_list), procurement_list : JSON.parse(pr_data.procurement_list)}
 
     const [section, setSection] =  useState("pr-summary")
+    const {deleteDoc} = useFrappeDeleteDoc()
 
     const {data: usersList} = useFrappeGetDocList("Nirmaan Users", {
         fields: ["*"],
         limit: 1000,
     })
-
     const getFullName = (id) => {
         return usersList?.filter((user) => user.name === id)?.full_name
     }
@@ -78,19 +82,93 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments }
         return po_data?.some((po) => po.procurement_request === prId)
     }
 
+    const itemsTimelineList = universalComments.map((cmt) => ({label : (
+        <span className="max-sm:text-wrap text-xs m-0 p-0">{formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}</span>
+    ), children : (
+        <Card>
+            <CardHeader className="p-2">
+                <CardTitle>
+                    {cmt.comment_by === "Administrator" ? (
+                        <span className="text-sm">Administrator</span>
+                    ) : (
+                        <span className="text-sm">{getFullName(cmt.comment_by)}</span>
+                    )}
+                </CardTitle>
+            </CardHeader>
+                <CardContent className="p-2">
+                    {cmt.content}
+                </CardContent>
+        </Card>
+    ), color : 
+        cmt.subject ? (cmt.subject === "creating pr" ? "green" : cmt.subject === "rejecting pr" ? "red" : "blue")  : 'gray'
+    }))
+
+    const {mutate} = useSWRConfig()
+
+    const handleDeletePr = async () => {
+        try {
+            await deleteDoc("Procurement Requests", pr_data.name)
+            await mutate("Procurement Requests,orderBy(creation-desc)")
+            toast({
+                title : "Success!",
+                description: `PR: ${pr_data.name} deleted successfully!`,
+                variant: "success"
+            })
+            navigate("/procurement-request")
+        } catch (error) {
+            console.log("error while deleting PR", error)
+            toast({
+                title : "Failed!",
+                description: `PR: ${pr_data.name} deletion Failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
+    // console.log("itemsTimeLineList", itemsTimelineList)
+
+    // console.log("universalComments", universalComments)
+
     return (
         <>
                     <div className={`${section === "pr-summary" ? "flex-1 md:space-y-4 p-4" : ""}`}>
                         {section === "pr-summary" && (
                             <>
                             <div className="flex items-center justify-between">
-                            <div className="flex items-center pt-1">
-                                <ArrowLeft className="mb-3 cursor-pointer" onClick={() => navigate("/procurement-request")} />
-                                <h2 className="text-xl max-md:text-lg pt-1 pb-4 pl-2 font-bold tracking-tight">Summary: </h2>
-                                <span className="pl-2 pb-2.5 text-red-500 text-2xl max-md:text-xl">PR-{pr_no}</span>
+                                <div className="flex items-center pt-1">
+                                    <ArrowLeft className="mb-3 cursor-pointer" onClick={() => navigate("/procurement-request")} />
+                                    <h2 className="text-xl max-md:text-lg pt-1 pb-4 pl-2 font-bold tracking-tight">Summary: </h2>
+                                    <span className="pl-2 pb-2.5 text-red-500 text-2xl max-md:text-xl">PR-{pr_no}</span>
+                                </div>
+                                <div className="flex gap-4 items-center">
+                                    {
+                                       ["Rejected", "Pending", "Approved"].includes(pr_data.workflow_state) && (
+                                        <AlertDialog>
+                                        <AlertDialogTrigger>
+                                            <Button>Delete</Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                Are you sure, you want to delete the PR
+                                            </AlertDialogHeader>
+                                            <AlertDialogDescription className="flex gap-2 items-center justify-center">
+                                                <AlertDialogCancel>
+                                                    Cancel
+                                                </AlertDialogCancel>
+                                                <AlertDialogAction onClick={handleDeletePr}>
+                                                        Confirm
+                                                </AlertDialogAction>
+                                            </AlertDialogDescription>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                       )
+                                    }
+                                {pr_data.workflow_state === "Rejected" && (
+                                    
+                                        <Button onClick={() => setSection("resolve-pr")}>Resolve</Button>
+                                )}
+                                    </div>
                             </div>
-                            {pr_data.workflow_state === "Rejected" && <Button onClick={() => setSection("resolve-pr")}>Resolve</Button>}
-                        </div>
                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                             <Card className="w-full">
                                 <CardHeader>
@@ -103,18 +181,10 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments }
                                 </CardHeader>
                                 <CardContent className="flex flex-col gap-4">
                                     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                                    {/* <div className="space-y-1">
-                                        <Label className="text-slim text-red-300">ID:</Label>
-                                        <p className="font-semibold">{pr_data.name}</p>
-                                    </div> */}
                                     <div className="space-y-1">
                                         <Label className="text-slim text-red-300">Project:</Label>
                                         <p className="font-semibold">{project.project_name}</p>
                                     </div>
-                                    {/* <div className="space-y-1">
-                                        <Label className="text-slim text-red-300">Project Address:</Label>
-                                        <p className="font-semibold">{` ${address.address_line1}, ${address.address_line2}, ${address.city}, ${address.state}, PIN-${address.pincode}`}</p>
-                                    </div> */}
                                     <div className="space-y-1">
                                         <Label className="text-slim text-red-300">Package:</Label>
                                         <p className="font-semibold">{pr_data.work_package}</p>
@@ -125,23 +195,13 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments }
                                     </div>
                                     </div>
 
-                                    <div className="space-y-1">
-                                        <Label className="text-slim text-red-300">Comments:</Label>
-                                        <div className="flex flex-col gap-2">
-                                            {
-                                                universalComments.length ? 
-                                                universalComments?.map((cmt) => (
-                                                    <div className="flex justify-between items-end">
-                                                        <p className="font-semibold text-[15px]">{cmt.content}</p>
-                                                        {cmt.comment_by === "Administrator" ? (
-                                                            <span className="text-sm italic">-Administrator</span>
-                                                        ) : (
-                                                            <span>- {getFullName(cmt.comment_by)}</span>
-                                                        )}
-                                                    </div>
-                                                )) : <span className="flex justify-center text-[15px]">No Comments Found</span>
-                                            }
-                                        </div>
+                                    <div className="space-y-1 flex flex-col items-start justify-start">
+                                        <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
+                                            <Timeline
+                                                    className="w-full"
+                                                    mode={'left'}
+                                                    items={itemsTimelineList}
+                                            />
                                     </div>
                                 </CardContent>
                             </Card>
@@ -186,26 +246,6 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments }
                                                         })}
                                                     </TableBody>
                                                 </Table>
-                                                {/* <table className="min-w-full divide-y divide-gray-200">
-                                                    <thead className="border-b-2 border-black">
-                                                        <tr>
-                                                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-                                                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UOM</th>
-                                                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="bg-white divide-y divide-gray-200">
-                                                        {JSON.parse(pr_data.procurement_list).list.map((item: any) => {
-                                                            if (item.category === cat.name) {
-                                                                return <tr key={item.item}>
-                                                                    <td className="px-3 text-xs py-2 font-medium whitespace-nowrap">{item.item}</td>
-                                                                    <td className="px-3 text-xs py-2 font-medium whitespace-nowrap">{item.unit}</td>
-                                                                    <td className="px-3 text-xs py-2 font-medium whitespace-nowrap">{item.quantity}</td>
-                                                                </tr>
-                                                            }
-                                                        })}
-                                                    </tbody>
-                                                </table> */}
                                             </div>
                                         })}
                                     </div>

@@ -9,9 +9,9 @@ import {
     DialogClose
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeFileUpload, useFrappePostCall, useFrappeDeleteDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { ArrowLeft, MessageCircleMore, Paperclip, Undo } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
 import ReactSelect from 'react-select';
@@ -383,6 +383,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
     const {upload} = useFrappeFileUpload()
     const { call } = useFrappePostCall('frappe.client.set_value');
+    const {deleteDoc} = useFrappeDeleteDoc()
+    const {mutate} = useSWRConfig()
 
     const handleFileUpload = async (category: string) => {
 
@@ -446,7 +448,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 variant: "success"
             });
     
-            navigate("/");
+            navigate("/approve-order");
         } catch (submit_error) {
             toast({
                 title: "Failed!",
@@ -481,13 +483,13 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     subject: "rejecting pr"
                 })
             }
-
+            await mutate("ApprovePR,PRListMutate")
             toast({
                 title: "Success!",
                 description: `PR: ${res?.name} is successfully Rejected!`,
                 variant: "success"
             })
-            navigate("/")
+            navigate("/approve-order")
         } catch (error) {
             toast({
                 title: "Failed!",
@@ -531,6 +533,27 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             })
     }
 
+    const handleDeletePr = async () => {
+        try {
+            await deleteDoc("Procurement Requests", orderData.name)
+            await mutate("Procurement Requests,orderBy(creation-desc)")
+            await mutate("ApprovePR,PRListMutate")
+            toast({
+                title : "Success!",
+                description: `PR: ${orderData.name} deleted successfully!`,
+                variant: "success"
+            })
+            navigate("/approve-order")
+        } catch (error) {
+            console.log("error while deleting PR", error)
+            toast({
+                title : "Failed!",
+                description: `PR: ${orderData.name} deletion Failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
     // console.log("stack", stack)
     // console.log("uploadedFiles", uploadedFiles)
 
@@ -559,10 +582,31 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     </div>}
             {page == 'itemlist' &&
                     <div className="flex-1 md:space-y-4 p-4">
+                        <div className="flex justify-between items-center">
                         <div className="flex items-center pt-1  pb-4 ">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate("/approve-order")} />
                             <h2 className="text-lg pl-2 font-bold tracking-tight">Approve or Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
+
+                                    <AlertDialog>
+                                        <AlertDialogTrigger>
+                                            <Button>Delete</Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                Are you sure, you want to delete the PR
+                                            </AlertDialogHeader>
+                                            <AlertDialogDescription className="flex gap-2 items-center justify-center">
+                                                <AlertDialogCancel>
+                                                    Cancel
+                                                </AlertDialogCancel>
+                                                <AlertDialogAction onClick={handleDeletePr}>
+                                                        Confirm
+                                                </AlertDialogAction>
+                                            </AlertDialogDescription>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                    </div>
                         <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-red-700">Date:</p>

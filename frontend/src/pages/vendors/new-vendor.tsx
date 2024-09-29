@@ -287,7 +287,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 await mutate("Vendors");
                 await mutate("Quotation Requests");
                 if(prData) {
-                    await mutate(`Quotations Requests, Procurement_task=${prData?.name}`)
+                    await mutate(`Quotations Requests,Procurement_task=${prData?.name}`)
                 }
                 await mutate("Vendor Category");
 

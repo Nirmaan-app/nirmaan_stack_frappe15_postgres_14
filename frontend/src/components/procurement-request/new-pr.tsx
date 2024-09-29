@@ -101,7 +101,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
         filters: [["reference_name", "=", rejected_pr_data?.name]],
         orderBy: {field: "creation", order: "desc"}
     },
-    `${rejected_pr_data ? `Comment,filters(reference_name,${rejected_pr_data.name})` : null}`
+    rejected_pr_data ? ("Comment,filters(reference_name="+rejected_pr_data.name+")") : null
     )
 
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
@@ -283,7 +283,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                     })
                 }
                 console.log("newPR", res);
-                await mutate("Procurement Requests, orderBy(creation-desc)");
+                await mutate("Procurement Requests,orderBy(creation-desc)");
                 await mutate("Procurement Orders");
     
                 toast({
@@ -308,7 +308,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
 
     const handleResolvePR = async () => {
         try {
-            const res = updateDoc("Procurement Requests", orderData.name, {
+            const res = await updateDoc("Procurement Requests", orderData.name, {
                 category_list : orderData.category_list,
                 procurement_list: orderData.procurement_list,
                 workflow_state: "Pending"
@@ -325,9 +325,9 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                 })
             }
             console.log("newPR", res)
-            mutate("Procurement Requests, orderBy(creation-desc)")
-            mutate("Procurement Orders")
-            mutate(`Procurement Requests ${orderData.name}`)
+            await mutate("Procurement Requests,orderBy(creation-desc)")
+            await mutate("Procurement Orders")
+            await mutate(`Procurement Requests ${orderData.name}`)
             toast({
                 title: "Success!",
                 description: `PR: ${orderData?.name} Resolved successfully and Sent for Approval!`,
@@ -390,19 +390,6 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
         setCurItem('')
     };
 
-    // const handleDelete = (item: string) => {
-    //     let curRequest = orderData.procurement_list.list;
-    //     curRequest = curRequest.filter(curValue => curValue.item !== item);
-    //     setOrderData(prevState => ({
-    //         ...prevState,
-    //         procurement_list: {
-    //             list: curRequest
-    //         }
-    //     }));
-    //     setQuantity('')
-    //     setCurItem('')
-    // }
-
     const handleDelete = (item: string) => {
         let curRequest = orderData.procurement_list.list;
         let itemToPush = curRequest.find(curValue => curValue.item === item);
@@ -438,6 +425,8 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
 
             setStack([...stack]);
     };
+
+    // console.log("userData", userData)
 
     return (
         <>
@@ -647,6 +636,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                                                                             <div className="flex gap-1 items-center pt-1">
                                                                                 <MessageCircleMore className="h-8 w-8"  />
                                                                                 <textarea
+                                                                                    disabled={userData?.role === "Nirmaan Project Manager Profile"}
                                                                                     className="block p-2 border-gray-300 border rounded-md w-full"
                                                                                     placeholder="Add comment..."
                                                                                     onChange={(e) => handleItemCommentChange(item, e)}

@@ -25,7 +25,9 @@ export const ApprovePR = () => {
             filters: [["workflow_state", "=", "Pending"]],
             limit: 1000,
             orderBy: {field: "modified", order: "desc"}
-        });
+        },
+        "ApprovePR,PRListMutate"
+    );
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects",
         {
             fields: ["name", "project_name"],

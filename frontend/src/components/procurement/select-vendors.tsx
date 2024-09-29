@@ -514,13 +514,6 @@ export const SelectVendors = () => {
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div> */}
                         </Card>
-                        <Card className="p-5 text-xs text-slate-500">
-                            <h1 className='text-red-700 underline'>Instructions</h1>
-                            <p>- Select a vendor's quote for each item.</p>
-                            <p>- You can edit the prices entered before by clicking <span className='text-red-700'>Edit Prices</span> button on the bottom left.</p>
-                            <p>- If quote of any vendor displays <span className='text-red-700'>Nan</span> or <span className='text-red-700'>NA</span>, it means the item price for that vendor is not updated.</p>
-                            <p>- If you dont select any vendor's quote for a particular item/s, it will display <span className='text-red-700'>Delayed</span> in the next page.</p>
-                        </Card>
                         {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name;
                             return <div>
@@ -608,8 +601,16 @@ export const SelectVendors = () => {
                                 </Card>
                             </div>
                         })}
+
+                        <Card className="p-5 text-xs text-slate-500">
+                            <h1 className='text-red-700 underline'>Instructions</h1>
+                            <p>- Select a vendor's quote for each item.</p>
+                            <p>- You can edit the prices entered before by clicking <span className='text-red-700'>Edit Prices</span> button on the bottom left.</p>
+                            <p>- If quote of any vendor displays <span className='text-red-700'>Nan</span> or <span className='text-red-700'>NA</span>, it means the item price for that vendor is not updated.</p>
+                            <p>- If you dont select any vendor's quote for a particular item/s, it will display <span className='text-red-700'>Delayed</span> in the next page.</p>
+                        </Card>
                         {/* <div className='p-10'></div> */}
-                        <div className='flex justify-between pt-6'>
+                        <div className='flex justify-between pt-4'>
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => handleEditPrice()}>
                                 Edit Price
                             </Button>
