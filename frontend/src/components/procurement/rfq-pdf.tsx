@@ -1,12 +1,19 @@
-import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useState, useEffect, useRef } from "react"
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 import { formatDate } from "@/utils/FormatDate";
 import * as pdfjsLib from 'pdfjs-dist';
 import sample_pdf2 from "@/assets/somatosensory.pdf"
+import { Layout, Button } from "antd";
+import {
+    MenuFoldOutlined,
+    MenuUnfoldOutlined,
+  } from '@ant-design/icons';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
+
+const {  Sider, Content } = Layout;
 
 export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
 
@@ -14,61 +21,70 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
         fields: ["*"],
         filters: [["procurement_request", "=", pr_id]]
     })
+  const [collapsed, setCollapsed] = useState(true);
 
     console.log("BOQ Attachments", boqAttachments)
 
     const [pdfImages, setPdfImages] = useState({});
 
     const [categoryForVendor, setCategoryVendor] = useState(new Set())
+    const [displayBOQ, setDisplayBOQ] = useState({})
+    
+    console.log("displayBOQ", displayBOQ)
 
-        const loadPdfAsImages = async (pdfData, category) => {
-          try {
-        
-            const response = await fetch(pdfData, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/pdf',
-              },
-            });
-        
-            if (!response.ok) {
-              throw new Error(`Failed to fetch PDF: ${response.statusText}`);
-            }
-        
-            const pdfArrayBuffer = await response.arrayBuffer();
-        
-            const loadingTask = pdfjsLib.getDocument({ data: pdfArrayBuffer });
-            const pdf = await loadingTask.promise;
-        
-            const pages = [];
-            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-              const page = await pdf.getPage(pageNum);
-            
-              const viewport = page.getViewport({ scale: 1.5 });
-              const canvas = document.createElement('canvas');
-              const context = canvas.getContext('2d');
-              canvas.height = viewport.height;
-              canvas.width = viewport.width;
-            
-              await page.render({ canvasContext: context, viewport }).promise;
-              const imgData = canvas.toDataURL();
-              pages.push(imgData);
-            }
-        
-            setPdfImages((prevData) => ({
-              ...prevData,
-              [category]: pages,
-            }));
-          } catch (error) {
-            console.error('Failed to load PDF as images:', error);
-          }
-        };
+    const loadPdfAsImages = async (pdfData, category) => {
+      try {
+    
+        const response = await fetch(pdfData, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/pdf',
+          },
+        });
+    
+        if (!response.ok) {
+          throw new Error(`Failed to fetch PDF: ${response.statusText}`);
+        }
+    
+        const pdfArrayBuffer = await response.arrayBuffer();
+    
+        const loadingTask = pdfjsLib.getDocument({ data: pdfArrayBuffer });
+        const pdf = await loadingTask.promise;
+    
+        const pages = [];
 
-        useEffect(() => {
-            boqAttachments?.forEach((boq) => {
-                loadPdfAsImages(`http://localhost:8000${boq.boq}`, boq.category)
-            })
-        }, [boqAttachments]);
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+        
+          const viewport = page.getViewport({ scale: 1.5 });
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+        
+          await page.render({ canvasContext: context, viewport }).promise;
+          const imgData = canvas.toDataURL();
+          pages.push(imgData);
+        }
+    
+        setPdfImages((prevData) => ({
+          ...prevData,
+          [category]: pages,
+        }));
+        setDisplayBOQ(prevData => ({
+            ...prevData,
+            [category] : true
+        }))
+      } catch (error) {
+        console.error('Failed to load PDF as images:', error);
+      }
+    };
+
+    useEffect(() => {
+        boqAttachments?.forEach((boq) => {
+            loadPdfAsImages(`http://localhost:8000${boq.boq}`, boq.category)
+        })
+    }, [boqAttachments]);
 
         console.log("pdfImages", pdfImages)
 
@@ -100,30 +116,27 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_city'],
             limit: 1000
         });
+
     const [orderData, setOrderData] = useState({
         name: ''
     });
-
-    const addCategory = (category) => {
-        setCategoryVendor((prevSet) => new Set([...prevSet, category]));
-      };
     
       // useEffect to extract and add unique categories when itemList changes
-      useEffect(() => {
-        if (itemList && itemList.list) {
-          // Extract unique categories based on the provided condition
-          const uniqueCategories = new Set(
-            itemList.list
-              .filter((item) => 
-                quotation_request_list?.some((q) => q.item === item.name)
-              )
-              .map((item) => item.category) // Get the `category` field
-          );
-    
-          // Add the unique categories to the state
-          setCategoryVendor(uniqueCategories);
-        }
-      }, [itemList, quotation_request_list]);
+    useEffect(() => {
+      if (itemList && itemList.list) {
+        // Extract unique categories based on the provided condition
+        const uniqueCategories = new Set(
+          itemList.list
+            .filter((item) => 
+              quotation_request_list?.some((q) => q.item === item.name)
+            )
+            .map((item) => item.category) // Get the `category` field
+        );
+
+        // Add the unique categories to the state
+        setCategoryVendor(uniqueCategories);
+      }
+    }, [itemList, quotation_request_list]);
 
     useEffect(() => {
         if (Array.isArray(procurement_request_list) && procurement_request_list.length > 0) {
@@ -157,38 +170,58 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
     console.log("categories", categoryForVendor)
 
     return (
-        <div className="align-center">
+            <Layout>
+                <Sider theme='light' collapsedWidth={0} width={150}  trigger={null} collapsible collapsed={collapsed}>
+                    <div className="py-2">
+                        <h3 className="text-black font-semibold pb-2">Include Attachments</h3>
+
+                        {Object.keys(pdfImages).length ? (
+                            <div>
+                                {Object.keys(pdfImages).map((cat) => (
+                                <div className="flex gap-2">
+                                {/* {[...categoryForVendor].map((cat) => ( */}
+                                    <input type="checkbox" checked={displayBOQ[cat]} onChange={() => {
+                                        setDisplayBOQ(prevState => ({
+                                            ...prevState,
+                                            [cat] : !prevState[cat]
+                                        }))
+                                    }} />
+                                    <label>{cat}</label>
+                                </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div>
+                                No Attachments found for this vendor category
+                            </div>
+                        )}
+                    </div>
+                </Sider>
             {/* RFQ pdf */}
+            <Layout className='bg-white'>
+            <div>
+                <div className="flex items-center ml-4">
+                    <Button
+                        type="text"
+                        icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                        className="p-0"
+                        onClick={() => setCollapsed(!collapsed)}
+                        style={{
+                          fontSize: '16px',
+                          backgroundColor: "white"
+                        }}
+                        >
+                            <p className="underline hover:text-blue-400">Attachment Options</p>
+                        </Button>
+                    
+                </div>
+            <Content>
             <div ref={componentRef} className="px-4 pb-4">
-                {/* <div className="flex justify-between border-b-2 border-gray-600 pb-3 mb-3">
-                    <div>
-                        <img className="w-44" src={redlogo} alt="Nirmaan" />
-                        <div className="py-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
-                    </div>
-                </div>  */}
-                {/* <div className="grid grid-cols-4 justify-between border border-gray-100 rounded-lg p-4">
-                    <div className="border-0 flex flex-col">
-                        <p className="text-left py-1 font-medium  text-xs text-gray-500">Date</p>
-                        <p className="text-left font-bold py-1 font-semibold text-sm text-black">{orderData?.creation?.split(" ")[0]}</p>
-                    </div>
-                    <div className="border-0 flex flex-col">
-                         <p className="text-left py-1 font-medium text-xs text-gray-500">Project</p>
-                        <p className="text-left font-bold py-1 font-semibold text-sm text-black">{getProjectName(orderData?.project)}</p>
-                    </div>
-                    <div className="border-0 flex flex-col">
-                        <p className="text-left py-1 font-medium  text-xs text-gray-500">Address</p>
-                        <p className="text-left font-bold py-1 font-semibold text-sm text-black truncate pr-4">{getProjectAddress(orderData?.project)}</p>
-                    </div>
-                    <div className="border-0 flex flex-col">
-                        <p className="text-left py-1 font-medium  text-xs text-gray-500">For</p>
-                        <p className="text-left font-bold py-1 font-semibold text-sm text-black">{getVendorName(vendor_id)}</p>
-                    </div>
-                </div> */}
                 <div className="overflow-x-auto">
                     <table className="w-full">
                         <thead className="w-full border-b border-black">
                             <tr>
-                                <th colSpan="5" className="p-0">
+                                <th colSpan={5} className="p-0">
                                     <div className="mt-6 flex justify-between">
                                         <div>
                                             <img className="w-44" src={redlogo} alt="Nirmaan" />
@@ -198,7 +231,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                                 </th>
                             </tr>
                             <tr>
-                                <th colSpan="5" className="p-0">
+                                <th colSpan={5} className="p-0">
                                     <div className="py-2 border-b-2 border-gray-600 pb-3 mb-3">
                                         <div className="flex justify-between">
                                             <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
@@ -208,7 +241,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                                 </th>
                             </tr>
                             <tr>
-                                <th colSpan="5" className="p-0">
+                                <th colSpan={5} className="p-0">
                                     <div className="grid grid-cols-2 justify-between border border-gray-100 rounded-lg p-4">
                                         <div className="border-0 flex flex-col">
                                             <p className="text-left py-1 font-medium text-xs text-gray-500">Date</p>
@@ -281,30 +314,25 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                         <p className="text-md font-bold text-red-700 underline">Note</p>
                         <p className="text-xs">Please share the quotes as soon as possible</p>
                     </div>
-                    <div className="flex flex-col gap-4">
-                        {
-                            [...categoryForVendor].map((cat) => (
+                    <div className="">
+                        {Array.from(categoryForVendor).map((cat) => (
                                 <div>
-                                    <p className="text-lg font-semibold mb-4">{cat}</p>
-                                    {pdfImages[cat] && pdfImages[cat].map((imgSrc, index) => (
+                                    {/* <p className="text-lg font-semibold mb-4">{cat}</p> */}
+                                    {(pdfImages[cat] && displayBOQ[cat]) && pdfImages[cat].map((imgSrc, index) => (
                                         <img key={index} src={imgSrc} alt={`PDF page ${index + 1}`} style={{ width: '100%', marginBottom: '20px' }} />
                                     ))}
                                 </div>
-                            ))
-                        }
-                      {/* {pdfImages.length > 0 ? (
-                        pdfImages.map((imgSrc, index) => (
-                          <img key={index} src={imgSrc} alt={`PDF page ${index + 1}`} style={{ width: '100%', marginBottom: '20px' }} />
-                        ))
-                      ) : (
-                        <p>Loading PDF content...</p>
-                      )} */}
+                            ))}
                     </div>
                 </div>
+            </div>
+            </Content>
             </div>
             <div className="text-center">
                 <button onClick={handlePrint} className="m-1 p-2 bg-blue-500 text-white">Print</button>
             </div>
-        </div>
+
+            </Layout>
+            </Layout>
     )
 }

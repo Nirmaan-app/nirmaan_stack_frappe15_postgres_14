@@ -6,7 +6,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus, Download, Handshake } from 'lucide-react';
+import { ArrowLeft, CirclePlus, Download, Handshake, PencilLine } from 'lucide-react';
 import SentBackQuotationForm from "./sent-back-quotation-form"
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -21,7 +21,7 @@ import { formatDate } from '@/utils/FormatDate';
 import { Badge } from "../ui/badge";
 import { AddVendorCategories } from "../forms/addvendorcategories";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { DataTable } from "../data-table/data-table";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 import { useToast } from "../ui/use-toast";
@@ -422,7 +422,7 @@ export const SentBackUpdateQuote = () => {
                                             <SheetHeader className="text-start">
                                                     <div className="flex items-center gap-1">
                                                         <SheetTitle className="text-xl">Enter Price(s)</SheetTitle>
-                                                        <Handshake className="w-5 h-5 text-primary" />
+                                                        <PencilLine className="w-5 h-5 text-primary" />
                                                     </div>
                                                 <SheetDescription>
                                                 <Card className="p-5">
@@ -459,13 +459,6 @@ export const SentBackUpdateQuote = () => {
                             </Button>
                         </div>
 
-                        <div className="pl-2 flex gap-1 items-center pt-10 flex-wrap">
-                            <span className="font-light max-md:text-sm">All Categories of this Sent Back: </span>
-                            {orderData?.category_list?.list.map((cat) => (
-                                <Badge>{cat.name}</Badge>
-                            ))}
-                        </div>
-
                         <Accordion type="multiple" >
                             <AccordionItem value="Vendors">
                                 <AccordionTrigger>
@@ -476,6 +469,12 @@ export const SentBackUpdateQuote = () => {
                                 <AccordionContent>
                                         <Card>
                                             <CardHeader>
+                                            <div className="pl-6 flex gap-1 items-center pt-10 flex-wrap">
+                            <span className="font-light max-md:text-sm">Sent Back Categories: </span>
+                            {orderData?.category_list?.list.map((cat) => (
+                                <Badge>{cat.name}</Badge>
+                            ))}
+                        </div>
                                                 <CardContent>
                                                     <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
                                                 </CardContent>
