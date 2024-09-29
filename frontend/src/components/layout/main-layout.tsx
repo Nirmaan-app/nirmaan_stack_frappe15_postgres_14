@@ -1,20 +1,51 @@
-import { Outlet } from 'react-router-dom';
-import { Sidebar } from "../sidebar-nav";
 import { NavBar } from '../nav/nav-bar';
 import ScrollToTop from '@/hooks/ScrollToTop';
 
 export const MainLayout = () => {
 
     return (
-        <div className="">
+        <>
 			<ScrollToTop />
             <NavBar />
-            <div className="flex pt-16">
-                <Sidebar  className="w-64" />
-                    <main className="flex-1 md:ml-64">
-                        <Outlet />
-                    </main>
-            </div>
-        </div>
+
+            {/* <Layout>
+
+            <Header>
+                <div className="border-b w-full">
+                        <div className="flex h-16 items-center px-2 md:px-4">
+                          <div className="flex items-center justify-center">
+                            <Button onClick={toggleCollapsed} >
+                                {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                            </Button>
+                            <MainNav className="mx-2 md:mx-6"/>
+                          </div>
+                            <div className="ml-auto flex items-center space-x-4">
+                                <ModeToggle />
+                                <Notifications />
+                                <UserNav />
+                            </div>
+                        </div>
+                </div>
+            </Header>
+        <Layout>
+            <Sider>
+            <Menu
+                                defaultSelectedKeys={['1']}
+                                defaultOpenKeys={['sub1', 'sub2', 'sub3']}
+                                mode="inline"
+                                theme="light"
+                                inlineCollapsed={collapsed}
+                                items={items}
+                                triggerSubMenuAction="hover"
+                            />
+            </Sider>
+
+            <Content>
+                <Outlet />
+            </Content>
+
+            </Layout>
+            </Layout> */}
+        </>
     );
 };
