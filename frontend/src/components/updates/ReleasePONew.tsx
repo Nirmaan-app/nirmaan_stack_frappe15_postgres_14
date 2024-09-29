@@ -24,6 +24,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { AlertDialogAction } from "@radix-ui/react-alert-dialog";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
+import formatToIndianRupee from '@/utils/FormatPrice';
 
 const { Header, Sider, Content } = Layout;
 
@@ -373,9 +374,9 @@ export const ReleasePONew: React.FC = () => {
                                             <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quote}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.quote)}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.tax}%</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity)).toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(((item.quote) * (item.quantity)).toFixed(2))}</td>
                                         </tr>)
                                     })}
                                     {/* {[...Array(19)].map((_, index) => (
@@ -397,9 +398,9 @@ export const ReleasePONew: React.FC = () => {
                                             <td className=" py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{loadingCharges}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(loadingCharges)}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{loadingCharges.toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(loadingCharges.toFixed(2))}</td>
                                         </tr>
                                         :
                                         <></>
@@ -410,9 +411,9 @@ export const ReleasePONew: React.FC = () => {
                                             <td className=" py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{freightCharges}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(freightCharges)}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{freightCharges.toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(freightCharges.toFixed(2))}</td>
                                         </tr>
                                         :
                                         <></>
@@ -424,7 +425,7 @@ export const ReleasePONew: React.FC = () => {
                                         <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
-                                        <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{getTotal().total.toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal().total.toFixed(2))}</td>
                                     </tr>
                                     <tr className="border-none">
                                         <td></td>
@@ -439,9 +440,9 @@ export const ReleasePONew: React.FC = () => {
                                         </td>
 
                                         <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                            <div className="ml-4">{(getTotal().totalGst).toFixed(2)}</div>
-                                            <div className="ml-4">- {((getTotal().totalAmt).toFixed(2) - (Math.floor(getTotal().totalAmt)).toFixed(2)).toFixed(2)}</div>
-                                            <div className="ml-4">{(Math.floor(getTotal().totalAmt)).toFixed(2)}</div>
+                                            <div className="ml-4">{formatToIndianRupee((getTotal().totalGst).toFixed(2))}</div>
+                                            <div className="ml-4">- {formatToIndianRupee(((getTotal().totalAmt).toFixed(2) - (Math.floor(getTotal().totalAmt)).toFixed(2)).toFixed(2))}</div>
+                                            <div className="ml-4">{formatToIndianRupee((Math.floor(getTotal().totalAmt)).toFixed(2))}</div>
                                         </td>
 
                                     </tr>

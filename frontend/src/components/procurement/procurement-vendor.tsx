@@ -25,6 +25,7 @@ import { Badge } from "../ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 export const ProcurementOrder = () => {
 
@@ -374,7 +375,7 @@ export const ProcurementOrder = () => {
                                                                 </TableCell>
                                                                 <TableCell>{item.unit}</TableCell>
                                                                 <TableCell>{item.quantity}</TableCell>
-                                                                <TableCell>{minQuote ? minQuote * item.quantity : "N/A"}</TableCell>
+                                                                <TableCell>{minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}</TableCell>
                                                             </TableRow>
                                                         )
                                                     }

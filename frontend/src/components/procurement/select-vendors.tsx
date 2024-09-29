@@ -18,6 +18,7 @@ import type { TableColumnsType, TableProps } from 'antd';
 import { useToast } from '../ui/use-toast';
 import { formatDate } from '@/utils/FormatDate';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
+import formatToIndianRupee from '@/utils/FormatPrice';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -79,6 +80,11 @@ const columns: TableColumnsType<DataType> = [
         dataIndex: 'rate',
         width: '7%',
         key: 'rate',
+        render: (text) => {
+            return (
+                <span>{text === undefined ? "" : text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}</span>
+            )
+        }
     },
     {
         title: 'Selected Vendor',
@@ -93,7 +99,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'amount',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {Number.isNaN(text) ? "Delayed" : text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -104,7 +110,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {text === "Delayed" ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -115,7 +121,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -575,11 +581,11 @@ export const SelectVendors = () => {
                                                                 const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                                 return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
                                                                     <input className="mr-2" disabled={(price === "-" || price === 0) ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
-                                                                    {price * item.quantity}
+                                                                    {Number.isNaN((price * item.quantity)) ? "N/A" : formatToIndianRupee(price * item.quantity)}
                                                                 </td>
                                                             })}
                                                             <td className="py-2 text-sm px-2 border-b">
-                                                                {minQuote ? minQuote * item.quantity : "N/A"}
+                                                                {minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}
                                                             </td>
                                                         </tr>
                                                     }
@@ -589,8 +595,8 @@ export const SelectVendors = () => {
                                                     {selectedCategories[curCategory]?.map((value) => {
                                                         const isSelected = selectedVendors[curCategory] === value;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <td className={`py-2 text-sm px-2 text-left font-bold ${dynamicClass}`}>
-                                                            {getTotal2(value, curCategory)}
+                                                        return <td className={`py-2 text-sm pl-8 text-left font-bold ${dynamicClass}`}>
+                                                            {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
                                                         </td>
                                                     })}
                                                     <td></td>
@@ -630,10 +636,10 @@ export const SelectVendors = () => {
                                             Click on 'Confirm' to continue
                                         </DialogDescription>
                                     </DialogHeader>
-                                    <DialogClose>
-                                        <Button variant="secondary" >Go Back</Button>
-                                        <Button variant="secondary" className="ml-4" onClick={() => setPage('approvequotation')}>Confirm</Button>
-                                    </DialogClose>
+                                    <DialogDescription className='flex items-center justify-center gap-2'>
+                                        <DialogClose><Button variant={"outline"}>Cancel</Button></DialogClose>
+                                        <Button variant="default" className="ml-4" onClick={() => setPage('approvequotation')}>Confirm</Button>
+                                    </DialogDescription>
                                 </DialogContent>
                             </Dialog>
                         </div>
@@ -834,7 +840,7 @@ export const SelectVendors = () => {
 
                         </ConfigProvider>
                     </div>
-                    <div className="flex flex-col justify-end items-end mr-2">
+                    <div className="flex flex-col justify-end items-end mr-2 mb-4">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button>
@@ -848,10 +854,10 @@ export const SelectVendors = () => {
                                         Remainder: Items whose quotes are not selected will have a delayed status attached to them. If confirmed, Delayed sent back request will be created for those Items.
                                     </DialogDescription>
                                 </DialogHeader>
-                                <DialogClose>
-                                    <Button variant="secondary">Go Back</Button>
-                                    <Button variant="secondary" className="ml-4" onClick={() => handleSubmit()}>Confirm</Button>
-                                </DialogClose>
+                                <DialogDescription className='flex items-center justify-center gap-2'>
+                                    <DialogClose><Button variant="secondary">Cancel</Button></DialogClose>
+                                    <Button variant="default" onClick={() => handleSubmit()}>Confirm</Button>
+                                </DialogDescription>
                             </DialogContent>
                         </Dialog>
                     </div>

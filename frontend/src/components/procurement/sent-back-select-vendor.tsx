@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Space, Switch, Table, ConfigProvider, Collapse, Checkbox } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import { toast } from '../ui/use-toast';
+import formatToIndianRupee from '@/utils/FormatPrice';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -59,6 +60,11 @@ const columns: TableColumnsType<DataType> = [
         dataIndex: 'rate',
         width: '7%',
         key: 'rate',
+        render: (text) => {
+            return (
+                <span>{text === undefined ? "" : text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}</span>
+            )
+        }
     },
     {
         title: 'Selected Vendor',
@@ -71,11 +77,14 @@ const columns: TableColumnsType<DataType> = [
         dataIndex: 'amount',
         width: '9%',
         key: 'amount',
-        render: (text, record) => (
-            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+        render: (text, record) => {
+            // console.log("text", text)
+            return(
+                <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                {Number.isNaN(text) ? "Delayed" : text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}
             </span>
-        ),
+            )
+        }
     },
     {
         title: 'Lowest Quoted Amount',
@@ -84,7 +93,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {text === "Delayed" ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -95,7 +104,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -506,11 +515,11 @@ export const SentBackSelectVendor = () => {
                                                                 const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                                 return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
                                                                     <input className="mr-2" disabled={price === "-" ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
-                                                                    {price * item.quantity}
+                                                                    {formatToIndianRupee(price * item.quantity)}
                                                                 </td>
                                                             })}
                                                             <td className="py-2 text-sm px-2 border-b">
-                                                                {minQuote ? minQuote * item.quantity : "N/A"}
+                                                                {minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}
                                                             </td>
                                                         </tr>
                                                     }
@@ -521,7 +530,7 @@ export const SentBackSelectVendor = () => {
                                                         const isSelected = selectedVendors[curCategory] === value;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                         return <td className={`py-2 text-sm px-2 text-left font-bold ${dynamicClass}`}>
-                                                            {getTotal2(value, curCategory)}
+                                                            {formatToIndianRupee(getTotal2(value, curCategory))}
                                                         </td>
                                                     })}
                                                     <td></td>
@@ -668,7 +677,7 @@ export const SentBackSelectVendor = () => {
 
                     </ConfigProvider>
                     </div>
-                    <div className="flex flex-col justify-end items-end mr-2">
+                    <div className="flex flex-col justify-end items-end mr-2 mb-4">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button>
@@ -686,15 +695,15 @@ export const SentBackSelectVendor = () => {
                                         }
                                     </DialogDescription>
                                 </DialogHeader>
-                                <DialogClose>
-                                    <Button>Go Back</Button>
-                                    {console.log("filter:", orderData.item_list?.list.filter((item) => item.vendor === undefined).length)}
+                                <DialogDescription className='flex items-center justify-center gap-2'>
+                                    <Button onClick={() => setPage("updatequotation")}>Go Back</Button>
+                                    {/* {console.log("filter:", orderData.item_list?.list.filter((item) => item.vendor === undefined).length)} */}
                                     {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
-                                        <Button className="ml-4" onClick={() => handleSubmit()}>Confirm</Button>
+                                        <Button onClick={() => handleSubmit()}>Confirm</Button>
                                         :
-                                        <Button variant="secondary" className="ml-4" disabled={true}>Confirm</Button>
+                                        <Button variant="secondary" disabled={true}>Confirm</Button>
                                     }
-                                </DialogClose>
+                                </DialogDescription>
                             </DialogContent>
                         </Dialog>
                     </div>
