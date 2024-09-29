@@ -272,7 +272,7 @@ export default function NewMilestones() {
                 <div className="flex justify-between">
                     <div className="flex items-center gap-2">
                         {selectedProject !== null ?
-                            <div className="pl-6" /> : <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
+                            <div className="pl-6" /> : <ArrowLeft className="cursor-pointer" onClick={() => navigate("/prs&milestones")} />
                         }
 
 

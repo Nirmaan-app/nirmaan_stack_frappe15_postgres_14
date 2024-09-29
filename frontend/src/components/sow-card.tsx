@@ -19,7 +19,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
-import { ButtonLoading } from "./button-loading"
+import { ButtonLoading } from "./ui/button-loading"
 import { Skeleton } from "./ui/skeleton"
 import { useToast } from "./ui/use-toast"
 

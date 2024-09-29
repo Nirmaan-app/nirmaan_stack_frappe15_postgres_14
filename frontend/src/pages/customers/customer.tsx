@@ -37,7 +37,7 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
 
   return (
     <div className="flex-1 md:space-y-4 p-4">
-      <div className="flex items-center">
+      <div className="flex items-center max-md:mb-2">
         <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/customers")} />
         {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
           <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.company_name}</h2>}

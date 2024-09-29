@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
-import { ButtonLoading } from "@/components/button-loading"
+import { ButtonLoading } from "@/components/ui/button-loading"
 import { ArrowLeft, CirclePlus } from "lucide-react";
 import { WPSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";

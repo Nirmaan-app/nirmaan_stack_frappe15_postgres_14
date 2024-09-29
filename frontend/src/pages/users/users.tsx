@@ -24,7 +24,7 @@ export default function Users() {
         "Nirmaan Users"
     )
 
-    console.log("data", data)
+    // console.log("data", data)
 
     const roleTypeOptions = [{label: "Project Manager", value : "Nirmaan Project Manager Profile"}, 
                              {label: "Project Lead", value : "Nirmaan Project Lead Profile"}, 
@@ -158,7 +158,7 @@ export default function Users() {
         ],
         []
     )
-    if (isLoading) return <h1>Loading</h1>
+    // if (isLoading) return <h1>Loading</h1>
     if (error) return <h1>error.message</h1>
     return (
         <div className="flex-1 md:space-y-4 p-4">

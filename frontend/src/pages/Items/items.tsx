@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, CirclePlus, HardHat, ShoppingCart } from "lucide-react";
+import { ArrowLeft, CirclePlus, ShoppingCart } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -192,7 +192,7 @@ export default function Items() {
             })
     }
 
-    if (isLoading || category_loading) return <h1>Loading</h1>
+    // if (isLoading || category_loading) return <h1>Loading</h1>
     if (error || category_error) return (error ? <h1>error.message</h1> : <h1>category_error.message</h1>)
 
     return (
@@ -297,7 +297,7 @@ export default function Items() {
                 </Card>
             </div>
             <div className="pl-0 pr-2">
-                {isLoading ? (
+                {isLoading || category_loading? (
                     <TableSkeleton />
                 ) : (
                     <DataTable columns={columns} data={data || []} category_options={categoryOptions} />

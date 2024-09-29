@@ -13,7 +13,7 @@ import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom";
 import { Button } from '@/components/ui/button'
 import { NewVendor } from '@/pages/vendors/new-vendor';
-import { ButtonLoading } from '../button-loading';
+import { ButtonLoading } from '../ui/button-loading';
 import { DataTable } from '../data-table/data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ColumnDef } from "@tanstack/react-table";
@@ -25,6 +25,7 @@ import { Badge } from "../ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 export const ProcurementOrder = () => {
 
@@ -342,7 +343,7 @@ export const ProcurementOrder = () => {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow className="bg-red-100">
-                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>Items</TableHead>
+                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
                                                     <TableHead className="w-[20%]">UOM</TableHead>
                                                     <TableHead className="w-[10%]">Qty</TableHead>
                                                     <TableHead className="w-[10%]">Est. Amt</TableHead>
@@ -374,7 +375,7 @@ export const ProcurementOrder = () => {
                                                                 </TableCell>
                                                                 <TableCell>{item.unit}</TableCell>
                                                                 <TableCell>{item.quantity}</TableCell>
-                                                                <TableCell>{minQuote ? minQuote * item.quantity : "N/A"}</TableCell>
+                                                                <TableCell>{minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}</TableCell>
                                                             </TableRow>
                                                         )
                                                     }

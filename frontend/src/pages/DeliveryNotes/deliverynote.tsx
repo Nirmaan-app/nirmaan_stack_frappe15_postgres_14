@@ -607,7 +607,7 @@ export default function DeliveryNote() {
     if (isLoading) return <div>...loading</div>;
 
     return (
-        <div className="container mx-auto px-4 py-8 max-w-2xl">
+        <div className="container mx-auto px-4 py-8 max-md:py-4 max-w-3xl">
              <div className='flex items-center justify-between'>
              <div className="flex items-center mb-4">
                <Button onClick={() => navigate("/delivery-notes")} variant="ghost" className=" p-2">

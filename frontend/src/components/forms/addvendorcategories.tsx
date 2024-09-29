@@ -1,7 +1,7 @@
 import {  useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDocTypeEventListener, useSWRConfig } from "frappe-react-sdk"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
-import { ButtonLoading } from "@/components/button-loading"
+import { ButtonLoading } from "@/components/ui/button-loading"
 import ReactSelect from 'react-select';
 import { useEffect, useState } from "react"
 import { SheetClose } from "../ui/sheet";

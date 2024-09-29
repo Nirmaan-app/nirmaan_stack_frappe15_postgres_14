@@ -9,6 +9,7 @@ import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import { Badge } from "../ui/badge";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 
 type PRTable = {
@@ -144,7 +145,7 @@ export const SentBackRequest = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {getTotal(row.getValue("name"))}
+                            {formatToIndianRupee(getTotal(row.getValue("name")))}
                         </div>
                     )
                 }

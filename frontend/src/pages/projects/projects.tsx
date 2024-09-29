@@ -25,7 +25,7 @@ export default function Projects() {
 
     const projectTypeOptions = projectTypesList?.map((pt) => ({label : pt.name, value: pt.name}))
 
-    console.log("projecttype", projectTypeOptions)
+    // console.log("projecttype", projectTypeOptions)
 
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [

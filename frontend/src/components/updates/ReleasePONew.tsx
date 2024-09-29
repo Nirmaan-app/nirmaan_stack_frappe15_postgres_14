@@ -1,9 +1,18 @@
+import React, { useState } from 'react';
+import {
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  UploadOutlined,
+  UserOutlined,
+  VideoCameraOutlined,
+} from '@ant-design/icons';
+import { Button , Layout } from 'antd';
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { useState, useEffect, useRef } from "react"
+import {  useEffect, useRef } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
-import { Button } from "../ui/button";
+// import { Button } from "../ui/button";
 import { ArrowLeft, X } from "lucide-react";
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import { Controller, useForm } from "react-hook-form";
@@ -15,10 +24,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { AlertDialogAction } from "@radix-ui/react-alert-dialog";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
+import formatToIndianRupee from '@/utils/FormatPrice';
 
-export const ReleasePO = () => {
-    const { id } = useParams<{ id: string }>()
+const { Header, Sider, Content } = Layout;
+
+export const ReleasePONew: React.FC = () => {
+
+  const [collapsed, setCollapsed] = useState(true);
+  // const {
+  //   token: { colorBgContainer, borderRadiusLG },
+  // } = theme.useToken();
+
+  const { id } = useParams<{ id: string }>()
     const orderId = id?.replaceAll("&=", "/")
 
     const navigate = useNavigate()
@@ -192,24 +209,15 @@ export const ReleasePO = () => {
     if (procurement_order_list_loading || address_list_loading) return <div>Loading</div>
     if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
 
-    return (
-        <>
-            <div className="flex-1 md:space-y-4 p-4">
-                <ResizablePanelGroup className="flex gap-6" direction="horizontal">
-                    <ResizablePanel>
-                <div className="">
-                    <div className="flex justify-between items-center">
+
+  return (
+    <div className='flex-1 md:space-y-4 p-4'>
                         <div className="flex py-4">
                             <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
                             <div className="font-semibold text-xl pl-2"><span className="text-red-700 text-2xl">Selected PO:</span> {(orderData?.name)?.toUpperCase()}</div>
                         </div>
-                        <Button className="px-8" disabled={advance > 100 || advance < 0} onClick={() => {
-                            onSubmit(control._formValues)
-                            handlePrint()
-                        }}>
-                            Print
-                        </Button>
-                    </div>
+    <Layout>
+      <Sider theme='light' collapsedWidth={0} width={500}  trigger={null} collapsible collapsed={collapsed}>
                     <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4">
                         <div className="flex-col">
                             <h3 className="font-semibold text-lg mt-4">Additional Charges</h3>
@@ -271,72 +279,38 @@ export const ReleasePO = () => {
                                 />
                             </div>
                             <div className="mt-2 text-center">
-                                <Button className="mr-2 px-10" disabled={advance > 100 || advance < 0} >
+                                <button className="h-9 px-8 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90" disabled={advance > 100 || advance < 0} >
                                     {update_loading ? "Saving..." : "Save"}
-                                </Button>
+                                </button>
                             </div>
                         </div>
                     </form>
-
-                    {/* <Button className="w-full mt-10">Cancel PO</Button> */}
-
-                    <Card className="border-primary">
-                        <CardHeader>
-                            <CardTitle>Cancel PO</CardTitle>
-                            <CardContent>
-                                <CardDescription className="flex justify-between items-center">
-                                    <p className="w-[70%]">on clicking the cancel button will create a "Sent Back Request"</p>
-                                    {orderData?.status === "Generated" ? (
-                                        <Button
-                                            variant={"outline"}
-                                            onClick={() => document.getElementById("alertTrigger")?.click()}
-                                            className="border-primary"
-                                        >
-                                            Cancel PO
-                                        </Button>
-                                    ) : (
-                                        <HoverCard>
-                                            <HoverCardTrigger>
-                                                <Button disabled variant={"outline"} className="border-primary cursor-not-allowed">Cancel PO</Button>
-                                            </HoverCardTrigger>
-                                            <HoverCardContent className="w-80">
-                                                <div>
-                                                    <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note has already been updated!
-                                                </div>
-                                            </HoverCardContent>
-                                        </HoverCard>
-                                    )}
-                                    <AlertDialog>
-                                        <AlertDialogTrigger>
-                                            <Button className="hidden" id="alertTrigger">trigger</Button>
-                                        </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                            <AlertDialogHeader>
-                                                <AlertDialogTitle>
-                                                    <h1 className="justify-center">Are you sure!</h1>
-                                                </AlertDialogTitle>
-
-                                                <AlertDialogDescription className="space-x-2 text-center">
-                                                    Cancelling this PO will create a new cancelled Sent Back. Continue?
-                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                    <AlertDialogAction onClick={handleCancelPo}>
-                                                        <Button>Confirm</Button>
-                                                    </AlertDialogAction>
-                                                </AlertDialogDescription>
-
-                                            </AlertDialogHeader>
-                                        </AlertDialogContent>
-                                    </AlertDialog>
-                                </CardDescription>
-
-                            </CardContent>
-                        </CardHeader>
-                    </Card>
-                </div>
-                </ResizablePanel>
-                <ResizableHandle />
-                <ResizablePanel>
-                <div className=" p-4 m-4 border rounded-lg h-screen overflow-y-scroll">
+      </Sider>
+      <Layout className='bg-white'>
+        <div className="flex">
+          <Button
+            type="text"
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed(!collapsed)}
+            style={{
+              fontSize: '16px',
+              width: 64,
+              height: 64,
+              backgroundColor: "white"
+            }}
+          />
+          <Content
+          className={`${collapsed ? "md:mx-10 lg:mx-32" : ""} my-4 mx-2 flex flex-col gap-4 relative`}
+          >
+              <div className='absolute right-0 -top-[8%]'>
+                        <button className='h-9 px-6 py-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90' disabled={advance > 100 || advance < 0} onClick={() => {
+                            onSubmit(control._formValues)
+                            handlePrint()
+                            }}>
+                            Print
+                        </button>
+              </div>
+            <div className={`w-full border rounded-lg h-screen overflow-y-scroll`}>
                     <div ref={componentRef} className="w-full p-4">
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-gray-200">
@@ -389,8 +363,6 @@ export const ReleasePO = () => {
                                         <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                         <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
                                         <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
-                                        {/* <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">SGST</th>
-                                        <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">CGST</th> */}
                                         <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
                                         <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                     </tr>
@@ -402,11 +374,9 @@ export const ReleasePO = () => {
                                             <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quote}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.quote)}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.tax}%</td>
-                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity) * (item.tax / 200)).toFixed(2)}({item.tax /2}%)</td> */}
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{((item.quote) * (item.quantity)).toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(((item.quote) * (item.quantity)).toFixed(2))}</td>
                                         </tr>)
                                     })}
                                     {/* {[...Array(19)].map((_, index) => (
@@ -428,11 +398,9 @@ export const ReleasePO = () => {
                                             <td className=" py-2 text-sm whitespace-nowrap">LOADING CHARGES</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{loadingCharges}</td>
-                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.loading_charges) * 0.09).toFixed(2)}(9%)</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.loading_charges) * 0.09).toFixed(2)}(9%)</td> */}
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(loadingCharges)}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{loadingCharges.toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(loadingCharges.toFixed(2))}</td>
                                         </tr>
                                         :
                                         <></>
@@ -443,46 +411,21 @@ export const ReleasePO = () => {
                                             <td className=" py-2 text-sm whitespace-nowrap">FREIGHT CHARGES</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">NOS</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">1</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{freightCharges}</td>
-                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.freight_charges) * 0.09).toFixed(2)}(9%)</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{((orderData?.freight_charges) * 0.09).toFixed(2)}(9%)</td> */}
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(freightCharges)}</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{freightCharges.toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(freightCharges.toFixed(2))}</td>
                                         </tr>
                                         :
                                         <></>
                                     }
-                                    {/* <tr> 
-                                        <td></td>
-                                        <td></td>
-                                        <td></td>
-                                        <td></td>
-                                        
-                                        <td className="space-y-4 py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
-                                            <div>Sub Total:</div>
-                                            <div>CGST(9%):</div>
-                                            <div>SGST(9%):</div>
-                                            <div className="h-2"></div>
-                                            
-                                        </td>
-                                        <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                            <div className="ml-4">{getTotal().total}</div>
-                                            <div className="ml-4">{(getTotal().total * 0.09).toFixed(2)}</div>
-                                            <div className="ml-4">{(getTotal().total * 0.09).toFixed(2)}</div>
-                                            <div className="h-2"></div>
-                                        </td>
-                                    </tr> */}
                                     <tr className="">
                                         <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
                                         <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                        {/* <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td>
-                                            <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{((getTotal().totalGst)/2).toFixed(2)}</td> */}
-                                        {/* <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{(getTotal().totalGst).toFixed(2)}</td>  */}
                                         <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
-                                        <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{getTotal().total.toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal().total.toFixed(2))}</td>
                                     </tr>
                                     <tr className="border-none">
                                         <td></td>
@@ -490,7 +433,6 @@ export const ReleasePO = () => {
                                         <td></td>
                                         <td></td>
                                         <td></td>
-                                        {/* <td></td> */}
                                         <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
                                             <div>Total Tax(GST):</div>
                                             <div>Round Off:</div>
@@ -498,25 +440,12 @@ export const ReleasePO = () => {
                                         </td>
 
                                         <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                            <div className="ml-4">{(getTotal().totalGst).toFixed(2)}</div>
-                                            <div className="ml-4">- {((getTotal().totalAmt).toFixed(2) - (Math.floor(getTotal().totalAmt)).toFixed(2)).toFixed(2)}</div>
-                                            <div className="ml-4">{(Math.floor(getTotal().totalAmt)).toFixed(2)}</div>
+                                            <div className="ml-4">{formatToIndianRupee((getTotal().totalGst).toFixed(2))}</div>
+                                            <div className="ml-4">- {formatToIndianRupee(((getTotal().totalAmt).toFixed(2) - (Math.floor(getTotal().totalAmt)).toFixed(2)).toFixed(2))}</div>
+                                            <div className="ml-4">{formatToIndianRupee((Math.floor(getTotal().totalAmt)).toFixed(2))}</div>
                                         </td>
 
                                     </tr>
-                                    {/*
-                                    <tr className="border-none">
-                                        <td colSpan={6}>
-                                            <div className="text-gray-400 text-sm py-2">Note</div>
-                                            <div className="text-sm text-gray-900">Above Sheet to be used of Jindal or Tata</div>
-
-                                            <div className="text-gray-400 text-sm py-2">Payment Terms</div>
-                                            <div className="text-sm text-gray-900">{orderData?.advance}% advance {orderData?.advance === "100" ? "" : `and remaining ${100 - orderData?.advance}% on material readiness before delivery of material to site`}</div>
-
-                                            <img src={Seal} className="w-24 h-24" />
-                                            <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
-                                        </td>
-                                    </tr> */}
                                     <tr className="end-of-page page-break-inside-avoid" >
                                         <td colSpan={6}>
                                             {notes !== "" && (
@@ -525,8 +454,6 @@ export const ReleasePO = () => {
                                                     <div className="text-sm text-gray-900">{notes}</div>
                                                 </>
                                             )}
-
-
                                             <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                             <div className="text-sm text-gray-900">
                                                 {advance}% advance {advance === 100 ? "" : `and remaining ${100 - advance}% on material readiness before delivery of material to site`}
@@ -620,7 +547,7 @@ export const ReleasePO = () => {
                                                 <li className="pl-2">Safety: The safety and security of all men deployed and materials placed by the Vendor or its agents for the project shall be at the risk and responsibility of the Vendor. Vendor shall ensure compliance with all safety norms at the site. Nirmaan shall have no obligation or responsibility on any safety, security & compensation related matters for the resources & material deployed by the Vendor or its agent.</li>
                                                 <li className="pl-2">Notice: Any notice or other communication required or authorized under this PO shall be in writing and given to the party for whom it is intended at the address given in this PO or such other address as shall have been notified to the other party for that purpose, through registered post, courier, facsimile or electronic mail.</li>
                                                 <li className="pl-2">Force Majeure: Neither party shall be liable for any delay or failure to perform if such delay or failure arises from an act of God or of the public enemy, an act of civil disobedience, epidemic, war, insurrection, labor action, or governmental action.</li>
-                                                <li className="pl-2">Name use: Vendor shall not use, or permit the use of, the name, trade name, service marks, trademarks, or logo of Nirmaan in any form of publicity, press release, advertisement, or otherwise without Flipspace’s prior written consent.</li>
+                                                <li className="pl-2">Name use: Vendor shall not use, or permit the use of, the name, trade name, service marks, trademarks, or logo of Nirmaan in any form of publicity, press release, advertisement, or otherwise without Nirmaan's prior written consent.</li>
                                                 <li className="pl-2">Arbitration: Any dispute arising out of or in connection with the order shall be settled by Arbitration in accordance with the Arbitration and Conciliation Act,1996 (As amended in 2015). The arbitration proceedings shall be conducted in English in Bangalore by the sole arbitrator appointed by the Purchaser.</li>
                                                 <li className="pl-2">The law governing: All disputes shall be governed as per the laws of India and subject to the exclusive jurisdiction of the court in Karnataka.</li>
                                             </ol>
@@ -630,11 +557,63 @@ export const ReleasePO = () => {
                             </table>
                         </div>
                     </div>
-                </div>
-                </ResizablePanel>
-                </ResizablePanelGroup>
-            </div>
-            {/* <button onClick={handlePrint} className="m-8 p-2 bg-blue-500 text-white">Print</button> */}
-        </>
-    )
-}
+              </div>
+
+                     <Card className="border-primary">
+                        <CardHeader>
+                            <CardTitle>Cancel PO</CardTitle>
+                            <CardContent>
+                                <CardDescription className="flex justify-between items-center">
+                                    <p className="w-[70%]">on clicking the cancel button will create a "Sent Back Request"</p>
+                                    {orderData?.status === "Generated" ? (
+                                        <button
+                                            onClick={() => document.getElementById("alertTrigger")?.click()}
+                                            className="border-primary h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground"
+                                        >
+                                            Cancel PO
+                                        </button>
+                                    ) : (
+                                        <HoverCard>
+                                            <HoverCardTrigger>
+                                                <button disabled className="border-primary cursor-not-allowed h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground">Cancel PO</button>
+                                            </HoverCardTrigger>
+                                            <HoverCardContent className="w-80">
+                                                <div>
+                                                    <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note has already been updated!
+                                                </div>
+                                            </HoverCardContent>
+                                        </HoverCard>
+                                    )}
+                                    <AlertDialog>
+                                        <AlertDialogTrigger>
+                                            <button className="hidden" id="alertTrigger">trigger</button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>
+                                                    <h1 className="justify-center">Are you sure!</h1>
+                                                </AlertDialogTitle>
+
+                                                <AlertDialogDescription className="space-x-2 text-center">
+                                                    Cancelling this PO will create a new cancelled Sent Back. Continue?
+                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction onClick={handleCancelPo}>
+                                                        <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90'>Confirm</button>
+                                                    </AlertDialogAction>
+                                                </AlertDialogDescription>
+
+                                            </AlertDialogHeader>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                </CardDescription>
+
+                            </CardContent>
+                        </CardHeader>
+                    </Card>
+        </Content>
+        </div>
+      </Layout>
+    </Layout>
+    </div>
+  );
+};

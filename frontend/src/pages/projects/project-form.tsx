@@ -2,28 +2,28 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocTypeEventListener, useFrappeGetDocList, useFrappeGetDoc, useSWR } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "./ui/form"
-import { Input } from "./ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
-import { Button } from "./ui/button"
-import { ButtonLoading } from "./button-loading"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
-import ProjectTypeForm from "./project-type-form"
-import { Separator } from "./ui/separator"
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "../../components/ui/form"
+import { Input } from "../../components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select"
+import { Button } from "../../components/ui/button"
+import { ButtonLoading } from "../../components/ui/button-loading"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../../components/ui/dialog"
+import ProjectTypeForm from "../../components/project-type-form"
+import { Separator } from "../../components/ui/separator"
+import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
 import { cn } from "@/lib/utils"
-import { CalendarIcon, CirclePlus, GitCommitVertical } from "lucide-react"
-import { Calendar } from "./ui/calendar"
+import { ArrowLeft, CalendarIcon, CirclePlus, GitCommitVertical } from "lucide-react"
+import { Calendar } from "../../components/ui/calendar"
 import { format } from "date-fns"
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion"
-import { Checkbox } from "./ui/checkbox"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../components/ui/accordion"
+import { Checkbox } from "../../components/ui/checkbox"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "../../components/ui/sheet"
 import { useNavigate } from "react-router-dom"
 import { useEffect, useState, useCallback } from "react"
 import { formatToLocalDateTimeString } from "@/utils/FormatDate"
-import { useToast } from "./ui/use-toast"
+import { useToast } from "../../components/ui/use-toast"
 import NewCustomer from "@/pages/customers/add-new-customer"
-import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogAction } from "./ui/alert-dialog"
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogAction } from "../../components/ui/alert-dialog"
 
 
 // 1.a Create Form Schema accordingly
@@ -420,7 +420,19 @@ export const ProjectForm = () => {
         debouncedFetch(value)
     }
     return (
-        <Form {...form}>
+        <div className="flex-1 md:space-y-4 p-4">
+            <div className="space-y-0.5">
+                <div className="flex">
+                    <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/projects")} />
+                    <h2 className="pl-2 text-2xl font-bold tracking-tight">Add New Project</h2>
+                </div>
+                <p className="pl-8 text-muted-foreground">
+                    Fill out this to save a new project
+                </p>
+            </div>
+
+            <Separator className="my-6 max-md:my-4" />
+            <Form {...form}>
             <form onSubmit={(event) => {
                 event.stopPropagation();
                 return form.handleSubmit(onSubmit)(event);
@@ -1140,5 +1152,6 @@ export const ProjectForm = () => {
                 </div>
             </form >
         </Form >
+        </div>
     )
 }
