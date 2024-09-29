@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, MessageCircleMore } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
@@ -17,6 +17,8 @@ import { Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import { useToast } from '../ui/use-toast';
 import { formatDate } from '@/utils/FormatDate';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
+import formatToIndianRupee from '@/utils/FormatPrice';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -38,7 +40,28 @@ const columns: TableColumnsType<DataType> = [
     {
         title: 'Items',
         dataIndex: 'item',
-        key: 'item'
+        key: 'item',
+        render: (text, record) => {
+            return (
+                    <div className="inline items-baseline">
+                        <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+                            {text}
+                            </span>
+                        {(!record.children && record.comment) && (
+                          <HoverCard>
+                          <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                          <HoverCardContent className="max-w-[300px]">
+                          <div className="relative pb-4">
+                              <span className="block">{record.comment}</span>
+                              <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                          </div>
+
+                            </HoverCardContent>
+                        </HoverCard>
+                        )}
+                        </div>
+            )
+        }
     },
     {
         title: 'Unit',
@@ -57,6 +80,11 @@ const columns: TableColumnsType<DataType> = [
         dataIndex: 'rate',
         width: '7%',
         key: 'rate',
+        render: (text) => {
+            return (
+                <span>{text === undefined ? "" : text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}</span>
+            )
+        }
     },
     {
         title: 'Selected Vendor',
@@ -71,7 +99,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'amount',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {Number.isNaN(text) ? "Delayed" : text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -82,7 +110,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {text === "Delayed" ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -93,7 +121,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -175,6 +203,7 @@ export const SelectVendors = () => {
                             key: item.name,
                             unit: item.unit,
                             quantity: item.quantity,
+                            comment : item.comment || "",
                             category: item.category,
                             rate: selectedVendors[item.name] ? price : "Delayed",
                             amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
@@ -269,7 +298,8 @@ export const SelectVendors = () => {
                     unit: value.unit,
                     category: value.category,
                     tax: value.tax,
-                    status: "Pending"
+                    status: "Pending",
+                    comment: value.comment || ""
                 })
 
                 delayedItems.push(value.name);
@@ -463,8 +493,7 @@ export const SelectVendors = () => {
     return (
         <>
             {page == 'updatequotation' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendor/Item Quotes</h2>
@@ -490,13 +519,6 @@ export const SelectVendors = () => {
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div> */}
-                        </Card>
-                        <Card className="p-5 text-xs text-slate-500">
-                            <h1 className='text-red-700 underline'>Instructions</h1>
-                            <p>- Select a vendor's quote for each item.</p>
-                            <p>- You can edit the prices entered before by clicking <span className='text-red-700'>Edit Prices</span> button on the bottom left.</p>
-                            <p>- If quote of any vendor displays <span className='text-red-700'>Nan</span> or <span className='text-red-700'>NA</span>, it means the item price for that vendor is not updated.</p>
-                            <p>- If you dont select any vendor's quote for a particular item/s, it will display <span className='text-red-700'>Delayed</span> in the next page.</p>
                         </Card>
                         {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name;
@@ -535,8 +557,22 @@ export const SelectVendors = () => {
 
                                                     if (item.category === cat.name) {
                                                         return <tr>
-                                                            <td className="py-2 text-sm px-2 font-slim border-b w-[40%]">
-                                                                {item.item}
+                                                            <td className="py-2 text-sm px-2 font-slim w-[40%]">
+                                                                <div className="inline items-baseline">
+                                                                  <span>{item.item}</span>
+                                                                  {item.comment && (
+                                                                    <HoverCard>
+                                                                    <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                                                                    <HoverCardContent className="max-w-[300px]">
+                                                                    <div className="relative pb-4">
+                                                                        <span className="block">{item.comment}</span>
+                                                                        <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                                                                    </div>
+                    
+                                                                    </HoverCardContent>
+                                                                </HoverCard>
+                                                                )}
+                                                                </div>
                                                             </td>
                                                             {selectedCategories[curCategory]?.map((value) => {
                                                                 const price = getPrice(value, item.name);
@@ -545,11 +581,11 @@ export const SelectVendors = () => {
                                                                 const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                                 return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
                                                                     <input className="mr-2" disabled={(price === "-" || price === 0) ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
-                                                                    {price * item.quantity}
+                                                                    {Number.isNaN((price * item.quantity)) ? "N/A" : formatToIndianRupee(price * item.quantity)}
                                                                 </td>
                                                             })}
                                                             <td className="py-2 text-sm px-2 border-b">
-                                                                {minQuote ? minQuote * item.quantity : "N/A"}
+                                                                {minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}
                                                             </td>
                                                         </tr>
                                                     }
@@ -559,8 +595,8 @@ export const SelectVendors = () => {
                                                     {selectedCategories[curCategory]?.map((value) => {
                                                         const isSelected = selectedVendors[curCategory] === value;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <td className={`py-2 text-sm px-2 text-left font-bold ${dynamicClass}`}>
-                                                            {getTotal2(value, curCategory)}
+                                                        return <td className={`py-2 text-sm pl-8 text-left font-bold ${dynamicClass}`}>
+                                                            {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
                                                         </td>
                                                     })}
                                                     <td></td>
@@ -571,8 +607,16 @@ export const SelectVendors = () => {
                                 </Card>
                             </div>
                         })}
+
+                        <Card className="p-5 text-xs text-slate-500">
+                            <h1 className='text-red-700 underline'>Instructions</h1>
+                            <p>- Select a vendor's quote for each item.</p>
+                            <p>- You can edit the prices entered before by clicking <span className='text-red-700'>Edit Prices</span> button on the bottom left.</p>
+                            <p>- If quote of any vendor displays <span className='text-red-700'>Nan</span> or <span className='text-red-700'>NA</span>, it means the item price for that vendor is not updated.</p>
+                            <p>- If you dont select any vendor's quote for a particular item/s, it will display <span className='text-red-700'>Delayed</span> in the next page.</p>
+                        </Card>
                         {/* <div className='p-10'></div> */}
-                        <div className='flex justify-between pt-6'>
+                        <div className='flex justify-between pt-4'>
                             <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => handleEditPrice()}>
                                 Edit Price
                             </Button>
@@ -592,19 +636,17 @@ export const SelectVendors = () => {
                                             Click on 'Confirm' to continue
                                         </DialogDescription>
                                     </DialogHeader>
-                                    <DialogClose>
-                                        <Button variant="secondary" >Go Back</Button>
-                                        <Button variant="secondary" className="ml-4" onClick={() => setPage('approvequotation')}>Confirm</Button>
-                                    </DialogClose>
+                                    <DialogDescription className='flex items-center justify-center gap-2'>
+                                        <DialogClose><Button variant={"outline"}>Cancel</Button></DialogClose>
+                                        <Button variant="default" className="ml-4" onClick={() => setPage('approvequotation')}>Confirm</Button>
+                                    </DialogDescription>
                                 </DialogContent>
                             </Dialog>
                         </div>
-                    </div>
-                </div>}
+                    </div>}
             {page == 'approvequotation' &&
                 <>
-                    <div className="flex">
-                        <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                        <div className="flex-1 md:space-y-4 p-4">
                             <div className="flex items-center pt-1 pb-4">
                                 <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
                                 <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
@@ -776,8 +818,6 @@ export const SelectVendors = () => {
                             </Dialog>
                         </div> */}
                         </div>
-
-                    </div>
                     <div className='pl-7'>
                         <ConfigProvider
                             theme={{
@@ -800,7 +840,7 @@ export const SelectVendors = () => {
 
                         </ConfigProvider>
                     </div>
-                    <div className="flex flex-col justify-end items-end mr-2">
+                    <div className="flex flex-col justify-end items-end mr-2 mb-4">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button>
@@ -814,10 +854,10 @@ export const SelectVendors = () => {
                                         Remainder: Items whose quotes are not selected will have a delayed status attached to them. If confirmed, Delayed sent back request will be created for those Items.
                                     </DialogDescription>
                                 </DialogHeader>
-                                <DialogClose>
-                                    <Button variant="secondary">Go Back</Button>
-                                    <Button variant="secondary" className="ml-4" onClick={() => handleSubmit()}>Confirm</Button>
-                                </DialogClose>
+                                <DialogDescription className='flex items-center justify-center gap-2'>
+                                    <DialogClose><Button variant="secondary">Cancel</Button></DialogClose>
+                                    <Button variant="default" onClick={() => handleSubmit()}>Confirm</Button>
+                                </DialogDescription>
                             </DialogContent>
                         </Dialog>
                     </div>

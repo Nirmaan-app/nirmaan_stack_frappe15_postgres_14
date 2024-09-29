@@ -12,7 +12,7 @@ import { ColumnDef } from "@tanstack/react-table"
 import { Menu, MenuProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, FilePenLine } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 
 
@@ -220,6 +220,14 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
         return grouped;
     }, [Categories, data]);
 
+    useEffect(() => {
+        const initialExpandedState = Object.keys(groupedCategories).reduce((acc, work_package) => {
+          acc[work_package] = true;
+          return acc;
+        }, {});
+        setExpandedPackages(initialExpandedState);
+      }, [groupedCategories]);
+
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
             {
@@ -341,7 +349,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     if (error || vendorAddressError || procurementOrdersError || procurementRequestsError) return <h1 className="text-red-700">There is an error while fetching the document, please check!</h1>
 
     return (
-        <div className="flex-1 space-y-4 px-12 pt-6 max-md:px-8 max-sm:px-4">
+        <div className="flex-1 md:space-y-4 p-4">
             <div className="flex items-center">
                 <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/vendors")} />
                 {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :

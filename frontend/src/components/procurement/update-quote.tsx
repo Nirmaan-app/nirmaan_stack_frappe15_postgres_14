@@ -6,12 +6,12 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus, Download, Handshake } from 'lucide-react';
+import { ArrowLeft, CirclePlus, Download, PencilLine } from 'lucide-react';
 import QuotationForm from "./quotation-form"
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { useNavigate } from "react-router-dom";
+import {  useNavigate } from "react-router-dom";
 import { PrintRFQ } from "./rfq-pdf";
 import { Card, CardContent, CardHeader } from "../ui/card";
 import { Button } from '@/components/ui/button';
@@ -27,7 +27,6 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 import { useToast } from "../ui/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { NewVendor } from "@/pages/vendors/new-vendor";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 export const UpdateQuote = () => {
     const { orderId } = useParams<{ orderId: string }>()
@@ -41,18 +40,20 @@ export const UpdateQuote = () => {
         "Vendors"
     );
 
-    const { data: procurement_request_list } = useFrappeGetDocList("Procurement Requests", {
+    const {data: procurement_request_list} = useFrappeGetDocList("Procurement Requests", {
         fields: ["*"],
         limit: 1000
     })
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error, mutate: quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
+    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error, mutate : quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ["*"],
             filters: [["procurement_task", "=", orderId]],
             limit: 2000
         },
-        `Quotations Requests, Procurement_task=${orderId}`
+        `Quotations Requests,Procurement_task=${orderId}`
     );
+
+    console.log("quotations requests", quotation_request_list)
 
     const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["*"],
@@ -60,7 +61,7 @@ export const UpdateQuote = () => {
     })
 
     const { updateDoc: updateDoc, error: update_error } = useFrappeUpdateDoc()
-    const { createDoc } = useFrappeCreateDoc()
+    const {createDoc} = useFrappeCreateDoc()
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName).vendor_name;
@@ -70,6 +71,33 @@ export const UpdateQuote = () => {
     const [uniqueVendors, setUniqueVendors] = useState({
         list: []
     })
+
+    const checkItemQuoteStatus = (vendor_id) => {
+        if (!quotation_request_list || quotation_request_list.length === 0) {
+            return "Not filled"; 
+        }
+    
+        const filteredQuotes = quotation_request_list.filter(
+            (quote) => quote.vendor === vendor_id
+        );
+    
+        if (filteredQuotes.length === 0) {
+            return "Not filled";
+        }
+    
+        const allFilled = filteredQuotes.every((quote) => ![null, "", "0"].includes(quote.quote));
+        const noneFilled = filteredQuotes.every((quote) => [null, "", "0"].includes(quote.quote));
+    
+        if (noneFilled) {
+            return "Not filled";
+        } else if (allFilled) {
+            return "All Filled";
+        } else {
+            return "Partially Filled";
+        }
+    };
+    
+
     const [orderData, setOrderData] = useState({
         project: '',
         work_package: '',
@@ -94,6 +122,7 @@ export const UpdateQuote = () => {
     }, [orderData, vendor_list])
 
     const { toast } = useToast()
+    const {mutate} = useSWRConfig()
 
     const handleAddVendor = async (vendor_name) => {
 
@@ -114,9 +143,9 @@ export const UpdateQuote = () => {
             await Promise.all(promises);
 
             // Mutate the vendor-related data
-            // await mutate("Vendors");
-            // await mutate("Quotation Requests");
-            // await mutate("Vendor Category");
+            await mutate("Vendors");
+            await mutate("Quotation Requests");
+            await mutate("Vendor Category");
             vendor_list_mutate()
             quotation_request_list_mutate()
 
@@ -163,7 +192,6 @@ export const UpdateQuote = () => {
 
     // console.log("orderData", orderData)
 
-
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
             {
@@ -175,14 +203,14 @@ export const UpdateQuote = () => {
                 },
                 cell: ({ row }) => {
                     const vendor_name = row.getValue("vendor_name")
-                    const vendorCategories = row.getValue("vendor_category").categories || [];
+                    const vendorCategories = row.getValue("vendor_category")?.categories || [];
                     return (
                         <>
                             {!isButtonDisabled(vendorCategories) && (
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                         <Button variant={"outline"} className="font-light max-md:text-xs border-green-500 py-6 flex flex-col items-start">
-                                            <div className="w-[300px] text-wrap flex flex-col">
+                                            <div className="w-[250px] text-wrap flex flex-col">
                                                 <span className="text-red-500 font-semibold">{vendor_name}</span>
                                                 <span>Add to PR</span>
                                             </div>
@@ -256,7 +284,7 @@ export const UpdateQuote = () => {
                                         <span>Add categories</span>
                                     </button>
                                 </SheetTrigger>
-                                <SheetContent>
+                                <SheetContent className="overflow-auto">
                                     <AddVendorCategories vendor_name={vendor_name} isSheet={true} isSentBack={true} />
                                 </SheetContent>
                             </Sheet>
@@ -285,12 +313,12 @@ export const UpdateQuote = () => {
             })
     }
 
+    const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
+
     return (
-        // <MainLayout>
         <>
             {page == 'quotation' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate("/update-quote")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
@@ -318,47 +346,55 @@ export const UpdateQuote = () => {
                             </div> */}
                         </Card>
                         <div className="flex justify-between">
-                            <div className="p-2 pl-7 font-light underline text-red-700">Selected Vendor List</div>
-                            <div className="p-2 pl-7 font-light underline text-red-700 pr-32">Options</div>
+                            <div className="p-2 sm:pl-7 font-light underline text-red-700">Selected Vendor List</div>
+                            <div className="p-2 sm:pl-7 font-light underline text-red-700 pr-10 sm:pr-32">Options</div>
                         </div>
                         {uniqueVendors.list.map((item) => {
-                            return <div className="px-4 flex justify-between">
-                                <div className="px-6 py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
-                                <div className="flex space-x-2">
+                            return <div className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
+                                <div className="sm:pl-4 pl-2 py-4 font-semibold ">{getVendorName(item)}</div>
+                                <div className="flex space-x-2 max-sm:flex-col items-center justify-center max-sm:gap-2">
                                     <Sheet>
-                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
-                                        <SheetContent>
-                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                                <SheetHeader>
-                                                    <SheetTitle className="text-center">Print PDF</SheetTitle>
-                                                    <SheetDescription>
-                                                        <div className="overflow-auto">
-                                                            <PrintRFQ vendor_id={item} pr_id={orderData.name} itemList={orderData?.procurement_list || []} />
-                                                        </div>
-                                                    </SheetDescription>
-                                                </SheetHeader>
-                                            </ScrollArea>
+                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 py-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
+                                        <SheetContent className="overflow-auto">
+                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
+                                            <SheetHeader>
+                                                <SheetTitle className="text-center">Print PDF</SheetTitle>
+                                                <SheetDescription>
+                                                    <PrintRFQ vendor_id={item} pr_id={orderData.name} itemList={orderData?.procurement_list || []} />
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                            {/* </ScrollArea> */}
                                         </SheetContent>
                                     </Sheet>
                                     {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
-                                    <Sheet>
-                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price(s)</SheetTrigger>
-                                        <SheetContent>
-                                            <ScrollArea className="h-[90%] w-[600px] p-2">
+                                        <Sheet>
+                                            <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-2 py-2 rounded-lg flex items-center gap-1">
+                                                <span className="hover:underline">Enter Price(s) </span>
+                                                <HoverCard>
+                                                    <HoverCardTrigger>
+                                                        <div className={`w-2 h-2 ${checkItemQuoteStatus(item) === "All Filled" ? "bg-green-500" : checkItemQuoteStatus(item) === "Not filled" ? "bg-red-500"  : "bg-yellow-500"}  rounded-full`} />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent>
+                                                        {checkItemQuoteStatus(item) === "All Filled" ? "All items's quotes are filled" : checkItemQuoteStatus(item) === "Not filled" ? "No item quote is filled"  : "Partially Filled"}
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                            </SheetTrigger>
+                                            <SheetContent className="overflow-auto">
+                                                {/* <ScrollArea className="h-[90%] w-[600px] p-2"> */}
                                                 <SheetHeader className="text-start">
                                                     <div className="flex items-center gap-1">
                                                         <SheetTitle className="text-xl">Enter Price(s)</SheetTitle>
-                                                        <Handshake className="w-5 h-5 text-primary" />
+                                                        <PencilLine className="w-5 h-5 text-primary" />
                                                     </div>
-                                                    <SheetDescription>
-                                                        <Card className="p-5">
+                                                    <SheetDescription className="py-2">
+                                                        {/* <Card className="p-5"> */}
                                                             <QuotationForm vendor_id={item} pr_id={orderData.name} />
-                                                        </Card>
+                                                        {/* </Card> */}
                                                     </SheetDescription>
                                                 </SheetHeader>
-                                            </ScrollArea>
-                                        </SheetContent>
-                                    </Sheet>
+                                                {/* </ScrollArea> */}
+                                            </SheetContent>
+                                        </Sheet>
                                 </div>
                             </div>
                         })}
@@ -386,7 +422,6 @@ export const UpdateQuote = () => {
                                 Update Quote
                             </Button>
                         </div>
-
                         <Accordion type="multiple" defaultValue={["Vendors"]}>
                             <AccordionItem value="Vendors">
                                 <AccordionTrigger>
@@ -401,8 +436,14 @@ export const UpdateQuote = () => {
                                     <div className="">
                                         <Card className=''>
                                             <CardHeader>
+                                            <div className="pl-6 flex gap-1 items-center pt-10 flex-wrap">
+                            <span className="font-light max-md:text-sm">PR Categories: </span>
+                            {orderData?.category_list?.list.map((cat) => (
+                                <Badge>{cat.name}</Badge>
+                            ))}
+                        </div>
                                                 <CardContent>
-                                                    <DataTable columns={columns} data={vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name)) || []} category_options={categoryOptions} />
+                                                    <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
                                                 </CardContent>
                                             </CardHeader>
                                         </Card>
@@ -410,9 +451,7 @@ export const UpdateQuote = () => {
                                 </AccordionContent>
                             </AccordionItem>
                         </Accordion>
-                    </div>
-                </div>}
+                    </div>}
         </>
-        // </MainLayout>
     )
 }

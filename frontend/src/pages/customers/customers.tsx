@@ -70,6 +70,7 @@ import { TailSpin } from "react-loader-spinner";
 // import { useQuery } from "@tanstack/react-query";
 // import { fetchDocList } from "@/reactQuery/customFunctions";
 import { useFrappeGetDocList } from "frappe-react-sdk";
+import { formatDate } from "@/utils/FormatDate";
 
 export default function Customers() {
     const columns: ColumnDef<CustomersType>[] = useMemo(
@@ -150,7 +151,7 @@ export default function Customers() {
                     );
                 },
                 cell: ({ row }) => {
-                    return <div className="font-medium">{row.getValue("creation")?.split(" ")[0]}</div>;
+                    return <div className="font-medium">{formatDate(row.getValue("creation")?.split(" ")[0])}</div>;
                 },
             },
         ],
@@ -177,7 +178,7 @@ export default function Customers() {
     )
 
     return (
-        <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 md:space-y-4 p-4">
             <div className="flex items-center justify-between mb-2 space-y-2">
                 <div className="flex">
                     <Link to="/">

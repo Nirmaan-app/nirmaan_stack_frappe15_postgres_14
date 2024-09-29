@@ -8,7 +8,7 @@ import { getOrientation } from 'get-orientation/browser'
 // import ImgDialog from './ImgDialog'
 import { getCroppedImg, getRotatedImage } from "@/components/image/canvas-utils"
 import { Dialog, DialogClose, DialogContent, DialogOverlay, DialogTrigger } from '@radix-ui/react-dialog'
-import { DialogHeader } from './ui/dialog'
+import { DialogHeader } from './dialog'
 
 const ORIENTATION_TO_ANGLE = {
     '3': 180,

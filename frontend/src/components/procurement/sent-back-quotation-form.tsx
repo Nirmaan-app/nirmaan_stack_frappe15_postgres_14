@@ -1,17 +1,22 @@
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import {
     SheetClose
 } from "@/components/ui/sheet"
 import { Button } from "../ui/button";
-
+import { MessageCircleMore, Paperclip } from "lucide-react";
+import { toast } from "../ui/use-toast";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import { TailSpin } from "react-loader-spinner";
 
 interface Category {
     name: string;
 }
 
 export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
+
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'project', 'creation', 'item_list'],
@@ -49,20 +54,32 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         });
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
+            fields: ["*"],
             limit: 1000
-        });
+        },
+        "Procurement Requests"
+    );
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
             fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
             limit: 1000
         });
+    
+    const { data: prAttachment, mutate: prAttachmentMutate } = useFrappeGetDocList("PR Attachments",
+        {
+            fields: ["*"],
+            filters: [["procurement_request", "=", pr_id], ["vendor", "=", vendor_id]],
+            limit: 1000
+    });
 
     const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [quotationData, setQuotationData] = useState({
         list: []
     });
-    const [deliveryTime, setDeliveryTime] = useState<number>()
+    const [deliveryTime, setDeliveryTime] = useState<number | string | null>(null)
+    const [selectedFile, setSelectedFile] = useState(null);
+
+    console.log("quotationData", quotationData)
     useEffect(() => {
         const cats = categories.list
         quotation_request_list?.map((item) => {
@@ -74,6 +91,12 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         setCategories({
             list: cats
         })
+    }, [quotation_request_list]);
+
+    useEffect(() => {
+        if (quotation_request_list) {
+            setDeliveryTime(quotation_request_list[0].lead_time)
+        }
     }, [quotation_request_list]);
 
     const getItem = (item: string) => {
@@ -89,6 +112,12 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         const quantity = procurement_list?.list.find(value => value.name === item).quantity
         return quantity
     }
+
+    const getComment = (item) => {
+        const procurement_list = procurement_request_list?.find(value => value.name === pr_id)?.procurement_list.list
+        return procurement_list?.find((i) => i.name === item)?.comment || ""
+    }
+
     const handlePriceChange = (item: string, value: number) => {
         const new_qrid = quotation_request_list?.find(q => q.item === item)?.name;
         const existingIndex = quotationData.list.findIndex(q => q.qr_id === new_qrid);
@@ -110,92 +139,206 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
             list: newList
         }));
     };
-    const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
-    const handleSubmit = () => {
-        quotationData.list.map((item) => {
-            updateDoc('Quotation Requests', item.qr_id, {
-                lead_time: deliveryTime,
-                quote: item.price
+
+    console.log("categories", categories, orderData)
+
+    const handleFileChange = (event) => {
+        setSelectedFile(event.target.files[0]);
+    };
+
+    const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
+    const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
+
+
+    useEffect(() => {
+        if(prAttachment && prAttachment.length) {
+            const fileName = prAttachment[0]?.rfq_pdf?.split("/")[3]
+            setSelectedFile(fileName)
+        }
+    }, [prAttachment])
+
+    const { createDoc: createDoc, loading: create_loading, isCompleted: create_submit_complete, error: create_submit_error } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc, loading: update_loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+
+    const {mutate} = useSWRConfig()
+    const handleSubmit = async () => {
+        try {
+          // Update quotation requests for each item in the list.
+          await Promise.all(
+            quotationData.list.map(async (item) => {
+              try {
+                await updateDoc("Quotation Requests", item.qr_id, {
+                  lead_time: deliveryTime,
+                  quote: item.price,
+                });
+                mutate(`Quotations Requests,Procurement_task=${pr_id}`)
+                toast({
+                  title: "Success!",
+                  description: `Quote(s) for ${vendor_name} updated successfully`,
+                  variant: "success",
+                });
+              } catch (error) {
+                console.error(`Error updating quotation request for ${item.qr_id}:`, error);
+                toast({
+                  title: "Failed!",
+                  description: `There was an error while updating the Quote(s) for ${vendor_name}`,
+                  variant: "destructive",
+                });
+              }
             })
-                .then(() => {
-                    console.log("item", item)
-                }).catch(() => {
-                    console.log(submit_error)
-                })
-        })
-    }
+          );
+      
+          // Handle file upload if a file is selected.
+          if (selectedFile) {
+            // Check if the selected file is an object (newly uploaded file) or a string (existing file).
+            if (typeof selectedFile === "object" || (typeof selectedFile === "string" && selectedFile !== prAttachment[0]?.rfq_pdf.split("/")[3])) {
+              let docId;
+      
+              // If a PR attachment for this vendor already exists, update the document. Otherwise, create a new document.
+              if (prAttachment.length > 0) {
+                docId = prAttachment[0].name;
+              } else {
+                const newDoc = await createDoc("PR Attachments", {
+                  procurement_request: pr_id,
+                  vendor: vendor_id,
+                });
+                docId = newDoc.name;
+                await prAttachmentMutate();
+              }
+      
+              // Upload the file and update the document's file URL.
+              const fileArgs = {
+                doctype: "PR Attachments",
+                docname: docId,
+                fieldname: "rfq_pdf",
+                isPrivate: true,
+              };
+      
+              const uploadedFile = await upload(selectedFile, fileArgs);
+              await call({
+                doctype: "PR Attachments",
+                name: docId,
+                fieldname: "rfq_pdf",
+                value: uploadedFile.file_url,
+              });
+      
+              console.log("File upload and document update successful");
+              toast({
+                title: "Success!",
+                description: "File uploaded and updated successfully.",
+                variant: "success",
+              });
+              await prAttachmentMutate();
+            }
+          }
+      
+          // Trigger the save button click if everything is completed successfully.
+          const btn = document.getElementById("save-button");
+          btn?.click();
+        } catch (error) {
+          console.error("Error during submission:", error);
+          toast({
+            title: "Submission Failed",
+            description: "An error occurred while submitting the form. Please try again.",
+            variant: "destructive",
+          });
+        } finally {
+          // Clear the selected file after submission.
+          setSelectedFile(null);
+        }
+      };
 
     const vendor_name = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_name;
     const vendor_address = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_address;
     const doc = address_list?.find(item => item.name == vendor_address);
     const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
-    const delivery_time = quotation_request_list?.find(item => item.vendor === vendor_id)?.lead_time
 
     return (
-        <div>
-            <div className="font-bold text-black text-lg">{vendor_name}</div>
-            <div className="text-gray-500 text-sm">{address}</div>
-            <div className="flex max-sm:flex-col max-sm:gap-2 justify-between py-4">
-                <div className="">
-                    <div className="text-gray-500 text-sm">Attach File</div>
-                    <Input type="file" />
+        <div className="max-w-screen-lg mx-auto p-4">
+      {/* Vendor Info Card */}
+      <Card className="mb-6">
+        <CardHeader className="bg-gray-50 border-b">
+          <CardTitle className="text-xl font-semibold text-black">{vendor_name}</CardTitle>
+          <div className="text-gray-500 text-sm">{address}</div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            <div className="flex flex-col gap-2">
+                <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${selectedFile && "opacity-50 cursor-not-allowed"}`}
+                     onClick={() => document.getElementById("file-upload")?.click()}
+                >
+                    <Paperclip size="15px" />
+                    <span className="p-0 text-sm">Attach</span>
+                    <input
+                        type="file"
+                        id={`file-upload`}
+                        className="hidden"
+                        onChange={handleFileChange}
+                        disabled={selectedFile}
+                    />
                 </div>
-                <div className="">
-                    <div className="flex justify-between">
-                        <div className="text-gray-500 text-sm">Delivery Time<sup>*</sup> (Days)</div>
-                        {/* <div className="pt-1 text-gray-500 text-xs">*Required</div> */}
+                {(selectedFile) && (
+                    <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
+                        <span className="text-sm">{typeof(selectedFile) === "object" ? selectedFile.name : selectedFile}</span>
+                        <button
+                            className="ml-1 text-red-500"
+                            onClick={() => setSelectedFile(null)}
+                        >
+                            ✖
+                        </button>
                     </div>
-                    <Input type="number" placeholder={delivery_time} value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)} />
-                </div>
-            </div>
-            <div className="flex text-gray-500 space-x-2 pt-4 pb-2">
-                <div className="w-1/2 max-sm:w-[30%] flex-shrink-0">
-                    Item
-                </div>
-                <div className="flex-1">
-                    UOM
-                </div>
-                <div className="flex-1">
-                    Qty
-                </div>
-                <div className="flex-1">
-                    Rate
-                </div>
+                )}
             </div>
             <div>
-                {/* <div>{cat}</div> */}
-                {quotation_request_list?.map((q) => {
-                    const isSelected = orderData.item_list?.list.some(item => item.name === q.item);
-                    if (q.vendor === vendor_id && isSelected) {
-                        return <div className="flex space-x-2">
-                                    <div className="w-1/2 max-sm:w-[30%] font-semibold text-black flex-shrink-0">
-                                        <div>{getItem(q.item)}</div>
-                                    </div>
-                                    <div className="flex-1">
-                                        <Input type="text" disabled={true} placeholder={getUnit(q.item)} />
-                                    </div>
-                                    <div className="flex-1">
-                                        <Input type="text" disabled={true} placeholder={getQuantity(q.item)} />
-                                    </div>
-                                    <div className="flex-1">
-                                        <Input type="number" placeholder={q.quote} onChange={(e) => handlePriceChange(q.item, e.target.value)} />
-                                    </div>
-                                </div>
-                            }
-                })}
+              <label className="block text-sm font-medium text-gray-700">Delivery Time (Days)<sup>*</sup></label>
+              <Input type="number"  value={deliveryTime || ""} onChange={(e) => setDeliveryTime(e.target.value !== "" ? Number(e.target.value) : null)} />
             </div>
-            <div className="flex flex-col justify-end items-end bottom-4 right-4 pt-10">
-                {(deliveryTime || 1) ?
-                    <SheetClose>
-                        <Button onClick={() => handleSubmit()}>
-                            Save
-                        </Button>
-                    </SheetClose>
-                    :
-                    <Button disabled={true}>
-                        Save
-                    </Button>}
-            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+{categories.list.map((cat, index) => (
+        <Card key={index} className="mb-6">
+          <CardHeader className="bg-gray-100 border-b">
+            <CardTitle className="text-lg font-medium">Category: {cat.name}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {quotation_request_list?.map((q) => (
+              (q.category === cat.name && q.vendor === vendor_id && orderData?.item_list?.list.some(item => item.name === q.item)) && (
+                <div key={q.item} className="flex max-md:flex-col max-md:gap-2 items-center justify-between py-2 border-b last:border-none">
+                  <div className="w-1/4 max-md:w-full font-semibold text-black inline items-baseline">
+                  <span>{getItem(q.item)}</span>
+                  {getComment(q.item) && (
+                    <HoverCard>
+                         <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-5 h-5 ml-1 inline-block" /></HoverCardTrigger>
+                        <HoverCardContent className="max-w-[300px]">
+                            <div className="relative pb-4">
+                                <span className="block">{getComment(q.item)}</span>
+                                <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                            </div>
+                        </HoverCardContent>
+                    </HoverCard>
+                  )}
+                  </div>
+                  <div className="w-[70%] max-md:w-full flex gap-2">
+                    <Input value={getUnit(q.item)} disabled />
+                    <Input className="w-[24%]" value={getQuantity(q.item)} disabled />
+                    <Input type="number" placeholder="Enter Price" defaultValue={q.quote} onChange={(e) => handlePriceChange(q.item, Number(e.target.value))} />
+                  </div>
+                </div>
+              )
+            ))}
+          </CardContent>
+        </Card>
+      ))}
+<div className="flex justify-end">
+        {(upload_loading || create_loading || update_loading) ? (
+          <TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" />
+        ) : (
+          <Button onClick={handleSubmit} disabled={!deliveryTime}>Save</Button>
+        )}
+        <SheetClose><Button id="save-button" className="hidden"></Button></SheetClose>
+      </div>
         </div>
     )
 }

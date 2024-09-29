@@ -1,12 +1,12 @@
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "./breadcrumb";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "./ui/breadcrumb";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk";
 import { HardHat, UserRound, PersonStanding, CirclePlus } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
-import DropdownMenu from './dropdown';
-import DropdownMenu2 from './dropdown2';
+import DropdownMenu from './ui/dropdown';
+import DropdownMenu2 from './ui/dropdown2';
 import { ArrowLeft } from 'lucide-react';
 import ReactSelect from 'react-select';
 import { useUserData } from "@/hooks/useUserData";
@@ -132,8 +132,8 @@ export const ProjectManager = () => {
     return (
         <>
             {/* <MainLayout> */}
-            {page == 'dashboard' && <div className="flex">
-                <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            {page == 'dashboard' &&
+                <div className="flex-1 md:space-y-4 p-4">
                     <div className="flex items-center">
                         {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
                         <h2 className="text-2xl pt-1 pl-2 font-bold tracking-tight">Dashboard</h2>
@@ -152,9 +152,8 @@ export const ProjectManager = () => {
                             <p className="p-4 text-center py-6 font-bold text-white">Update Delivery Notes</p>
                         </div>
                     </div>
-                </div>
             </div>}
-            {page == 'newprlist' && <div className="flex-1 md:space-y-4 p-4 md:p-8 pt-6">
+            {page == 'newprlist' && <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft onClick={() => setPage('dashboard')} />
                     <h2 className="text-base pl-2  font-bold tracking-tight">Procurement Requests</h2>

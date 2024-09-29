@@ -9,6 +9,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 type PRTable = {
     name: string
@@ -21,10 +22,13 @@ type PRTable = {
 export const ApprovePR = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'category_list', 'procurement_list', 'creation'],
+            fields: ["*"],
             filters: [["workflow_state", "=", "Pending"]],
-            limit: 1000
-        });
+            limit: 1000,
+            orderBy: {field: "modified", order: "desc"}
+        },
+        "ApprovePR,PRListMutate"
+    );
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects",
         {
             fields: ["name", "project_name"],
@@ -155,7 +159,7 @@ export const ApprovePR = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {getTotal(row.getValue("name"))}
+                            {formatToIndianRupee(getTotal(row.getValue("name")))}
                         </div>
                     )
                 }
@@ -174,9 +178,7 @@ export const ApprovePR = () => {
         })
     }
     return (
-        <div className="flex">
-
-            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center justify-between space-y-2 pl-2">
                     <h2 className="text-lg font-bold tracking-tight">Approve New PR</h2>
                 </div>
@@ -218,6 +220,5 @@ export const ApprovePR = () => {
                         </table>
                     </div> */}
             </div>
-        </div>
     )
 }

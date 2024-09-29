@@ -362,7 +362,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         event.stopPropagation();
                         return form.handleSubmit(onSubmit)(event);
                     }}
-                    className="space-y-8"
+                    className="space-y-8 px-6 max-md:px-2"
                 >
                     <FormField
                         control={form.control}

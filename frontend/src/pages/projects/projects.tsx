@@ -25,7 +25,7 @@ export default function Projects() {
 
     const projectTypeOptions = projectTypesList?.map((pt) => ({label : pt.name, value: pt.name}))
 
-    console.log("projecttype", projectTypeOptions)
+    // console.log("projecttype", projectTypeOptions)
 
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
@@ -116,7 +116,7 @@ export default function Projects() {
     })
 
     return (
-        <div className="flex-1 space-x-2 md:space-y-4 p-6 pt-6">
+        <div className="flex-1 md:space-y-4 p-4">
             {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>

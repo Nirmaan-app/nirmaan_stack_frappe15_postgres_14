@@ -9,6 +9,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 
 type PRTable = {
@@ -130,7 +131,7 @@ export const ApproveSelectSentBack = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {getTotal(row.getValue("name"))}
+                            {formatToIndianRupee(getTotal(row.getValue("name")))}
                         </div>
                     )
                 }
@@ -158,8 +159,7 @@ export const ApproveSelectSentBack = () => {
 
 
     return (
-        <div className="flex">
-            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            <div className="flex-1 md:space-y-4 p-4">
                 <div className="flex items-center justify-between space-y-2 pl-2">
                     <h2 className="text-lg font-bold tracking-tight">Approve Sent Back PO</h2>
                 </div>
@@ -198,6 +198,5 @@ export const ApproveSelectSentBack = () => {
                         </table>
                     </div> */}
             </div>
-        </div>
     )
 }

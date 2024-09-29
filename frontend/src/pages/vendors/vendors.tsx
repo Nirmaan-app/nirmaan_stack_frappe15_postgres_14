@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, Ellipsis, CirclePlus, HardHat, Package } from "lucide-react";
+import { ArrowLeft, Ellipsis, CirclePlus, Package } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
@@ -169,10 +169,10 @@ export default function Vendors() {
         []
     )
 
-    if (isLoading || category_loading) return <h1>Loading...</h1>
+    // if (isLoading || category_loading) return <h1>Loading...</h1>
     if (error || category_error) return error ? <h1>{error?.message}</h1> : <h1>{category_error?.message}</h1>
     return (
-        <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 md:space-y-4 p-4">
             <div className="flex items-center justify-between mb-2 space-y-2">
                 <div className="flex">
                     <Link to="/"><ArrowLeft className="mt-1.5" /></Link>

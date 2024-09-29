@@ -5,7 +5,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus } from 'lucide-react';
+import { ArrowLeft, CirclePlus, MessageCircleMore } from 'lucide-react';
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -13,7 +13,7 @@ import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom";
 import { Button } from '@/components/ui/button'
 import { NewVendor } from '@/pages/vendors/new-vendor';
-import { ButtonLoading } from '../button-loading';
+import { ButtonLoading } from '../ui/button-loading';
 import { DataTable } from '../data-table/data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ColumnDef } from "@tanstack/react-table";
@@ -24,6 +24,8 @@ import { AddVendorCategories } from "../forms/addvendorcategories";
 import { Badge } from "../ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 export const ProcurementOrder = () => {
 
@@ -63,7 +65,7 @@ export const ProcurementOrder = () => {
             filters: [["name", "=", orderId]],
             limit: 1000
         },
-        `Procurement Requests ${orderId}`
+        `Procurement Requests, filters(name,${orderId})`
     );
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
@@ -301,11 +303,12 @@ export const ProcurementOrder = () => {
         }
     };
 
+    console.log("orderdata", orderData)
+
     return (
         <>
             {page == 'approve' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft className='cursor-pointer' onClick={() => navigate("/procure-request")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Summary </h2>
@@ -340,7 +343,7 @@ export const ProcurementOrder = () => {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow className="bg-red-100">
-                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>Items</TableHead>
+                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
                                                     <TableHead className="w-[20%]">UOM</TableHead>
                                                     <TableHead className="w-[10%]">Qty</TableHead>
                                                     <TableHead className="w-[10%]">Est. Amt</TableHead>
@@ -356,10 +359,23 @@ export const ProcurementOrder = () => {
                                                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
                                                         return (
                                                             <TableRow key={item.item}>
-                                                                <TableCell>{item.item}</TableCell>
+                                                                <TableCell className="flex gap-1 items-center">{item.item}
+                                                                    {item.comment && (
+                                                                    <HoverCard>
+                                                                        <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6" /></HoverCardTrigger>
+                                                                        <HoverCardContent className="max-w-[300px]">
+                                                                        <div className="relative pb-4">
+                                                                            <span className="block">{item.comment}</span>
+                                                                            <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                                                                        </div>
+
+                                                                        </HoverCardContent>
+                                                                    </HoverCard>
+                                                                    )}
+                                                                </TableCell>
                                                                 <TableCell>{item.unit}</TableCell>
                                                                 <TableCell>{item.quantity}</TableCell>
-                                                                <TableCell>{minQuote ? minQuote * item.quantity : "N/A"}</TableCell>
+                                                                <TableCell>{minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}</TableCell>
                                                             </TableRow>
                                                         )
                                                     }
@@ -407,11 +423,9 @@ export const ProcurementOrder = () => {
                                 Select Vendors
                             </Button>
                         </div>
-                    </div>
-                </div>}
+                    </div>}
             {page == 'vendors' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4 p-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage("approve")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendors</h2>
@@ -516,8 +530,7 @@ export const ProcurementOrder = () => {
                             </Card>
                         </div>
                         )} */}
-                    </div>
-                </div>}
+                    </div>}
         </>
     )
 }
