@@ -150,10 +150,12 @@ doc_events = {
     },
     "Items": {
         "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert" 
+    },
+    "Procurement Requests": {
+        "after_insert": "nirmaan_stack.integrations.controllers.procurement_requests.after_insert",
+        "on_update": "nirmaan_stack.integrations.controllers.procurement_requests.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.procurement_requests.on_trash"
     }
-    # "Procurement Requests": {
-    #     "on_submit": "nirmaan_stack.nirmaan_stack.doctype.pr_category.pr_category.generate_pr_category"
-    # }
 }
 
 # Scheduled Tasks

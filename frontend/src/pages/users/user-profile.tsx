@@ -10,9 +10,9 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeEventListener, useFrappeDocTypeEventListener, useSWRConfig, FrappeContext } from "frappe-react-sdk";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
-import { useState, useContext } from "react";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { useState } from "react";
 import { DialogClose } from "@radix-ui/react-dialog";
 import { ArrowLeft, CirclePlus, Mail, MapPin, Phone, Plus, Trash2 } from "lucide-react";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
@@ -26,9 +26,6 @@ interface SelectOption {
 }
 
 export default function Profile() {
-
-    const context = useContext(FrappeContext)
-    console.log(context)
 
     const [curProj, setCurProj] = useState('')
 
@@ -81,29 +78,13 @@ export default function Profile() {
     const { deleteDoc: deleteDoc, loading: delete_loading, isCompleted: delete_complete, error: delete_error } = useFrappeDeleteDoc()
     const { mutate } = useSWRConfig()
 
-    useFrappeEventListener('user: project added', () => {
-        console.log("SOMETHING HAPPENED")
-    })
-
-    useFrappeDocTypeEventListener("User Permission", () => {
-        console.log("New UP added!!!")
-    })
-
-    useFrappeDocTypeEventListener('Items', () => {
-        toast({
-            title: "triggered",
-            description: `triggered notification`,
-            variant: "destructive"
-        })
-    })
-
     const handleSubmit = () => {
         createDoc('User Permission', {
             user: id,
             allow: "Projects",
             for_value: curProj
         }).then((doc) => {
-            console.log("after_create", doc.user)
+            // console.log("after_create", doc.user)
             toast({
                 title: "Success!",
                 description: `Successfully assigned ${getProjectName(curProj).projectName}`,
@@ -111,7 +92,7 @@ export default function Profile() {
             })
             permission_list_mutate()
         }).catch(() => {
-            console.log(submit_error)
+            // console.log(submit_error)
             toast({
                 title: "Failed!",
                 description: `Failed to assign ${getProjectName(curProj).projectName}`,
@@ -131,7 +112,7 @@ export default function Profile() {
                 })
                 navigate("/users")
             }).catch(() => {
-                console.log(submit_error)
+                // console.log(submit_error)
                 toast({
                     title: "Failed!",
                     description: `Failed to delete User: ${data?.full_name}`,
@@ -143,11 +124,11 @@ export default function Profile() {
 
     const handleDeleteProject = (project: string) => {
         let permission_id = permission_list?.filter((permissions) => permissions.for_value === project)[0]
-        console.log("permisison filtered", permission_id)
+        // console.log("permisison filtered", permission_id)
         if (permission_id) {
             deleteDoc("User Permission", permission_id.name)
                 .then((doc) => {
-                    console.log('after_delete', doc)
+                    // console.log('after_delete', doc)
                     toast({
                         title: "Success!",
                         description: `${project} unlinked for ${id}`,
@@ -155,7 +136,7 @@ export default function Profile() {
                     })
                     permission_list_mutate()
                 }).catch((doc) => {
-                    console.log(submit_error)
+                    // console.log(submit_error)
                     toast({
                         title: "Failed!",
                         description: `Failed to unlink ${project} for ${id}`,
@@ -174,7 +155,7 @@ export default function Profile() {
 
     if (isLoading || permission_list_loading || project_list_loading || addressDataLoading) return <UserProfileSkeleton />;
     if (error) {
-        console.log("Error in user-profile.tsx", error?.message)
+        // console.log("Error in user-profile.tsx", error?.message)
         toast({
             title: "Error!",
             description: `Error ${error?.message}`,

@@ -14,7 +14,6 @@ def after_insert(doc, method):
             "user": user, 
             "project": doc.for_value,
         },
-        user='pe@pe2.pe'
     )
     print(event)
     if(nuser.has_project=="false"):
