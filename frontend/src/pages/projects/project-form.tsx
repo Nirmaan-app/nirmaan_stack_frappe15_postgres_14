@@ -420,7 +420,7 @@ export const ProjectForm = () => {
         debouncedFetch(value)
     }
     return (
-        <div className="flex-1 md:space-y-4 p-4">
+        <div className="flex-1 md:space-y-4">
             <div className="space-y-0.5">
                 <div className="flex">
                     <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/projects")} />

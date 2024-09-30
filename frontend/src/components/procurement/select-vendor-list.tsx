@@ -156,7 +156,7 @@ export const SelectVendorList = () => {
     }
 
     return (
-            <div className="flex-1 md:space-y-4 p-4">
+            <div className="flex-1 md:space-y-4">
                 <div className="flex items-center justify-between space-y-2">
                     <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Select Vendor PR</h2>
                 </div>

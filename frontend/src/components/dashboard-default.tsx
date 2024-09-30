@@ -32,7 +32,7 @@ export const Default = () => {
 
     return (
         <>
-            <div className="flex-1 md:space-y-4 p-4">
+            <div className="flex-1 md:space-y-4">
                 {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem isCurrentPage>

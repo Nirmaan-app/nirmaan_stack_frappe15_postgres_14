@@ -166,7 +166,7 @@ export const SentBackRequest = () => {
     }
 
     return (
-            <div className="flex-1 md:space-y-4 p-4">
+            <div className="flex-1 md:space-y-4">
                 <div className="flex items-center justify-between pl-2 space-y-2">
                     <h2 className="text-lg font-bold tracking-tight">Sent Back PR</h2>
                 </div>

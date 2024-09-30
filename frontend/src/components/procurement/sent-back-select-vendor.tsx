@@ -436,7 +436,7 @@ export const SentBackSelectVendor = () => {
     return (
         <>
             {page == 'updatequotation' &&
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => navigate(`/sent-back-request/${id}`)} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Select Vendor Quotes</h2>
@@ -555,7 +555,7 @@ export const SentBackSelectVendor = () => {
                     </div>}
             {page == 'approvequotation' &&
                 <>
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('updatequotation')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Comparison</h2>

@@ -493,7 +493,7 @@ export const SelectVendors = () => {
     return (
         <>
             {page == 'updatequotation' &&
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendor/Item Quotes</h2>
@@ -646,7 +646,7 @@ export const SelectVendors = () => {
                     </div>}
             {page == 'approvequotation' &&
                 <>
-                        <div className="flex-1 md:space-y-4 p-4">
+                        <div className="flex-1 md:space-y-4">
                             <div className="flex items-center pt-1 pb-4">
                                 <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
                                 <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>

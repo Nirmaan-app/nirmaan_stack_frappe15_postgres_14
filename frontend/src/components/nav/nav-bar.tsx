@@ -15,16 +15,29 @@ import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
 import { Link, useLocation } from 'react-router-dom';
 import { Sheet, SheetContent } from "../ui/sheet";
+import { useFrappeGetDoc } from "frappe-react-sdk";
+import Cookies from "js-cookie";
 
 export const NavBar = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   const location = useLocation();
+  const [role, setRole] = useState(null)
 
   const toggleCollapsed = () => {
     setCollapsed(!collapsed);
   };
+
+  const user_id = Cookies.get('user_id') ?? ''
+
+  const {data, isLoading, error} = useFrappeGetDoc("Nirmaan Users", user_id, user_id === "Administrator" ? null : undefined)
+
+  useEffect(() => {
+    if(data) {
+      setRole(data.role_profile)
+    }
+  }, [data])
 
   const handleMobileSidebarToggle = () => {
     setIsMobileSidebarOpen(!isMobileSidebarOpen);
@@ -60,41 +73,57 @@ export const NavBar = () => {
   type MenuItem = Required<MenuProps>['items'][number];
   const items: MenuItem[] = [
     { key: '/', icon: <LayoutGrid className="h-4 w-4" />, label: 'Dashboard' },
-    {
-      key: 'admin-actions',
-      icon: <Shapes className="h-4 w-4" />,
-      label: 'Admin Options',
-      children: [
-        { key: '/projects', label: 'Projects' },
-        { key: '/users', label: 'Users' },
-        { key: '/items', label: 'Items' },
-        { key: '/vendors', label: 'Vendors' },
-        { key: '/customers', label: 'Customers' },
-      ],
-    },
-    {
-      key: 'pl-actions',
-      icon: <Building2 className="h-4 w-4" />,
-      label: 'Procurement Actions',
-      children: [
-        { key: '/prs&milestones', label: 'PRs & Milestones' },
-        { key: '/approve-order', label: 'Approve PR' },
-        { key: '/approve-vendor', label: 'Approve PO' },
-        { key: '/approve-sent-back', label: 'Approve Sent Back PO' },
-      ],
-    },
-    {
-      key: 'pe-actions',
-      icon: <List className="h-4 w-4" />,
-      label: 'Procurements',
-      children: [
-        { key: '/procure-request', label: 'New PR Request' },
-        { key: '/update-quote', label: 'Update Quote' },
-        { key: '/select-vendor-list', label: 'Select Vendor' },
-        { key: '/release-po', label: 'Release PO' },
-      ],
-    },
-    { key: '/sent-back-request', label: 'New Sent Back', icon: <SendToBack className="h-4 w-4" /> },
+    ...(user_id == "Administrator" || role == "Nirmaan Admin Profile"
+      ? [
+          {
+            key: 'admin-actions',
+            icon: <Shapes className="h-4 w-4" />,
+            label: 'Admin Options',
+            children: [
+              { key: '/projects', label: 'Projects' },
+              { key: '/users', label: 'Users' },
+              { key: '/items', label: 'Items' },
+              { key: '/vendors', label: 'Vendors' },
+              { key: '/customers', label: 'Customers' },
+            ],
+          },
+        ]
+      : []),
+      ...(role == 'Nirmaan Project Lead Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
+        ? [
+          {
+            key: 'pl-actions',
+            icon: <Building2 className="h-4 w-4" />,
+            label: 'Procurement Actions',
+            children: [
+              { key: '/prs&milestones', label: 'PRs & Milestones' },
+              { key: '/approve-order', label: 'Approve PR' },
+              { key: '/approve-vendor', label: 'Approve PO' },
+              { key: '/approve-sent-back', label: 'Approve Sent Back PO' },
+            ],
+          }
+        ]
+        : []),
+        ...(role == 'Nirmaan Procurement Executive Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
+          ? [
+            {
+              key: 'pe-actions',
+              icon: <List className="h-4 w-4" />,
+              label: 'Procurements',
+              children: [
+                { key: '/procure-request', label: 'New PR Request' },
+                { key: '/update-quote', label: 'Update Quote' },
+                { key: '/select-vendor-list', label: 'Select Vendor' },
+                { key: '/release-po', label: 'Release PO' },
+              ],
+            }
+          ]
+          : []),
+          ...(role == 'Nirmaan Procurement Executive Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
+            ? [
+              { key: '/sent-back-request', label: 'New Sent Back', icon: <SendToBack className="h-4 w-4" /> }
+            ] : []
+          ),
   ];
 
   const allKeys = [
@@ -109,6 +138,10 @@ export const NavBar = () => {
   const openKey = ["prs&milestones", "approve-order", "approve-vendor", 
     "approve-sent-back"].includes(selectedKeys) ? "pl-actions" : ["procure-request", "update-quote", 
     "select-vendor-list", "release-po"].includes(selectedKeys) ? "pe-actions" : ""
+
+    if(user_id !== "Administrator" && !role) {
+      return (<div>loading...</div>)
+    }
 
   return (
     <div className="w-full h-screen flex flex-col overflow-hidden">
@@ -133,9 +166,9 @@ export const NavBar = () => {
       <div className="flex flex-1 pt-16 overflow-hidden">
         {/* Sidebar for large screens */}
         {!isSmallScreen && (
-          <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto scrollbar-container ${collapsed ? "sm:w-16 w-0" : "sm:w-64 w-0"}`}>
-            <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC" }}}}>
-              <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
+          <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto overflow-x-hidden scrollbar-container ${collapsed ? "sm:w-16 w-0" : "sm:w-64 w-0"}`}>
+            <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70 }}}}>
+              <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                 ...item,
                 label: ["pe-actions", "pl-actions", "admin-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                 children: item.children?.map((child) => ({ ...child, label: <Link to={child.key}>{child.label}</Link> })),
@@ -147,21 +180,23 @@ export const NavBar = () => {
         {/* Sheet for small screens */}
         {isSmallScreen && (
           <Sheet open={isMobileSidebarOpen} onOpenChange={handleMobileSidebarToggle}>
-            <SheetContent side="left" className="overflow-y-auto scrollbar-container">
-              <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC" }}}}>
-                <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
+            <SheetContent side="left" className="overflow-y-auto overflow-x-hidden scrollbar-container">
+              <div className="max-w-[95%]">
+              <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", activeBarBorderWidth: 0 }}}}>
+                <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                   ...item,
                   onClick: () => setIsMobileSidebarOpen(false),
                   label: ["pe-actions", "pl-actions", "admin-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                   children: item.children?.map((child) => ({ ...child, label: <Link to={child.key}>{child.label}</Link> })),
                 }))} />
               </ConfigProvider>
+              </div>
             </SheetContent>
           </Sheet>
         )}
 
         {/* Content Area */}
-        <div className="flex-1 px-2 overflow-auto transition-all duration-300 ease-in-out">
+        <div className="flex-1 px-4 py-2 overflow-auto transition-all duration-300 ease-in-out">
           <Outlet />
         </div>
       </div>

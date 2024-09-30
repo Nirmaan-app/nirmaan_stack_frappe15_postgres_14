@@ -430,7 +430,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
 
     return (
         <>
-            {(page == 'wplist' && !rejected_pr_data)  && <div className="flex-1 md:space-y-4 p-4">
+            {(page == 'wplist' && !rejected_pr_data)  && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/procurement-request")} />
                     <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
@@ -452,7 +452,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                     ))}
                 </div>
             </div>}
-            {page == 'categorylist' && <div className="flex-1 md:space-y-4 p-4">
+            {page == 'categorylist' && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
                 {!rejected_pr_data && (
                     <Dialog>
@@ -492,7 +492,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                     })}
                 </div>
             </div>}
-            {page == 'itemlist' && <div className="flex-1 md:space-y-4 p-4">
+            {page == 'itemlist' && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
                     {
                         !rejected_pr_data ? (
@@ -709,7 +709,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                     </DialogContent>
                 </Dialog>
             </div>}
-            {page == 'additem' && <div className="flex-1 md:space-y-4 p-4">
+            {page == 'additem' && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => {
                         setCurItem("")
@@ -797,7 +797,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                         </Dialog>
                 </div>
             </div>}
-            {page == 'categorylist2' && <div className="flex-1 md:space-y-4 p-4">
+            {page == 'categorylist2' && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center space-y-2">
                     {/* <ArrowLeft onClick={() => setPage('wplist')} /> */}
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>

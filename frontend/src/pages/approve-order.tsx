@@ -77,7 +77,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         {
             fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
             orderBy: { field: 'creation', order: 'desc' },
-            limit: 1000
+            limit: 10000
         });
 
     const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
@@ -560,7 +560,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     return (
         <>
             {page == 'categorylist' &&
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
                             <h2 className="text-lg pl-2 font-bold tracking-tight">Select Category</h2>
@@ -581,7 +581,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         </div>
                     </div>}
             {page == 'itemlist' &&
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex justify-between items-center">
                         <div className="flex items-center pt-1  pb-4 ">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate("/approve-order")} />
@@ -870,7 +870,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         {/* <button className="bottom-0 h-8 w-full bg-red-700 rounded-md text-sm text-white" onClick={()=>handleSubmit()}>Next</button> */}
                     </div>}
             {page == 'summary' &&
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('itemlist')} />
@@ -1046,7 +1046,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             </Dialog>
                         </div>
                     </div>}
-            {page == 'additem' && <div className="flex-1 md:space-y-4 p-4">
+            {page == 'additem' && <div className="flex-1 md:space-y-4">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => {
@@ -1161,7 +1161,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
 
                 </div>
             </div>}
-            {page == 'categorylist2' && <div className="flex-1 md:space-y-4 p-4">
+            {page == 'categorylist2' && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center space-y-2">
                     <ArrowLeft onClick={() => setPage('additem')} />
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>

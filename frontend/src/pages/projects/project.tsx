@@ -745,7 +745,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
   // if (isLoading) return <OverviewSkeleton />
 
   return (
-    <div className="flex-1 md:space-y-4 p-4">
+    <div className="flex-1 md:space-y-4">
       <div className="flex items-center">
         <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
           {isLoading ? <Skeleton className="w-[30%] h-10" /> : (

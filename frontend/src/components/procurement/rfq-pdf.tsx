@@ -10,6 +10,7 @@ import {
     MenuFoldOutlined,
     MenuUnfoldOutlined,
   } from '@ant-design/icons';
+import { CircleChevronDown, CircleChevronLeft, CircleChevronRight } from "lucide-react";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
 
@@ -192,7 +193,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                             </div>
                         ) : (
                             <div>
-                                No Attachments found for this vendor category
+                                No Attachments found for this vendor category(s)
                             </div>
                         )}
                     </div>
@@ -203,7 +204,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                 <div className="flex items-center ml-4">
                     <Button
                         type="text"
-                        icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                        icon={collapsed ? <CircleChevronDown /> : <CircleChevronLeft />}
                         className="p-0"
                         onClick={() => setCollapsed(!collapsed)}
                         style={{

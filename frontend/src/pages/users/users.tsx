@@ -161,7 +161,7 @@ export default function Users() {
     // if (isLoading) return <h1>Loading</h1>
     if (error) return <h1>error.message</h1>
     return (
-        <div className="flex-1 md:space-y-4 p-4">
+        <div className="flex-1 md:space-y-4">
             {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>

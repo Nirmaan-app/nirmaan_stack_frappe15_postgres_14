@@ -64,7 +64,7 @@ export const UpdateQuote = () => {
     const {createDoc} = useFrappeCreateDoc()
 
     const getVendorName = (vendorName: string) => {
-        return vendor_list?.find(vendor => vendor.name === vendorName).vendor_name;
+        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
     const [page, setPage] = useState<string>('quotation')
@@ -318,7 +318,7 @@ export const UpdateQuote = () => {
     return (
         <>
             {page == 'quotation' &&
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate("/update-quote")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
@@ -374,8 +374,8 @@ export const UpdateQuote = () => {
                                                     <HoverCardTrigger>
                                                         <div className={`w-2 h-2 ${checkItemQuoteStatus(item) === "All Filled" ? "bg-green-500" : checkItemQuoteStatus(item) === "Not filled" ? "bg-red-500"  : "bg-yellow-500"}  rounded-full`} />
                                                     </HoverCardTrigger>
-                                                    <HoverCardContent>
-                                                        {checkItemQuoteStatus(item) === "All Filled" ? "All items's quotes are filled" : checkItemQuoteStatus(item) === "Not filled" ? "No item quote is filled"  : "Partially Filled"}
+                                                    <HoverCardContent className="mr-14">
+                                                        {checkItemQuoteStatus(item) === "All Filled" ? "All items(s) quotes are filled" : checkItemQuoteStatus(item) === "Not filled" ? "No item quote is filled"  : "Partially Filled"}
                                                     </HoverCardContent>
                                                 </HoverCard>
                                             </SheetTrigger>

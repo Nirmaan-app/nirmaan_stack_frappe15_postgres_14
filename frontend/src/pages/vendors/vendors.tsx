@@ -172,7 +172,7 @@ export default function Vendors() {
     // if (isLoading || category_loading) return <h1>Loading...</h1>
     if (error || category_error) return error ? <h1>{error?.message}</h1> : <h1>{category_error?.message}</h1>
     return (
-        <div className="flex-1 md:space-y-4 p-4">
+        <div className="flex-1 md:space-y-4">
             <div className="flex items-center justify-between mb-2 space-y-2">
                 <div className="flex">
                     <Link to="/"><ArrowLeft className="mt-1.5" /></Link>
