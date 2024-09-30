@@ -680,13 +680,23 @@
   "work_package": "PA System"
  },
  {
-  "category_name": "Sprinkler Piping",
+  "category_name": "Safety Equipments",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": null,
-  "modified": "2024-08-19 13:26:09.991438",
-  "name": "Sprinkler Piping",
+  "modified": "2024-09-30 17:25:50.178332",
+  "name": "Safety Equipments",
   "tax": "18",
-  "work_package": "Fire Fighting System"
+  "work_package": "Tool & Equipments"
+ },
+ {
+  "category_name": "HVAC Cable Tray & Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-09-30 17:27:59.716012",
+  "name": "HVAC Cable Tray & Accessories",
+  "tax": "18",
+  "work_package": "HVAC System"
  }
 ]
