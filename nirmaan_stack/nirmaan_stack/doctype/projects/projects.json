@@ -24,7 +24,6 @@
   "project_work_details_section",
   "status",
   "project_work_packages",
-  "project_work_milestones",
   "project_scopes",
   "subdivisions",
   "subdivision_list"
@@ -143,11 +142,6 @@
    "label": "Subdivision List"
   },
   {
-   "fieldname": "project_work_milestones",
-   "fieldtype": "JSON",
-   "label": "Project Work Milestones"
-  },
-  {
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
@@ -160,7 +154,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-09-13 16:43:56.842102",
+ "modified": "2024-09-30 19:20:51.950880",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
