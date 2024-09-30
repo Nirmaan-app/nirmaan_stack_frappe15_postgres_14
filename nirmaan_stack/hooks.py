@@ -155,6 +155,9 @@ doc_events = {
         "after_insert": "nirmaan_stack.integrations.controllers.procurement_requests.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.procurement_requests.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.procurement_requests.on_trash"
+    },
+    "Procurement Orders": {
+        "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update"
     }
 }
 
