@@ -64,7 +64,7 @@ export const UpdateQuote = () => {
     const {createDoc} = useFrappeCreateDoc()
 
     const getVendorName = (vendorName: string) => {
-        return vendor_list?.find(vendor => vendor.name === vendorName).vendor_name;
+        return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
     const [page, setPage] = useState<string>('quotation')
