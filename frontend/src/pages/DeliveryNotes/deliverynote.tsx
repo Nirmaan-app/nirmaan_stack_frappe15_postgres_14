@@ -607,23 +607,23 @@ export default function DeliveryNote() {
     if (isLoading) return <div>...loading</div>;
 
     return (
-        <div className="container mx-auto px-4 py-8 max-md:py-4 max-w-3xl">
+        <div className="container mx-auto px-0 max-w-3xl">
              <div className='flex items-center justify-between'>
-             <div className="flex items-center mb-4">
-               <Button onClick={() => navigate("/delivery-notes")} variant="ghost" className=" p-2">
-                 <ArrowLeft className="h-6 w-6 text-red-600" />
+             <div className="flex items-center mb-4 gap-1">
+               <Button onClick={() => navigate("/delivery-notes")} variant="ghost" className="p-0">
+                 <ArrowLeft />
                  <span className="sr-only">Back</span>
                </Button>
-               <h1 className="text-2xl font-bold text-red-600">DN-{poId.split('/')[1]}</h1>
+               <h1 className="text-2xl max-md:text-xl font-bold">DN-{poId.split('/')[1]}</h1>
              </div>
              <Button onClick={handlePrint} className='w-20'>Print</Button>
              </div>  
              <Card className="mb-6">
-               <CardHeader>
+               <CardHeader className='pb-2'>
                  <div className="flex justify-between items-center">
-                   <CardTitle className="text-xl font-semibold text-red-600">Order Details</CardTitle>
-                   <Badge variant={`${data?.status === "Generated" ? "yellow" : "green"}`} className="">
-                        {data?.status === "Generated" ? "Pending" : "Delivered"}
+                   <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Order Details</CardTitle>
+                   <Badge variant={`${data?.status === "Dispatched" ? "orange" : "green"}`} className="">
+                        {data?.status === "Dispatched" ? "Dispatched" : "Delivered"}
                     </Badge>
                  </div>
                </CardHeader>
@@ -632,11 +632,19 @@ export default function DeliveryNote() {
                  <p><strong>Address:</strong> {data?.project_address}</p>
                  <p><strong>PR:</strong> {data?.procurement_request}</p>
                </CardContent>
+
+               <CardHeader className='pb-2'>
+                <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Delivery Person Details</CardTitle>
+               </CardHeader>
+               <CardContent>
+                <p><strong>Name:</strong> {data?.delivery_contact?.split(":")[0]}</p>
+                <p><strong>Number:</strong> {data?.delivery_contact?.split(":")[1]}</p>
+               </CardContent>
              </Card>
 
             <Card>
                 <CardHeader className='flex flex-row items-center justify-between'>
-                    <CardTitle className="text-xl font-semibold text-red-600">Item List</CardTitle>
+                    <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Item List</CardTitle>
                     {!show && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)}>Update</Button>)}
                 </CardHeader>
                 <CardContent>

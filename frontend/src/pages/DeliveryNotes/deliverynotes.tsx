@@ -25,96 +25,96 @@ const DeliveryNotes = () => {
     "Procurement Orders"
     )
 
-    console.log("data", procurementOrdersList, procurementRequestsList)
+    // console.log("data", procurementOrdersList, procurementRequestsList)
 
     const getPrsAssociated = (prId) => {
-        return procurementOrdersList?.filter((po) => po.procurement_request === prId && po.status !== "Cancelled") || []
+        return procurementOrdersList?.filter((po) => po.procurement_request === prId && !["Cancelled", "Generated"].includes(po.status)) || []
     }
 
     const [project, setProject] = useState(null)
 
-    const columns = useMemo(
-        () => [
-            {
-                accessorKey: "name",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="PR No" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("name")}
-                        </div>
-                    )
-                }
-            },
-            {
-                id: "pos",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Associated PO's" />
-                    )
-                },
-                cell: ({ row }) => {
-                    const id = row.getValue("name");
-                    const associatedPOs = getPrsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
+    // const columns = useMemo(
+    //     () => [
+    //         {
+    //             accessorKey: "name",
+    //             header: ({ column }) => {
+    //                 return (
+    //                     <DataTableColumnHeader column={column} title="PR No" />
+    //                 )
+    //             },
+    //             cell: ({ row }) => {
+    //                 return (
+    //                     <div className="font-medium">
+    //                         {row.getValue("name")}
+    //                     </div>
+    //                 )
+    //             }
+    //         },
+    //         {
+    //             id: "pos",
+    //             header: ({ column }) => {
+    //                 return (
+    //                     <DataTableColumnHeader column={column} title="Associated PO's" />
+    //                 )
+    //             },
+    //             cell: ({ row }) => {
+    //                 const id = row.getValue("name");
+    //                 const associatedPOs = getPrsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
                 
-                    return (
-                        <div className="font-medium">
-                            {associatedPOs.length === 0 ? (
-                                <p className="text-red-300 text-center">No PO's found</p>
-                            ) : (
-                                <table className="w-full text-left">
-                                    <tbody>
-                                        {associatedPOs.map((po) => (
-                                            <tr key={po.name}>
-                                                <Link to={`${row.getValue("name").replaceAll("/", "&=")}`}>
-                                                    <td className="border-b p-2 underline hover:text-blue-500">{po.name}</td>
-                                                </Link>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            )}
-                        </div>
-                    );
-                }
-            },
-            {
-                id: "creation",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Creation" />
-                    )
-                },
-                cell: ({ row }) => {
-                    const id = row.getValue("name");
-                    const associatedPOs = getPrsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
+    //                 return (
+    //                     <div className="font-medium">
+    //                         {associatedPOs.length === 0 ? (
+    //                             <p className="text-red-300 text-center">No PO's found</p>
+    //                         ) : (
+    //                             <table className="w-full text-left">
+    //                                 <tbody>
+    //                                     {associatedPOs.map((po) => (
+    //                                         <tr key={po.name}>
+    //                                             <Link to={`${row.getValue("name").replaceAll("/", "&=")}`}>
+    //                                                 <td className="border-b p-2 underline hover:text-blue-500">{po.name}</td>
+    //                                             </Link>
+    //                                         </tr>
+    //                                     ))}
+    //                                 </tbody>
+    //                             </table>
+    //                         )}
+    //                     </div>
+    //                 );
+    //             }
+    //         },
+    //         {
+    //             id: "creation",
+    //             header: ({ column }) => {
+    //                 return (
+    //                     <DataTableColumnHeader column={column} title="Creation" />
+    //                 )
+    //             },
+    //             cell: ({ row }) => {
+    //                 const id = row.getValue("name");
+    //                 const associatedPOs = getPrsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
                 
-                    return (
-                        <div className="font-medium">
-                            {associatedPOs.length === 0 ? (
-                                <span></span>
-                            ) : (
-                                <table className=" text-left">
-                                    <tbody>
-                                        {associatedPOs.map((po) => (
-                                            <tr key={po.creation}>
-                                                <td className="border-b p-2">{formatDate(po.creation)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            )}
-                        </div>
-                    );
-                }
-            },
-        ],
-        []
-    )
+    //                 return (
+    //                     <div className="font-medium">
+    //                         {associatedPOs.length === 0 ? (
+    //                             <span></span>
+    //                         ) : (
+    //                             <table className=" text-left">
+    //                                 <tbody>
+    //                                     {associatedPOs.map((po) => (
+    //                                         <tr key={po.creation}>
+    //                                             <td className="border-b p-2">{formatDate(po.creation)}</td>
+    //                                         </tr>
+    //                                     ))}
+    //                                 </tbody>
+    //                             </table>
+    //                         )}
+    //                     </div>
+    //                 );
+    //             }
+    //         },
+    //     ],
+    //     []
+    // )
 
     const handleChange = (selectedItem: any) => {
         console.log(selectedItem)
@@ -122,10 +122,10 @@ const DeliveryNotes = () => {
         sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
     };
 
-    console.log("project", project)
+    // console.log("project", project)
 
     return (
-        <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 md:space-y-4">
             <div className="pb-4">
                 <div className="flex items-center ">
                         <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
@@ -176,8 +176,8 @@ const DeliveryNotes = () => {
                                                         {getPrsAssociated(item.name)?.map((po) => (
                                                             <TableRow>
                                                                 <TableCell>
-                                                                    <Badge variant={`${po?.status === "Generated" ? "yellow" : "green"}`} className="">
-                                                                        {po?.status === "Generated" ? "Pending" : "Delivered"}
+                                                                    <Badge variant={`${po?.status === "Dispatched" ? "orange" : "green"}`} className="">
+                                                                        {po?.status === "Dispatched" ? "Dispatched" : "Delivered"}
                                                                     </Badge>
                                                                 </TableCell>
                                                             </TableRow>

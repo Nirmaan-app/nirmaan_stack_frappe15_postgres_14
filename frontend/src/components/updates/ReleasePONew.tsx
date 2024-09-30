@@ -1,11 +1,4 @@
 import React, { useState } from 'react';
-import {
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  UploadOutlined,
-  UserOutlined,
-  VideoCameraOutlined,
-} from '@ant-design/icons';
 import { Button , Layout } from 'antd';
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import {  useEffect, useRef } from "react"
@@ -13,7 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 // import { Button } from "../ui/button";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, ArrowLeftToLine, NotebookPen, X } from "lucide-react";
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import { Controller, useForm } from "react-hook-form";
 import { Input } from '@/components/ui/input';
@@ -26,7 +19,7 @@ import { AlertDialogAction } from "@radix-ui/react-alert-dialog";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 import formatToIndianRupee from '@/utils/FormatPrice';
 
-const { Header, Sider, Content } = Layout;
+const { Sider, Content } = Layout;
 
 export const ReleasePONew: React.FC = () => {
 
@@ -83,6 +76,10 @@ export const ReleasePONew: React.FC = () => {
     const [loadingCharges, setLoadingCharges] = useState(0)
     const [freightCharges, setFreightCharges] = useState(0)
     const [notes, setNotes] = useState("")
+    const [contactPerson, setContactPerson] = useState({
+        name: "",
+        number: ""
+    })
 
     const { control, handleSubmit, reset } = useForm({
         defaultValues: {
@@ -138,6 +135,7 @@ export const ReleasePONew: React.FC = () => {
                     description: `${doc.name} updated successfully!`,
                     variant: "success"
                 })
+                setCollapsed(true)
             }).catch(() => {
                 console.log("update_submit_error", update_submit_error)
                 toast({
@@ -206,18 +204,42 @@ export const ReleasePONew: React.FC = () => {
         }
     }
 
+    const handleDispatchPO = async () => {
+        try {
+            await updateDoc("Procurement Orders", orderId, {
+                status: "Dispatched",
+                delivery_contact : `${contactPerson.name}:${contactPerson.number}`
+            })
+            await mutate()
+            toast({
+                title: "Success!",
+                description: `PO: ${orderId} status updated to 'Dispatched' successfully!`,
+                variant: "success"
+            })
+        } catch (error) {
+            console.log("error while updating the status of the PO to dispatch", error)
+            toast({
+                title: "Failed!",
+                description: `PO: ${orderId} Updation Failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
+    console.log("values", contactPerson)
+
     if (procurement_order_list_loading || address_list_loading) return <div>Loading</div>
     if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
 
 
   return (
-    <div className='flex-1 md:space-y-4 p-4'>
+                <div className='flex-1 md:space-y-4'>
                         <div className="flex py-4">
                             <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
-                            <div className="font-semibold text-xl pl-2"><span className="text-red-700 text-2xl">Selected PO:</span> {(orderData?.name)?.toUpperCase()}</div>
+                            <div className="font-semibold text-xl md:text-2xl pl-2">{(orderData?.name)?.toUpperCase()}: <span className='text-primary'>{orderData?.status}</span></div>
                         </div>
-    <Layout>
-      <Sider theme='light' collapsedWidth={0} width={500}  trigger={null} collapsible collapsed={collapsed}>
+                <Layout>
+                    <Sider theme='light' collapsedWidth={0} width={500}  trigger={null} collapsible collapsed={collapsed}>
                     <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4">
                         <div className="flex-col">
                             <h3 className="font-semibold text-lg mt-4">Additional Charges</h3>
@@ -279,7 +301,7 @@ export const ReleasePONew: React.FC = () => {
                                 />
                             </div>
                             <div className="mt-2 text-center">
-                                <button className="h-9 px-8 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90" disabled={advance > 100 || advance < 0} >
+                                <button type='submit' className="h-9 px-8 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90" disabled={advance > 100 || advance < 0} >
                                     {update_loading ? "Saving..." : "Save"}
                                 </button>
                             </div>
@@ -290,7 +312,7 @@ export const ReleasePONew: React.FC = () => {
         <div className="flex">
           <Button
             type="text"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            icon={collapsed ? <NotebookPen className='hover:text-primary/40' /> : <ArrowLeftToLine className='hover:text-primary/40' />}
             onClick={() => setCollapsed(!collapsed)}
             style={{
               fontSize: '16px',
@@ -559,6 +581,78 @@ export const ReleasePONew: React.FC = () => {
                     </div>
               </div>
 
+            {
+                orderData?.status === "Generated" && (
+                    <Card className="border-green-500">
+                        <CardHeader>
+                            <CardTitle>Ready for Dispatch</CardTitle>
+                            <CardContent>
+                                <CardDescription >
+                                    <div className='flex flex-col gap-2 w-full'>
+                                    <p>Please enter the delivery person Name and Contact Number:</p>
+                                        <div className='ml-20 flex items-center gap-32 w-full'>
+                                            <div className='w-[50%] flex flex-col gap-2'>
+                                                <Input type='text' value={contactPerson.name} placeholder='Person Name...' onChange={(e) => setContactPerson((prev) => ({
+                                                    ...prev,
+                                                    name : e.target.value
+                                                }))}/>
+                                                <Input type='number' value={contactPerson.number} placeholder='and Number' onChange={(e) => setContactPerson((prev) => ({
+                                                    ...prev,
+                                                    number : e.target.value
+                                                }))}/>
+                                            </div>
+                                            {
+                                                (Object.values(contactPerson).some((val) => !val) || contactPerson.number.length !== 10) ? (
+                                                    <HoverCard>
+                                                <HoverCardTrigger>
+                                                    <button disabled className='border-green-500 h-9 px-4 py-2 inline-flex items-center 
+                                                        justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors 
+                                                        focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border 
+                                                        bg-background shadow-sm hover:bg-accent hover:text-accent-foreground'>Update</button>
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className='flex flex-col gap-2 w-80'>
+                                                        <p className='font-semibold'>Please fulfill the following conditions to enable the Update button</p>
+                                                        <ul className='list-disc text-xs ml-6'>
+                                                            <li>Person Name must not be empty</li>
+                                                            <li>Contact Number must be of 10 digits</li>
+                                                        </ul>
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                ) : (
+                                                    <AlertDialog>
+                                        <AlertDialogTrigger>
+                                            <button className='border-green-500 h-9 px-4 py-2 inline-flex items-center 
+                                                        justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors 
+                                                        focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border 
+                                                        bg-background shadow-sm hover:bg-accent hover:text-accent-foreground'>Update</button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>
+                                                    <h1 className="justify-center">Please Click on Confirm to update the PO status!</h1>
+                                                </AlertDialogTitle>
+
+                                                <AlertDialogDescription className="flex gap-2 items-center justify-center">
+                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction onClick={handleDispatchPO}>
+                                                        <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90'>Confirm</button>
+                                                    </AlertDialogAction>
+                                                </AlertDialogDescription>
+
+                                            </AlertDialogHeader>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                                )
+                                            }
+                                        </div>
+                                    </div>
+                                </CardDescription>
+
+                            </CardContent>
+                        </CardHeader>
+                    </Card>
+                )
+            }
                      <Card className="border-primary">
                         <CardHeader>
                             <CardTitle>Cancel PO</CardTitle>
@@ -594,14 +688,15 @@ export const ReleasePONew: React.FC = () => {
                                                     <h1 className="justify-center">Are you sure!</h1>
                                                 </AlertDialogTitle>
 
-                                                <AlertDialogDescription className="space-x-2 text-center">
+                                                <AlertDialogDescription className="flex flex-col text-center gap-1">
                                                     Cancelling this PO will create a new cancelled Sent Back. Continue?
+                                                    <div className='flex gap-2 items-center justify-center'>
                                                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                                                     <AlertDialogAction onClick={handleCancelPo}>
                                                         <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90'>Confirm</button>
                                                     </AlertDialogAction>
+                                                    </div>
                                                 </AlertDialogDescription>
-
                                             </AlertDialogHeader>
                                         </AlertDialogContent>
                                     </AlertDialog>
