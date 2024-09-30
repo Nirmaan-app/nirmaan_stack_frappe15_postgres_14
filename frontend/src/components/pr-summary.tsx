@@ -131,7 +131,7 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments }
 
     return (
         <>
-                    <div className={`${section === "pr-summary" ? "flex-1 md:space-y-4 p-4" : ""}`}>
+                    <div className={`${section === "pr-summary" ? "flex-1 md:space-y-4" : ""}`}>
                         {section === "pr-summary" && (
                             <>
                             <div className="flex items-center justify-between">

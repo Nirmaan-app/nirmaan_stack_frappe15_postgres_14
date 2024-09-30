@@ -308,7 +308,7 @@ export const ProcurementOrder = () => {
     return (
         <>
             {page == 'approve' &&
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft className='cursor-pointer' onClick={() => navigate("/procure-request")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Summary </h2>
@@ -425,7 +425,7 @@ export const ProcurementOrder = () => {
                         </div>
                     </div>}
             {page == 'vendors' &&
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage("approve")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendors</h2>

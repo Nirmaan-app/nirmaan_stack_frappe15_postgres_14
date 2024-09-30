@@ -234,7 +234,7 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
     };
 
     return (
-        <div className="flex-1 md:space-y-4 p-4">
+        <div className="flex-1 md:space-y-4">
             <div className="space-y-0.5">
                 <div className="flex space-x-2 items-center">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/customers/${id}`)} />

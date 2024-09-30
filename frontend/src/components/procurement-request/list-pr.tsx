@@ -50,10 +50,10 @@ export default function ListPR() {
     if (procurement_request_list_error) return <h1>ERROR</h1>;
 
     return (
-            <div className="flex-1 md:space-y-4 p-4">
-                <div className="flex items-center pt-1 pb-4">
+            <div className="flex-1 space-y-4">
+                <div className="flex items-center gap-1">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate('/prs&milestones')} />
-                    <h2 className="text-xl pl-2  font-bold tracking-tight">Procurement Requests</h2>
+                    <h2 className="text-xl  font-bold tracking-tight">Procurement Requests</h2>
                 </div>
                 <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
 

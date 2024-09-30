@@ -15,7 +15,6 @@ import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
 import { Link, useLocation } from 'react-router-dom';
 import { Sheet, SheetContent } from "../ui/sheet";
-import { useUserData } from "@/hooks/useUserData";
 import { useFrappeGetDoc } from "frappe-react-sdk";
 import Cookies from "js-cookie";
 
@@ -24,7 +23,6 @@ export const NavBar = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   const location = useLocation();
-  const userData = useUserData();
   const [role, setRole] = useState(null)
 
   const toggleCollapsed = () => {
@@ -33,7 +31,7 @@ export const NavBar = () => {
 
   const user_id = Cookies.get('user_id') ?? ''
 
-  const {data, isLoading, error} = useFrappeGetDoc("Nirmaan Users", user_id)
+  const {data, isLoading, error} = useFrappeGetDoc("Nirmaan Users", user_id, user_id === "Administrator" ? null : undefined)
 
   useEffect(() => {
     if(data) {
@@ -168,8 +166,8 @@ export const NavBar = () => {
       <div className="flex flex-1 pt-16 overflow-hidden">
         {/* Sidebar for large screens */}
         {!isSmallScreen && (
-          <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto scrollbar-container ${collapsed ? "sm:w-16 w-0" : "sm:w-64 w-0"}`}>
-            <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC" }}}}>
+          <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto overflow-x-hidden scrollbar-container ${collapsed ? "sm:w-16 w-0" : "sm:w-64 w-0"}`}>
+            <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70 }}}}>
               <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                 ...item,
                 label: ["pe-actions", "pl-actions", "admin-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
@@ -182,8 +180,9 @@ export const NavBar = () => {
         {/* Sheet for small screens */}
         {isSmallScreen && (
           <Sheet open={isMobileSidebarOpen} onOpenChange={handleMobileSidebarToggle}>
-            <SheetContent side="left" className="overflow-y-auto scrollbar-container">
-              <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC" }}}}>
+            <SheetContent side="left" className="overflow-y-auto overflow-x-hidden scrollbar-container">
+              <div className="max-w-[95%]">
+              <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", activeBarBorderWidth: 0 }}}}>
                 <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                   ...item,
                   onClick: () => setIsMobileSidebarOpen(false),
@@ -191,12 +190,13 @@ export const NavBar = () => {
                   children: item.children?.map((child) => ({ ...child, label: <Link to={child.key}>{child.label}</Link> })),
                 }))} />
               </ConfigProvider>
+              </div>
             </SheetContent>
           </Sheet>
         )}
 
         {/* Content Area */}
-        <div className="flex-1 px-2 overflow-auto transition-all duration-300 ease-in-out">
+        <div className="flex-1 px-4 py-2 overflow-auto transition-all duration-300 ease-in-out">
           <Outlet />
         </div>
       </div>

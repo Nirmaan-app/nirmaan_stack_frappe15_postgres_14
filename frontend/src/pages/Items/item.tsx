@@ -78,7 +78,7 @@ const ItemView = ({ itemId }: { itemId: string }) => {
     if (error) return <h1 className="text-red-700">There is an error while fetching the document, please check!</h1>
 
     return (
-        <div className="flex-1 md:space-y-4 p-4">
+        <div className="flex-1 md:space-y-4">
             <div className="flex items-center max-md:mb-2">
                 <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/items")} />
                 {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :

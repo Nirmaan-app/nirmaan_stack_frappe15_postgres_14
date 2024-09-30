@@ -28,7 +28,7 @@ export default function Items() {
     const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList("Items", {
 
         fields: ["name", "item_name", "unit_name", "make_name", "category", "creation"],
-        limit: 1000
+        limit: 10000
     })
     const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
 
@@ -197,7 +197,7 @@ export default function Items() {
 
     return (
 
-        <div className="flex-1 md:space-y-4 p-4">
+        <div className="flex-1 md:space-y-4">
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />

@@ -293,7 +293,7 @@ export const SentBackUpdateQuote = () => {
     return (
         <>
             {page == 'summary' &&
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate('/sent-back-request')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
@@ -363,7 +363,7 @@ export const SentBackUpdateQuote = () => {
                     </div>}
             {
                 page == 'quotation' &&
-                    <div className="flex-1 md:space-y-4 p-4">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => setPage('summary')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>

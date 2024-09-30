@@ -131,12 +131,11 @@ export const ProjectManager = () => {
 
     return (
         <>
-            {/* <MainLayout> */}
             {page == 'dashboard' &&
-                <div className="flex-1 md:space-y-4 p-4">
+                <div className="flex-1 md:space-y-4">
                     <div className="flex items-center">
                         {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
-                        <h2 className="text-2xl pt-1 pl-2 font-bold tracking-tight">Dashboard</h2>
+                        <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Dashboard</h2>
                     </div>
                     <div className="grid grid-cols-2 gap-4 max-md:py-4">
                         <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer h-32" onClick={() => navigate("/procurement-request")}>
@@ -153,12 +152,12 @@ export const ProjectManager = () => {
                         </div>
                     </div>
             </div>}
-            {page == 'newprlist' && <div className="flex-1 md:space-y-4 p-4">
-                <div className="flex items-center pt-1 pb-4">
+            {page == 'newprlist' && <div className="flex-1 md:space-y-4">
+                <div className="flex items-center gap-1">
                     <ArrowLeft onClick={() => setPage('dashboard')} />
-                    <h2 className="text-base pl-2  font-bold tracking-tight">Procurement Requests</h2>
+                    <h2 className="text-base font-bold tracking-tight">Procurement Requests</h2>
                 </div>
-                <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
+                <div className="gap-4 border border-gray-200 rounded-lg p-0.5">
                     {/* <DropdownMenu2 items={project_lists} onSelect={handleProjectSelect} /> */}
                     <ReactSelect options={project_options} onChange={handleChange} placeholder="Select Project" />
                     {orderData.project && <div className="container mx-0 px-0 pt-4">
@@ -426,7 +425,6 @@ export const ProjectManager = () => {
                     </button>
                 </div>
             </div>} */}
-            {/* </MainLayout> */}
         </>
     )
 }

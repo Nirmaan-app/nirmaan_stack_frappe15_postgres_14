@@ -163,13 +163,10 @@ export default function Profile() {
         })
     }
     return (
-        <div className="flex-1 md:space-y-4 p-4">
-            <div className="mx-auto space-y-6 sm:space-y-8">
-                <div className="flex items-center justify-between ">
-                    <Button variant="ghost" className="flex items-center gap-2">
+            <div className="flex-1 md:space-y-4 space-y-2">
+                <div className="flex items-center gap-1">
                         <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6" />
                         <span className='text-xl font-semibold'>User Details</span>
-                    </Button>
                 </div>
                 <Card>
                     <CardHeader className="flex flex-row items-start justify-between">
@@ -229,7 +226,7 @@ export default function Profile() {
                     </CardContent>
                 </Card>
                 <div>
-                    <div className="flex justify-between items-center mb-4">
+                    <div className="flex justify-between items-center mb-2 mt-4">
                         <h2 className="text-2xl font-bold">Assigned Projects</h2>
                         {userData.role === "Nirmaan Admin Profile" &&
                             (data?.role_profile === "Nirmaan Admin Profile" ?
@@ -331,6 +328,5 @@ export default function Profile() {
 
                 </div>
             </div>
-        </div>
     )
 }

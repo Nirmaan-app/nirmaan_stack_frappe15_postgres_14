@@ -57,18 +57,15 @@ export default function ProcurementDashboard() {
     })
 
     return (
-        // <MainLayout>
-        <div className="flex">
-
-            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            <div className="flex-1 md:space-y-4 space-y-4">
                 <div className="flex justify-between items-center space-y-2">
-                    <h2 className="text-2xl pt-1 pl-2 pb-4 font-bold tracking-tight">Procurement Dashboard</h2>
+                    <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Procurement Dashboard</h2>
                     <Button onClick={() => navigate("/procurement-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
                 </div>
                 <div className="flex items-center space-y-2">
-                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">New PR Actions</h2>
+                    <h2 className=" font-bold tracking-tight">New PR Actions</h2>
                 </div>
-                <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
 
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/procure-request">
@@ -95,8 +92,8 @@ export default function ProcurementDashboard() {
                                 {procurement_request_list_error && <p>Error</p>}</p>
                         </Link>
                     </Card>
-                    <div className="flex ">
-                        <Separator orientation="vertical" className="mr-4 flex-grow-0" />
+                    <div className="flex">
+                        <Separator orientation="vertical" className="mr-4 flex-grow-0 max-sm:hidden" />
                         <div className="flex-grow">
                             <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                                 <Link to="/release-po">
@@ -110,9 +107,9 @@ export default function ProcurementDashboard() {
                     </div>
                 </div>
                 <div className="flex items-center space-y-2">
-                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Sent Back PR Actions</h2>
+                    <h2 className="text-base pt-1 font-bold tracking-tight">Sent Back PR Actions</h2>
                 </div>
-                <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/sent-back-request">
                             <p className="text-center py-6 font-bold text-gray-500">Sent Back Request</p>
@@ -123,15 +120,15 @@ export default function ProcurementDashboard() {
                     </Card>
                 </div>
                 {/* <div className="flex items-center space-y-2">
-                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Generated Order Actions</h2>
+                    <h2 className="text-base pt-1 font-bold tracking-tight">Generated Order Actions</h2>
                 </div>
-                <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
 
                 </div> */}
                 <div className="flex items-center space-y-2">
-                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">General Actions</h2>
+                    <h2 className="text-base pt-1 font-bold tracking-tight">General Actions</h2>
                 </div>
-                <div className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/vendors">
                             <p className="text-center py-6 font-bold text-gray-500">Total Vendors</p>
@@ -150,7 +147,5 @@ export default function ProcurementDashboard() {
                     </Card>
                 </div>
             </div>
-        </div>
-        // </MainLayout>
     );
 }

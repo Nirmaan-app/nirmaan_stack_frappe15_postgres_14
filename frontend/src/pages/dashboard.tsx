@@ -111,11 +111,14 @@ export default function Dashboard() {
         <>
 
           {(role == 'Nirmaan Admin Profile' || user_id === "Administrator") && <Default />} 
-            {(has_project === "false" && role !== "Nirmaan Admin Profile") ? 
-            <Alert className="ml-[25%] w-[50%] mt-[15%]">
+            {(!has_project && role !== "Nirmaan Admin Profile") ? 
+            <Alert className="flex flex-col max-md:w-[80%] max-lg:w-[60%] w-[50%] mx-auto justify-center max-md:mt-[40%] mt-[20%]">
+              <div className="flex gap-2 items-center">
                 <RocketIcon className="h-4 w-4" />
-                <AlertTitle>Sorry !!!</AlertTitle>
-                <AlertDescription className="flex justify-between">
+                <AlertTitle>Oops !!!</AlertTitle>
+                </div>
+
+                <AlertDescription className="flex justify-between items-center">
                     You are not Assigned to any project.
                     <Button onClick={logout}>Log Out</Button>
                 </AlertDescription>
