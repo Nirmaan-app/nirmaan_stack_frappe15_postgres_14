@@ -33,13 +33,13 @@ const NewPR = () => {
     )
 };
 
-export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setSection }) => {
+export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, setSection }) => {
 
     const navigate = useNavigate();
     const userData = useUserData()
     const { toast } = useToast()
 
-    const {data: usersList} = useFrappeGetDocList("Nirmaan Users", {
+    const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["*"],
         limit: 1000,
         filters: [["role_profile", "=", "Nirmaan Project Lead Profile"]]
@@ -90,18 +90,18 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
     })
 
     useEffect(() => {
-        if(rejected_pr_data) {
+        if (rejected_pr_data) {
             setOrderData(rejected_pr_data)
             setPage("itemlist")
         }
     }, [])
 
-    const {data: universalComments} = useFrappeGetDocList("Comment", {
+    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
         fields: ["*"],
         filters: [["reference_name", "=", rejected_pr_data?.name]],
-        orderBy: {field: "creation", order: "desc"}
+        orderBy: { field: "creation", order: "desc" }
     },
-    rejected_pr_data ? ("Comment,filters(reference_name="+rejected_pr_data.name+")") : null
+        rejected_pr_data ? ("Comment,filters(reference_name=" + rejected_pr_data.name + ")") : null
     )
 
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
@@ -124,7 +124,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
         });
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    const {updateDoc, error: update_error} = useFrappeUpdateDoc()
+    const { updateDoc, error: update_error } = useFrappeUpdateDoc()
 
     useEffect(() => {
         const newCategories = [];
@@ -245,7 +245,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                     }));
                 } else {
                     toast({
-                        title : "Invalid Request!",
+                        title: "Invalid Request!",
                         description: (<span>You are trying to add the <b>item: {curItem}</b> multiple times which is not allowed, instead edit the quantity directly!</span>)
                     })
                 }
@@ -258,26 +258,26 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
         }
     };
 
-    const {mutate} = useSWRConfig()
+    const { mutate } = useSWRConfig()
 
     // console.log("quantity", quantity)
 
     const handleSubmit = async () => {
         if (
-            userData?.role === "Nirmaan Project Manager Profile" || 
-            userData?.role === "Nirmaan Admin Profile" || 
-            userData?.role === "Nirmaan Procurement Executive Profile" || 
+            userData?.role === "Nirmaan Project Manager Profile" ||
+            userData?.role === "Nirmaan Admin Profile" ||
+            userData?.role === "Nirmaan Procurement Executive Profile" ||
             userData?.role === "Nirmaan Project Lead Profile"
         ) {
             try {
                 const res = await createDoc('Procurement Requests', orderData);
 
-                if(universalComment) {
-                    await createDoc("Comment", {
-                        comment_type : "Comment",
-                        reference_doctype : "Procurement Requests",
-                        reference_name : res.name,
-                        comment_by : userData?.user_id,
+                if (universalComment) {
+                    await createDoc("Nirmaan Comments", {
+                        comment_type: "Comment",
+                        reference_doctype: "Procurement Requests",
+                        reference_name: res.name,
+                        comment_by: userData?.user_id,
                         content: universalComment,
                         subject: "creating pr"
                     })
@@ -285,17 +285,17 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                 console.log("newPR", res);
                 await mutate("Procurement Requests,orderBy(creation-desc)");
                 await mutate("Procurement Orders");
-    
+
                 toast({
                     title: "Success!",
                     description: `New PR: ${res?.name} created successfully!`,
                     variant: "success",
                 });
-    
+
                 navigate("/procurement-request");
             } catch (error) {
                 console.log("submit_error", error);
-    
+
                 toast({
                     title: "Failed!",
                     description: `PR Creation failed!`,
@@ -304,22 +304,22 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
             }
         }
     };
-    
+
 
     const handleResolvePR = async () => {
         try {
             const res = await updateDoc("Procurement Requests", orderData.name, {
-                category_list : orderData.category_list,
+                category_list: orderData.category_list,
                 procurement_list: orderData.procurement_list,
                 workflow_state: "Pending"
             })
 
-            if(universalComment) {
-                await createDoc("Comment", {
-                    comment_type : "Comment",
-                    reference_doctype : "Procurement Requests",
-                    reference_name : orderData.name,
-                    comment_by : userData?.user_id,
+            if (universalComment) {
+                await createDoc("Nirmaan Comments", {
+                    comment_type: "Comment",
+                    reference_doctype: "Procurement Requests",
+                    reference_name: orderData.name,
+                    comment_by: userData?.user_id,
                     content: universalComment,
                     subject: "resolving pr"
                 })
@@ -376,16 +376,16 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
         // console.log("comments of item name", comments[itemName])
         curRequest = curRequest.map((curValue) => {
             if (curValue.item === itemName) {
-                return { ...curValue, quantity: parseInt(newQuantity), comment : comments[itemName] === undefined ? curValue.comment || "" :  comments[itemName] || "" };
+                return { ...curValue, quantity: parseInt(newQuantity), comment: comments[itemName] === undefined ? curValue.comment || "" : comments[itemName] || "" };
             }
             return curValue;
         });
-            setOrderData((prevState) => ({
-                ...prevState,
-                procurement_list: {
-                    list: curRequest,
-                },
-            }));
+        setOrderData((prevState) => ({
+            ...prevState,
+            procurement_list: {
+                list: curRequest,
+            },
+        }));
         setQuantity('')
         setCurItem('')
     };
@@ -413,24 +413,24 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
     const UndoDeleteOperation = () => {
         let curRequest = orderData.procurement_list.list;
         let itemToRestore = stack.pop();
-        
-            curRequest.push(itemToRestore);
 
-            setOrderData(prevState => ({
-                ...prevState,
-                procurement_list: {
-                    list: curRequest
-                }
-            }));
+        curRequest.push(itemToRestore);
 
-            setStack([...stack]);
+        setOrderData(prevState => ({
+            ...prevState,
+            procurement_list: {
+                list: curRequest
+            }
+        }));
+
+        setStack([...stack]);
     };
 
     // console.log("userData", userData)
 
     return (
         <>
-            {(page == 'wplist' && !rejected_pr_data)  && <div className="flex-1 md:space-y-4">
+            {(page == 'wplist' && !rejected_pr_data) && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/procurement-request")} />
                     <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
@@ -454,25 +454,25 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
             </div>}
             {page == 'categorylist' && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
-                {!rejected_pr_data && (
-                    <Dialog>
-                    <DialogTrigger asChild>
-                        <ArrowLeft className="cursor-pointer" />
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                            <DialogTitle>Reset Order List?</DialogTitle>
-                            <DialogDescription>
-                                Going back to work package selection will clear your current order list. Are you sure?
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogClose>
-                            <Button onClick={() => setPage('wplist')}>Yes</Button>
-                            <Button variant="secondary" className="ml-3">No</Button>
-                        </DialogClose>
-                    </DialogContent>
-                </Dialog>
-                )}
+                    {!rejected_pr_data && (
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <ArrowLeft className="cursor-pointer" />
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                    <DialogTitle>Reset Order List?</DialogTitle>
+                                    <DialogDescription>
+                                        Going back to work package selection will clear your current order list. Are you sure?
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <DialogClose>
+                                    <Button onClick={() => setPage('wplist')}>Yes</Button>
+                                    <Button variant="secondary" className="ml-3">No</Button>
+                                </DialogClose>
+                            </DialogContent>
+                        </Dialog>
+                    )}
                     <h2 className="text-base pl-2 font-bold tracking-tight">Select Category</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -511,7 +511,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                             }} />
                         )
                     }
-                    
+
                     <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                 </div>
                 <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
@@ -557,26 +557,26 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                 </div>
                 {/* <div className="max-md:text-xs text-rose-700">Added Items</div> */}
                 <div className="flex justify-between items-center max-md:py-4">
-                                <p className="max-md:text-xs text-rose-700">Added Items</p>
-                                {stack.length !== 0 && (
-                                    <div className="flex items-center space-x-2">
-                                        <HoverCard>
-                                            <HoverCardTrigger>
-                                                <button
-                                                    onClick={() => UndoDeleteOperation()}
-                                                    className="flex items-center max-md:text-sm max-md:px-2 max-md:py-1  px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-600 transition duration-200 ease-in-out"
-                                                >
-                                                    <Undo className="mr-2 max-md:w-4 max-md:h-4" /> {/* Undo Icon */}
-                                                    Undo
-                                                </button>
-                                            </HoverCardTrigger>
-                                            <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
-                                                Click to undo the last deleted operation
-                                            </HoverCardContent>
-                                        </HoverCard>
-                                    </div>
-                                )}
-                            </div>
+                    <p className="max-md:text-xs text-rose-700">Added Items</p>
+                    {stack.length !== 0 && (
+                        <div className="flex items-center space-x-2">
+                            <HoverCard>
+                                <HoverCardTrigger>
+                                    <button
+                                        onClick={() => UndoDeleteOperation()}
+                                        className="flex items-center max-md:text-sm max-md:px-2 max-md:py-1  px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-600 transition duration-200 ease-in-out"
+                                    >
+                                        <Undo className="mr-2 max-md:w-4 max-md:h-4" /> {/* Undo Icon */}
+                                        Undo
+                                    </button>
+                                </HoverCardTrigger>
+                                <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
+                                    Click to undo the last deleted operation
+                                </HoverCardContent>
+                            </HoverCard>
+                        </div>
+                    )}
+                </div>
                 {
                     orderData.category_list.list.length ? (
                         orderData.category_list?.list?.map((cat) => {
@@ -597,62 +597,62 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                                                 return <tr key={item.item} >
                                                     <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
                                                         {item.item}
-                                                            {item.comment && 
+                                                        {item.comment &&
                                                             <div className="flex gap-1 items-center">
                                                                 <MessageCircleMore className="w-6 h-6" />
                                                                 <input disabled type="text" value={item.comment} className="block border rounded-md p-1 md:w-[60%]" />
                                                             </div>
-                                                            }
+                                                        }
                                                     </td>
                                                     <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
                                                     <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
                                                     <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
                                                         <AlertDialog>
-                                                                <AlertDialogTrigger onClick={() => setQuantity(parseInt(item.quantity))}><Pencil className="w-4 h-4" /></AlertDialogTrigger>
-                                                                <AlertDialogContent>
-                                                                    <AlertDialogHeader>
-                                                                        <AlertDialogTitle className="flex justify-between">Edit Item
-                                                                            <AlertDialogCancel onClick={() => setQuantity('')} className="border-none shadow-none p-0">X</AlertDialogCancel>
-                                                                        </AlertDialogTitle>
-                                                                        <AlertDialogDescription className="flex flex-col gap-2">
-                                                                            <div className="flex space-x-2">
-                                                                                <div className="w-1/2 md:w-2/3">
-                                                                                    <h5 className="text-base text-gray-400 text-left mb-1">Item Name</h5>
-                                                                                    <div className="w-full  p-1 text-left">
-                                                                                        {item.item}
-                                                                                    </div>
-                                                                                </div>
-                                                                                <div className="w-[30%]">
-                                                                                    <h5 className="text-base text-gray-400 text-left mb-1">UOM</h5>
-                                                                                    <div className=" w-full  p-2 text-center justify-left flex">
-                                                                                        {item.unit}
-                                                                                    </div>
-                                                                                </div>
-                                                                                <div className="w-[25%]">
-                                                                                    <h5 className="text-base text-gray-400 text-left mb-1">Qty</h5>
-                                                                                    <input type="number" defaultValue={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value !== "" ? parseInt(e.target.value) : null)} />
+                                                            <AlertDialogTrigger onClick={() => setQuantity(parseInt(item.quantity))}><Pencil className="w-4 h-4" /></AlertDialogTrigger>
+                                                            <AlertDialogContent>
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle className="flex justify-between">Edit Item
+                                                                        <AlertDialogCancel onClick={() => setQuantity('')} className="border-none shadow-none p-0">X</AlertDialogCancel>
+                                                                    </AlertDialogTitle>
+                                                                    <AlertDialogDescription className="flex flex-col gap-2">
+                                                                        <div className="flex space-x-2">
+                                                                            <div className="w-1/2 md:w-2/3">
+                                                                                <h5 className="text-base text-gray-400 text-left mb-1">Item Name</h5>
+                                                                                <div className="w-full  p-1 text-left">
+                                                                                    {item.item}
                                                                                 </div>
                                                                             </div>
-                                                                            <div className="flex gap-1 items-center pt-1">
-                                                                                <MessageCircleMore className="h-8 w-8"  />
-                                                                                <textarea
-                                                                                    disabled={userData?.role === "Nirmaan Project Manager Profile"}
-                                                                                    className="block p-2 border-gray-300 border rounded-md w-full"
-                                                                                    placeholder="Add comment..."
-                                                                                    onChange={(e) => handleItemCommentChange(item, e)}
-                                                                                    defaultValue={item.comment || ""}
-                                                                                />
+                                                                            <div className="w-[30%]">
+                                                                                <h5 className="text-base text-gray-400 text-left mb-1">UOM</h5>
+                                                                                <div className=" w-full  p-2 text-center justify-left flex">
+                                                                                    {item.unit}
+                                                                                </div>
                                                                             </div>
-                                                                        </AlertDialogDescription>
-                                                                        <AlertDialogDescription className="flex justify-end">
-                                                                            <div className="flex gap-2">
-                                                                                <AlertDialogAction className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</AlertDialogAction>
-                                                                                <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}>Save</AlertDialogAction>
+                                                                            <div className="w-[25%]">
+                                                                                <h5 className="text-base text-gray-400 text-left mb-1">Qty</h5>
+                                                                                <input type="number" defaultValue={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value !== "" ? parseInt(e.target.value) : null)} />
                                                                             </div>
-                                                                        </AlertDialogDescription>
-                                                                    </AlertDialogHeader>
-                                                                </AlertDialogContent>
-                                                            </AlertDialog>
+                                                                        </div>
+                                                                        <div className="flex gap-1 items-center pt-1">
+                                                                            <MessageCircleMore className="h-8 w-8" />
+                                                                            <textarea
+                                                                                disabled={userData?.role === "Nirmaan Project Manager Profile"}
+                                                                                className="block p-2 border-gray-300 border rounded-md w-full"
+                                                                                placeholder="Add comment..."
+                                                                                onChange={(e) => handleItemCommentChange(item, e)}
+                                                                                defaultValue={item.comment || ""}
+                                                                            />
+                                                                        </div>
+                                                                    </AlertDialogDescription>
+                                                                    <AlertDialogDescription className="flex justify-end">
+                                                                        <div className="flex gap-2">
+                                                                            <AlertDialogAction className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</AlertDialogAction>
+                                                                            <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}>Save</AlertDialogAction>
+                                                                        </div>
+                                                                    </AlertDialogDescription>
+                                                                </AlertDialogHeader>
+                                                            </AlertDialogContent>
+                                                        </AlertDialog>
                                                     </td>
                                                 </tr>
                                             }
@@ -690,7 +690,7 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                 </Card>
                 <Dialog>
                     <DialogTrigger asChild>
-                            <Button disabled={!orderData.procurement_list.list.length ? true : false} variant={`${!orderData.procurement_list.list.length ? "secondary" : "destructive"}`} className="h-8 w-full mt-4 w-full rounded-md text-sm">{!rejected_pr_data ? "Confirm and Submit" : "Resolve PR"}</Button>
+                        <Button disabled={!orderData.procurement_list.list.length ? true : false} variant={`${!orderData.procurement_list.list.length ? "secondary" : "destructive"}`} className="h-8 w-full mt-4 w-full rounded-md text-sm">{!rejected_pr_data ? "Confirm and Submit" : "Resolve PR"}</Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
@@ -774,27 +774,27 @@ export const NewPRPage = ({ project=undefined, rejected_pr_data= undefined, setS
                     </Select>
                 </div>
                 <div className="py-8">
-                        <Dialog>
-                            <DialogTrigger asChild>
-                                {(curItem && unit) ?
-                                    <Button className="mt-15 h-8 w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</Button>
-                                    :
-                                    <Button disabled={true} variant="secondary" className="h-8 w-full rounded-md text-sm">Confirm and Submit</Button>
-                                }
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            {(curItem && unit) ?
+                                <Button className="mt-15 h-8 w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</Button>
+                                :
+                                <Button disabled={true} variant="secondary" className="h-8 w-full rounded-md text-sm">Confirm and Submit</Button>
+                            }
 
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-[425px]">
-                                <DialogHeader>
-                                    <DialogTitle>Are you Sure</DialogTitle>
-                                    <DialogDescription>
-                                        Click on Confirm to create new Item.
-                                    </DialogDescription>
-                                </DialogHeader>
-                                <DialogClose>
-                                    <Button variant="secondary" onClick={() => handleAddItem()}>Confirm</Button>
-                                </DialogClose>
-                            </DialogContent>
-                        </Dialog>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[425px]">
+                            <DialogHeader>
+                                <DialogTitle>Are you Sure</DialogTitle>
+                                <DialogDescription>
+                                    Click on Confirm to create new Item.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogClose>
+                                <Button variant="secondary" onClick={() => handleAddItem()}>Confirm</Button>
+                            </DialogClose>
+                        </DialogContent>
+                    </Dialog>
                 </div>
             </div>}
             {page == 'categorylist2' && <div className="flex-1 md:space-y-4">
