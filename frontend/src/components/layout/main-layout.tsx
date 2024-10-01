@@ -24,25 +24,25 @@ export const MainLayout = () => {
     //     console.log('all_notifications', notifications)
     // })
 
-    const add_new_notifications = useNotificationStore((state) => state.add_new_notification);
+    // const add_new_notifications = useNotificationStore((state) => state.add_new_notification);
     const notifications = useNotificationStore((state) => state.notifications); // Separate getter
 
     // Listen to specific event: "pr:created"
-    useFrappeEventListener("pr:created", (event) => {
-        console.log('before_zustand', event);
+    // useFrappeEventListener("pr:created", (event) => {
+    //     console.log('before_zustand', event);
 
-        // Only update unseen count and notifications if the event data is new
-        if (event) {
-            add_new_notifications("pr:created", event);
-        }
-    });
+    //     // Only update unseen count and notifications if the event data is new
+    //     if (event) {
+    //         add_new_notifications("pr:created", event);
+    //     }
+    // });
 
     // Log notifications outside of the listener to prevent infinite loops
     console.log('all_notifications', notifications);
 
     return (
         <>
-			<ScrollToTop />
+            <ScrollToTop />
             <NavBar />
 
             {/* <Layout>

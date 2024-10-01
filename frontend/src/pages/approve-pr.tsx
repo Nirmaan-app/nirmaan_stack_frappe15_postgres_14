@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useNotificationStore } from "@/hooks/useNotificationStore";
 
 type PRTable = {
     name: string
@@ -20,14 +21,17 @@ type PRTable = {
 }
 
 export const ApprovePR = () => {
+    const notifications = useNotificationStore((state) => state.notifications);
+
+    const markClickedNotification = useNotificationStore((state) => state.mark_clicked_notification);
+
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ["*"],
             filters: [["workflow_state", "=", "Pending"]],
             limit: 1000,
-            orderBy: {field: "modified", order: "desc"}
-        },
-        "ApprovePR,PRListMutate"
+            orderBy: { field: "modified", order: "desc" }
+        }
     );
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects",
         {
@@ -57,6 +61,12 @@ export const ApprovePR = () => {
         return total;
     }
 
+    const isNewPR = (prName: string) => {
+        return notifications.some(
+            (notification) => notification.message.name === prName && !notification.clicked
+        );
+    };
+
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const columns: ColumnDef<PRTable>[] = useMemo(
@@ -70,10 +80,20 @@ export const ApprovePR = () => {
                 },
                 cell: ({ row }) => {
                     return (
-                        <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/approve-order/${row.getValue("name")}`}>
+                        <div className="font-medium flex">
+                            <Link
+                                className="underline hover:underline-offset-2"
+                                to={`/approve-order/${row.getValue("name")}`}
+                                onClick={() => {
+                                    let mark_seen = (notifications.filter((item) => (item.type === 'pr:created' && item.message.name === row.getValue("name")))[0])
+                                    console.log("on-CLICK PR", mark_seen)
+
+                                    markClickedNotification(mark_seen.id)
+                                }}
+                            >
                                 {row.getValue("name")?.slice(-4)}
                             </Link>
+                            {isNewPR(row.getValue("name")) && <div className="bg-red-700 w-2 h-2 rounded-full" />}
                         </div>
                     )
                 },
@@ -166,7 +186,7 @@ export const ApprovePR = () => {
             }
 
         ],
-        [project_values]
+        [project_values, notifications]
     )
 
     if (procurement_request_list_error || projects_error) {
@@ -178,20 +198,20 @@ export const ApprovePR = () => {
         })
     }
     return (
-            <div className="flex-1 md:space-y-4">
-                <div className="flex items-center justify-between space-y-2 pl-2">
-                    <h2 className="text-lg font-bold tracking-tight">Approve New PR</h2>
-                </div>
-                {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
+        <div className="flex-1 md:space-y-4">
+            <div className="flex items-center justify-between space-y-2 pl-2">
+                <h2 className="text-lg font-bold tracking-tight">Approve New PR</h2>
+            </div>
+            {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
 
-                {projects_loading || procurement_request_list_loading ? (<TableSkeleton />)
-                    :
-                    (<DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />)}
-
-
+            {projects_loading || procurement_request_list_loading ? (<TableSkeleton />)
+                :
+                (<DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />)}
 
 
-                {/* <div className="overflow-x-auto">
+
+
+            {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
@@ -219,6 +239,6 @@ export const ApprovePR = () => {
                             </tbody>
                         </table>
                     </div> */}
-            </div>
+        </div>
     )
 }
