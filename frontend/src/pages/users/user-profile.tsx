@@ -10,11 +10,11 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { DialogClose } from "@radix-ui/react-dialog";
-import { ArrowLeft, CirclePlus, Mail, MapPin, Phone, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, CirclePlus, KeyRound, Mail, MapPin, Phone, Plus, Trash2 } from "lucide-react";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
@@ -56,6 +56,8 @@ export default function Profile() {
     },
         "Address"
     )
+
+    const { call } = useContext(FrappeContext) as FrappeConfig
 
     const options: SelectOption[] = project_list?.map(item => ({
         label: item.project_name, // Adjust based on your data structure
@@ -153,6 +155,25 @@ export default function Profile() {
         }
     }
 
+    const handlePasswordReset = () => {
+        call.post('frappe.core.doctype.user.user.reset_password', {
+            user: id
+        }).then(() => {
+            toast({
+                title: "Success!",
+                description: "Password Reset Email has been sent to the user",
+                variant: "success"
+            });
+        }).catch(err => {
+            toast({
+                title: "Error!",
+                description: err.exception,
+                variant: "destructive"
+            });
+        })
+
+    }
+
     if (isLoading || permission_list_loading || project_list_loading || addressDataLoading) return <UserProfileSkeleton />;
     if (error) {
         // console.log("Error in user-profile.tsx", error?.message)
@@ -163,25 +184,29 @@ export default function Profile() {
         })
     }
     return (
-            <div className="flex-1 md:space-y-4 space-y-2">
-                <div className="flex items-center gap-1">
-                        <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6" />
-                        <span className='text-xl font-semibold'>User Details</span>
-                </div>
-                <Card>
-                    <CardHeader className="flex flex-row items-start justify-between">
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                            <Avatar className="h-20 w-20 text-3xl">
-                                <AvatarImage src="/placeholder.svg" alt={data?.full_name} />
-                                <AvatarFallback>{data?.full_name.split(' ').map(n => n[0]).join('').toUpperCase()}</AvatarFallback>
-                            </Avatar>
-                            <div>
-                                <CardTitle className="text-2xl">{data?.full_name}</CardTitle>
-                                <CardDescription>{data?.role_profile}</CardDescription>
-                            </div>
+        <div className="flex-1 md:space-y-4 space-y-2">
+            <div className="flex items-center gap-1">
+                <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6" />
+                <span className='text-xl font-semibold'>User Details</span>
+            </div>
+            <Card>
+                <CardHeader className="flex flex-row items-start justify-between">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <Avatar className="h-20 w-20 text-3xl">
+                            <AvatarImage src="/placeholder.svg" alt={data?.full_name} />
+                            <AvatarFallback>{data?.full_name.split(' ').map(n => n[0]).join('').toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                            <CardTitle className="text-2xl">{data?.full_name}</CardTitle>
+                            <CardDescription>{data?.role_profile}</CardDescription>
                         </div>
-                        {userData.role === "Nirmaan Admin Profile" &&
-                            (data?.role_profile === "Nirmaan Admin Profile" ?
+                    </div>
+                    {userData.role === "Nirmaan Admin Profile" &&
+                        <div className="flex">
+                            <Button className="mr-2" onClick={() => handlePasswordReset()}>
+                                <div className="flex"><KeyRound className="w-5 h-5 pr-1" />Reset Password</div>
+                            </Button>
+                            {data?.role_profile === "Nirmaan Admin Profile" ?
 
                                 <Button disabled={true}><Trash2 className="w-5 h-5 pr-1" />Delete User</Button>
                                 :
@@ -206,127 +231,129 @@ export default function Profile() {
                                     </DialogContent>
                                 </Dialog>
 
-                            )}
-                    </CardHeader>
-                    <CardContent className="grid gap-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="flex items-center gap-2">
-                                <Mail className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm">{data?.email}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Phone className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm">{data?.mobile_no}</span>
-                            </div>
-                            <div className="flex items-center gap-2 sm:col-span-2">
-                                <MapPin className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm">N/A</span>
-                            </div>
+                            }
                         </div>
-                    </CardContent>
-                </Card>
-                <div>
-                    <div className="flex justify-between items-center mb-2 mt-4">
-                        <h2 className="text-2xl font-bold">Assigned Projects</h2>
-                        {userData.role === "Nirmaan Admin Profile" &&
-                            (data?.role_profile === "Nirmaan Admin Profile" ?
-                                <Button disabled={true}>
-                                    <div className="flex items-center"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
-                                </Button>
-                                :
-                                <Dialog>
-                                    <DialogTrigger asChild>
-                                        <Button asChild>
-                                            <div className="cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent>
-                                        <DialogHeader>
-                                            <DialogTitle>Assign New Projects</DialogTitle>
-                                            <div className="flex py-2 pt-4">
-                                                <span className="px-2 text-base font-medium pt-1">Assign</span>
-                                                <Select onValueChange={(item) => setCurProj(item)}>
-                                                    <SelectTrigger className="w-[220px]">
-                                                        <SelectValue placeholder="Select Project" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {options.map(option => {
-                                                            const isPresent = permission_list?.find((item => item.for_value === option.value))
-                                                            if (!isPresent) {
-                                                                return <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                            }
-                                                        })}
-                                                    </SelectContent>
-                                                </Select>
-                                                <span className="px-4 text-base font-normal pt-1">to: {`${data?.first_name}`}</span>
-                                            </div>
-                                        </DialogHeader>
-                                        <div className="flex justify-end">
-                                            <DialogClose>
-                                                <Button onClick={() => handleSubmit()}>Submit</Button>
-                                            </DialogClose>
-                                        </div>
-                                    </DialogContent>
-                                </Dialog>
-                            )}
+                    }
+                </CardHeader>
+                <CardContent className="grid gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="flex items-center gap-2">
+                            <Mail className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">{data?.email}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Phone className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">{data?.mobile_no}</span>
+                        </div>
+                        <div className="flex items-center gap-2 sm:col-span-2">
+                            <MapPin className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">N/A</span>
+                        </div>
                     </div>
-                    {userData.role === "Nirmaan Admin Profile" ?
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {permission_list?.map((project, index) => (
+                </CardContent>
+            </Card>
+            <div>
+                <div className="flex justify-between items-center mb-2 mt-4">
+                    <h2 className="text-2xl font-bold">Assigned Projects</h2>
+                    {userData.role === "Nirmaan Admin Profile" &&
+                        (data?.role_profile === "Nirmaan Admin Profile" ?
+                            <Button disabled={true}>
+                                <div className="flex items-center"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
+                            </Button>
+                            :
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button asChild>
+                                        <div className="cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                    <DialogHeader>
+                                        <DialogTitle>Assign New Projects</DialogTitle>
+                                        <div className="flex py-2 pt-4">
+                                            <span className="px-2 text-base font-medium pt-1">Assign</span>
+                                            <Select onValueChange={(item) => setCurProj(item)}>
+                                                <SelectTrigger className="w-[220px]">
+                                                    <SelectValue placeholder="Select Project" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {options.map(option => {
+                                                        const isPresent = permission_list?.find((item => item.for_value === option.value))
+                                                        if (!isPresent) {
+                                                            return <SelectItem value={option.value}>{option.label}</SelectItem>
+                                                        }
+                                                    })}
+                                                </SelectContent>
+                                            </Select>
+                                            <span className="px-4 text-base font-normal pt-1">to: {`${data?.first_name}`}</span>
+                                        </div>
+                                    </DialogHeader>
+                                    <div className="flex justify-end">
+                                        <DialogClose>
+                                            <Button onClick={() => handleSubmit()}>Submit</Button>
+                                        </DialogClose>
+                                    </div>
+                                </DialogContent>
+                            </Dialog>
+                        )}
+                </div>
+                {userData.role === "Nirmaan Admin Profile" ?
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {permission_list?.map((project, index) => (
+                            <Card key={index} className="flex flex-col">
+                                <CardHeader>
+                                    <CardTitle className="flex justify-between items-start">
+                                        <span className="text-lg">{getProjectName(project.for_value).projectName}</span>
+                                        <Button variant="ghost" size="icon" onClick={() => handleDeleteProject(project.for_value)}>
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </CardTitle>
+                                    <CardDescription className="text-xs">{project.for_value}</CardDescription>
+                                </CardHeader>
+                                <CardContent className="flex-grow">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                                        <span className="text-sm">{getProjectName(project.for_value).formatAddress}</span>
+                                    </div>
+                                    {/* <div className="flex items-start gap-2">
+                    <Briefcase className="h-4 w-4 text-muted-foreground mt-1" />
+                    <span className="text-sm">{project.workPackages.join(', ')}</span>
+                  </div> */}
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+                    :
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {userData.has_project === "true" ?
+                            (project_list?.map((project, index) => (
                                 <Card key={index} className="flex flex-col">
                                     <CardHeader>
                                         <CardTitle className="flex justify-between items-start">
-                                            <span className="text-lg">{getProjectName(project.for_value).projectName}</span>
-                                            <Button variant="ghost" size="icon" onClick={() => handleDeleteProject(project.for_value)}>
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
+                                            <span className="text-lg">{project.project_name}</span>
                                         </CardTitle>
-                                        <CardDescription className="text-xs">{project.for_value}</CardDescription>
+                                        <CardDescription className="text-xs">{project.name}</CardDescription>
                                     </CardHeader>
                                     <CardContent className="flex-grow">
                                         <div className="flex items-center gap-2 mb-2">
                                             <MapPin className="h-4 w-4 text-muted-foreground" />
-                                            <span className="text-sm">{getProjectName(project.for_value).formatAddress}</span>
+                                            <span className="text-sm">{project.project_city + ", " + project.project_state}</span>
                                         </div>
                                         {/* <div className="flex items-start gap-2">
                     <Briefcase className="h-4 w-4 text-muted-foreground mt-1" />
                     <span className="text-sm">{project.workPackages.join(', ')}</span>
-                  </div> */}
+                            </div> */}
                                     </CardContent>
                                 </Card>
-                            ))}
-                        </div>
-                        :
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {userData.has_project === "true" ?
-                                (project_list?.map((project, index) => (
-                                    <Card key={index} className="flex flex-col">
-                                        <CardHeader>
-                                            <CardTitle className="flex justify-between items-start">
-                                                <span className="text-lg">{project.project_name}</span>
-                                            </CardTitle>
-                                            <CardDescription className="text-xs">{project.name}</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="flex-grow">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <MapPin className="h-4 w-4 text-muted-foreground" />
-                                                <span className="text-sm">{project.project_city + ", " + project.project_state}</span>
-                                            </div>
-                                            {/* <div className="flex items-start gap-2">
-                    <Briefcase className="h-4 w-4 text-muted-foreground mt-1" />
-                    <span className="text-sm">{project.workPackages.join(', ')}</span>
-                            </div> */}
-                                        </CardContent>
-                                    </Card>
-                                )))
-                                :
-                                <h1>You Are Not Assigned any project</h1>
-                            }
+                            )))
+                            :
+                            <h1>You Are Not Assigned any project</h1>
+                        }
 
-                        </div>
-                    }
+                    </div>
+                }
 
-                </div>
             </div>
+        </div>
     )
 }
