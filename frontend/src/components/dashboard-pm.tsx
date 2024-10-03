@@ -1,7 +1,7 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink } from "./ui/breadcrumb";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount, useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk";
-import { HardHat, UserRound, PersonStanding, CirclePlus } from "lucide-react";
+import { HardHat, UserRound, PersonStanding, CirclePlus, Milestone, PackagePlus, Truck } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
@@ -15,6 +15,24 @@ import imageUrl from "@/assets/user-icon.jpeg"
 import { Button } from "./ui/button";
 import { MainLayout } from "./layout/main-layout";
 import NewMilestones from "./updates/NewMilestones";
+
+function DashboardCard({ title, icon, onClick, className, beta = false }: any) {
+    return (
+        <Button
+            variant="ghost"
+            className={`h-[150px] w-full p-0 ${className}`}
+            onClick={onClick}
+        >
+            <div className="flex h-full w-full flex-col justify-between p-6">
+                <div className="text-left">
+                    <p className="text-lg font-semibold text-white">{title}</p>
+                    {beta && <span className="text-xs text-white/70">*(beta)</span>}
+                </div>
+                <div className="self-end">{icon}</div>
+            </div>
+        </Button>
+    )
+}
 
 
 export const ProjectManager = () => {
@@ -132,72 +150,80 @@ export const ProjectManager = () => {
     return (
         <>
             {page == 'dashboard' &&
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center">
-                        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
-                        <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Dashboard</h2>
+                <div className="flex-1 space-y-4 p-8 pt-6">
+                    <div className="flex items-center justify-between space-y-2">
+                        <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 max-md:py-4">
-                        <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer h-32" onClick={() => navigate("/procurement-request")}>
-                            <p className="p-4 text-center py-6 font-bold text-white">Create Procurement Request</p>
-                            {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500"></p> */}
-                        </div>
-                        <div className="bg-red-300 rounded-lg flex flex-col items-center justify-center cursor-pointer h-32" onClick={() => navigate("/milestone-update")}>
-                            <p className="p-4 text-center py-6 font-bold text-white">Update Milestones</p>
-                            <span className="text-white text-sm font-light">*(beta)</span>
+                    <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-3">
+                        <DashboardCard
+                            title="Create Procurement Request"
+                            icon={<PackagePlus className="h-8 w-8 text-white" />}
+                            onClick={() => navigate("/procurement-request")}
+                            className="bg-red-600"
+                        />
+                        <DashboardCard
+                            title="Update Milestones"
+                            icon={<Milestone className="h-8 w-8 text-white" />}
+                            onClick={() => navigate("/milestone-update")}
+                            className="bg-red-300"
+                            beta
+                        />
+                        <DashboardCard
+                            title="Update Delivery Notes"
+                            icon={<Truck className="h-8 w-8 text-white" />}
+                            onClick={() => navigate("/delivery-notes")}
+                            className="bg-red-600"
+                        />
+                    </div>
+                </div>}
+            {
+                page == 'newprlist' && <div className="flex-1 md:space-y-4">
+                    <div className="flex items-center gap-1">
+                        <ArrowLeft onClick={() => setPage('dashboard')} />
+                        <h2 className="text-base font-bold tracking-tight">Procurement Requests</h2>
+                    </div>
+                    <div className="gap-4 border border-gray-200 rounded-lg p-0.5">
+                        {/* <DropdownMenu2 items={project_lists} onSelect={handleProjectSelect} /> */}
+                        <ReactSelect options={project_options} onChange={handleChange} placeholder="Select Project" />
+                        {orderData.project && <div className="container mx-0 px-0 pt-4">
 
-                        </div>
-                        <div className="bg-red-600 rounded-lg flex flex-col items-center justify-center cursor-pointer h-32" onClick={() => navigate("/delivery-notes")}>
-                            <p className="p-4 text-center py-6 font-bold text-white">Update Delivery Notes</p>
+                            <table className="table-auto w-full">
+                                <thead>
+                                    <tr className="w-full border-b">
+                                        <th className="px-4 py-1 text-xs text-gray-600">PR no.</th>
+                                        <th className="px-4 py-1 text-xs text-gray-600">Package</th>
+                                        <th className="px-4 py-1 text-xs text-gray-600">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="w-full">
+                                    {procurement_request_list?.map((item) => {
+                                        if (item.project === orderData.project) {
+                                            return <tr key={item.name} >
+                                                <td className="border-b-2 px-4 py-1 text-sm text-center text-blue-500"><Link to={`/pr-summary/${item.name}`}>{item.name.slice(-4)}</Link></td>
+                                                <td className="border-b-2 px-4 py-1 text-sm text-center">{item.work_package}</td>
+                                                <td className="border-b-2 px-4 py-1 text-sm text-center">{item.workflow_state}</td>
+                                            </tr>
+                                        }
+                                    })}
+                                </tbody>
+                            </table>
+
+                        </div>}
+                        <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
+                            {orderData.project && <Button className="font-normal py-2 px-6">
+                                <Link to={`/new-pr/${orderData.project}`}>
+                                    <div className="flex">
+                                        <CirclePlus className="w-5 h-5 mt- pr-1" />
+                                        Create New PR
+                                    </div>
+
+                                </Link>
+                            </Button>}
                         </div>
                     </div>
-            </div>}
-            {page == 'newprlist' && <div className="flex-1 md:space-y-4">
-                <div className="flex items-center gap-1">
-                    <ArrowLeft onClick={() => setPage('dashboard')} />
-                    <h2 className="text-base font-bold tracking-tight">Procurement Requests</h2>
+                    <div className="pt-10"></div>
                 </div>
-                <div className="gap-4 border border-gray-200 rounded-lg p-0.5">
-                    {/* <DropdownMenu2 items={project_lists} onSelect={handleProjectSelect} /> */}
-                    <ReactSelect options={project_options} onChange={handleChange} placeholder="Select Project" />
-                    {orderData.project && <div className="container mx-0 px-0 pt-4">
-
-                        <table className="table-auto w-full">
-                            <thead>
-                                <tr className="w-full border-b">
-                                    <th className="px-4 py-1 text-xs text-gray-600">PR no.</th>
-                                    <th className="px-4 py-1 text-xs text-gray-600">Package</th>
-                                    <th className="px-4 py-1 text-xs text-gray-600">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="w-full">
-                                {procurement_request_list?.map((item) => {
-                                    if (item.project === orderData.project) {
-                                        return <tr key={item.name} >
-                                            <td className="border-b-2 px-4 py-1 text-sm text-center text-blue-500"><Link to={`/pr-summary/${item.name}`}>{item.name.slice(-4)}</Link></td>
-                                            <td className="border-b-2 px-4 py-1 text-sm text-center">{item.work_package}</td>
-                                            <td className="border-b-2 px-4 py-1 text-sm text-center">{item.workflow_state}</td>
-                                        </tr>
-                                    }
-                                })}
-                            </tbody>
-                        </table>
-
-                    </div>}
-                    <div className="flex flex-col justify-end items-end fixed bottom-4 right-4">
-                        {orderData.project && <Button className="font-normal py-2 px-6">
-                            <Link to={`/new-pr/${orderData.project}`}>
-                                <div className="flex">
-                                    <CirclePlus className="w-5 h-5 mt- pr-1" />
-                                    Create New PR
-                                </div>
-
-                            </Link>
-                        </Button>}
-                    </div>
-                </div>
-                <div className="pt-10"></div>
-            </div>}
+            }
             {/* {page == 'milestonelist' && <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
                 <div className="flex items-center space-y-2">
                     <ArrowLeft onClick={() => setPage('dashboard')} />

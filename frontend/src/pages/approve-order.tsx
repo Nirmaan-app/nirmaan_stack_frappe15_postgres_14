@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeFileUpload, useFrappePostCall, useFrappeDeleteDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
-import { ArrowLeft, MessageCircleMore, Paperclip, Trash2, Undo } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ListChecks, ListX, MessageCircleMore, Paperclip, SquareCheckBig, Trash2, Undo, Undo2 } from 'lucide-react';
 import imageUrl from "@/assets/user-icon.jpeg"
 import ReactSelect from 'react-select';
 import { CirclePlus } from 'lucide-react';
@@ -585,14 +585,14 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     <div className="flex justify-between items-center">
                         <div className="flex items-center pt-1  pb-4 ">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate("/approve-order")} />
-                            <h2 className="text-lg pl-2 font-bold tracking-tight">Approve or Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
+                            <h2 className="text-lg pl-2 font-bold tracking-tight">Approve/Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
 
                         <AlertDialog>
                             <AlertDialogTrigger>
                                 <Button>
                                     <div className="flex">
-                                        <Trash2 className="h-4 w-4 ml-1 mt-0.5" />
+                                        <Trash2 className="h-4 w-4 mr-1" />
                                         Delete
                                     </div>
 
@@ -600,14 +600,21 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             </AlertDialogTrigger>
                             <AlertDialogContent>
                                 <AlertDialogHeader>
-                                    Are you sure, you want to delete the PR
+                                    <div className="text-center font-bold">Are you sure, you want to delete the PR?</div>
                                 </AlertDialogHeader>
                                 <AlertDialogDescription className="flex gap-2 items-center justify-center">
                                     <AlertDialogCancel>
-                                        Cancel
+                                        <div className="flex">
+                                            <Undo2 className="h-4 w-4 mr-1" />
+                                            Go Back
+                                        </div>
                                     </AlertDialogCancel>
                                     <AlertDialogAction onClick={handleDeletePr}>
-                                        Confirm
+                                        <div className="flex">
+                                            <Trash2 className="h-4 w-4 mr-1 mt-0.5" />
+                                            Confirm
+                                        </div>
+
                                     </AlertDialogAction>
                                 </AlertDialogDescription>
                             </AlertDialogContent>
@@ -858,17 +865,23 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             )) : <span className="text-sm flex items-center justify-center">No Comments Found.</span>}
                     </div>
                     <div className="flex gap-4 justify-end items-end mt-4">
-                        <Button disabled={!orderData.procurement_list.list.length} className="" onClick={() => {
+                        <Button disabled={!orderData.procurement_list.list.length} variant="secondary" className="" onClick={() => {
                             setPage('summary')
                             setDynamicPage("reject")
                         }}>
-                            Reject
+                            <div className="flex">
+                                <ListX className="h-4 w-4 mr-1 mt-0.5" />
+                                Reject
+                            </div>
                         </Button>
                         <Button disabled={!orderData.procurement_list.list.length} className="" onClick={() => {
                             setPage('summary')
                             setDynamicPage("approve")
                         }}>
-                            Approve
+                            <div className="flex">
+                                <ListChecks className="h-4 w-4 mr-1 mt-0.5" />
+                                Approve
+                            </div>
                         </Button>
                     </div>
 
@@ -1017,17 +1030,26 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     <div className="flex flex-col justify-end items-end">
                         <Dialog>
                             <div className="flex gap-4">
-                                <Button onClick={() => setPage("itemlist")}>
-                                    Go Back
+                                <Button variant="secondary" onClick={() => setPage("itemlist")}>
+                                    <div className="flex">
+                                        <Undo2 className="h-4 w-4 mr-1 mt-0.5" />
+                                        Go Back
+                                    </div>
                                 </Button>
                                 <DialogTrigger asChild>
                                     {dynamicPage === "reject" ? (
                                         <Button>
-                                            Reject
+                                            <div className="flex">
+                                                <ListX className="h-4 w-4 mr-1 mt-0.5" />
+                                                Reject
+                                            </div>
                                         </Button>
                                     ) : (
                                         <Button>
-                                            Approve
+                                            <div className="flex">
+                                                <ListChecks className="h-4 w-4 mr-1 mt-0.5" />
+                                                Approve
+                                            </div>
                                         </Button>
                                     )}
                                 </DialogTrigger>

@@ -84,16 +84,16 @@ export const ApprovePR = () => {
                             <Link
                                 className="underline hover:underline-offset-2"
                                 to={`/approve-order/${row.getValue("name")}`}
-                                onClick={() => {
-                                    let mark_seen = (notifications.filter((item) => (item.type === 'pr:created' && item.message.name === row.getValue("name")))[0])
-                                    console.log("on-CLICK PR", mark_seen)
+                            // onClick={() => {
+                            //     let mark_seen = (notifications.filter((item) => (item.type === 'pr:created' && item.message.name === row.getValue("name")))[0])
+                            //     console.log("on-CLICK PR", mark_seen)
 
-                                    markClickedNotification(mark_seen.id)
-                                }}
+                            //     markClickedNotification(mark_seen.id)
+                            // }}
                             >
                                 {row.getValue("name")?.slice(-4)}
                             </Link>
-                            {isNewPR(row.getValue("name")) && <div className="bg-red-700 w-2 h-2 rounded-full" />}
+                            {/* {isNewPR(row.getValue("name")) && <div className="bg-red-700 w-2 h-2 rounded-full" />} */}
                         </div>
                     )
                 },
