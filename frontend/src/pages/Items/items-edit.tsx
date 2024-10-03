@@ -4,6 +4,7 @@ import {  useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frapp
 import {  useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { ListChecks } from "lucide-react";
 
 interface SelectOption {
     label: string;
@@ -106,7 +107,10 @@ export default function EditItems({data}) {
                             </div>
                         </div>
                         <div className="flex">
-                                <Button className="flex right-0" onClick={() => handleEditItem()}>Submit</Button>
+                                <Button onClick={() => handleEditItem()} className="flex items-center gap-1">
+                                        <ListChecks className="h-4 w-4" />
+                                        Submit</Button>
+                                {/* <Button className="flex right-0" onClick={() => handleEditItem()}>Submit</Button> */}
                                 <DialogClose className="flex-1 right-0 hidden">
                                             close button
                                 </DialogClose>

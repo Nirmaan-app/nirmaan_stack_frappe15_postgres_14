@@ -6,7 +6,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus, Download, Handshake, PencilLine } from 'lucide-react';
+import { ArrowBigRightDash, ArrowLeft, CirclePlus, Download, Handshake, ListChecks, PencilLine } from 'lucide-react';
 import SentBackQuotationForm from "./sent-back-quotation-form"
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -59,6 +59,14 @@ export const SentBackUpdateQuote = () => {
             filters: [["workflow_state", "=", "Pending"]],
             limit: 1000
         });
+
+    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+        fields: ["*"],
+        filters: [["reference_name", "=", id]],
+        orderBy: { field: "creation", order: "desc" }
+    })
+
+    console.log("universalComments", universalComments)
 
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
 
@@ -294,9 +302,12 @@ export const SentBackUpdateQuote = () => {
         <>
             {page == 'summary' &&
                     <div className="flex-1 md:space-y-4">
-                        <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft className="cursor-pointer" onClick={() => navigate('/sent-back-request')} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center pt-1 pb-4">
+                                <ArrowLeft className="cursor-pointer" onClick={() => navigate('/sent-back-request')} />
+                                <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
+                            </div>
+                            <Badge variant={orderData?.type === "Rejected" ? "destructive" : orderData?.type === "Delayed" ? "orange" : "gray"}>{orderData?.type}</Badge>
                         </div>
                         <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
@@ -353,10 +364,11 @@ export const SentBackUpdateQuote = () => {
                             <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Sent Back Comments</h2>
                         </div>
                         <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
-                            {orderData.comments}
+                            {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")}
                         </div>
                         <div className="flex flex-col justify-end items-end">
-                            <Button onClick={() => setPage('quotation')}>
+                            <Button onClick={() => setPage('quotation')} className="flex items-center gap-1">
+                                <ArrowBigRightDash className="max-md:w-4 max-md:h-4" />
                                 Next
                             </Button>
                         </div>
@@ -437,7 +449,7 @@ export const SentBackUpdateQuote = () => {
                             </div>
                         })}
                         <Sheet>
-                            <SheetTrigger className="text-blue-500"><div className="flex pl-5"><CirclePlus className="w-4 mr-2" />Add New Vendor</div></SheetTrigger>
+                            <SheetTrigger className="text-blue-500"><div className="flex items-center gap-1 ml-4"><CirclePlus className="w-4 h-4" />Add New Vendor</div></SheetTrigger>
                             <SheetContent className="overflow-auto">
                                 <SheetHeader className="text-start">
                                     <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
@@ -454,7 +466,8 @@ export const SentBackUpdateQuote = () => {
                             </SheetContent>
                         </Sheet>
                         <div className="flex flex-col justify-end items-end">
-                            <Button className="font-normal py-2 px-6" onClick={handleUpdateQuote}>
+                            <Button className="flex items-center gap-1" onClick={handleUpdateQuote}>
+                                <ListChecks className="h-4 w-4" />
                                 Update Quote
                             </Button>
                         </div>

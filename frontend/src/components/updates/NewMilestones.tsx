@@ -67,7 +67,7 @@ export default function NewMilestones() {
         if (selectedProject) {
             const project = project_list?.find((project) => project.name === selectedProject.value)
             setProject(project)
-            const list: string[] = project.project_work_milestones.work_packages.map((wp) => wp.work_package_name)
+            const list: string[] = project.project_work_milestones?.work_packages?.map((wp) => wp.work_package_name)
             setDefaultValues(list)
         }
     }, [selectedProject])

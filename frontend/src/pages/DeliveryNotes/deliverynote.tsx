@@ -457,7 +457,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Check, ArrowLeft, X, ArrowUp, ArrowDown } from "lucide-react";
+import { Check, ArrowLeft, X, ArrowUp, ArrowDown, Printer, Pencil, ListChecks, Undo2, CheckCheck } from "lucide-react";
 import { Badge } from '@/components/ui/badge';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from 'frappe-react-sdk';
@@ -616,7 +616,9 @@ export default function DeliveryNote() {
                </Button>
                <h1 className="text-2xl max-md:text-xl font-bold">DN-{poId.split('/')[1]}</h1>
              </div>
-             <Button onClick={handlePrint} className='w-20'>Print</Button>
+             <Button onClick={handlePrint} className="flex items-center gap-1">
+             <Printer className="h-4 w-4" />
+                Print</Button>
              </div>  
              <Card className="mb-6">
                <CardHeader className='pb-2'>
@@ -645,7 +647,9 @@ export default function DeliveryNote() {
             <Card>
                 <CardHeader className='flex flex-row items-center justify-between'>
                     <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Item List</CardTitle>
-                    {!show && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)}>Update</Button>)}
+                    {!show && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)} className="flex items-center gap-1">
+                        <Pencil className="h-4 w-4"  />
+                        Edit</Button>)}
                 </CardHeader>
                 <CardContent>
                     {show && 
@@ -708,7 +712,8 @@ export default function DeliveryNote() {
                         </TableBody>
                     </Table>
                     {data?.status !== "Delivered" && show && (
-                        <Button onClick={handleSave} className="w-full mt-6 bg-red-600 hover:bg-red-700">
+                        <Button onClick={handleSave} variant={"default"} className="w-full mt-6 flex items-center gap-1">
+                            <ListChecks className="h-4 w-4" />
                             Update
                         </Button>
                     )}
@@ -813,8 +818,12 @@ export default function DeliveryNote() {
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleProceed()}>Continue</AlertDialogAction>
+                      <AlertDialogCancel className="flex items-center gap-1">
+                        <Undo2 className="h-4 w-4" />
+                        Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handleProceed()} className="flex items-center gap-1">
+                      <CheckCheck className="h-4 w-4" />
+                        Confirm</AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>

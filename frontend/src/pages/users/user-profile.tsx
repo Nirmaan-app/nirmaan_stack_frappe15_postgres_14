@@ -14,7 +14,7 @@ import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDeleteDoc, us
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useContext, useState } from "react";
 import { DialogClose } from "@radix-ui/react-dialog";
-import { ArrowLeft, CirclePlus, KeyRound, Mail, MapPin, Phone, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, CirclePlus, KeyRound, ListChecks, Mail, MapPin, Phone, Plus, Trash2, Undo2 } from "lucide-react";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
@@ -186,7 +186,7 @@ export default function Profile() {
     return (
         <div className="flex-1 md:space-y-4 space-y-2">
             <div className="flex items-center gap-1">
-                <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6" />
+                <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6 cursor-pointer" />
                 <span className='text-xl font-semibold'>User Details</span>
             </div>
             <Card>
@@ -223,9 +223,13 @@ export default function Profile() {
                                         </DialogHeader>
                                         <span>This action will delete user from the system</span>
                                         <div className="flex justify-end">
-                                            <DialogClose >
-                                                <Button onClick={() => handleDeleteUser()}>Delete</Button>
-                                                <Button variant="secondary" className="ml-2">Cancel</Button>
+                                            <DialogClose className="flex items-center gap-2">
+                                                <Button variant="secondary" className="flex items-center gap-1">
+                                                    <Undo2 className="h-4 w-4" />
+                                                    Cancel</Button>
+                                                <Button onClick={() => handleDeleteUser()} className="flex items-center gap-1">
+                                                    <Trash2 className="h-4 w-4" />
+                                                    Delete</Button>
                                             </DialogClose>
                                         </div>
                                     </DialogContent>
@@ -290,7 +294,9 @@ export default function Profile() {
                                     </DialogHeader>
                                     <div className="flex justify-end">
                                         <DialogClose>
-                                            <Button onClick={() => handleSubmit()}>Submit</Button>
+                                            <Button onClick={() => handleSubmit()} className="flex items-center gap-1">
+                                            <ListChecks className="h-4 w-4" />
+                                                Submit</Button>
                                         </DialogClose>
                                     </div>
                                 </DialogContent>

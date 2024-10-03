@@ -10,7 +10,7 @@ import { ButtonLoading } from "@/components/ui/button-loading"
 import ReactSelect from 'react-select';
 import { useState, useEffect, useCallback } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, ListChecks, ListRestart, Undo2 } from "lucide-react"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
 
@@ -526,8 +526,12 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         <div className="flex space-x-2 items-center justify-end">
                             {(loading) ? (<ButtonLoading />) : (
                                 <>
-                                    <Button type="button" variant="outline" onClick={() => resetForm()}>Reset</Button>
-                                    <Button type="submit" >Submit</Button>
+                                    <Button type="button" variant="secondary" className="flex items-center gap-1" onClick={() => resetForm()}>
+                                        <ListRestart className="h-4 w-4" />
+                                        Reset</Button>
+                                    <Button type="submit" className="flex items-center gap-1">
+                                        <ListChecks className="h-4 w-4" />
+                                        Submit</Button>
                                 </>
                             )}
                         </div>

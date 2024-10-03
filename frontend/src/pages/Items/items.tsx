@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, CirclePlus, ShoppingCart } from "lucide-react";
+import { ArrowLeft, CirclePlus, ListChecks, ShoppingCart } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -272,7 +272,9 @@ export default function Items() {
                                 </div>
                             </div>
                         </DialogHeader>
-                        <Button className="" onClick={() => handleAddItem()}>Submit</Button>
+                        <Button onClick={() => handleAddItem()} className="flex items-center gap-1">
+                        <ListChecks className="h-4 w-4" />
+                        Submit</Button>
                         <DialogClose className="hidden" id="dialogCloseItem">
                             close
                         </DialogClose>

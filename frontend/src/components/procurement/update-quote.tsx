@@ -6,7 +6,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus, Download, PencilLine } from 'lucide-react';
+import { ArrowLeft, CirclePlus, Download, ListChecks, PencilLine, Undo2 } from 'lucide-react';
 import QuotationForm from "./quotation-form"
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -220,8 +220,12 @@ export const UpdateQuote = () => {
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>Add Vendor to the current PR</AlertDialogTitle>
                                             <AlertDialogFooter>
-                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                <AlertDialogAction onClick={() => handleAddVendor(vendor_name)}>Add</AlertDialogAction>
+                                                <AlertDialogCancel className="flex items-center gap-1">
+                                                    <Undo2 className="h-4 w-4" />
+                                                    Cancel</AlertDialogCancel>
+                                                <AlertDialogAction onClick={() => handleAddVendor(vendor_name)} className="flex items-center gap-1">
+                                                    <CirclePlus className="h-4 w-4" />
+                                                    Add</AlertDialogAction>
                                             </AlertDialogFooter>
                                         </AlertDialogHeader>
                                     </AlertDialogContent>
@@ -402,7 +406,7 @@ export const UpdateQuote = () => {
                             <span className="text-red-700">Notes:</span> You can download RFQ PDFs for individual vendors for getting quotes
                         </div>
                         <Sheet>
-                            <SheetTrigger className="text-blue-500"><div className="flex pl-5"><CirclePlus className="w-4 mr-2" />Add New Vendor</div></SheetTrigger>
+                            <SheetTrigger className="text-blue-500"><div className="flex pl-5 items-center gap-1"><CirclePlus className="w-4 h-4" />Add New Vendor</div></SheetTrigger>
                             <SheetContent className="overflow-auto">
                                 <SheetHeader className="text-start">
                                     <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
@@ -418,7 +422,8 @@ export const UpdateQuote = () => {
                             </SheetContent>
                         </Sheet>
                         <div className="flex flex-col justify-end items-end">
-                            <Button className="font-normal py-2 px-6" onClick={handleUpdateQuote}>
+                            <Button className="flex items-center gap-1" onClick={handleUpdateQuote}>
+                            <ListChecks className="h-4 w-4" />
                                 Update Quote
                             </Button>
                         </div>

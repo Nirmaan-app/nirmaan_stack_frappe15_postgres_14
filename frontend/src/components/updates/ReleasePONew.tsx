@@ -6,7 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 // import { Button } from "../ui/button";
-import { ArrowLeft, ArrowLeftToLine, NotebookPen, X } from "lucide-react";
+import { ArrowLeft, ArrowLeftToLine, CheckCheck, ListChecks, NotebookPen, Printer, Undo2, X } from "lucide-react";
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import { Controller, useForm } from "react-hook-form";
 import { Input } from '@/components/ui/input';
@@ -18,15 +18,14 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescript
 import { AlertDialogAction } from "@radix-ui/react-alert-dialog";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 import formatToIndianRupee from '@/utils/FormatPrice';
+import { useUserData } from '@/hooks/useUserData';
 
 const { Sider, Content } = Layout;
 
 export const ReleasePONew: React.FC = () => {
 
   const [collapsed, setCollapsed] = useState(true);
-  // const {
-  //   token: { colorBgContainer, borderRadiusLG },
-  // } = theme.useToken();
+  const [comment, setComment] = useState('')
 
   const { id } = useParams<{ id: string }>()
     const orderId = id?.replaceAll("&=", "/")
@@ -162,6 +161,8 @@ export const ReleasePONew: React.FC = () => {
 
         return { total, totalGst: totalGst, totalAmt: total + totalGst };
     }
+    
+    const userData = useUserData()
 
     const handleCancelPo = async () => {
 
@@ -185,9 +186,17 @@ export const ReleasePONew: React.FC = () => {
                 project: orderData?.project,
                 category_list: { list: categories },
                 item_list: { list: itemList },
-                comments: ""
             })
-            console.log("newSentBack", newSentBack)
+            if(comment) {
+                await createDoc("Nirmaan Comments", {
+                    comment_type: "Comment",
+                    reference_doctype: "Sent Back Category",
+                    reference_name: newSentBack.name,
+                    comment_by: userData?.user_id,
+                    content: comment,
+                    subject: "creating sent-back(cancelled)"
+                })
+            }
             toast({
                 title: "Success!",
                 description: `Cancelled Po & New Sent Back: ${newSentBack.name} created successfully!`,
@@ -301,7 +310,9 @@ export const ReleasePONew: React.FC = () => {
                                 />
                             </div>
                             <div className="mt-2 text-center">
-                                <button type='submit' className="h-9 px-8 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90" disabled={advance > 100 || advance < 0} >
+                                <button type='submit' className="h-9 px-8 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 
+                                focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center" disabled={advance > 100 || advance < 0} >
+                                    <ListChecks className="h-4 w-4" />
                                     {update_loading ? "Saving..." : "Save"}
                                 </button>
                             </div>
@@ -325,10 +336,12 @@ export const ReleasePONew: React.FC = () => {
           className={`${collapsed ? "md:mx-10 lg:mx-32" : ""} my-4 mx-2 flex flex-col gap-4 relative`}
           >
               <div className='absolute right-0 -top-[8%]'>
-                        <button className='h-9 px-6 py-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90' disabled={advance > 100 || advance < 0} onClick={() => {
+                        <button className='h-9 px-6 py-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 
+                        focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' disabled={advance > 100 || advance < 0} onClick={() => {
                             onSubmit(control._formValues)
                             handlePrint()
                             }}>
+                                <Printer className='h-4 w-4' />
                             Print
                         </button>
               </div>
@@ -608,7 +621,9 @@ export const ReleasePONew: React.FC = () => {
                                                     <button disabled className='border-green-500 h-9 px-4 py-2 inline-flex items-center 
                                                         justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors 
                                                         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border 
-                                                        bg-background shadow-sm hover:bg-accent hover:text-accent-foreground'>Update</button>
+                                                        bg-background shadow-sm hover:bg-accent hover:text-accent-foreground flex gap-1 items-center'>
+                                                            <ListChecks className="h-4 w-4" />
+                                                            Submit</button>
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className='flex flex-col gap-2 w-80'>
                                                         <p className='font-semibold'>Please fulfill the following conditions to enable the Update button</p>
@@ -624,7 +639,9 @@ export const ReleasePONew: React.FC = () => {
                                             <button className='border-green-500 h-9 px-4 py-2 inline-flex items-center 
                                                         justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors 
                                                         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border 
-                                                        bg-background shadow-sm hover:bg-accent hover:text-accent-foreground'>Update</button>
+                                                        bg-background shadow-sm hover:bg-accent hover:text-accent-foreground flex gap-1 items-center'>
+                                                            <ListChecks className="h-4 w-4" />
+                                                            Submit</button>
                                         </AlertDialogTrigger>
                                         <AlertDialogContent>
                                             <AlertDialogHeader>
@@ -633,9 +650,13 @@ export const ReleasePONew: React.FC = () => {
                                                 </AlertDialogTitle>
 
                                                 <AlertDialogDescription className="flex gap-2 items-center justify-center">
-                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                    <AlertDialogCancel className="flex items-center gap-1">
+                                                        <Undo2 className="h-4 w-4" />
+                                                        Cancel</AlertDialogCancel>
                                                     <AlertDialogAction onClick={handleDispatchPO}>
-                                                        <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90'>Confirm</button>
+                                                        <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center'>
+                                                        <CheckCheck className="h-4 w-4" />
+                                                        Confirm</button>
                                                     </AlertDialogAction>
                                                 </AlertDialogDescription>
 
@@ -690,11 +711,18 @@ export const ReleasePONew: React.FC = () => {
 
                                                 <AlertDialogDescription className="flex flex-col text-center gap-1">
                                                     Cancelling this PO will create a new cancelled Sent Back. Continue?
-                                                    <div className='flex gap-2 items-center justify-center'>
-                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                    <AlertDialogAction onClick={handleCancelPo}>
-                                                        <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90'>Confirm</button>
-                                                    </AlertDialogAction>
+                                                    <div className='flex flex-col gap-2 mt-2'>
+                                                        <TextArea placeholder='input the reason for cancelling...' value={comment} onChange={(e) => setComment(e.target.value)} />
+                                                    </div>
+                                                    <div className='flex gap-2 items-center justify-center pt-2'>
+                                                        <AlertDialogCancel className="flex items-center gap-1">
+                                                        <Undo2 className="h-4 w-4" />
+                                                        Cancel</AlertDialogCancel>
+                                                        <AlertDialogAction onClick={handleCancelPo}>
+                                                            <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex items-center gap-1'>
+                                                            <CheckCheck className="h-4 w-4" />
+                                                            Confirm</button>
+                                                        </AlertDialogAction>
                                                     </div>
                                                 </AlertDialogDescription>
                                             </AlertDialogHeader>

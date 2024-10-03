@@ -7,7 +7,7 @@ import {
 import { Button } from "../ui/button";
 import { TailSpin } from "react-loader-spinner";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
-import { MessageCircleMore, Paperclip } from "lucide-react";
+import { ListChecks, MessageCircleMore, Paperclip } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { toast } from "../ui/use-toast";
 
@@ -331,7 +331,9 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         {(upload_loading || create_loading || update_loading) ? (
           <TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" />
         ) : (
-          <Button onClick={handleSubmit} disabled={!deliveryTime}>Save</Button>
+          <Button onClick={handleSubmit} disabled={!deliveryTime} className="flex items-center gap-1">
+            <ListChecks className="h-4 w-4" />
+            Save</Button>
         )}
         <SheetClose><Button id="save-button" className="hidden"></Button></SheetClose>
       </div>

@@ -6,7 +6,7 @@ import {
     SheetClose
 } from "@/components/ui/sheet"
 import { Button } from "../ui/button";
-import { MessageCircleMore, Paperclip } from "lucide-react";
+import { ListChecks, MessageCircleMore, Paperclip } from "lucide-react";
 import { toast } from "../ui/use-toast";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 import { TailSpin } from "react-loader-spinner";
@@ -19,7 +19,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
 
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['owner', 'name', 'workflow_state', 'procurement_request', 'project', 'creation', 'item_list'],
+            fields: ["*"],
             filters: [["name", "=", sb_id]],
             limit: 1000
         });
@@ -79,25 +79,23 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
     const [deliveryTime, setDeliveryTime] = useState<number | string | null>(null)
     const [selectedFile, setSelectedFile] = useState(null);
 
-    console.log("quotationData", quotationData)
     useEffect(() => {
+      if(quotation_request_list && sent_back_list) {
         const cats = categories.list
-        quotation_request_list?.map((item) => {
-            const categoryExists = cats.some(category => category.name === item.category);
-            if (!categoryExists) {
+        const sbCats = sent_back_list[0]?.category_list.list.map((item) => item.name)
+        quotation_request_list.map((item) => {
+            const categoryExists = cats.some(category => category.name === item.category );
+            if (!categoryExists && (sbCats.includes(item.category))) {
                 cats.push({ name: item.category })
             }
         })
         setCategories({
             list: cats
         })
-    }, [quotation_request_list]);
 
-    useEffect(() => {
-        if (quotation_request_list) {
-            setDeliveryTime(quotation_request_list[0].lead_time)
-        }
-    }, [quotation_request_list]);
+        setDeliveryTime(quotation_request_list[0].lead_time)
+      }
+    }, [quotation_request_list, sent_back_list]);
 
     const getItem = (item: string) => {
         const item_name = item_list?.find(value => value.name === item).item_name;
@@ -139,8 +137,6 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
             list: newList
         }));
     };
-
-    console.log("categories", categories, orderData)
 
     const handleFileChange = (event) => {
         setSelectedFile(event.target.files[0]);
@@ -335,7 +331,9 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         {(upload_loading || create_loading || update_loading) ? (
           <TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" />
         ) : (
-          <Button onClick={handleSubmit} disabled={!deliveryTime}>Save</Button>
+          <Button onClick={handleSubmit} disabled={!deliveryTime} className="flex items-center gap-1">
+            <ListChecks className="h-4 w-4" />
+            Save</Button>
         )}
         <SheetClose><Button id="save-button" className="hidden"></Button></SheetClose>
       </div>

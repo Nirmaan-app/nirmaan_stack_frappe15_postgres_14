@@ -1,6 +1,6 @@
 import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, MessageCircleMore } from 'lucide-react';
+import { ArrowLeft, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
@@ -14,7 +14,7 @@ import { NewPRPage } from "./procurement-request/new-pr";
 import { Timeline } from "antd";
 import { formatDate } from "@/utils/FormatDate";
 import { toast } from "./ui/use-toast";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTrigger } from "./ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 
@@ -42,8 +42,11 @@ const PRSummary = () => {
         fields: ['name', 'project_name', 'project_address'],
         filters: [['name', 'like', `%${project_id}`]]
     });
+    console.log("data", project)
 
-    const { data: address, error: address_error, isLoading: addressLoading } = useFrappeGetDoc("Address", project[0].project_address);
+    const project_address = project && project[0]?.project_address
+
+    const { data: address, error: address_error, isLoading: addressLoading } = useFrappeGetDoc("Address", project_address);
     const { data: procurementOrdersList, error: procurementOrdersError, isLoading: procurementOrdersLoading } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
         fields: ["*"],
         limit: 1000
@@ -105,7 +108,7 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments, 
                         )}
                     </CardTitle>
                 </CardHeader>
-                <CardContent className="p-2">
+                <CardContent className="p-3 pt-0">
                     {cmt.content}
                 </CardContent>
             </Card>
@@ -155,17 +158,23 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments, 
                                     ["Rejected", "Pending", "Approved"].includes(pr_data.workflow_state) && (
                                         <AlertDialog>
                                             <AlertDialogTrigger>
-                                                <Button>Delete</Button>
+                                                <Button className="flex items-center gap-1">
+                                                <Trash2 className="h-4 w-4" />
+                                                    Delete</Button>
                                             </AlertDialogTrigger>
                                             <AlertDialogContent>
                                                 <AlertDialogHeader>
-                                                    Are you sure, you want to delete the PR
+                                                    <AlertDialogTitle>
+                                                        Are you sure, you want to delete the PR
+                                                    </AlertDialogTitle>
                                                 </AlertDialogHeader>
                                                 <AlertDialogDescription className="flex gap-2 items-center justify-center">
-                                                    <AlertDialogCancel>
+                                                    <AlertDialogCancel className="flex items-center gap-1">
+                                                        <Undo2 className="h-4 w-4" />
                                                         Cancel
                                                     </AlertDialogCancel>
-                                                    <AlertDialogAction onClick={handleDeletePr}>
+                                                    <AlertDialogAction className="flex items-center gap-1" onClick={handleDeletePr}>
+                                                        <ListChecks className="h-4 w-4" />
                                                         Confirm
                                                     </AlertDialogAction>
                                                 </AlertDialogDescription>
@@ -175,7 +184,9 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments, 
                                 }
                                 {pr_data.workflow_state === "Rejected" && (
 
-                                    <Button onClick={() => setSection("resolve-pr")}>Resolve</Button>
+                                    <Button className="flex items-center gap-1" onClick={() => setSection("resolve-pr")}>
+                                        <Settings2 className="h-4 w-4" />
+                                        Resolve</Button>
                                 )}
                             </div>
                         </div>
