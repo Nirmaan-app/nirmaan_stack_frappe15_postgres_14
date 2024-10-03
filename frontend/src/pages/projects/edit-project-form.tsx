@@ -13,7 +13,7 @@ import { Separator } from "../../components/ui/separator"
 import { useNavigate, useParams } from "react-router-dom"
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
 import { cn } from "@/lib/utils"
-import { ArrowLeft, CalendarIcon, CirclePlus } from "lucide-react"
+import { ArrowLeft, CalendarIcon, CirclePlus, ListChecks } from "lucide-react"
 import { Calendar } from "../../components/ui/calendar"
 import { format } from "date-fns"
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects"
@@ -275,14 +275,14 @@ export const EditProjectForm = () => {
 
             const changedValues = {}
             
-            if(values.project_name !== data?.project_name) changedValues[address_title] = values.project_name
-            if(values.address_line_1 !== project_address?.address_line1) changedValues[address_line1] = values.address_line_1
-            if(values.address_line_2 !== project_address?.address_line2) changedValues[address_line2] = values.address_line_2
-            if(city !== project_address?.city) changedValues[city] = city
-            if(state !== project_address?.state) changedValues[state] = state
-            if(values.pin !== project_address?.pincode) changedValues[pincode] = values.pin
-            if(values.email !== project_address?.email_id) changedValues[email_id] = values.email
-            if(values.phone !== project_address?.phone) changedValues[phone] = values.phone
+            if(values.project_name !== data?.project_name) changedValues["address_title"] = values.project_name
+            if(values.address_line_1 !== project_address?.address_line1) changedValues["address_line1"] = values.address_line_1
+            if(values.address_line_2 !== project_address?.address_line2) changedValues["address_line2"] = values.address_line_2
+            if(city !== project_address?.city) changedValues["city"] = city
+            if(state !== project_address?.state) changedValues["state"] = state
+            if(values.pin !== project_address?.pincode) changedValues["pincode"] = values.pin
+            if(values.email !== project_address?.email_id) changedValues["email_id"] = values.email
+            if(values.phone !== project_address?.phone) changedValues["phone"] = values.phone
 
             if(Object.keys(changedValues).length) {
                 await updateDoc('Address', data?.project_address, changedValues);
@@ -802,7 +802,9 @@ export const EditProjectForm = () => {
                         {/* <Separator className="my-6" /> */}
                         {/* <p className="text-sky-600 font-semibold pb-9">DEBUG Package Specification</p> */}
                         <div className="my-6">
-                            {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
+                            {(loading) ? (<ButtonLoading />) : (<Button type="submit" className="flex items-center gap-1">
+                                <ListChecks className="h-4 w-4"  />
+                                Submit</Button>)}
                         </div>
                         </div>
                     </div>

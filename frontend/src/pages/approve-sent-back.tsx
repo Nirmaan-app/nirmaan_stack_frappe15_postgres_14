@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ListChecks, SendToBack, Undo2 } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
@@ -13,6 +13,7 @@ import { SentBackCategory as SentBackCategoryType } from '@/types/NirmaanStack/S
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import formatToIndianRupee from '@/utils/FormatPrice';
+import { useUserData } from '@/hooks/useUserData';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -296,6 +297,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
     };
 
     const { mutate } = useSWRConfig()
+    const userData = useUserData()
 
     const newHandleApprove = async () => {
 
@@ -460,12 +462,22 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 item_list: {
                     list: itemList
                 },
-                comments: comment,
+                // comments: comment,
                 type: "Rejected"
             }
 
             if (itemList.length > 0) {
-                await createDoc("Sent Back Category", newSendBack)
+                const res = await createDoc("Sent Back Category", newSendBack)
+                if(comment) {
+                    await createDoc("Nirmaan Comments", {
+                        comment_type: "Comment",
+                        reference_doctype: "Sent Back Category",
+                        reference_name: res.name,
+                        comment_by: userData?.user_id,
+                        content: comment,
+                        subject: "creating sent-back"
+                    })
+                }
             }
 
             // const currentState = sb_data?.workflow_state;
@@ -770,7 +782,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 }}
             >
                 {data.length > 0 &&
-                    <div className='px-6'>
+                    <div className='pt-6'>
                         <Table
                             dataSource={data}
                             rowSelection={{ ...rowSelection, checkStrictly }}
@@ -781,13 +793,19 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 }
 
             </ConfigProvider>
-            {selectedItems?.length > 0 && <div className="text-right space-x-2 mr-4">
+            {selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2 mt-2">
                 <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
+                <AlertDialogTrigger asChild>
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
+                            <SendToBack  className='w-4 h-4'/>
                             {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
                         </Button>
                     </AlertDialogTrigger>
+                    {/* <AlertDialogTrigger asChild>
+                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
+                            {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
+                        </Button>
+                    </AlertDialogTrigger> */}
                     <AlertDialogContent className="sm:max-w-[425px]">
                         <AlertDialogHeader>
                             <AlertDialogTitle>Are you Sure</AlertDialogTitle>
@@ -798,23 +816,37 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                                     id="textarea"
                                     className="w-full border rounded-lg p-2"
                                     value={comment}
-                                    placeholder="Type your comments here"
+                                    placeholder="type here..."
                                     onChange={(e) => setComment(e.target.value)}
                                 />
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
+                            <AlertDialogCancel className="flex items-center gap-1">
+                            <Undo2 className="h-4 w-4" />
+                                Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1">
+                            <CheckCheck className="h-4 w-4" />
+                                Confirm</AlertDialogAction>
+                        </AlertDialogFooter>
+                        {/* <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => newHandleSentBack()}>Send Back</AlertDialogAction>
-                        </AlertDialogFooter>
+                        </AlertDialogFooter> */}
                     </AlertDialogContent>
                 </AlertDialog>
                 <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
+                <AlertDialogTrigger asChild>
+                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
+                            <ListChecks className="h-4 w-4" />
                             {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
                         </Button>
                     </AlertDialogTrigger>
+                    {/* <AlertDialogTrigger asChild>
+                        <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
+                            {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
+                        </Button>
+                    </AlertDialogTrigger> */}
                     <AlertDialogContent className="sm:max-w-[425px]">
                         <AlertDialogHeader>
                             <AlertDialogTitle>Are you Sure</AlertDialogTitle>
@@ -823,9 +855,17 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
+                        <AlertDialogCancel className="flex items-center gap-1">
+                            <Undo2 className="h-4 w-4" />
+                                Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1">
+                                <CheckCheck className="h-4 w-4" />
+                                Confirm</AlertDialogAction>
+                        </AlertDialogFooter>
+                        {/* <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => newHandleApprove()}>Approve</AlertDialogAction>
-                        </AlertDialogFooter>
+                        </AlertDialogFooter> */}
                     </AlertDialogContent>
                 </AlertDialog>
                 {/* <Dialog>

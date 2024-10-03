@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useSWRConfig } from "frappe-react-sdk";
 import { Separator } from "@/components/ui/separator"
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ListChecks, ListRestart } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
 // import { useQueryClient } from "@tanstack/react-query";
@@ -343,7 +343,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     // console.log("values", form.getValues())
 
     return (
-        <div className={`${navigation && "p-4"}`}>
+        <div>
             {
                 navigation && (<div className="space-y-0.5">
                     <div className="flex space-x-2 items-center">
@@ -509,10 +509,12 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         )}
                     />
                     <div className="flex justify-end  space-x-2">
-                        <Button type="button" variant="outline" onClick={() => resetForm()}>
+                        <Button type="button" variant="secondary" onClick={() => resetForm()} className="flex items-center gap-1">
+                            <ListRestart className="h-4 w-4" />
                             Reset
                         </Button>
-                        <Button type="submit" disabled={loading}>
+                        <Button type="submit" disabled={loading} className="flex items-center gap-1">
+                            <ListChecks className="h-4 w-4" />
                             {loading ? "Submitting..." : "Submit"}
                         </Button>
                     </div>

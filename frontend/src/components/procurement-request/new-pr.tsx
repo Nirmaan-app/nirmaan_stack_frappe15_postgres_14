@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle } from "../ui/card";
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import { MessageCircleMore, PackagePlus, Undo } from "lucide-react";
+import { CheckCheck, ListChecks, MessageCircleMore, PackagePlus, Replace, Settings2, Trash2, Undo } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { ArrowLeft } from 'lucide-react';
@@ -525,12 +525,12 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     </div>
                 </div>
                 <div className="flex justify-between">
-                    <button className="text-sm py-2 md:text-lg text-blue-400 flex" onClick={() => {
+                    <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => {
                         setCurItem("")
                         setMake("")
                         setQuantity(null)
                         setPage('categorylist')
-                    }}><PackagePlus className="w-5 h-5 mt- pr-1" />Change Category</button>
+                    }}><Replace className="w-5 h-5" />Change Category</button>
                 </div>
                 <h3 className="font-bold">{curCategory}</h3>
                 <div className="flex space-x-2">
@@ -548,11 +548,11 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     </div>
                 </div>
                 <div className="flex justify-between md:space-x-0 mt-2">
-                    <div><button className="text-sm py-2 md:text-lg text-blue-400 flex " onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5 mt- pr-1" />Create new item</button></div>
+                    <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button>
                     {(curItem && Number(quantity)) ?
-                        <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
+                        <Button variant="default" className="flex items-center gap-1" onClick={() => handleAdd()}> <CirclePlus className="w-4 h-4" />Add</Button>
                         :
-                        <Button disabled={true} variant="secondary" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" >Add</Button>}
+                        <Button disabled={true} variant="outline" className="border-primary flex items-center gap-1 disabled:opacity-[30%]"><CirclePlus className="w-4 h-4" /> Add</Button>}
                     {/* <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button> */}
                 </div>
                 {/* <div className="max-md:text-xs text-rose-700">Added Items</div> */}
@@ -646,8 +646,10 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                                     </AlertDialogDescription>
                                                                     <AlertDialogDescription className="flex justify-end">
                                                                         <div className="flex gap-2">
-                                                                            <AlertDialogAction className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</AlertDialogAction>
-                                                                            <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}>Save</AlertDialogAction>
+                                                                            <AlertDialogAction className="bg-gray-100 text-blackflex items-center gap-1" onClick={() => handleDelete(item.item)}><Trash2 className="h-4 w-4" /> Delete</AlertDialogAction>
+                                                                            <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}
+                                                                                className="flex items-center gap-1"
+                                                                                ><ListChecks className="h-4 w-4" />Update</AlertDialogAction>
                                                                         </div>
                                                                     </AlertDialogDescription>
                                                                 </AlertDialogHeader>
@@ -662,7 +664,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                             </div>
                         })
                     ) : <div className="text-center bg-gray-100 p-2 text-gray-600">
-                        No Items Added!
+                        Empty!
                     </div>
                 }
 
@@ -690,7 +692,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 </Card>
                 <Dialog>
                     <DialogTrigger asChild>
-                        <Button disabled={!orderData.procurement_list.list.length ? true : false} variant={`${!orderData.procurement_list.list.length ? "secondary" : "destructive"}`} className="h-8 w-full mt-4 w-full rounded-md text-sm">{!rejected_pr_data ? "Confirm and Submit" : "Resolve PR"}</Button>
+                        <Button disabled={!orderData.procurement_list.list.length ? true : false} variant={`${!orderData.procurement_list.list.length ? "secondary" : "destructive"}`} className="h-8 mt-4 w-full">{!rejected_pr_data ? (<div className="flex items-center gap-1"><ListChecks className="h-4 w-4" />Submit</div>) : (<div className="flex items-center gap-1"><Settings2 className="h-4 w-4" />Resolve PR</div>)}</Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
@@ -699,11 +701,15 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                 {!rejected_pr_data ? "Click on Confirm to create new PR." : "Click on Confirm to resolve and send the PR for Approval"}
                             </DialogDescription>
                         </DialogHeader>
-                        <DialogClose>
+                        <DialogClose className="flex justify-center">
                             {!rejected_pr_data ? (
-                                <Button onClick={() => handleSubmit()}>Confirm</Button>
+                                <Button onClick={handleSubmit} className="flex items-center gap-1">
+                                    <CheckCheck className="h-4 w-4" />
+                                    Confirm</Button>
                             ) : (
-                                <Button onClick={handleResolvePR}>Confirm</Button>
+                                <Button onClick={handleResolvePR} className="flex items-center gap-1">
+                                    <CheckCheck className="h-4 w-4" />
+                                    Confirm</Button>
                             )}
                         </DialogClose>
                     </DialogContent>
@@ -777,9 +783,9 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     <Dialog>
                         <DialogTrigger asChild>
                             {(curItem && unit) ?
-                                <Button className="mt-15 h-8 w-full bg-red-700 rounded-md text-sm text-white">Confirm and Submit</Button>
+                                <Button variant={"default"} className="mt-15 w-full flex items-center gap-1"><ListChecks className="h-4 w-4" /> Submit</Button>
                                 :
-                                <Button disabled={true} variant="secondary" className="h-8 w-full rounded-md text-sm">Confirm and Submit</Button>
+                                <Button disabled={true} variant="secondary" className="h-8 w-full flex items-center gap-1"> <ListChecks className="h-4 w-4" /> Submit</Button>
                             }
 
                         </DialogTrigger>
@@ -790,8 +796,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                     Click on Confirm to create new Item.
                                 </DialogDescription>
                             </DialogHeader>
-                            <DialogClose>
-                                <Button variant="secondary" onClick={() => handleAddItem()}>Confirm</Button>
+                            <DialogClose className="flex justify-center">
+                                <Button variant="default" className="flex items-center gap-1" onClick={() => handleAddItem()}><CheckCheck className="h-4 w-4" /> Confirm</Button>
                             </DialogClose>
                         </DialogContent>
                     </Dialog>

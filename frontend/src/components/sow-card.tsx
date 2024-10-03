@@ -6,7 +6,7 @@ import * as z from "zod"
 import { DialogClose } from "@/components/ui/dialog"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
-import { PersonStanding } from "lucide-react"
+import { ListChecks, PersonStanding } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -132,7 +132,9 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
                                         <div className="flex items-center justify-center">
                                         {(loading) ? (<ButtonLoading />) : (
                                             <>
-                                            <Button type="submit">Submit</Button>
+                                            <Button type="submit" className="flex items-center gap-1">
+                                                <ListChecks className="h-4 w-4" />
+                                                Submit</Button>
                                             <DialogClose id="dialogClosesow" className="hidden">hello</DialogClose>
                                             </>
                                             )}       

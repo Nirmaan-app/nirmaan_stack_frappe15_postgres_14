@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ButtonLoading } from "@/components/ui/button-loading"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, ListChecks } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 
 const UserFormSchema = z.object({
@@ -107,7 +107,7 @@ export const UserForm = () => {
     }
 
     return (
-        <div className="flex-1 p-4">
+        <div className="flex-1">
                 <div className="flex gap-2">
                     <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} />
                         <div className="flex flex-col">
@@ -233,7 +233,9 @@ export const UserForm = () => {
                             {loading ? (
                                 <ButtonLoading />
                             ) : (
-                                <Button className="lg:w-24" type="submit">Submit</Button>
+                                <Button className="flex items-center gap-1" type="submit">
+                                    <ListChecks className="h-4 w-4" />
+                                    Submit</Button>
                             )}
                         </div>
                 </form>

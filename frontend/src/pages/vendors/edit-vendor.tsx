@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import ReactSelect from 'react-select';
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, ListChecks, ListRestart } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { zodResolver } from "@hookform/resolvers/zod"
 
@@ -382,14 +382,16 @@ export const EditVendor = () => {
                         )}
                     </div>
                     <div className="flex justify-end space-x-2">
-                        <Button type="button" variant="outline" onClick={() => {
+                        <Button type="button" variant="secondary" className="flex items-center gap-1" onClick={() => {
                             form.reset()
                             form.clearErrors()
                         }}>
-                            Cancel
+                            <ListRestart className="h-4 w-4" />
+                            Reset
                         </Button>
-                        <Button type="submit" disabled={loading}>
-                            {loading ? "Updating..." : "Update Vendor"}
+                        <Button type="submit" disabled={loading} className="flex items-center gap-1">
+                            <ListChecks className="h-4 w-4" />
+                            {loading ? "Updating..." : "Update"}
                         </Button>
                     </div>
                 </form>

@@ -1,4 +1,4 @@
-import { ArrowLeft, MessageCircleMore } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2 } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
@@ -16,6 +16,7 @@ import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUs
 import { formatDate } from '@/utils/FormatDate';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import formatToIndianRupee from '@/utils/FormatPrice';
+import { useUserData } from '@/hooks/useUserData';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -417,9 +418,10 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     };
 
     const { toast } = useToast();
+    const userData = useUserData()
     const [isLoading, setIsLoading] = useState<string | null>(null);
 
-    console.log("selectedItems", selectedItems)
+    // console.log("selectedItems", selectedItems)
 
     const newHandleApprove = async () => {
         try {
@@ -575,14 +577,23 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 project: orderData.project,
                 category_list: { list: newCategories },
                 item_list: { list: itemlist },
-                comments: comment,
+                // comments: comment,
                 type: "Rejected"
             };
 
             if (itemlist.length > 0) {
-                await createDoc('Sent Back Category', newSendBack);
+                const res = await createDoc('Sent Back Category', newSendBack);
+                if(comment) {
+                    await createDoc("Nirmaan Comments", {
+                        comment_type: "Comment",
+                        reference_doctype: "Sent Back Category",
+                        reference_name: res.name,
+                        comment_by: userData?.user_id,
+                        content: comment,
+                        subject: "creating sent-back"
+                    })
+                }
             }
-
             // Update item statuses and workflow state
             // const allItemsSentBack = filteredData.length === orderData.procurement_list.list.length;
             // const currentState = pr_data?.workflow_state;
@@ -958,7 +969,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 }}
             >
                 {data.length > 0 &&
-                    <div className='px-6'>
+                    <div className='pt-6'>
                         <Table
                             rowSelection={{ ...rowSelection, checkStrictly }}
                             dataSource={data}
@@ -968,10 +979,11 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     </div>
                 }
             </ConfigProvider>
-            {selectedItems?.length > 0 && <div className="text-right space-x-2 mr-6">
+            {selectedItems?.length > 0 && <div className="flex justify-end gap-2 mr-2 mt-2">
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
+                            <SendToBack  className='w-4 h-4'/>
                             {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
                         </Button>
                     </AlertDialogTrigger>
@@ -985,20 +997,25 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                                     id="textarea"
                                     className="w-full border rounded-lg p-2"
                                     value={comment}
-                                    placeholder="Type your comments here"
+                                    placeholder="type here..."
                                     onChange={(e) => setComment(e.target.value)}
                                 />
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleSentBack()}>Send Back</AlertDialogAction>
+                            <AlertDialogCancel className="flex items-center gap-1">
+                            <Undo2 className="h-4 w-4" />
+                                Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1">
+                            <CheckCheck className="h-4 w-4" />
+                                Confirm</AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
+                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
+                            <ListChecks className="h-4 w-4" />
                             {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
                         </Button>
                     </AlertDialogTrigger>
@@ -1010,8 +1027,12 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleApprove()}>Approve</AlertDialogAction>
+                        <AlertDialogCancel className="flex items-center gap-1">
+                            <Undo2 className="h-4 w-4" />
+                                Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1">
+                                <CheckCheck className="h-4 w-4" />
+                                Confirm</AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>

@@ -5,7 +5,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus, MessageCircleMore } from 'lucide-react';
+import { ArrowBigRightDash, ArrowLeft, CirclePlus, ListChecks, MessageCircleMore } from 'lucide-react';
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -53,6 +53,10 @@ export const ProcurementOrder = () => {
     const [uniqueCategories, setUniqueCategories] = useState({
         list: []
     })
+    // console.log("selectedCategories", selectedCategories)
+    // console.log("orderData", orderData)
+
+    // console.log("unique categories", uniqueCategories)
 
     const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["*"],
@@ -90,6 +94,16 @@ export const ProcurementOrder = () => {
         },
         `Quotation Requests`
     );
+
+    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+        fields: ["*"],
+        filters: [["reference_name", "=", orderId]],
+        orderBy: { field: "creation", order: "desc" }
+    }
+    )
+
+    console.log("universalcomments", universalComments)
+
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
 
@@ -218,7 +232,7 @@ export const ProcurementOrder = () => {
     }, [vendor_category_list]);
 
     const handleChange = (category) => (selectedOptions) => {
-        console.log(selectedOptions)
+        console.log("selectedOptions", selectedOptions)
         const updatedCategories = { ...selectedCategories };
         const newVendors = [];
         selectedOptions?.map((item) => {
@@ -303,7 +317,7 @@ export const ProcurementOrder = () => {
         }
     };
 
-    console.log("orderdata", orderData)
+    // console.log("orderdata", orderData)
 
     return (
         <>
@@ -418,9 +432,17 @@ export const ProcurementOrder = () => {
                                 </tbody>
                             </table> */}
                         </div>
-                        <div className="flex flex-col justify-end items-end">
-                            <Button onClick={() => setPage('vendors')}>
+
+                        <div className="flex items-center space-y-2">
+                            <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
+                        </div>
+                        <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
+                            {universalComments?.find((cmt) => cmt.subject === "approving pr")?.content}
+                        </div>
+                        <div className="flex flex-col justify-end items-end max-md:mt-4">
+                            <Button onClick={() => setPage('vendors')} className="flex items-center gap-1">
                                 Select Vendors
+                                <ArrowBigRightDash className="max-md:h-4 max-md:w-4" />
                             </Button>
                         </div>
                     </div>}
@@ -461,10 +483,9 @@ export const ProcurementOrder = () => {
                                     </div>
                                     <Sheet>
                                         <SheetTrigger className="text-blue-500">
-                                            <div className="flex">
-                                                <div className="text-base text-blue-400 flex" >
-                                                    <CirclePlus className="w-5 h-5 mr-2" />Add Vendor</div>
-                                            </div>
+                                                <div className="text-base text-blue-400 flex items-center gap-1" >
+                                                    <CirclePlus className="w-5 h-5" />Add Vendor
+                                                </div>
                                         </SheetTrigger>
                                         <SheetContent className='overflow-auto'>
                                             <SheetHeader className="text-start">
@@ -492,7 +513,9 @@ export const ProcurementOrder = () => {
                                 Send RFQ
                             </Button>} */}
                             {(loading || update_loading) ? <ButtonLoading /> : (
-                                <Button disabled={selectedCategories === null} onClick={handleSubmit}>Send RFQ</Button>
+                                <Button disabled={selectedCategories === null} onClick={handleSubmit} className="flex items-center gap-1">
+                                    <ListChecks className="h-4 w-4" />
+                                    Send RFQ</Button>
                             )}
                         </div>
                         <Accordion type="multiple" defaultValue={["Vendors"]}>

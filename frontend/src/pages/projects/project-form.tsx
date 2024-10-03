@@ -12,7 +12,7 @@ import ProjectTypeForm from "../../components/project-type-form"
 import { Separator } from "../../components/ui/separator"
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
 import { cn } from "@/lib/utils"
-import { ArrowLeft, CalendarIcon, CirclePlus, GitCommitVertical } from "lucide-react"
+import { ArrowLeft, CalendarIcon, CirclePlus, GitCommitVertical, ListChecks, Undo2 } from "lucide-react"
 import { Calendar } from "../../components/ui/calendar"
 import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../components/ui/accordion"
@@ -1126,7 +1126,9 @@ export const ProjectForm = () => {
                     <div className="pt-5 pb-2 ">
                         {(loading) ?
                             <ButtonLoading />
-                            : <Button type="submit">Submit</Button>
+                            : <Button type="submit" className="flex items-center gap-1">
+                                <ListChecks className="h-4 w-4"  />
+                                Submit</Button>
                         }
                     </div>
                     <AlertDialog>
@@ -1139,11 +1141,17 @@ export const ProjectForm = () => {
                                     Project Created Successfully!
                                 </AlertDialogTitle>
                                 <div className="flex gap-2">
-                                    <AlertDialogAction onClick={() => navigate("/projects")}>Go Back</AlertDialogAction>
+                                    <AlertDialogAction onClick={() => navigate("/projects")} className="flex items-center gap-1 bg-gray-100 text-black">
+                                    <Undo2 className="h-4 w-4" />
+                                        Go Back</AlertDialogAction>
                                     <AlertDialogAction onClick={() => {
                                         form.reset()
                                         form.clearErrors()
-                                    }}>Create New</AlertDialogAction>
+                                    }}
+                                    className="flex items-center gap-1"
+                                    >
+                                        <CirclePlus className="h-4 w-4" />
+                                        Create New</AlertDialogAction>
                                 </div>
                             </AlertDialogHeader>
 

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ListChecks, ListRestart } from "lucide-react";
 import useCustomFetchHook from "@/reactQuery/customFunctions";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -234,7 +234,7 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
     };
 
     return (
-        <div className="flex-1 md:space-y-4">
+        <div className="flex-1">
             <div className="space-y-0.5">
                 <div className="flex space-x-2 items-center">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/customers/${id}`)} />
@@ -246,7 +246,7 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                 <form onSubmit={(event) => {
                     event.stopPropagation();
                     return form.handleSubmit(onSubmit)(event);
-                }} className="space-y-8 px-6 max-md:px-2">
+                }} className="space-y-6 px-6 max-md:px-2">
                     <FormField
                         control={form.control}
                         name="company_name"
@@ -381,14 +381,16 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                         )}
                     />
                     <div className="flex justify-end space-x-2">
-                        <Button type="button" variant="outline" onClick={() => {
+                        <Button type="button" variant="secondary" onClick={() => {
                             form.reset()
                             form.clearErrors()
-                        }}>
-                            Cancel
+                        }} className="flex items-center gap-1">
+                            <ListRestart className="h-4 w-4" />
+                            Reset
                         </Button>
-                        <Button type="submit" disabled={!hasChanges() || loading}>
-                            {loading ? "Saving..." : "Save Changes"}
+                        <Button type="submit" disabled={!hasChanges() || loading} className="flex items-center gap-1">
+                        <ListChecks className="h-4 w-4" />
+                            {loading ? "Updating..." : "Update"}
                         </Button>
                     </div>
                 </form>

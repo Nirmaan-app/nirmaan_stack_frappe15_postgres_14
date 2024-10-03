@@ -6,6 +6,7 @@ import ReactSelect from 'react-select';
 import { useEffect, useState } from "react"
 import { SheetClose } from "../ui/sheet";
 import { useToast } from "../ui/use-toast";
+import { ListChecks } from "lucide-react";
 
 interface SelectOption {
     label: string;
@@ -107,7 +108,9 @@ export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= f
                             {(category_options.length > 0 && default_options) && <ReactSelect options={category_options} defaultValue={default_options ? default_options : []} onChange={handleChange} isMulti />}
                         </div>
                         <div className="flex justify-end w-full">
-                        {(loading) ? (<ButtonLoading />) : (<Button onClick={onSubmit}>Update Vendor Category</Button>)}
+                        {(loading) ? (<ButtonLoading />) : (<Button onClick={onSubmit} className="flex items-center gap-1">
+                            <ListChecks className="h-4 w-4" />
+                            Update</Button>)}
                         </div>
                         {
                             isSheet && ( <SheetClose><button className="hidden" id="sheetCloseButton">close</button></SheetClose>)

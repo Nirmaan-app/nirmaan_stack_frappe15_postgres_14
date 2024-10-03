@@ -591,8 +591,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         <AlertDialog>
                             <AlertDialogTrigger>
                                 <Button>
-                                    <div className="flex">
-                                        <Trash2 className="h-4 w-4 mr-1" />
+                                    <div className="flex items-center gap-1">
+                                        <Trash2 className="h-4 w-4" />
                                         Delete
                                     </div>
 
@@ -831,8 +831,13 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                                     </AlertDialogDescription>
                                                                     <AlertDialogDescription className="flex justify-end">
                                                                         <div className="flex gap-2">
-                                                                            <AlertDialogAction className="bg-gray-100 text-black" onClick={() => handleDelete(item.item)}>Delete</AlertDialogAction>
-                                                                            <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}>Save</AlertDialogAction>
+                                                                            <AlertDialogAction className="bg-gray-100 text-black flex gap-1 items-center" onClick={() => handleDelete(item.item)}>
+                                                                                <Trash2 className="h-4 w-4" />
+                                                                                Delete
+                                                                            </AlertDialogAction>
+                                                                            <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)} className="flex gap-1 items-center">
+                                                                                <ListChecks className="h-4 w-4" />
+                                                                                Save</AlertDialogAction>
                                                                         </div>
                                                                     </AlertDialogDescription>
                                                                 </AlertDialogHeader>
@@ -869,8 +874,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             setPage('summary')
                             setDynamicPage("reject")
                         }}>
-                            <div className="flex">
-                                <ListX className="h-4 w-4 mr-1 mt-0.5" />
+                            <div className="flex items-center gap-1">
+                                <ListX className="h-4 w-4" />
                                 Reject
                             </div>
                         </Button>
@@ -878,8 +883,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             setPage('summary')
                             setDynamicPage("approve")
                         }}>
-                            <div className="flex">
-                                <ListChecks className="h-4 w-4 mr-1 mt-0.5" />
+                            <div className="flex items-center gap-1">
+                                <ListChecks className="h-4 w-4" />
                                 Approve
                             </div>
                         </Button>
@@ -1031,23 +1036,23 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         <Dialog>
                             <div className="flex gap-4">
                                 <Button variant="secondary" onClick={() => setPage("itemlist")}>
-                                    <div className="flex">
-                                        <Undo2 className="h-4 w-4 mr-1 mt-0.5" />
+                                    <div className="flex items-center gap-1">
+                                        <Undo2 className="h-4 w-4" />
                                         Go Back
                                     </div>
                                 </Button>
                                 <DialogTrigger asChild>
                                     {dynamicPage === "reject" ? (
                                         <Button>
-                                            <div className="flex">
-                                                <ListX className="h-4 w-4 mr-1 mt-0.5" />
+                                            <div className="flex items-center gap-1">
+                                                <ListX className="h-4 w-4" />
                                                 Reject
                                             </div>
                                         </Button>
                                     ) : (
                                         <Button>
-                                            <div className="flex">
-                                                <ListChecks className="h-4 w-4 mr-1 mt-0.5" />
+                                            <div className="flex items-center gap-1">
+                                                <ListChecks className="h-4 w-4" />
                                                 Approve
                                             </div>
                                         </Button>
@@ -1061,12 +1066,16 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                         {dynamicPage === "reject" ? "Click on Confirm to Reject." : "Click on Confirm to Approve."}
                                     </DialogDescription>
                                 </DialogHeader>
-                                <DialogClose>
+                                <DialogClose className="flex items-center justify-center">
                                     {
                                         dynamicPage === "reject" ? (
-                                            <Button variant="default" onClick={() => handleReject()}>Confirm</Button>
+                                            <Button variant="default" onClick={() => handleReject()} className="flex items-center gap-1">
+                                                <CheckCheck />
+                                                Confirm</Button>
                                         ) : (
-                                            <Button variant="default" onClick={() => handleApprove()}>Confirm</Button>
+                                            <Button variant="default" onClick={() => handleApprove()} className="flex items-center gap-1">
+                                                <CheckCheck />
+                                            Confirm</Button>
                                         )
                                     }
                                 </DialogClose>
