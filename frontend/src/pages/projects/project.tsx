@@ -759,7 +759,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
       {/* Overview Section */}
 
       {(isLoading || usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" &&  (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 max-md:pt-4">
           <Card>
             <CardHeader>
               <CardTitle>
@@ -879,7 +879,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
 
       {current === "projectTracking" && (
         <div className="pr-2 py-4">
-          <div className="flex gap-4 items-center">
+          <div className="grid grid-cols-3 gap-2 max-sm:grid-cols-2">
             <Button variant="outline" className=" cursor-pointer flex items-center gap-1"
               onClick={() => handlePrint()}
             >

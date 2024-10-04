@@ -458,7 +458,7 @@ export const SentBackSelectVendor = () => {
     return (
         <>
             {page == 'updatequotation' &&
-                    <div className="flex-1 md:space-y-4">
+                    <div className="flex-1 space-y-2 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => navigate(`/sent-back-request/${id}`)} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Select Vendor Quotes</h2>
@@ -564,7 +564,7 @@ export const SentBackSelectVendor = () => {
                             </div>
                         })}
                         {/* <div className="pt-10"></div> */}
-                        <div className='pt-12 flex justify-between'>
+                        <div className='pt-6 flex justify-between'>
                             <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" onClick={() => navigate(`/sent-back-request/${id}`)}>
                                 <Pencil className='w-4 h-4' />
                                 Edit Price
@@ -587,7 +587,7 @@ export const SentBackSelectVendor = () => {
                                         <DialogDescription>
                                             No item status should be delayed. close the dialog and rectify delayed Items with quotes
                                         </DialogDescription>
-                                                <DialogDescription>
+                                                <DialogDescription className='text-start'>
                                                     <div className='flex flex-col gap-2'>
                                                         <h4 className='text-sm font-semibold'>For your reference, Here's the list of items whose quotes are not selected:</h4>
                                                         {
@@ -645,7 +645,7 @@ export const SentBackSelectVendor = () => {
                     </div>}
             {page == 'approvequotation' &&
                 <>
-                    <div className="flex-1 md:space-y-4">
+                    <div className="flex-1 space-y-2 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('updatequotation')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Comparison</h2>
@@ -745,6 +745,7 @@ export const SentBackSelectVendor = () => {
 
                         </div>
                 </div>
+                <div className='overflow-x-auto'>
                     <ConfigProvider
                         theme={{
                             token: {
@@ -765,7 +766,8 @@ export const SentBackSelectVendor = () => {
                         />
 
                     </ConfigProvider>
-                    <div className="flex flex-col justify-end items-end mr-2 mb-4">
+                </div>
+                    <div className="flex flex-col justify-end items-end mr-2 mb-4 mt-4">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button className="flex items-center gap-1">

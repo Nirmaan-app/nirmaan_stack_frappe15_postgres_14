@@ -202,19 +202,21 @@ export default function Profile() {
                         </div>
                     </div>
                     {userData.role === "Nirmaan Admin Profile" &&
-                        <div className="flex">
-                            <Button className="mr-2" onClick={() => handlePasswordReset()}>
-                                <div className="flex"><KeyRound className="w-5 h-5 pr-1" />Reset Password</div>
+                        <div className="flex max-sm:flex-col gap-2">
+                            <Button className="flex gap-1 items-center" onClick={() => handlePasswordReset()}>
+                                <KeyRound className="w-5 h-5" />
+                                Reset Password
                             </Button>
                             {data?.role_profile === "Nirmaan Admin Profile" ?
 
-                                <Button disabled={true}><Trash2 className="w-5 h-5 pr-1" />Delete User</Button>
+                                <Button className="flex gap-1 items-center" disabled={true}><Trash2 className="w-5 h-5" />Delete User</Button>
                                 :
 
                                 <Dialog>
                                     <DialogTrigger asChild>
-                                        <Button asChild>
-                                            <div className="cursor-pointer"><Trash2 className="w-5 h-5  pr-1 " />Delete User</div>
+                                        <Button className="flex gap-1 items-center">
+                                            <Trash2 className="w-5 h-5" />
+                                            Delete User
                                         </Button>
                                     </DialogTrigger>
                                     <DialogContent>

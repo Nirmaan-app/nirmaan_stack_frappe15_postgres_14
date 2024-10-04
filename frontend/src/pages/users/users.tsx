@@ -183,16 +183,14 @@ export default function Users() {
                     </div>
                 </div> */}
             <div className="flex items-center justify-between mb-2 space-y-2">
-                <div className="flex">
-                    <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/")} />
-                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">User List</h2>
+                <div className="flex items-center gap-1">
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
+                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">User List</h2>
                 </div>
 
-                <div className="flex items-center space-x-2">
                     <Button asChild>
-                        <Link to="new"> <CirclePlus className="w-5 h-5 mt- pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
+                        <Link to="new"> <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
                     </Button>
-                </div>
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
                 <Card className="hover:animate-shadow-drop-center" >

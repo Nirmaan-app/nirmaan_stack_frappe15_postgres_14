@@ -144,14 +144,14 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments, 
 
     return (
         <>
-            <div className={`${section === "pr-summary" ? "flex-1 md:space-y-4" : ""}`}>
+            <div className={`${section === "pr-summary" ? "flex-1 space-y-2 md:space-y-4" : ""}`}>
                 {section === "pr-summary" && (
                     <>
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center pt-1">
-                                <ArrowLeft className="mb-3 cursor-pointer" onClick={() => navigate("/procurement-request")} />
-                                <h2 className="text-xl max-md:text-lg pt-1 pb-4 pl-2 font-bold tracking-tight">Summary: </h2>
-                                <span className="pl-2 pb-2.5 text-red-500 text-2xl max-md:text-xl">PR-{pr_no}</span>
+                            <div className="flex items-center gap-1 flex-wrap">
+                                <ArrowLeft className="cursor-pointer" onClick={() => navigate("/procurement-request")} />
+                                <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
+                                <span className="text-red-500 text-2xl max-md:text-xl">PR-{pr_no}</span>
                             </div>
                             <div className="flex gap-4 items-center">
                                 {
@@ -240,7 +240,7 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments, 
                                                 <Table>
                                                     <TableHeader>
                                                         <TableRow className="bg-red-100">
-                                                            <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>Items</TableHead>
+                                                            <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
                                                             <TableHead className="w-[25%]">UOM</TableHead>
                                                             <TableHead className="w-[15%]">Qty</TableHead>
                                                         </TableRow>
@@ -251,13 +251,10 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments, 
                                                                 return (
                                                                     <TableRow key={item.item}>
                                                                         <TableCell>{item.item}
-                                                                            {/* {pr_data.workflow_state === "Rejected" && ( */}
-                                                                            <div className="flex gap-1 pt-2 items-center">
-                                                                                {/* <span className="font-semibold">Comments-</span> */}
-                                                                                <MessageCircleMore className="w-6 h-6 text-blue-400" />
+                                                                            <div className="flex gap-1 pt-2 items-start">
+                                                                                <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
                                                                                 <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
                                                                             </div>
-                                                                            {/* )} */}
                                                                         </TableCell>
                                                                         <TableCell>{item.unit}</TableCell>
                                                                         <TableCell>{item.quantity}</TableCell>
