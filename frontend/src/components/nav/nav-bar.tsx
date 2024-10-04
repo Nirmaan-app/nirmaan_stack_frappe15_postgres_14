@@ -192,7 +192,7 @@ export const NavBar = () => {
             </div>
 
             {/* Main Content Wrapper */}
-            <div className="flex flex-1 pt-16 overflow-hidden">
+            <div className="flex mt-16 overflow-hidden" >
                 {/* Sidebar for large screens */}
                 {!isSmallScreen && (
                     <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto overflow-x-hidden scrollbar-container ${collapsed ? "sm:w-16 w-0" : "sm:w-64 w-0"}`}>

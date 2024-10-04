@@ -492,7 +492,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     })}
                 </div>
             </div>}
-            {page == 'itemlist' && <div className="flex-1 md:space-y-4">
+            {page == 'itemlist' && <div className="flex-1 space-y-2 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
                     {
                         !rejected_pr_data ? (
@@ -514,7 +514,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
 
                     <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                 </div>
-                <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40 pl-4">
+                <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40">
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
                         <h3 className=" font-semibold text-sm md:text-lg">{project && project?.project_name}</h3>
@@ -598,9 +598,10 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                     <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
                                                         {item.item}
                                                         {item.comment &&
-                                                            <div className="flex gap-1 items-center">
-                                                                <MessageCircleMore className="w-6 h-6" />
-                                                                <input disabled type="text" value={item.comment} className="block border rounded-md p-1 md:w-[60%]" />
+                                                            <div className="flex gap-1 items-start">
+                                                                <MessageCircleMore className="w-6 h-6 flex-shrink-0" />
+                                                                {/* <input disabled type="text" value={item.comment} className="block border rounded-md p-1 md:w-[60%]" /> */}
+                                                                <div className="block border rounded-md p-1 md:w-[60%]">{item.comment}</div>
                                                             </div>
                                                         }
                                                     </td>
@@ -646,7 +647,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                                     </AlertDialogDescription>
                                                                     <AlertDialogDescription className="flex justify-end">
                                                                         <div className="flex gap-2">
-                                                                            <AlertDialogAction className="bg-gray-100 text-blackflex items-center gap-1" onClick={() => handleDelete(item.item)}><Trash2 className="h-4 w-4" /> Delete</AlertDialogAction>
+                                                                            <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex items-center gap-1" onClick={() => handleDelete(item.item)}><Trash2 className="h-4 w-4" /> Delete</AlertDialogAction>
                                                                             <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}
                                                                                 className="flex items-center gap-1"
                                                                                 ><ListChecks className="h-4 w-4" />Update</AlertDialogAction>

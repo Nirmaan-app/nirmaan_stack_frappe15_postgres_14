@@ -242,11 +242,11 @@ export const ReleasePONew: React.FC = () => {
 
 
   return (
-                <div className='flex-1 md:space-y-4'>
-                        <div className="flex py-4">
-                            <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
-                            <div className="font-semibold text-xl md:text-2xl pl-2">{(orderData?.name)?.toUpperCase()}: <span className='text-primary'>{orderData?.status}</span></div>
-                        </div>
+    <div className='flex-1 md:space-y-4'>
+                <div className="flex py-4">
+                    <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
+                    <div className="font-semibold text-xl md:text-2xl pl-2">{(orderData?.name)?.toUpperCase()}: <span className='text-primary'>{orderData?.status}</span></div>
+                </div>
                 <Layout>
                     <Sider theme='light' collapsedWidth={0} width={500}  trigger={null} collapsible collapsed={collapsed}>
                     <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4">
@@ -318,7 +318,7 @@ export const ReleasePONew: React.FC = () => {
                             </div>
                         </div>
                     </form>
-      </Sider>
+                </Sider>
       <Layout className='bg-white'>
         <div className="flex">
           <Button
@@ -335,7 +335,7 @@ export const ReleasePONew: React.FC = () => {
           <Content
           className={`${collapsed ? "md:mx-10 lg:mx-32" : ""} my-4 mx-2 flex flex-col gap-4 relative`}
           >
-              <div className='absolute right-0 -top-[8%]'>
+              <div className='absolute right-0 -top-20 max-md:-top-14'>
                         <button className='h-9 px-6 py-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 
                         focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' disabled={advance > 100 || advance < 0} onClick={() => {
                             onSubmit(control._formValues)
@@ -625,7 +625,7 @@ export const ReleasePONew: React.FC = () => {
                                                             <ListChecks className="h-4 w-4" />
                                                             Submit</button>
                                                     </HoverCardTrigger>
-                                                    <HoverCardContent className='flex flex-col gap-2 w-80'>
+                                                    <HoverCardContent className='flex flex-col gap-2 w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg'>
                                                         <p className='font-semibold'>Please fulfill the following conditions to enable the Update button</p>
                                                         <ul className='list-disc text-xs ml-6'>
                                                             <li>Person Name must not be empty</li>
@@ -692,7 +692,7 @@ export const ReleasePONew: React.FC = () => {
                                             <HoverCardTrigger>
                                                 <button disabled className="border-primary cursor-not-allowed h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground">Cancel PO</button>
                                             </HoverCardTrigger>
-                                            <HoverCardContent className="w-80">
+                                            <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                                 <div>
                                                     <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note has already been updated!
                                                 </div>
@@ -736,7 +736,7 @@ export const ReleasePONew: React.FC = () => {
         </Content>
         </div>
       </Layout>
-    </Layout>
+                </Layout>
     </div>
   );
 };

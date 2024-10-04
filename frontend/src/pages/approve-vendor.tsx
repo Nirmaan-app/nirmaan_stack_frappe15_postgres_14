@@ -48,10 +48,10 @@ const columns: TableColumnsType<DataType> = [
                     {(!record.children && record.comment) && (
                         <HoverCard>
                             <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
-                            <HoverCardContent className="max-w-[300px]">
+                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                 <div className="relative pb-4">
                                     <span className="block">{record.comment}</span>
-                                    <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
                                 </div>
 
                             </HoverCardContent>
@@ -956,6 +956,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             {/* <Space align="center" style={{ marginBottom: 16 }}>
                 CheckStrictly: <Switch checked={checkStrictly} onChange={setCheckStrictly} />
             </Space> */}
+            <div className='overflow-x-auto pt-6'>
             <ConfigProvider
                 theme={{
                     token: {
@@ -969,16 +970,15 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 }}
             >
                 {data.length > 0 &&
-                    <div className='pt-6'>
                         <Table
                             rowSelection={{ ...rowSelection, checkStrictly }}
                             dataSource={data}
                             expandable={{ defaultExpandAllRows: true }}
                             columns={columns}
                         />
-                    </div>
                 }
             </ConfigProvider>
+            </div>
             {selectedItems?.length > 0 && <div className="flex justify-end gap-2 mr-2 mt-2">
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -1037,13 +1037,13 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
-            {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by)).length ? (
+            {/* {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by)).length ? (
                 <div className="relative py-4 px-10">
                     <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
                     <span className="relative left-[5%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span>
                 </div>
-            ) : ""}
-            <div className="flex items-center pt-1  pb-4">
+            ) : ""} */}
+            <div className="flex items-center py-4">
                 <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
             </div>
             <div className="overflow-x-auto">
@@ -1054,7 +1054,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                                 <ReactTable>
                                     <TableHeader>
                                         <TableRow className="bg-red-100">
-                                            <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{item.category}</span>(Items)</TableHead>
+                                            <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{item.category}</span></TableHead>
                                             <TableHead className="w-[25%]">UOM</TableHead>
                                             <TableHead className="w-[15%]">Qty</TableHead>
                                         </TableRow>

@@ -240,7 +240,7 @@ export const UpdateQuote = () => {
                                             </div>
                                         </Button>
                                     </HoverCardTrigger>
-                                    <HoverCardContent className="w-80">
+                                    <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                         <div>Please add <span className="font-semibold underline">All Associated Categories of Current PR</span> to this vendor to enable</div>
                                     </HoverCardContent>
                                 </HoverCard>
@@ -378,7 +378,7 @@ export const UpdateQuote = () => {
                                                     <HoverCardTrigger>
                                                         <div className={`w-2 h-2 ${checkItemQuoteStatus(item) === "All Filled" ? "bg-green-500" : checkItemQuoteStatus(item) === "Not filled" ? "bg-red-500"  : "bg-yellow-500"}  rounded-full`} />
                                                     </HoverCardTrigger>
-                                                    <HoverCardContent className="mr-14">
+                                                    <HoverCardContent className="mr-14 bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                                         {checkItemQuoteStatus(item) === "All Filled" ? "All items(s) quotes are filled" : checkItemQuoteStatus(item) === "Not filled" ? "No item quote is filled"  : "Partially Filled"}
                                                     </HoverCardContent>
                                                 </HoverCard>
@@ -402,11 +402,12 @@ export const UpdateQuote = () => {
                                 </div>
                             </div>
                         })}
-                        <div className="font-light text-sm text-slate-500 px-10 py-6">
+                        <div className="font-light text-sm text-slate-500 max-sm:px-2 px-8 py-6">
                             <span className="text-red-700">Notes:</span> You can download RFQ PDFs for individual vendors for getting quotes
                         </div>
+                        <div className="flex items-center justify-between">
                         <Sheet>
-                            <SheetTrigger className="text-blue-500"><div className="flex pl-5 items-center gap-1"><CirclePlus className="w-4 h-4" />Add New Vendor</div></SheetTrigger>
+                            <SheetTrigger className="text-blue-500"><div className="flex items-center gap-1 sm:pl-8 pl-2"><CirclePlus className="w-4 h-4" />Add New Vendor</div></SheetTrigger>
                             <SheetContent className="overflow-auto">
                                 <SheetHeader className="text-start">
                                     <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
@@ -421,9 +422,8 @@ export const UpdateQuote = () => {
                                 </SheetHeader>
                             </SheetContent>
                         </Sheet>
-                        <div className="flex flex-col justify-end items-end">
                             <Button className="flex items-center gap-1" onClick={handleUpdateQuote}>
-                            <ListChecks className="h-4 w-4" />
+                                <ListChecks className="h-4 w-4" />
                                 Update Quote
                             </Button>
                         </div>
@@ -438,21 +438,19 @@ export const UpdateQuote = () => {
                                     </div>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                    <div className="">
-                                        <Card className=''>
-                                            <CardHeader>
-                                            <div className="pl-6 flex gap-1 items-center pt-10 flex-wrap">
-                            <span className="font-light max-md:text-sm">PR Categories: </span>
-                            {orderData?.category_list?.list.map((cat) => (
-                                <Badge>{cat.name}</Badge>
-                            ))}
-                        </div>
+                                        <Card className='max-md:p-0'>
+                                            <CardHeader className="max-md:p-0">
+                                                <div className="pl-6 flex gap-1 items-center pt-10 max-md:pt-6 flex-wrap">
+                                                    <span className="font-light max-md:text-sm">PR Categories: </span>
+                                                    {orderData?.category_list?.list.map((cat) => (
+                                                        <Badge>{cat.name}</Badge>
+                                                    ))}
+                                                </div>
                                                 <CardContent>
                                                     <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
                                                 </CardContent>
                                             </CardHeader>
                                         </Card>
-                                    </div>
                                 </AccordionContent>
                             </AccordionItem>
                         </Accordion>

@@ -784,9 +784,10 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                     <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
                                                         {item.item}
                                                         {item.comment &&
-                                                            <div className="flex gap-1 items-center">
-                                                                <MessageCircleMore className="w-6 h-6" />
-                                                                <input disabled type="text" value={item.comment} className="block border rounded-md p-1 md:w-[60%]" />
+                                                            <div className="flex gap-1 items-start">
+                                                                <MessageCircleMore className="w-6 h-6 flex-shrink-0" />
+                                                                {/* <input disabled type="text" value={item.comment} className="block border rounded-md p-1 md:w-[60%]" /> */}
+                                                                <div className="block border rounded-md p-1 md:w-[60%]">{item.comment}</div>
                                                             </div>
                                                         }
                                                     </td>
@@ -831,7 +832,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                                     </AlertDialogDescription>
                                                                     <AlertDialogDescription className="flex justify-end">
                                                                         <div className="flex gap-2">
-                                                                            <AlertDialogAction className="bg-gray-100 text-black flex gap-1 items-center" onClick={() => handleDelete(item.item)}>
+                                                                            <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex gap-1 items-center" onClick={() => handleDelete(item.item)}>
                                                                                 <Trash2 className="h-4 w-4" />
                                                                                 Delete
                                                                             </AlertDialogAction>
@@ -955,7 +956,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                     return (
                                                         <TableRow key={item.item}>
                                                             <TableCell>{item.item}
-                                                                <div className="flex gap-1 pt-2 items-center">
+                                                                <div className="flex gap-1 pt-2 items-start">
                                                                     <MessageCircleMore className="h-6 w-6 text-blue-400" />
                                                                     <p className={`text-xs ${!item.comment ? "text-gray-400" : ""}`}>{item.comment || "No Comments"}</p>
                                                                 </div>

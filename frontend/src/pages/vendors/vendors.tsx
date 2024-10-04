@@ -172,18 +172,16 @@ export default function Vendors() {
     // if (isLoading || category_loading) return <h1>Loading...</h1>
     if (error || category_error) return error ? <h1>{error?.message}</h1> : <h1>{category_error?.message}</h1>
     return (
-        <div className="flex-1 md:space-y-4">
-            <div className="flex items-center justify-between mb-2 space-y-2">
-                <div className="flex">
-                    <Link to="/"><ArrowLeft className="mt-1.5" /></Link>
-                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
+        <div className="flex-1 space-y-2 md:space-y-4">
+            <div className="flex items-center justify-between">
+                <div className="flex gap-1 items-center">
+                    <Link to="/"><ArrowLeft className="" /></Link>
+                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
                 </div>
 
-                <div className="flex items-center space-x-2">
                     <Button asChild>
-                        <Link to="new"> <CirclePlus className="w-5 h-5 mt- pr-1 " />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
+                        <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
                     </Button>
-                </div>
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
                 <Card className="hover:animate-shadow-drop-center" onClick={() => {

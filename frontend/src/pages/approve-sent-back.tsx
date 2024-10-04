@@ -769,6 +769,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                     </div> */}
                 </div>
             </div>
+            <div className='overflow-x-auto pt-6'>
             <ConfigProvider
                 theme={{
                     token: {
@@ -782,17 +783,15 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 }}
             >
                 {data.length > 0 &&
-                    <div className='pt-6'>
                         <Table
                             dataSource={data}
                             rowSelection={{ ...rowSelection, checkStrictly }}
                             expandable={{ defaultExpandAllRows: true }}
                             columns={columns}
                         />
-                    </div>
                 }
-
             </ConfigProvider>
+            </div>
             {selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2 mt-2">
                 <AlertDialog>
                 <AlertDialogTrigger asChild>

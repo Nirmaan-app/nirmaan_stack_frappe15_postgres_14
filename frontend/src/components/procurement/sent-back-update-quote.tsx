@@ -229,7 +229,7 @@ export const SentBackUpdateQuote = () => {
                                             </div>
                                         </Button>
                                     </HoverCardTrigger>
-                                    <HoverCardContent className="w-80">
+                                    <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                         <div>Please add <span className="font-semibold underline">All Associated Categories of Current Sent Back</span> to this vendor to enable</div>
                                     </HoverCardContent>
                                 </HoverCard>
@@ -301,7 +301,7 @@ export const SentBackUpdateQuote = () => {
     return (
         <>
             {page == 'summary' &&
-                    <div className="flex-1 md:space-y-4">
+                    <div className="flex-1 space-y-2 md:space-y-4">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center pt-1 pb-4">
                                 <ArrowLeft className="cursor-pointer" onClick={() => navigate('/sent-back-request')} />
@@ -368,8 +368,8 @@ export const SentBackUpdateQuote = () => {
                         </div>
                         <div className="flex flex-col justify-end items-end">
                             <Button onClick={() => setPage('quotation')} className="flex items-center gap-1">
-                                <ArrowBigRightDash className="max-md:w-4 max-md:h-4" />
                                 Next
+                                <ArrowBigRightDash className="max-md:w-4 max-md:h-4" />
                             </Button>
                         </div>
                     </div>}
@@ -411,9 +411,9 @@ export const SentBackUpdateQuote = () => {
                             <div className="p-2 pl-7 font-light underline text-red-700 pr-16">Options</div>
                         </div>
                         {uniqueVendors.list.map((item) => {
-                            return <div className="px-4 flex justify-between">
-                                <div className="py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
-                                <div className="flex space-x-2">
+                            return <div className="px-4 flex justify-between items-center">
+                                <div className="py-4 font-semibold">{getVendorName(item)}</div>
+                                <div className="flex gap-2 max-sm:flex-col max-sm:items-start">
                                     <Sheet>
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
                                         <SheetContent className="overflow-auto">
@@ -448,6 +448,7 @@ export const SentBackUpdateQuote = () => {
                                 </div>
                             </div>
                         })}
+                        <div className="flex items-center justify-between mt-6">
                         <Sheet>
                             <SheetTrigger className="text-blue-500"><div className="flex items-center gap-1 ml-4"><CirclePlus className="w-4 h-4" />Add New Vendor</div></SheetTrigger>
                             <SheetContent className="overflow-auto">
@@ -465,13 +466,11 @@ export const SentBackUpdateQuote = () => {
                                 </SheetHeader>
                             </SheetContent>
                         </Sheet>
-                        <div className="flex flex-col justify-end items-end">
                             <Button className="flex items-center gap-1" onClick={handleUpdateQuote}>
                                 <ListChecks className="h-4 w-4" />
                                 Update Quote
                             </Button>
                         </div>
-
                         <Accordion type="multiple" >
                             <AccordionItem value="Vendors">
                                 <AccordionTrigger>
@@ -480,14 +479,14 @@ export const SentBackUpdateQuote = () => {
                                     </Button>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                        <Card>
-                                            <CardHeader>
-                                            <div className="pl-6 flex gap-1 items-center pt-10 flex-wrap">
-                            <span className="font-light max-md:text-sm">Sent Back Categories: </span>
-                            {orderData?.category_list?.list.map((cat) => (
-                                <Badge>{cat.name}</Badge>
-                            ))}
-                        </div>
+                                        <Card className="max-md:p-0">
+                                            <CardHeader className="max-md:p-0">
+                                            <div className="pl-6 flex gap-1 items-center pt-10 max-md:pt-6 flex-wrap">
+                                                <span className="font-light max-md:text-sm">Sent Back Categories: </span>
+                                                {orderData?.category_list?.list.map((cat) => (
+                                                    <Badge>{cat.name}</Badge>
+                                                ))}
+                                            </div>
                                                 <CardContent>
                                                     <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
                                                 </CardContent>

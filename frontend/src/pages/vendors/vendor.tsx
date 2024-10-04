@@ -349,11 +349,11 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     if (error || vendorAddressError || procurementOrdersError || procurementRequestsError) return <h1 className="text-red-700">There is an error while fetching the document, please check!</h1>
 
     return (
-        <div className="flex-1 md:space-y-4">
-            <div className="flex items-center">
-                <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/vendors")} />
+        <div className="flex-1 space-y-2 md:space-y-4">
+            <div className="flex items-center gap-1">
+                <ArrowLeft className="cursor-pointer" onClick={() => navigate("/vendors")} />
                 {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
-                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.vendor_name}</h2>}
+                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">{data?.vendor_name}</h2>}
                 <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
             </div>
             <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />

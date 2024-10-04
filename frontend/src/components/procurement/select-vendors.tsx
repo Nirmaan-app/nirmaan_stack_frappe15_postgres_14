@@ -52,10 +52,10 @@ const columns: TableColumnsType<DataType> = [
                         {(!record.children && record.comment) && (
                           <HoverCard>
                           <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
-                          <HoverCardContent className="max-w-[300px]">
+                          <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
                           <div className="relative pb-4">
                               <span className="block">{record.comment}</span>
-                              <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                              <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
                           </div>
 
                             </HoverCardContent>
@@ -647,7 +647,7 @@ export const SelectVendors = () => {
     return (
         <>
             {page == 'updatequotation' &&
-                    <div className="flex-1 md:space-y-4">
+                    <div className="flex-1 space-y-2 md:space-y-4">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendor/Item Quotes</h2>
@@ -717,10 +717,10 @@ export const SelectVendors = () => {
                                                                   {item.comment && (
                                                                     <HoverCard>
                                                                     <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
-                                                                    <HoverCardContent className="max-w-[300px]">
+                                                                    <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                                                     <div className="relative pb-4">
                                                                         <span className="block">{item.comment}</span>
-                                                                        <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                                                                        <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
                                                                     </div>
                     
                                                                     </HoverCardContent>
@@ -793,7 +793,7 @@ export const SelectVendors = () => {
                                         </DialogDescription>
                                         {
                                             Object.keys(delayedItems).length && (
-                                                <DialogDescription>
+                                                <DialogDescription className='text-start'>
                                                     <div className='flex flex-col gap-2'>
                                                         <h4 className='text-sm font-semibold'>For your reference, Here's the list of items whose quotes are not selected:</h4>
                                                         {
@@ -1005,7 +1005,7 @@ export const SelectVendors = () => {
                             </Dialog>
                         </div> */}
                         </div>
-                    <div className='pt-6'>
+                    <div className='pt-6 overflow-x-auto'>
                         <ConfigProvider
                             theme={{
                                 token: {
@@ -1027,7 +1027,7 @@ export const SelectVendors = () => {
 
                         </ConfigProvider>
                     </div>
-                    <div className="flex flex-col justify-end items-end mr-2 mb-4">
+                    <div className="flex flex-col justify-end items-end mr-2 mb-4 mt-4">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button className="flex items-center gap-1">
@@ -1042,7 +1042,7 @@ export const SelectVendors = () => {
                                         Remainder: Items whose quotes are not selected will have a delayed status attached to them. If confirmed, Delayed sent back request will be created for those Items.
                                         
                                         {Object.keys(delayedItems).length && (
-                                            <div className='flex flex-col gap-2 mt-2'>
+                                            <div className='flex flex-col gap-2 mt-2 text-start'>
                                                 <h4 className='font-bold'>some items are delayed, any reason?</h4>
                                                 <TextArea placeholder='type here...' value={comment} onChange={(e) => setComment(e.target.value)} />
                                             </div>

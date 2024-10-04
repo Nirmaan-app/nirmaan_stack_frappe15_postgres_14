@@ -102,7 +102,7 @@ export const ProcurementOrder = () => {
     }
     )
 
-    console.log("universalcomments", universalComments)
+    // console.log("universalcomments", universalComments)
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
@@ -377,10 +377,10 @@ export const ProcurementOrder = () => {
                                                                     {item.comment && (
                                                                     <HoverCard>
                                                                         <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6" /></HoverCardTrigger>
-                                                                        <HoverCardContent className="max-w-[300px]">
+                                                                        <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                                                         <div className="relative pb-4">
                                                                             <span className="block">{item.comment}</span>
-                                                                            <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                                                                            <span className="text-xs absolute right-0 italic text-gray-300">-Comment by PL</span>
                                                                         </div>
 
                                                                         </HoverCardContent>
@@ -449,7 +449,7 @@ export const ProcurementOrder = () => {
             {page == 'vendors' &&
                     <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft onClick={() => setPage("approve")} />
+                            <ArrowLeft onClick={() => setPage("approve")} className="cursor-pointer" />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendors</h2>
                         </div>
                         <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
@@ -513,7 +513,7 @@ export const ProcurementOrder = () => {
                                 Send RFQ
                             </Button>} */}
                             {(loading || update_loading) ? <ButtonLoading /> : (
-                                <Button disabled={selectedCategories === null} onClick={handleSubmit} className="flex items-center gap-1">
+                                <Button disabled={selectedCategories === null || (selectedCategories && Object.values(selectedCategories).some((arr) => !arr.length)) || (selectedCategories && Object.keys(selectedCategories)?.length !== orderData?.category_list?.list?.length)} onClick={handleSubmit} className="flex items-center gap-1">
                                     <ListChecks className="h-4 w-4" />
                                     Send RFQ</Button>
                             )}
@@ -529,15 +529,13 @@ export const ProcurementOrder = () => {
                                     </div>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                    <div className="">
-                                        <Card className=''>
-                                            <CardHeader>
+                                        <Card>
+                                            <CardHeader className="max-md:p-0">
                                                 <CardContent>
                                                     <DataTable columns={columns} data={vendor_list || []} category_options={categoryOptions} />
                                                 </CardContent>
                                             </CardHeader>
                                         </Card>
-                                    </div>
                                 </AccordionContent>
                             </AccordionItem>
                         </Accordion>
