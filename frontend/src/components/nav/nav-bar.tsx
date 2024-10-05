@@ -63,6 +63,23 @@ export const NavBar = () => {
         setIsMobileSidebarOpen(!isMobileSidebarOpen);
     };
 
+    const updateVhVariable = () => {
+        const vh = window.innerHeight * 0.01;
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+
+    useEffect(() => {
+        // Call the function once to set the initial value
+        updateVhVariable();
+
+        // Add event listener on resize
+        window.addEventListener('resize', updateVhVariable);
+
+        return () => {
+            window.removeEventListener('resize', updateVhVariable);
+        };
+    }, []);
+
     // Media query to detect screen size changes
     useEffect(() => {
         const mediaQuery = window.matchMedia("(max-width: 640px)");
@@ -173,7 +190,7 @@ export const NavBar = () => {
     }
 
     return (
-        <div className="w-full h-screen flex flex-col overflow-hidden">
+        <div className="w-full flex flex-col overflow-hidden" style={{ height: 'calc(var(--vh, 1vh) * 100)' }}>
             {/* Top Navbar */}
             <div className="fixed top-0 left-0 w-full bg-white shadow-md z-50">
                 <div className="flex h-16 items-center px-2 md:px-4">
@@ -192,7 +209,7 @@ export const NavBar = () => {
             </div>
 
             {/* Main Content Wrapper */}
-            <div className="flex mt-16 overflow-hidden" >
+            <div className="flex mt-16 overflow-hidden" style={{ height: 'calc(var(--vh, 1vh) * 100 - 64px)' }}>
                 {/* Sidebar for large screens */}
                 {!isSmallScreen && (
                     <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto overflow-x-hidden scrollbar-container ${collapsed ? "sm:w-16 w-0" : "sm:w-64 w-0"}`}>
