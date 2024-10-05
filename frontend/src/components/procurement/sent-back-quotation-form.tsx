@@ -191,7 +191,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
               let docId;
       
               // If a PR attachment for this vendor already exists, update the document. Otherwise, create a new document.
-              if (prAttachment.length > 0) {
+              if (prAttachment && prAttachment?.length > 0) {
                 docId = prAttachment[0].name;
               } else {
                 const newDoc = await createDoc("PR Attachments", {
@@ -250,7 +250,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
     const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
 
     return (
-        <div className="max-w-screen-lg mx-auto p-4">
+        <div className="max-w-screen-lg mx-auto p-4 max-sm:p-1">
       {/* Vendor Info Card */}
       <Card className="mb-6">
         <CardHeader className="bg-gray-50 border-b">
@@ -298,7 +298,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
           <CardHeader className="bg-gray-100 border-b">
             <CardTitle className="text-lg font-medium">Category: {cat.name}</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="max-sm:p-2">
             {quotation_request_list?.map((q) => (
               (q.category === cat.name && q.vendor === vendor_id && orderData?.item_list?.list.some(item => item.name === q.item)) && (
                 <div key={q.item} className="flex max-md:flex-col max-md:gap-2 items-center justify-between py-2 border-b last:border-none">

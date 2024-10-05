@@ -15,7 +15,7 @@ function DashboardCard({ title, icon, onClick, className, beta = false }: any) {
         >
             <div className="flex h-full w-full flex-col justify-between p-6">
                 <div className="text-left">
-                    <p className="text-lg font-semibold text-white">{title}</p>
+                    <p className="text-lg font-semibold text-white text-wrap">{title}</p>
                     {beta && <span className="text-xs text-white/70">*(beta)</span>}
                 </div>
                 <div className="self-end">{icon}</div>

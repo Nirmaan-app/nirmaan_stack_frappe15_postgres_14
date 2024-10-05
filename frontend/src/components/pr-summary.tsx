@@ -46,7 +46,7 @@ const PRSummary = () => {
 
     const project_address = project && project[0]?.project_address
 
-    const { data: address, error: address_error, isLoading: addressLoading } = useFrappeGetDoc("Address", project_address);
+    // const { data: address, error: address_error, isLoading: addressLoading } = useFrappeGetDoc("Address", project_address);
     const { data: procurementOrdersList, error: procurementOrdersError, isLoading: procurementOrdersLoading } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
         fields: ["*"],
         limit: 1000
@@ -59,10 +59,10 @@ const PRSummary = () => {
         <>
             {pr_error && <h1>{pr_error.message}</h1>}
             {project_error && <h1>{project_error.message}</h1>}
-            {address_error && <h1>{address_error.message}</h1>}
+            {/* {address_error && <h1>{address_error.message}</h1>} */}
             {procurementOrdersError && <h1>{procurementOrdersError.message}</h1>}
             {userError && <h1>{userError.message}</h1>}
-            {(prLoading || projectLoading || addressLoading || procurementOrdersLoading || userLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} project={project[0]} address={address} po_data={procurementOrdersList} universalComments={universalComments || []} usersList={usersList} />}
+            {(prLoading || projectLoading || procurementOrdersLoading || userLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} project={project[0]} po_data={procurementOrdersList} universalComments={universalComments || []} usersList={usersList} />}
         </>
     )
 };

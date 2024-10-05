@@ -110,7 +110,9 @@ const projectFormSchema = z.object({
         .object({
             work_packages: z.array(
                 z.object({
-                    work_package_name: z.string()
+                    work_package_name: z.string({
+                        required_error: "Please select atleast one work package associated with this project"
+                    })
                 })
             )
             // scopes: z.array(z.string()).refine((value) => value.some((item) => item), {
@@ -279,8 +281,13 @@ export const ProjectForm = () => {
     async function onSubmit(values: z.infer<typeof projectFormSchema>) {
         try {
             if (values.project_city === "Not Found" || values.project_state === "Not Found") {
-                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
-                return
+                throw new Error('City and State are "Not Found", Please Enter a Valid Pincode')
+            }
+            if(!values.project_end_date) {
+                throw new Error('Project End Data Must not be empty')
+            }
+            if(!values.project_work_packages.work_packages.length) {
+                throw new Error('Please select atleast one work package associated with this project')
             }
             // Format the dates
             const formatted_start_date = formatToLocalDateTimeString(values.project_start_date);
