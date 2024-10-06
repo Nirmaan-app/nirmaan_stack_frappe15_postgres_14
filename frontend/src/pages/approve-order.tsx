@@ -95,7 +95,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["*"],
         limit: 1000,
-        filters: [["role_profile", "=", "Nirmaan Project Manager Profile"]]
+        filters : [["role_profile", "in", ["Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"]]]
     })
 
     // console.log("universalCOmment", universalComments)
@@ -130,11 +130,11 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         }
     }, [usersList])
 
-    // console.log("managers", managersIdList)
+    console.log("usersList", usersList)
     // const fileInputRefs = useRef({});
 
     const getFullName = (id) => {
-        return usersList?.filter((user) => user.name === id)?.full_name
+        return usersList?.find((user) => user.name == id).full_name
     }
 
     const handleCommentChange = (item, e) => {
@@ -565,7 +565,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
                         <h2 className="text-lg pl-2 font-bold tracking-tight">Select Category</h2>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                         {category_list?.map((item) => {
                             if (item.work_package === orderData.work_package) {
                                 return <Card className="flex flex-col items-center shadow-none border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleCategoryClick(item.category_name, 'itemlist')}>
@@ -620,7 +620,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             </AlertDialogContent>
                         </AlertDialog>
                     </div>
-                    <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                    <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-red-700">Date:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
@@ -865,7 +865,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                     {cmt.comment_by === "Administrator" ? (
                                         <span className="text-sm italic">- Administrator</span>
                                     ) : (
-                                        <span>- {getFullName(cmt.comment_by)}</span>
+                                        <span className="text-sm italic">- {getFullName(cmt.comment_by)}</span>
                                     )}
                                 </div>
                             )) : <span className="text-sm flex items-center justify-center">No Comments Found.</span>}
@@ -1086,13 +1086,13 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 </div>}
             {page == 'additem' && <div className="flex-1 md:space-y-4">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
-                <div className="flex items-center pt-1 pb-4">
+                <div className="flex items-center gap-1">
                     <ArrowLeft className="cursor-pointer" onClick={() => {
                         setCurItem("")
                         setMake("")
                         setPage('itemlist')
                     }} />
-                    <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
+                    <h2 className="text-base font-bold tracking-tight">Create new Item</h2>
                 </div>
                 <div className="mb-4">
                     <div className="flex">

@@ -66,6 +66,10 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         }
     }, [usersList])
 
+    const getFullName = (id) => {
+        return usersList?.find((user) => user.name == id).full_name
+    }
+
     const handleCommentChange = (e) => {
         setUniversalComment(e.target.value === "" ? null : e.target.value)
     }
@@ -682,7 +686,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                         {cmt.comment_by === "Administrator" ? (
                                             <span className="text-sm italic">-Administrator</span>
                                         ) : (
-                                            <span>- {getFullName(cmt.comment_by)}</span>
+                                            <span className="text-sm italic">- {getFullName(cmt.comment_by)}</span>
                                         )}
                                     </div>
                                 ))
@@ -717,14 +721,14 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 </Dialog>
             </div>}
             {page == 'additem' && <div className="flex-1 md:space-y-4">
-                <div className="flex items-center pt-1 pb-4">
+                <div className="flex items-center gap-1">
                     <ArrowLeft className="cursor-pointer" onClick={() => {
                         setCurItem("")
                         setMake("")
                         setQuantity(null)
                         setPage('itemlist')
                     }} />
-                    <h2 className="text-base pl-2 font-bold tracking-tight">Create new Item</h2>
+                    <h2 className="text-base font-bold tracking-tight">Create new Item</h2>
                 </div>
                 <div className="mb-4">
                     <div className="flex">

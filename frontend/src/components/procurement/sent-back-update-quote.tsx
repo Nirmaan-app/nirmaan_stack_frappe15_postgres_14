@@ -66,7 +66,16 @@ export const SentBackUpdateQuote = () => {
         orderBy: { field: "creation", order: "desc" }
     })
 
-    console.log("universalComments", universalComments)
+    const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["*"],
+        limit: 1000,
+    })
+
+    // console.log("universalComments", universalComments)
+
+    const getFullName = (id) => {
+        return usersList?.find((user) => user.name == id).full_name
+    }
 
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
 
@@ -309,7 +318,7 @@ export const SentBackUpdateQuote = () => {
                             </div>
                             <Badge variant={orderData?.type === "Rejected" ? "destructive" : orderData?.type === "Delayed" ? "orange" : "gray"}>{orderData?.type}</Badge>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
@@ -324,7 +333,7 @@ export const SentBackUpdateQuote = () => {
                             </div>
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
+                                <p className="text-left font-bold py-1 font-bold text-base text-black break-words">{orderData?.owner}</p>
                             </div>
                             {/* <div className="border-0 flex flex-col justify-center">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
@@ -363,8 +372,22 @@ export const SentBackUpdateQuote = () => {
                         <div className="flex items-center space-y-2 pt-8">
                             <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Sent Back Comments</h2>
                         </div>
-                        <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
-                            {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                            {/* {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")} */}
+                        {
+                            universalComments ? (
+                                <div className="flex justify-between items-end">
+                                        <p className="font-semibold text-[15px]">{universalComments[0]?.content}</p>
+                                        {universalComments[0]?.comment_by === "Administrator" ? (
+                                            <span className="text-sm italic">-Administrator</span>
+                                        ) : (
+                                            <span className="text-sm italic">- {getFullName(universalComments[0]?.comment_by)}</span>
+                                        )}
+                            </div>
+                            ) : (
+                                <span className="font-semibold text-[15px]">No Comments Found</span>
+                            )
+                        }
                         </div>
                         <div className="flex flex-col justify-end items-end">
                             <Button onClick={() => setPage('quotation')} className="flex items-center gap-1">
@@ -407,13 +430,13 @@ export const SentBackUpdateQuote = () => {
                             </div> */}
                         </Card>
                         <div className="flex justify-between">
-                            <div className="p-2 pl-7 font-light underline text-red-700">Selected Vendor List</div>
-                            <div className="p-2 pl-7 font-light underline text-red-700 pr-16">Options</div>
+                            <div className="p-2 sm:pl-7 font-light underline text-red-700">Selected Vendor List</div>
+                            <div className="p-2 sm:pl-7 font-light underline text-red-700 pr-10 sm:pr-32">Options</div>
                         </div>
                         {uniqueVendors.list.map((item) => {
-                            return <div className="px-4 flex justify-between items-center">
-                                <div className="py-4 font-semibold">{getVendorName(item)}</div>
-                                <div className="flex gap-2 max-sm:flex-col max-sm:items-start">
+                            return <div className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
+                                <div className="sm:pl-4 pl-2 py-4 font-semibold">{getVendorName(item)}</div>
+                                <div className="flex space-x-2 max-sm:flex-col items-center justify-center max-sm:gap-2">
                                     <Sheet>
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
                                         <SheetContent className="overflow-auto">
@@ -428,7 +451,7 @@ export const SentBackUpdateQuote = () => {
                                         </SheetContent>
                                     </Sheet>
                                     <Sheet>
-                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
+                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price(s)</SheetTrigger>
                                         <SheetContent className="overflow-auto">
                                             {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
                                             <SheetHeader className="text-start">
@@ -436,10 +459,10 @@ export const SentBackUpdateQuote = () => {
                                                         <SheetTitle className="text-xl">Enter Price(s)</SheetTitle>
                                                         <PencilLine className="w-5 h-5 text-primary" />
                                                     </div>
-                                                <SheetDescription>
-                                                <Card className="p-5">
+                                                <SheetDescription className="py-2">
+                                                {/* <Card className="p-5"> */}
                                                     <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
-                                                </Card>
+                                                {/* </Card> */}
                                                 </SheetDescription>
                                             </SheetHeader>
                                             {/* </ScrollArea> */}

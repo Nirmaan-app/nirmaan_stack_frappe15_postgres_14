@@ -652,7 +652,7 @@ export const SelectVendors = () => {
                             <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendor/Item Quotes</h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
@@ -677,8 +677,8 @@ export const SelectVendors = () => {
                         {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name;
                             return <div>
-                                <Card className="flex w-full shadow-none border border-grey-500" >
-                                    <CardHeader className="w-full">
+                                <Card className="flex w-full shadow-none border border-grey-500 overflow-x-auto" >
+                                    <CardHeader className="w-full overflow-x-auto">
                                         <div className='flex justify-between py-5'>
                                             <CardTitle className="font-bold text-xl text-red-700">
                                                 {cat.name}
@@ -687,21 +687,21 @@ export const SelectVendors = () => {
                                                 {getSelectedVendor(cat.name)}
                                             </CardTitle>
                                         </div>
-                                        <table className="w-full">
-                                            <thead className="w-full border-b border-black">
-                                                <tr>
+                                        <table className="w-full ">
+                                            <thead className="w-full border-b border-black ">
+                                                <tr className=''>
                                                     <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-slate-600'>Delivery Time:</div></th>
                                                     {selectedCategories[curCategory]?.map((item) => {
                                                         const isSelected = selectedVendors[curCategory] === item;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                         return <th className="bg-gray-200 font-semibold p-2 text-left "><span className={dynamicClass}>{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
-                                                            <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, cat.name)} Days</div>
+                                                            <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, cat.name) || "--"} Days</div>
                                                         </th>
                                                     })}
                                                     <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="bg-white divide-y divide-gray-200">
+                                            <tbody className="bg-white divide-y divide-gray-200 ">
                                                 {orderData?.procurement_list?.list.map((item) => {
                                                     const quotesForItem = quote_data
                                                         ?.filter(value => value.item === item.name && value.quote)
@@ -749,7 +749,7 @@ export const SelectVendors = () => {
                                                     {selectedCategories[curCategory]?.map((value) => {
                                                         const isSelected = selectedVendors[curCategory] === value;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <td className={`py-2 text-sm pl-8 text-left font-bold ${dynamicClass}`}>
+                                                        return <td className={`py-2 text-sm max-sm:pl-2 pl-8 text-left font-bold ${dynamicClass}`}>
                                                             {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
                                                         </td>
                                                     })}

@@ -191,7 +191,7 @@ export default function Profile() {
             </div>
             <Card>
                 <CardHeader className="flex flex-row items-start justify-between">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                    <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
                         <Avatar className="h-20 w-20 text-3xl">
                             <AvatarImage src="/placeholder.svg" alt={data?.full_name} />
                             <AvatarFallback>{data?.full_name.split(' ').map(n => n[0]).join('').toUpperCase()}</AvatarFallback>
@@ -202,7 +202,7 @@ export default function Profile() {
                         </div>
                     </div>
                     {userData.role === "Nirmaan Admin Profile" &&
-                        <div className="flex max-sm:flex-col gap-2">
+                        <div className="flex flex-wrap max-sm:flex-col gap-2">
                             <Button className="flex gap-1 items-center" onClick={() => handlePasswordReset()}>
                                 <KeyRound className="w-5 h-5" />
                                 Reset Password

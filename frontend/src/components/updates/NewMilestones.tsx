@@ -265,6 +265,10 @@ export default function NewMilestones() {
         }
     }, [project_work_milestones_list]);
 
+    // console.log("project", project)
+
+    // console.log("project work milestones", project_work_milestones_list)
+
 
     return (
         <div className="w-full h-auto p-4 flex flex-col space-y-4">
@@ -304,7 +308,7 @@ export default function NewMilestones() {
                     defaultValues !== null && (
                         <>
                             <Accordion type="multiple" defaultValue={defaultValues}>
-                                {project?.project_work_milestones?.work_packages?.map((wp) => (
+                                {project?.project_work_packages?.work_packages?.map((wp) => (
                                     <AccordionItem key={wp.work_package_name} value={wp.work_package_name}>
                                         <AccordionTrigger>
                                             <Button variant="ghost" size="lg" className="md:mb-2 text-base md:text-lg px-2  w-full justify-start">

@@ -46,8 +46,7 @@ const PRSummary = () => {
 
     const project_address = project && project[0]?.project_address
 
-    const { data: address, error: address_error, isLoading: addressLoading } = useFrappeGetDoc("Address", project_address);
-
+    // const { data: address, error: address_error, isLoading: addressLoading } = useFrappeGetDoc("Address", project_address);
     const { data: procurementOrdersList, error: procurementOrdersError, isLoading: procurementOrdersLoading } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
         fields: ["*"],
         limit: 1000

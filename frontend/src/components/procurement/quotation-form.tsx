@@ -243,7 +243,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     // console.log("prAttachment", prAttachment)
 
     return (
-        <div className="max-w-screen-lg mx-auto p-4">
+        <div className="max-w-screen-lg mx-auto p-4 max-sm:p-1">
       {/* Vendor Info Card */}
       <Card className="mb-6">
         <CardHeader className="bg-gray-50 border-b">
@@ -296,7 +296,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
           <CardHeader className="bg-gray-100 border-b">
             <CardTitle className="text-lg font-medium">Category: {cat.name}</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="max-sm:p-2">
             {quotation_request_list?.map((q) => (
               q.category === cat.name && q.vendor === vendor_id && (
                 <div key={q.item} className="flex max-md:flex-col max-md:gap-2 items-center justify-between py-2 border-b last:border-none">
@@ -308,7 +308,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                         <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg ml-56">
                             <div className="relative pb-4">
                                 <span className="block">{getComment(q.item)}</span>
-                                <span className="text-xs absolute right-0 italic text-gray-500">-Comment by PL</span>
+                                <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
                             </div>
                         </HoverCardContent>
                     </HoverCard>

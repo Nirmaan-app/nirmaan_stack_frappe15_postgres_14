@@ -102,6 +102,16 @@ export const ProcurementOrder = () => {
     }
     )
 
+    const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["*"],
+        limit: 1000,
+        filters: [["role_profile", "=", "Nirmaan Project Lead Profile"]]
+    })
+
+    const getFullName = (id) => {
+        return usersList?.find((user) => user.name == id).full_name
+    }
+
     // console.log("universalcomments", universalComments)
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
@@ -327,7 +337,7 @@ export const ProcurementOrder = () => {
                             <ArrowLeft className='cursor-pointer' onClick={() => navigate("/procure-request")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Summary </h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                        <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                             <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
@@ -380,7 +390,7 @@ export const ProcurementOrder = () => {
                                                                         <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                                                         <div className="relative pb-4">
                                                                             <span className="block">{item.comment}</span>
-                                                                            <span className="text-xs absolute right-0 italic text-gray-300">-Comment by PL</span>
+                                                                            <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
                                                                         </div>
 
                                                                         </HoverCardContent>
@@ -436,8 +446,21 @@ export const ProcurementOrder = () => {
                         <div className="flex items-center space-y-2">
                             <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
                         </div>
-                        <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
-                            {universalComments?.find((cmt) => cmt.subject === "approving pr")?.content}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                        {
+                            universalComments?.find((cmt) => cmt.subject === "approving pr") ?  (
+                                <div className="flex justify-between items-end">
+                                        <p className="font-semibold text-[15px]">{universalComments?.find((cmt) => cmt.subject === "approving pr")?.content}</p>
+                                        {universalComments?.find((cmt) => cmt.subject === "approving pr")?.comment_by === "Administrator" ? (
+                                            <span className="text-sm italic">-Administrator</span>
+                                        ) : (
+                                            <span className="text-sm italic">- {getFullName(universalComments?.find((cmt) => cmt.subject === "approving pr")?.comment_by)}</span>
+                                        )}
+                                    </div>
+                            ) : (
+                                <span>No Comments Found</span>
+                            )
+                        }
                         </div>
                         <div className="flex flex-col justify-end items-end max-md:mt-4">
                             <Button onClick={() => setPage('vendors')} className="flex items-center gap-1">

@@ -27,14 +27,12 @@ const UserFormSchema = z.object({
                 required_error: "Must Provide Last name"
             }),
     mobile_no: z
-        .number(
-            {
-                required_error: "Must Provide Mobile Number"
-            })
-        .positive()
-        .gte(1000000000)
-        .lte(9999999999)
-        .or(z.string()),
+        .string({
+            required_error: "Must provide Unique Mobile Number"
+        })
+        .max(10, { message: "Mobile number must be of 10 digits" })
+        .min(10, { message: "Mobile number must be of 10 digits" })
+        .or(z.number()),
     email: z
         .string(
             {
@@ -98,7 +96,7 @@ export const UserForm = () => {
         } catch (error: any) {
             toast({
                 title: "Error",
-                description: `${error?.message}`,
+                description: `${error?._debug_messages}`,
                 variant: "destructive"
             })
 

@@ -492,8 +492,8 @@ export const SentBackSelectVendor = () => {
                         {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name;
                             return <div>
-                                <Card className="flex w-full shadow-none border border-grey-500">
-                                    <CardHeader className="w-full">
+                                <Card className="flex w-full shadow-none border border-grey-500 overflow-x-auto">
+                                    <CardHeader className="w-full overflow-x-auto">
                                         <div className='flex justify-between py-5'>
                                             <CardTitle className="font-bold text-xl">
                                                 {curCategory}
@@ -510,7 +510,7 @@ export const SentBackSelectVendor = () => {
                                                         const isSelected = selectedVendors[curCategory] === item;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                         return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}>{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
-                                                            <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory)} Days</div>
+                                                            <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory) || "--"} Days</div>
                                                         </th>
                                                     })}
                                                     <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
@@ -537,7 +537,7 @@ export const SentBackSelectVendor = () => {
                                                                 const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                                 return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
                                                                     <input className="mr-2" disabled={price === "-" ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
-                                                                    {formatToIndianRupee(price * item.quantity)}
+                                                                    {Number.isNaN((price * item.quantity)) ? "N/A" : formatToIndianRupee(price * item.quantity)}
                                                                 </td>
                                                             })}
                                                             <td className="py-2 text-sm px-2 border-b">
@@ -551,8 +551,8 @@ export const SentBackSelectVendor = () => {
                                                     {selectedCategories[curCategory]?.map((value) => {
                                                         const isSelected = selectedVendors[curCategory] === value;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <td className={`py-2 text-sm px-2 text-left font-bold ${dynamicClass}`}>
-                                                            {formatToIndianRupee(getTotal2(value, curCategory))}
+                                                        return <td className={`py-2 text-sm max-sm:pl-2 pl-8 text-left font-bold ${dynamicClass}`}>
+                                                            {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
                                                         </td>
                                                     })}
                                                     <td></td>
