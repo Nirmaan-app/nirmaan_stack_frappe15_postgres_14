@@ -70,13 +70,13 @@ const PRSummary = () => {
 interface PRSummaryPageProps {
     pr_data: ProcurementRequestsType | undefined
     project: ProjectsType | undefined
-    address: any
+    address?: any
     po_data: ProcurementOrdersType[] | undefined
     universalComments: any
     usersList: NirmaanUsersType[] | undefined
 }
 
-const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments, usersList }: PRSummaryPageProps) => {
+const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList }: PRSummaryPageProps) => {
     const navigate = useNavigate();
     const pr_no = pr_data.name.split("-").slice(-1)
 
@@ -159,7 +159,7 @@ const PRSummaryPage = ({ pr_data, project, address, po_data, universalComments, 
                                         <AlertDialog>
                                             <AlertDialogTrigger>
                                                 <Button className="flex items-center gap-1">
-                                                <Trash2 className="h-4 w-4" />
+                                                    <Trash2 className="h-4 w-4" />
                                                     Delete</Button>
                                             </AlertDialogTrigger>
                                             <AlertDialogContent>

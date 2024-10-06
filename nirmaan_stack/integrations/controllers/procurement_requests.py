@@ -28,4 +28,6 @@ def on_update(doc, method):
     pass
 
 def on_trash(doc, method):
-    pass
+    comments = frappe.db.delete("Nirmaan Comments", {
+        "reference_name" : ("=", doc.name)
+    })
