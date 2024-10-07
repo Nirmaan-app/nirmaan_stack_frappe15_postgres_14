@@ -173,9 +173,9 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                     <div className="py-2">
                         <h3 className="text-black font-semibold pb-2">Include Attachments</h3>
 
-                        {Object.keys(pdfImages).length ? (
+                        {(Object.keys(pdfImages).filter((cat) => Array.from(categoryForVendor).includes(cat))).length ? (
                             <div>
-                                {Object.keys(pdfImages).map((cat) => (
+                                {(Object.keys(pdfImages).filter((cat) => Array.from(categoryForVendor).includes(cat))).map((cat) => (
                                 <div className="flex gap-2">
                                 {/* {[...categoryForVendor].map((cat) => ( */}
                                     <input type="checkbox" checked={displayBOQ[cat]} onChange={() => {
