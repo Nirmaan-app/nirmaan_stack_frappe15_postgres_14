@@ -187,7 +187,7 @@ export default function Profile() {
         <div className="flex-1 md:space-y-4 space-y-2">
             <div className="flex items-center gap-1">
                 <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6 cursor-pointer" />
-                <span className='text-xl font-semibold'>User Details</span>
+                <span className='text-2xl max-md:text-xl font-semibold'>User Details</span>
             </div>
             <Card>
                 <CardHeader className="flex flex-row items-start justify-between">
@@ -205,7 +205,7 @@ export default function Profile() {
                         <div className="flex flex-wrap max-sm:flex-col gap-2">
                             <Button className="flex gap-1 items-center" onClick={() => handlePasswordReset()}>
                                 <KeyRound className="w-5 h-5" />
-                                Reset Password
+                                <span className="max-md:hidden">Reset Password</span>
                             </Button>
                             {data?.role_profile === "Nirmaan Admin Profile" ?
 
@@ -216,7 +216,7 @@ export default function Profile() {
                                     <DialogTrigger asChild>
                                         <Button className="flex gap-1 items-center">
                                             <Trash2 className="w-5 h-5" />
-                                            Delete User
+                                            <span className="max-md:hidden">Delete User</span>
                                         </Button>
                                     </DialogTrigger>
                                     <DialogContent>
@@ -260,11 +260,14 @@ export default function Profile() {
             </Card>
             <div>
                 <div className="flex justify-between items-center mb-2 mt-4">
-                    <h2 className="text-2xl font-bold">Assigned Projects</h2>
+                    <h2 className="text-2xl max-md:text-xl font-semibold font-bold">Assigned Projects</h2>
                     {userData.role === "Nirmaan Admin Profile" &&
                         (data?.role_profile === "Nirmaan Admin Profile" ?
                             <Button disabled={true}>
-                                <div className="flex items-center"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
+                                <div className="flex items-center">
+                                    <CirclePlus className="w-5 h-5 mt- pr-1 " />
+                                    <span className="max-md:hidden">Assign New Project</span>
+                                </div>
                             </Button>
                             :
                             <Dialog>
