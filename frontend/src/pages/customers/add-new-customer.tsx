@@ -114,7 +114,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     const onSubmit = async (values: CustomerFormValues) => {
         try {
             if(values.company_city === "Not Found" || values.company_state === "Not Found") {
-                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+                throw new Error('City and State are "Not Found", Please Enter a Valid Pincode')
             }
             // Create the address document
             const addressDoc = await createDoc("Address", {

@@ -109,7 +109,7 @@ export const ProcurementOrder = () => {
     })
 
     const getFullName = (id) => {
-        return usersList?.find((user) => user.name == id).full_name
+        return usersList?.find((user) => user.name == id)?.full_name
     }
 
     // console.log("universalcomments", universalComments)
@@ -458,7 +458,7 @@ export const ProcurementOrder = () => {
                                         )}
                                     </div>
                             ) : (
-                                <span>No Comments Found</span>
+                                <span className="text-xs font-semibold">No Comments Found</span>
                             )
                         }
                         </div>

@@ -218,13 +218,15 @@ export const ProjectForm = () => {
         defaultValues
     })
     const { data: company, isLoading: company_isLoading, error: company_error, mutate: company_mutate } = useFrappeGetDocList('Customers', {
-        fields: ["name", "company_name"],
-        limit: 1000
+        fields: ["name", "company_name", "creation"],
+        limit: 1000,
+        orderBy: {field: "creation", order: "desc"}
     });
 
     const { data: project_types, isLoading: project_types_isLoading, error: project_types_error, mutate: project_types_mutate } = useFrappeGetDocList('Project Types', {
-        fields: ["name", "project_type_name"],
-        limit: 100
+        fields: ["name", "project_type_name", "creation"],
+        limit: 100,
+        orderBy: {field: "creation", order: "desc"}
     });
 
 

@@ -5,7 +5,9 @@ import * as HoverCardPrimitive from "@radix-ui/react-hover-card"
 
 import { cn } from "@/lib/utils"
 
-const HoverCard = HoverCardPrimitive.Root
+const HoverCard = ({ delayDuration = 500, ...props }) => (
+    <HoverCardPrimitive.Root openDelay={delayDuration} {...props} />
+)
 
 const HoverCardTrigger = HoverCardPrimitive.Trigger
 

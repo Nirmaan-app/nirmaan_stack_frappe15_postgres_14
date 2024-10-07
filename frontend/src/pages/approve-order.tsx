@@ -125,7 +125,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
 
     useEffect(() => {
         if (usersList) {
-            let ids = usersList.map((user) => user.name)
+            let ids = usersList.map((user) => user?.name)
             setManagersIdList(ids)
         }
     }, [usersList])
@@ -134,7 +134,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     // const fileInputRefs = useRef({});
 
     const getFullName = (id) => {
-        return usersList?.find((user) => user.name == id).full_name
+        return usersList?.find((user) => user.name == id)?.full_name
     }
 
     const handleCommentChange = (item, e) => {
@@ -868,7 +868,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                         <span className="text-sm italic">- {getFullName(cmt.comment_by)}</span>
                                     )}
                                 </div>
-                            )) : <span className="text-sm flex items-center justify-center">No Comments Found.</span>}
+                            )) : <span className="text-xs font-semibold flex items-center justify-center">No Comments Found.</span>}
                     </div>
                     <div className="flex gap-4 justify-end items-end mt-4">
                         <Button disabled={!orderData.procurement_list.list.length} variant="secondary" className="" onClick={() => {

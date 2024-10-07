@@ -42,7 +42,6 @@ export const MainLayout = () => {
 
     return (
         <>
-            <ScrollToTop />
             <NavBar />
 
             {/* <Layout>

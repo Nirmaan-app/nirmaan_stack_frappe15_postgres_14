@@ -125,11 +125,11 @@ const DeliveryNotes = () => {
     // console.log("project", project)
 
     return (
-        <div className="flex-1 md:space-y-4">
-            <div className="pb-4">
+        <div className="flex-1 space-y-2 md:space-y-4">
+            <div className="">
                 <div className="flex items-center ">
                         <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
-                        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Update Delivery Notes</h2>
+                        <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">Update Delivery Notes</h2>
                     </div>
             </div>
             {/* {(!procurementRequestsLoading && !procurementRequestsListLoading) && <DataTable columns={columns} data={procurementRequestsList} />} */}
