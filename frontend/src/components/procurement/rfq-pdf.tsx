@@ -4,13 +4,8 @@ import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 import { formatDate } from "@/utils/FormatDate";
 import * as pdfjsLib from 'pdfjs-dist';
-import sample_pdf2 from "@/assets/somatosensory.pdf"
 import { Layout, Button } from "antd";
-import {
-    MenuFoldOutlined,
-    MenuUnfoldOutlined,
-  } from '@ant-design/icons';
-import { CircleChevronDown, CircleChevronLeft, CircleChevronRight } from "lucide-react";
+import { CircleChevronDown, CircleChevronLeft } from "lucide-react";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
 
@@ -22,7 +17,8 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
         fields: ["*"],
         filters: [["procurement_request", "=", pr_id]]
     })
-  const [collapsed, setCollapsed] = useState(true);
+
+    const [collapsed, setCollapsed] = useState(true);
 
     console.log("BOQ Attachments", boqAttachments)
 
@@ -82,12 +78,13 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
     };
 
     useEffect(() => {
+        const baseURL = window.location.origin
         boqAttachments?.forEach((boq) => {
-            loadPdfAsImages(`http://localhost:8000${boq.boq}`, boq.category)
+            loadPdfAsImages(`${baseURL}${boq.boq}`, boq.category)
         })
     }, [boqAttachments]);
 
-        console.log("pdfImages", pdfImages)
+    console.log("pdfImages", pdfImages)
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {

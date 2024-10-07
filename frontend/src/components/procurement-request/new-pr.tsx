@@ -67,7 +67,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     }, [usersList])
 
     const getFullName = (id) => {
-        return usersList?.find((user) => user.name == id).full_name
+        return usersList?.find((user) => user.name == id)?.full_name
     }
 
     const handleCommentChange = (e) => {

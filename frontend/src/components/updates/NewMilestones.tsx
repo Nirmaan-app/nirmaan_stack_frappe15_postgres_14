@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { convertDate, formatDate } from "@/utils/FormatDate";
 import { DialogClose } from "@radix-ui/react-dialog";
 
-
 interface UpdatedField {
     name: string;
     status: string;
@@ -71,6 +70,7 @@ export default function NewMilestones() {
             setDefaultValues(list)
         }
     }, [selectedProject])
+
     useEffect(() => {
         if (editingMilestone) {
             const milestone = project_work_milestones_list?.find((milestone) => milestone.name === editingMilestone);
@@ -232,6 +232,14 @@ export default function NewMilestones() {
         return hoursDifference > 6;
     }
 
+    function isMoreThan72Hours(modified: string) {
+        const modifiedDate = new Date(modified);
+        const currentTime = new Date();
+        const timeDifference = currentTime - modifiedDate;
+        const hoursDifference = timeDifference / (1000 * 60 * 60);
+        return hoursDifference > 72;
+    }
+
     const todayDate = new Date()
 
     const today = new Date().toISOString().split("T")[0];
@@ -265,13 +273,15 @@ export default function NewMilestones() {
         }
     }, [project_work_milestones_list]);
 
-    // console.log("project", project)
-
-    // console.log("project work milestones", project_work_milestones_list)
-
+    const checkPendingMilestones = () => {
+        const pendingMilestones = project_work_milestones_list?.filter(milestone => (milestone.status === "Pending" &&
+            new Date(milestone.start_date) <= new Date(today)) || (!["Completed", "Pending"].includes(milestone.status) && isMoreThan72Hours(milestone.modified)))
+        console.log("pendingMilestnoes", pendingMilestones)
+        return pendingMilestones
+    }
 
     return (
-        <div className="w-full h-auto p-4 flex flex-col space-y-4">
+        <div className="w-full h-auto flex flex-col space-y-4">
             <div className="flex flex-col space-y-4 md:mb-6">
                 <div className="flex justify-between">
                     <div className="flex items-center gap-2">
@@ -324,15 +334,15 @@ export default function NewMilestones() {
                                                 //      (milestone.status !== "Completed") && ( 
                                                 (project_work_milestones_list
                                                     .filter(milestone =>
-                                                        milestone.status !== "Completed" &&
-                                                        new Date(milestone.start_date) <= new Date(today) &&
+                                                        (milestone.status === "Pending" &&
+                                                        new Date(milestone.start_date) <= new Date(today)) || (!["Completed", "Pending"].includes(milestone.status) && isMoreThan72Hours(milestone.modified)) &&
                                                         milestone.work_package === wp.work_package_name
                                                     )).length !== 0 ? (
 
                                                     project_work_milestones_list
                                                         .filter(milestone =>
-                                                            milestone.status !== "Completed" &&
-                                                            new Date(milestone.start_date) <= new Date(today) &&
+                                                            (milestone.status === "Pending" &&
+                                                                new Date(milestone.start_date) <= new Date(today)) || (!["Completed", "Pending"].includes(milestone.status) && isMoreThan72Hours(milestone.modified)) &&
                                                             milestone.work_package === wp.work_package_name
                                                         )
                                                         .map(milestone => (
@@ -884,11 +894,7 @@ export default function NewMilestones() {
                 </AccordionItem>
 
                 */}
-
-
                             </Accordion>
-
-
                             <div className="flex justify-center">
                                 <Dialog>
                                     <DialogTrigger asChild>
@@ -898,11 +904,8 @@ export default function NewMilestones() {
                                         <DialogHeader>
                                             <DialogTitle>Are you sure?</DialogTitle>
                                             <DialogDescription>
-                                                Once submitted, these updates will be shared with project lead.
-
-
+                                                <DialogDescriptionContent checkPendingMilestones={checkPendingMilestones} />
                                             </DialogDescription>
-
                                         </DialogHeader>
                                         <div className="flex justify-center">
                                             <Button className="mr-2" variant="completed" onClick={() => navigate("/prs&milestones")}>Yes</Button>
@@ -921,8 +924,6 @@ export default function NewMilestones() {
                                             <DialogTitle>Are you sure?</DialogTitle>
                                             <DialogDescription>
                                                 If you cancel now, all the unsaved updates will be lost
-
-
                                             </DialogDescription>
 
                                         </DialogHeader>
@@ -947,3 +948,47 @@ export default function NewMilestones() {
         </div>
     );
 }
+
+
+const DialogDescriptionContent = ({ checkPendingMilestones }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const milestones = checkPendingMilestones() || [];
+  
+    const toggleExpanded = () => setIsExpanded(!isExpanded);
+  
+    const visibleMilestones = isExpanded ? milestones : milestones.slice(0, 3);
+  
+    return (
+      <div className="p-4">
+        {milestones.length ? (
+          <div>
+            <p className="mb-2 text-sm text-gray-700">
+              Some of the milestones still need an update as of today! Below is the list for your reference:
+            </p>
+            
+            {/* Milestone List */}
+            <div className="text-left flex flex-col gap-4 mb-2 py-2 max-h-[200px] overflow-auto bg-gray-200 rounded-md">
+              {visibleMilestones.map((ml, index) => (
+                <div key={index}>
+                  <h4 className="font-semibold text-xs text-red-800 px-2">{ml.milestone}</h4>
+                </div>
+              ))}
+            </div>
+            {/* Read More / Read Less Button */}
+            {milestones.length > 3 && (
+              <button
+                onClick={toggleExpanded}
+                className=" mt-4 px-4 py-2 text-blue-500 transition-all text-sm flex justify-end w-full"
+              >
+                {isExpanded ? "Collapse" : `...${milestones.length - 3} more`}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="text-center text-gray-500">
+            Once submitted, these updates will be shared with the project lead.
+          </div>
+        )}
+      </div>
+    );
+  };

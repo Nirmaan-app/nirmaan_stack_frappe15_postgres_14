@@ -18,6 +18,8 @@ import { Sheet, SheetContent } from "../ui/sheet";
 import { useFrappeGetDoc } from "frappe-react-sdk";
 import Cookies from "js-cookie";
 import { useNotificationStore } from "@/hooks/useNotificationStore";
+import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
+import ScrollToTop from "@/hooks/ScrollToTop";
 
 export const NavBar = () => {
     const [collapsed, setCollapsed] = useState(false);
@@ -251,7 +253,10 @@ export const NavBar = () => {
 
                 {/* Content Area */}
                 <div className="flex-1 px-4 py-2 overflow-auto transition-all duration-300 ease-in-out">
-                    <Outlet />
+                    <ErrorBoundaryWithNavigationReset>
+                        <ScrollToTop />
+                        <Outlet />
+                    </ErrorBoundaryWithNavigationReset>
                 </div>
             </div>
         </div>

@@ -87,14 +87,14 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
 
 
     const getFullName = (id: string) => {
-        return usersList?.filter((user) => user.name === id)[0].full_name
+        return usersList?.find((user) => user.name === id)?.full_name
     }
 
     const checkPoToPr = (prId: string) => {
         return po_data?.some((po) => po.procurement_request === prId)
     }
 
-    const itemsTimelineList = universalComments.map((cmt) => ({
+    const itemsTimelineList = universalComments?.map((cmt) => ({
         label: (
             <span className="max-sm:text-wrap text-xs m-0 p-0">{formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}</span>
         ), children: (

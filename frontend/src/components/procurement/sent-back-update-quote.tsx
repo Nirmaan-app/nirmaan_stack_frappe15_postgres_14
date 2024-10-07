@@ -74,7 +74,7 @@ export const SentBackUpdateQuote = () => {
     // console.log("universalComments", universalComments)
 
     const getFullName = (id) => {
-        return usersList?.find((user) => user.name == id).full_name
+        return usersList?.find((user) => user.name == id)?.full_name
     }
 
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
@@ -303,6 +303,8 @@ export const SentBackUpdateQuote = () => {
         [orderData, isButtonDisabled, vendor_list]
     )
 
+    console.log("universalComments", universalComments)
+
     // console.log("orderData", orderData)
 
     const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
@@ -375,7 +377,7 @@ export const SentBackUpdateQuote = () => {
                         <div className="border border-gray-200 rounded-lg p-4">
                             {/* {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")} */}
                         {
-                            universalComments ? (
+                            universalComments?.length ? (
                                 <div className="flex justify-between items-end">
                                         <p className="font-semibold text-[15px]">{universalComments[0]?.content}</p>
                                         {universalComments[0]?.comment_by === "Administrator" ? (
@@ -385,7 +387,7 @@ export const SentBackUpdateQuote = () => {
                                         )}
                             </div>
                             ) : (
-                                <span className="font-semibold text-[15px]">No Comments Found</span>
+                                <span className="font-semibold text-xs">No Comments Found</span>
                             )
                         }
                         </div>

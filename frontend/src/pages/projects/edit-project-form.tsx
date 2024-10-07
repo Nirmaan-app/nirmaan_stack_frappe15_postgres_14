@@ -134,7 +134,7 @@ export const EditProjectForm = () => {
         `${projectId}`
     );
 
-    console.log("projectData", data)
+    // console.log("projectData", data)
 
     const navigate = useNavigate()
 
@@ -213,7 +213,20 @@ export const EditProjectForm = () => {
 
             setPincode(project_address.pincode)
         }
-    }, [data, project_address])
+    }, [data, project_address, company, project_types])
+
+    // const getCompanyName = (id) => {
+    //     console.log("running")
+    //     return company?.find((com) => com.name === id)?.name
+    // }
+
+    // const getProjectTypeName = (id) => {
+    //     return project_types?.find((pt) => pt.name === id)?.project_type_name
+    // }
+
+    // useEffect(() => {
+
+    // })
 
     const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
 
@@ -267,7 +280,7 @@ export const EditProjectForm = () => {
     async function onSubmit(values: z.infer<typeof projectFormSchema>) {
         try {
             if (city === "Not Found" || state === "Not Found") {
-                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+                throw new Error('City and State are "Not Found", Please Enter a Valid Pincode')
                 return
             }
             const formatted_start_date = formatToLocalDateTimeString(values.project_start_date);
@@ -338,6 +351,9 @@ export const EditProjectForm = () => {
     //     work_package: item.work_package
     // })) || [];
 
+    // console.log("projectData", data)
+    // console.log("projectvalues", form.getValues())
+
     return (
             <Form {...form}>
                 <form onSubmit={(event) => {
@@ -374,62 +390,67 @@ export const EditProjectForm = () => {
                         <FormField
                             control={form.control}
                             name="customer"
-                            render={({ field }) => {
-                                return (
-                                    <FormItem className="lg:flex lg:items-center gap-4">
-                                        <FormLabel className="md:basis-2/12">Customer<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                                            <div className="md:basis-2/4">
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                <div className="flex flex-col items-start">
-                                                    <FormControl>
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Select the customer" />
-                                                        </SelectTrigger>
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </div>
-                                                <SelectContent>
-                                                    {company_isLoading && <div>Loading...</div>}
-                                                    {company_error && <div>Error: {company_error.message}</div>}
-                                                    {options.map(option => (
-                                                        <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                    ))}
-
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Sheet>
-                                    <SheetTrigger asChild>
-                                        <Button variant="secondary">
-                                            <div className="flex">
-                                                <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
-                                                <span className="pl-1">Add New Customer</span>
+                            render={({ field }) => (
+                                <FormItem className="lg:flex lg:items-center gap-4">
+                                    <FormLabel className="md:basis-2/12">
+                                        Customer<sup className="pl-1 text-sm text-red-600">*</sup>
+                                    </FormLabel>
+                                    <div className="md:basis-2/4">
+                                        <Select onValueChange={field.onChange} value={field.value}>
+                                            <div className="flex flex-col items-start">
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select the customer" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <FormMessage />
                                             </div>
-                                        </Button>
-                                    </SheetTrigger>
-                                    <SheetContent className="overflow-y-auto">
-                                        <SheetHeader className="text-start">
-                                            <SheetTitle><div className=" text-2xl font-bold">Create New Customer</div></SheetTitle>
-                                            <SheetDescription >
-                                                <NewCustomer company_mutate={company_mutate} navigation={false} />
-                                            </SheetDescription>
-                                        </SheetHeader>
-                                    </SheetContent>
-                                </Sheet>
-                                    </FormItem>
-                                )
-                            }}
+                                            <SelectContent>
+                                                {company_isLoading && <div>Loading...</div>}
+                                                {company_error && <div>Error: {company_error.message}</div>}
+                                                {options.map((option) => (
+                                                    <SelectItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <Sheet>
+                                        <SheetTrigger asChild>
+                                            <Button variant="secondary">
+                                                <div className="flex">
+                                                    <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                    <span className="pl-1">Add New Customer</span>
+                                                </div>
+                                            </Button>
+                                        </SheetTrigger>
+                                        <SheetContent className="overflow-y-auto">
+                                            <SheetHeader className="text-start">
+                                                <SheetTitle>
+                                                    <div className=" text-2xl font-bold">Create New Customer</div>
+                                                </SheetTitle>
+                                                <SheetDescription>
+                                                    <NewCustomer company_mutate={company_mutate} navigation={false} />
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                        </SheetContent>
+                                    </Sheet>
+                                </FormItem>
+                            )}
                         />
 
-                    <FormField
-                        control={form.control}
-                        name="project_type"
-                        render={({ field }) => {
-                            return (
+                        {/* // For `project_type` SelectField */}
+                        <FormField
+                            control={form.control}
+                            name="project_type"
+                            render={({ field }) => (
                                 <FormItem className="lg:flex lg:items-center gap-4">
-                                    <FormLabel className="md:basis-2/12">Project Type<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                    <FormLabel className="md:basis-2/12">
+                                        Project Type<sup className="pl-1 text-sm text-red-600">*</sup>
+                                    </FormLabel>
                                     <div className="md:basis-2/4">
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <Select onValueChange={field.onChange} value={field.value}>
                                             <div className="flex flex-col items-start">
                                                 <FormControl>
                                                     <SelectTrigger>
@@ -441,10 +462,11 @@ export const EditProjectForm = () => {
                                             <SelectContent>
                                                 {project_types_isLoading && <div>Loading...</div>}
                                                 {project_types_error && <div>Error: {project_types_error.message}</div>}
-                                                {type_options.map(option => (
-                                                    <SelectItem value={option.value}>{option.label}</SelectItem>
+                                                {type_options.map((option) => (
+                                                    <SelectItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </SelectItem>
                                                 ))}
-
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -468,8 +490,7 @@ export const EditProjectForm = () => {
                                         </DialogContent>
                                     </Dialog>
                                 </FormItem>
-                            )
-                        }}
+                            )}
                         />
                         </div>
                         <Separator className="my-6" />
