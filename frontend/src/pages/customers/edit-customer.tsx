@@ -10,69 +10,69 @@ import { ArrowLeft, ListChecks, ListRestart } from "lucide-react";
 import useCustomFetchHook from "@/reactQuery/customFunctions";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {  useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 const CustomerFormSchema = z.object({
     company_name: z
-    .string({
-        required_error: "Company Name is Required"
-    })
-    .min(3, {
-        message: "Must be at least 3 characters.",
-    }),
+        .string({
+            required_error: "Company Name is Required"
+        })
+        .min(3, {
+            message: "Must be at least 3 characters.",
+        }),
     company_email: z.string().email().optional().or(z.literal('')),
     company_phone: z
-    .string({
-        required_error: "Must Provide Customer Contact"
-    })
-    .max(10, { message: "Mobile number must be of 10 digits" })
-    .min(10, { message: "Mobile number must be of 10 digits" }), 
+        .string({
+            required_error: "Must Provide Customer Contact"
+        })
+        .max(10, { message: "Mobile number must be of 10 digits" })
+        .min(10, { message: "Mobile number must be of 10 digits" }),
     company_contact_person: z.string({
         required_error: "Contact Person is required"
     }).min(3, "Must be at least 3 characters."),
     company_gst: z.string({
         required_error: "Customer GST Required"
     })
-    .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
-        message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
-    })
-    .optional(),
+        .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+            message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
+        })
+        .optional(),
     address_line1: z
-    .string({
-        required_error: "Address Line 1 Required"
-    }).min(1, {
-        message: "Address Line 1 Required"
-    }),
+        .string({
+            required_error: "Address Line 1 Required"
+        }).min(1, {
+            message: "Address Line 1 Required"
+        }),
     address_line2: z.string().optional(),
     pin_code: z
-    .string({
-        required_error: "Must provide Pincode"
-    })
-    .max(6, { message: "Pincode must be of 6 digits" })
-    .min(6, { message: "Pincode must be of 6 digits" })
+        .string({
+            required_error: "Must provide Pincode"
+        })
+        .max(6, { message: "Pincode must be of 6 digits" })
+        .min(6, { message: "Pincode must be of 6 digits" })
 });
 
 
 type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
 
- const EditCustomer = () => {
+const EditCustomer = () => {
 
     const navigate = useNavigate();
 
     const { id } = useParams<{ id: string }>();
 
-    const {data, mutate : customerMutate} = useFrappeGetDoc("Customers", id, `Customers ${id}`, {
+    const { data, mutate: customerMutate } = useFrappeGetDoc("Customers", id, `Customers ${id}`, {
         revalidateIfStale: false
     })
 
     const companyAddress = data?.company_address;
 
-    const {data: addressData, mutate: addressMutate} = useFrappeGetDoc("Address", companyAddress, `Address ${companyAddress}`, {
+    const { data: addressData, mutate: addressMutate } = useFrappeGetDoc("Address", companyAddress, `Address ${companyAddress}`, {
         revalidateIfStale: false
     })
 
     const { updateDoc, loading, error: submit_error } = useFrappeUpdateDoc();
-    const {toast} = useToast()
-    const {mutate} = useSWRConfig()
+    const { toast } = useToast()
+    const { mutate } = useSWRConfig()
     const [city, setCity] = useState(addressData?.city || "")
     const [state, setState] = useState(addressData?.state || "")
     const [pincode, setPincode] = useState("")
@@ -196,11 +196,11 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
         }
     };
 
-    const {fetchDocList} = useCustomFetchHook()
+    const { fetchDocList } = useCustomFetchHook()
 
     const onSubmit = async (values: CustomerFormValues) => {
         try {
-            if(city === "Not Found" || state === "Not Found") {
+            if (city === "Not Found" || state === "Not Found") {
                 throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
             }
             await updateCustomerDetails(values);
@@ -210,7 +210,7 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                 const data = await fetchDocList("Customers")
                 return data
             }, {
-                rollbackOnError: true, 
+                rollbackOnError: true,
                 populateCache: (newData, currentData) => newData || currentData,
                 revalidate: true,
                 throwOnError: true,
@@ -222,7 +222,7 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                 variant: "success"
             });
             navigate(`/customers/${id}`);
-            
+
         } catch (error) {
             toast({
                 title: "Failed!",
@@ -238,7 +238,7 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
             <div className="space-y-0.5">
                 <div className="flex space-x-2 items-center">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/customers/${id}`)} />
-                    <h2 className="text-2xl font-bold tracking-tight">Edit Customer</h2>
+                    <h2 className="text-2xl font-bold tracking-tight">Edit: <span className="text-red-700">{id}</span></h2>
                 </div>
             </div>
             <Separator className="my-6 max-md:my-2" />
@@ -341,28 +341,28 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                         )}
                     />
                     <FormItem>
-                      <FormLabel>
-                        City<sup className="text-sm text-red-600">*</sup>
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                            disabled 
-                          type="text" 
-                          value={city}
-                        />
-                      </FormControl>
+                        <FormLabel>
+                            City<sup className="text-sm text-red-600">*</sup>
+                        </FormLabel>
+                        <FormControl>
+                            <Input
+                                disabled
+                                type="text"
+                                value={city}
+                            />
+                        </FormControl>
                     </FormItem>
                     <FormItem>
-                      <FormLabel>
-                        State<sup className="text-sm text-red-600">*</sup>
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                            disabled
-                          type="text" 
-                          value={state}
-                        />
-                      </FormControl>
+                        <FormLabel>
+                            State<sup className="text-sm text-red-600">*</sup>
+                        </FormLabel>
+                        <FormControl>
+                            <Input
+                                disabled
+                                type="text"
+                                value={state}
+                            />
+                        </FormControl>
                     </FormItem>
                     <FormField
                         control={form.control}
@@ -389,7 +389,7 @@ type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
                             Reset
                         </Button>
                         <Button type="submit" disabled={!hasChanges() || loading} className="flex items-center gap-1">
-                        <ListChecks className="h-4 w-4" />
+                            <ListChecks className="h-4 w-4" />
                             {loading ? "Updating..." : "Update"}
                         </Button>
                     </div>
