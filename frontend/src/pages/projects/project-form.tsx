@@ -1153,14 +1153,14 @@ export const ProjectForm = () => {
                                         <AlertDialogAction onClick={() => navigate("/projects")} className="flex items-center gap-1 bg-gray-100 text-black">
                                             <Undo2 className="h-4 w-4" />
                                             Go Back</AlertDialogAction>
-                                        <AlertDialogAction onClick={() => {
+                                        {/* <AlertDialogAction onClick={() => {
                                             form.reset()
                                             form.clearErrors()
                                         }}
                                             className="flex items-center gap-1"
                                         >
                                             <CirclePlus className="h-4 w-4" />
-                                            Create New</AlertDialogAction>
+                                            Create New</AlertDialogAction> */}
                                     </div>
                                 </AlertDialogHeader>
 
