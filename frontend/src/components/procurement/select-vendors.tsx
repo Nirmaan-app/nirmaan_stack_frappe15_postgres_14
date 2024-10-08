@@ -1000,12 +1000,13 @@ export const SelectVendors = () => {
                                     <DialogDescription>
                                         Remainder: Items whose quotes are not selected will have a delayed status attached to them. If confirmed, Delayed sent back request will be created for those Items.
 
-                                        {Object.keys(delayedItems).length && (
+
+                                        {Object.keys(delayedItems).length !== 0 ? (
                                             <div className='flex flex-col gap-2 mt-2 text-start'>
                                                 <h4 className='font-bold'>some items are delayed, any reason?</h4>
                                                 <TextArea placeholder='type here...' value={comment} onChange={(e) => setComment(e.target.value)} />
                                             </div>
-                                        )}
+                                        ) : <></>}
                                     </DialogDescription>
                                 </DialogHeader>
                                 <DialogDescription className='flex items-center justify-center gap-2'>
