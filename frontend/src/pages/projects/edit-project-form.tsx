@@ -13,7 +13,7 @@ import { Separator } from "../../components/ui/separator"
 import { useNavigate, useParams } from "react-router-dom"
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
 import { cn } from "@/lib/utils"
-import { ArrowLeft, CalendarIcon, CirclePlus, ListChecks } from "lucide-react"
+import { ArrowLeft, CalendarIcon, CirclePlus, ListChecks, MessageCircleWarning } from "lucide-react"
 import { Calendar } from "../../components/ui/calendar"
 import { format } from "date-fns"
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects"
@@ -22,6 +22,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import NewCustomer from "../customers/add-new-customer"
 import { formatToLocalDateTimeString } from "@/utils/FormatDate"
 import { toast } from "@/components/ui/use-toast"
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
@@ -40,7 +41,7 @@ const projectFormSchema = z.object({
     project_type: z
         .string()
         .optional(),
-        address_line_1: z
+    address_line_1: z
         .string({
             required_error: "Address Line 1 Required"
         })
@@ -160,7 +161,7 @@ export const EditProjectForm = () => {
         limit: 100
     });
 
-    const {data: project_address, isLoading: project_address_isLoading, error: project_address_error, mutate: project_address_mutate} = useFrappeGetDoc("Address", data?.project_address)
+    const { data: project_address, isLoading: project_address_isLoading, error: project_address_error, mutate: project_address_mutate } = useFrappeGetDoc("Address", data?.project_address)
 
     // const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
     //     fields: ["*"],
@@ -197,7 +198,7 @@ export const EditProjectForm = () => {
     })
 
     useEffect(() => {
-        if(data && project_address) {
+        if (data && project_address) {
             form.reset({
                 project_name: data?.project_name || "",
                 customer: data?.customer || "",
@@ -287,22 +288,22 @@ export const EditProjectForm = () => {
             const formatted_end_date = formatToLocalDateTimeString(values.project_end_date);
 
             const changedValues = {}
-            
-            if(values.project_name !== data?.project_name) changedValues["address_title"] = values.project_name
-            if(values.address_line_1 !== project_address?.address_line1) changedValues["address_line1"] = values.address_line_1
-            if(values.address_line_2 !== project_address?.address_line2) changedValues["address_line2"] = values.address_line_2
-            if(city !== project_address?.city) changedValues["city"] = city
-            if(state !== project_address?.state) changedValues["state"] = state
-            if(values.pin !== project_address?.pincode) changedValues["pincode"] = values.pin
-            if(values.email !== project_address?.email_id) changedValues["email_id"] = values.email
-            if(values.phone !== project_address?.phone) changedValues["phone"] = values.phone
 
-            if(Object.keys(changedValues).length) {
+            if (values.project_name !== data?.project_name) changedValues["address_title"] = values.project_name
+            if (values.address_line_1 !== project_address?.address_line1) changedValues["address_line1"] = values.address_line_1
+            if (values.address_line_2 !== project_address?.address_line2) changedValues["address_line2"] = values.address_line_2
+            if (city !== project_address?.city) changedValues["city"] = city
+            if (state !== project_address?.state) changedValues["state"] = state
+            if (values.pin !== project_address?.pincode) changedValues["pincode"] = values.pin
+            if (values.email !== project_address?.email_id) changedValues["email_id"] = values.email
+            if (values.phone !== project_address?.phone) changedValues["phone"] = values.phone
+
+            if (Object.keys(changedValues).length) {
                 await updateDoc('Address', data?.project_address, changedValues);
             }
 
             await updateDoc("Projects", projectId, {
-                project_name : values.project_name,
+                project_name: values.project_name,
                 customer: values.customer,
                 project_type: values.project_type,
                 project_start_date: formatted_start_date,
@@ -355,178 +356,179 @@ export const EditProjectForm = () => {
     // console.log("projectvalues", form.getValues())
 
     return (
-            <Form {...form}>
-                <form onSubmit={(event) => {
-                    event.stopPropagation();
-                    return form.handleSubmit(onSubmit)(event);
-                }} className="flex-1 md:space-y-4">
+        <Form {...form}>
+            <form onSubmit={(event) => {
+                event.stopPropagation();
+                return form.handleSubmit(onSubmit)(event);
+            }} className="flex-1 md:space-y-4">
 
-                    <div className="flex flex-col">
-                        <div className="flex items-center gap-1">
-                            <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${projectId}`)} />
-                            <p className="text-black font-semibold text-2xl max-md:text-xl">Edit Project</p>
-                        </div>
+                <div className="flex flex-col">
+                    <div className="flex items-center gap-1">
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${projectId}`)} />
+                        <p className="text-black font-semibold text-2xl max-md:text-xl">Edit: <span className="text-red-700">{projectId}</span></p>
+                        <sup className="text-red-700">*(beta)</sup>
+                    </div>
                     <Separator className="mt-6 max-md:mt-4 mb-4" />
                     <div className="px-6 flex flex-col ">
                         <p className="text-sky-600 font-semibold pb-2">Project Details</p>
                         <div className="flex flex-col gap-4">
-                        <FormField
-                            control={form.control}
-                            name="project_name"
-                            render={({ field }) => {
-                                return (
-                                <FormItem className="lg:flex lg:items-center gap-4">
-                                    <FormLabel className="md:basis-2/12">Project Name<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                                        <div className="flex flex-col items-start md:basis-2/4">
+                            <FormField
+                                control={form.control}
+                                name="project_name"
+                                render={({ field }) => {
+                                    return (
+                                        <FormItem className="lg:flex lg:items-center gap-4">
+                                            <FormLabel className="md:basis-2/12">Project Name<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                            <div className="flex flex-col items-start md:basis-2/4">
+                                                <FormControl>
+                                                    <Input {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </div>
+                                        </FormItem>)
+
+                                }}
+                            />
+                            <FormField
+                                control={form.control}
+                                name="customer"
+                                render={({ field }) => (
+                                    <FormItem className="lg:flex lg:items-center gap-4">
+                                        <FormLabel className="md:basis-2/12">
+                                            Customer<sup className="pl-1 text-sm text-red-600">*</sup>
+                                        </FormLabel>
+                                        <div className="md:basis-2/4">
+                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                <div className="flex flex-col items-start">
+                                                    <FormControl>
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select the customer" />
+                                                        </SelectTrigger>
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </div>
+                                                <SelectContent>
+                                                    {company_isLoading && <div>Loading...</div>}
+                                                    {company_error && <div>Error: {company_error.message}</div>}
+                                                    {options.map((option) => (
+                                                        <SelectItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Sheet>
+                                            <SheetTrigger asChild>
+                                                <Button variant="secondary">
+                                                    <div className="flex">
+                                                        <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                        <span className="pl-1">Add New Customer</span>
+                                                    </div>
+                                                </Button>
+                                            </SheetTrigger>
+                                            <SheetContent className="overflow-y-auto">
+                                                <SheetHeader className="text-start">
+                                                    <SheetTitle>
+                                                        <div className=" text-2xl font-bold">Create New Customer</div>
+                                                    </SheetTitle>
+                                                    <SheetDescription>
+                                                        <NewCustomer company_mutate={company_mutate} navigation={false} />
+                                                    </SheetDescription>
+                                                </SheetHeader>
+                                            </SheetContent>
+                                        </Sheet>
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* // For `project_type` SelectField */}
+                            <FormField
+                                control={form.control}
+                                name="project_type"
+                                render={({ field }) => (
+                                    <FormItem className="lg:flex lg:items-center gap-4">
+                                        <FormLabel className="md:basis-2/12">
+                                            Project Type<sup className="pl-1 text-sm text-red-600">*</sup>
+                                        </FormLabel>
+                                        <div className="md:basis-2/4">
+                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                <div className="flex flex-col items-start">
+                                                    <FormControl>
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select a project type" />
+                                                        </SelectTrigger>
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </div>
+                                                <SelectContent>
+                                                    {project_types_isLoading && <div>Loading...</div>}
+                                                    {project_types_error && <div>Error: {project_types_error.message}</div>}
+                                                    {type_options.map((option) => (
+                                                        <SelectItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Dialog>
+                                            <DialogTrigger asChild>
+                                                <Button variant="secondary">
+                                                    <div className="flex">
+                                                        <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
+                                                        <span className="pl-1">Add New Project Type</span>
+                                                    </div>
+                                                </Button>
+                                            </DialogTrigger>
+                                            <DialogContent className="max-w-[300px] md:max-w-[425px]">
+                                                <DialogHeader>
+                                                    <DialogTitle>Add New Project Type</DialogTitle>
+                                                    <DialogDescription>
+                                                        Add new project types here.
+                                                    </DialogDescription>
+                                                </DialogHeader>
+                                                <ProjectTypeForm project_types_mutate={project_types_mutate} />
+                                            </DialogContent>
+                                        </Dialog>
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
+                        <Separator className="my-6" />
+                        <p className="text-sky-600 font-semibold pb-2">Project Address Details</p>
+                        <div className="flex flex-col gap-4">
+                            <FormField
+                                control={form.control}
+                                name="address_line_1"
+                                render={({ field }) => (
+                                    <FormItem className="lg:flex lg:items-center gap-4">
+                                        <FormLabel className="md:basis-2/12">Address Line 1<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                        <div className="md:basis-2/4">
                                             <FormControl>
-                                                <Input {...field} />
+                                                <Input placeholder="Address Line 1" {...field} />
                                             </FormControl>
                                             <FormMessage />
                                         </div>
-                                </FormItem>)
+                                    </FormItem>
+                                )}
+                            />
 
-                            }}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="customer"
-                            render={({ field }) => (
-                                <FormItem className="lg:flex lg:items-center gap-4">
-                                    <FormLabel className="md:basis-2/12">
-                                        Customer<sup className="pl-1 text-sm text-red-600">*</sup>
-                                    </FormLabel>
-                                    <div className="md:basis-2/4">
-                                        <Select onValueChange={field.onChange} value={field.value}>
-                                            <div className="flex flex-col items-start">
-                                                <FormControl>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Select the customer" />
-                                                    </SelectTrigger>
-                                                </FormControl>
-                                                <FormMessage />
-                                            </div>
-                                            <SelectContent>
-                                                {company_isLoading && <div>Loading...</div>}
-                                                {company_error && <div>Error: {company_error.message}</div>}
-                                                {options.map((option) => (
-                                                    <SelectItem key={option.value} value={option.value}>
-                                                        {option.label}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <Sheet>
-                                        <SheetTrigger asChild>
-                                            <Button variant="secondary">
-                                                <div className="flex">
-                                                    <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
-                                                    <span className="pl-1">Add New Customer</span>
-                                                </div>
-                                            </Button>
-                                        </SheetTrigger>
-                                        <SheetContent className="overflow-y-auto">
-                                            <SheetHeader className="text-start">
-                                                <SheetTitle>
-                                                    <div className=" text-2xl font-bold">Create New Customer</div>
-                                                </SheetTitle>
-                                                <SheetDescription>
-                                                    <NewCustomer company_mutate={company_mutate} navigation={false} />
-                                                </SheetDescription>
-                                            </SheetHeader>
-                                        </SheetContent>
-                                    </Sheet>
-                                </FormItem>
-                            )}
-                        />
-
-                        {/* // For `project_type` SelectField */}
-                        <FormField
-                            control={form.control}
-                            name="project_type"
-                            render={({ field }) => (
-                                <FormItem className="lg:flex lg:items-center gap-4">
-                                    <FormLabel className="md:basis-2/12">
-                                        Project Type<sup className="pl-1 text-sm text-red-600">*</sup>
-                                    </FormLabel>
-                                    <div className="md:basis-2/4">
-                                        <Select onValueChange={field.onChange} value={field.value}>
-                                            <div className="flex flex-col items-start">
-                                                <FormControl>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Select a project type" />
-                                                    </SelectTrigger>
-                                                </FormControl>
-                                                <FormMessage />
-                                            </div>
-                                            <SelectContent>
-                                                {project_types_isLoading && <div>Loading...</div>}
-                                                {project_types_error && <div>Error: {project_types_error.message}</div>}
-                                                {type_options.map((option) => (
-                                                    <SelectItem key={option.value} value={option.value}>
-                                                        {option.label}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <Dialog>
-                                        <DialogTrigger asChild>
-                                            <Button variant="secondary">
-                                                <div className="flex">
-                                                    <CirclePlus className="w-3.5 h-3.5 mt-0.5" />
-                                                    <span className="pl-1">Add New Project Type</span>
-                                                </div>
-                                            </Button>
-                                        </DialogTrigger>
-                                        <DialogContent className="max-w-[300px] md:max-w-[425px]">
-                                            <DialogHeader>
-                                                <DialogTitle>Add New Project Type</DialogTitle>
-                                                <DialogDescription>
-                                                    Add new project types here.
-                                                </DialogDescription>
-                                            </DialogHeader>
-                                            <ProjectTypeForm project_types_mutate={project_types_mutate} />
-                                        </DialogContent>
-                                    </Dialog>
-                                </FormItem>
-                            )}
-                        />
-                        </div>
-                        <Separator className="my-6" />
-                    <p className="text-sky-600 font-semibold pb-2">Project Address Details</p>
-                    <div className="flex flex-col gap-4">
-                    <FormField
-                        control={form.control}
-                        name="address_line_1"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Address Line 1<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                                <div className="md:basis-2/4">
-                                    <FormControl>
-                                        <Input placeholder="Address Line 1" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </div>
-                            </FormItem>
-                        )}
-                    />
-
-                    <FormField
-                        control={form.control}
-                        name="address_line_2"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Address Line 2<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                                <div className="md:basis-2/4">
-                                    <FormControl>
-                                        <Input placeholder="Address Line 2" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </div>
-                            </FormItem>
-                        )}
-                    />
+                            <FormField
+                                control={form.control}
+                                name="address_line_2"
+                                render={({ field }) => (
+                                    <FormItem className="lg:flex lg:items-center gap-4">
+                                        <FormLabel className="md:basis-2/12">Address Line 2<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                        <div className="md:basis-2/4">
+                                            <FormControl>
+                                                <Input placeholder="Address Line 2" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </div>
+                                    </FormItem>
+                                )}
+                            />
 
                             <FormItem className="lg:flex lg:items-center gap-4">
                                 <FormLabel className="md:basis-2/12">City<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
@@ -547,175 +549,182 @@ export const EditProjectForm = () => {
                                 </div>
                             </FormItem>
 
-                    <FormField
-                        control={form.control}
-                        name="pin"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Pin Code<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                                <div className="md:basis-2/4">
-                                    <FormControl>
-                                        <Input
-                                            type="number"
-                                            placeholder="6 digit PIN"
-                                            {...field}
-                                            onChange={(e) => {
-                                                field.onChange(e)
-                                                handlePincodeChange(e)
-                                            }}
-                                        />
-                                    </FormControl>
-                                    <FormMessage />
-                                </div>
-                            </FormItem>
-                        )}
-                    />
+                            <FormField
+                                control={form.control}
+                                name="pin"
+                                render={({ field }) => (
+                                    <FormItem className="lg:flex lg:items-center gap-4">
+                                        <FormLabel className="md:basis-2/12">Pin Code<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                        <div className="flex flex-col items-start md:basis-2/4">
+                                            <FormControl>
+                                                <Input
+                                                    type="number"
+                                                    placeholder="6 digit PIN"
+                                                    {...field}
+                                                    onChange={(e) => {
+                                                        field.onChange(e)
+                                                        handlePincodeChange(e)
+                                                    }}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </div>
+                                        <Alert variant="warning" className="md:basis-[30%]">
+                                            <MessageCircleWarning className="h-4 w-4" />
+                                            <AlertTitle className="text-sm">Heads Up</AlertTitle>
+                                            <AlertDescription className="text-xs">
+                                                Changing the Pincode will not change the project id
+                                            </AlertDescription>
+                                        </Alert>
+                                    </FormItem>
+                                )}
+                            />
 
-                    <FormField
-                        control={form.control}
-                        name="phone"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Phone</FormLabel>
-                                <div className="md:basis-2/4">
-                                    <FormControl>
-                                        <Input
-                                            type="number"
-                                            placeholder="Phone"
-                                            {...field}
-                                        />
-                                    </FormControl>
-                                    <FormMessage />
-                                </div>
-                            </FormItem>
-                        )}
-                    />
+                            <FormField
+                                control={form.control}
+                                name="phone"
+                                render={({ field }) => (
+                                    <FormItem className="lg:flex lg:items-center gap-4">
+                                        <FormLabel className="md:basis-2/12">Phone</FormLabel>
+                                        <div className="md:basis-2/4">
+                                            <FormControl>
+                                                <Input
+                                                    type="number"
+                                                    placeholder="Phone"
+                                                    {...field}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </div>
+                                    </FormItem>
+                                )}
+                            />
 
-                    <FormField
-                        control={form.control}
-                        name="email"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Email</FormLabel>
-                                <div className="md:basis-2/4">
-                                    <FormControl>
-                                        <Input placeholder="Email" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </div>
-                            </FormItem>
-                        )}
-                    />
-                    </div>
+                            <FormField
+                                control={form.control}
+                                name="email"
+                                render={({ field }) => (
+                                    <FormItem className="lg:flex lg:items-center gap-4">
+                                        <FormLabel className="md:basis-2/12">Email</FormLabel>
+                                        <div className="md:basis-2/4">
+                                            <FormControl>
+                                                <Input placeholder="Email" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </div>
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
                         <Separator className="my-6" />
                         <p className="text-sky-600 font-semibold pb-2">Project Timeline</p>
                         <div className="flex flex-col gap-4">
-                        <FormField
-                        control={form.control}
-                        name="project_start_date"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Project Start Date<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                                <div className="md:basis-1/4">
-                                    <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-                                        <PopoverTrigger asChild>
-                                            <FormControl>
-                                                <Button
-                                                    variant={"outline"}
-                                                    className={cn(
-                                                        "w-full pl-3 text-left font-normal",
-                                                        !field.value && "text-muted-foreground"
-                                                    )}
-                                                >
-                                                    {field.value ? (
-                                                        format(field.value, "dd-MM-yyyy")
-                                                    ) : (
-                                                        <span>Pick a date</span>
-                                                    )}
-                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                </Button>
-                                            </FormControl>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0" align="start">
-                                            <Calendar
-                                                mode="single"
-                                                selected={field.value}
-                                                onSelect={(date) => {
-                                                    field.onChange(date)
-                                                    setPopoverOpen(false)
-                                                }}
-                                                initialFocus
-                                            />
-                                        </PopoverContent>
-                                    </Popover>
-                                    <FormMessage />
-                                </div>
-                                <FormDescription>
-                                    Edit project start date
-                                </FormDescription>
-                            </FormItem>
-                        )}
-                    />
+                            <FormField
+                                control={form.control}
+                                name="project_start_date"
+                                render={({ field }) => (
+                                    <FormItem className="lg:flex lg:items-center gap-4">
+                                        <FormLabel className="md:basis-2/12">Project Start Date<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                        <div className="md:basis-1/4">
+                                            <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+                                                <PopoverTrigger asChild>
+                                                    <FormControl>
+                                                        <Button
+                                                            variant={"outline"}
+                                                            className={cn(
+                                                                "w-full pl-3 text-left font-normal",
+                                                                !field.value && "text-muted-foreground"
+                                                            )}
+                                                        >
+                                                            {field.value ? (
+                                                                format(field.value, "dd-MM-yyyy")
+                                                            ) : (
+                                                                <span>Pick a date</span>
+                                                            )}
+                                                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                        </Button>
+                                                    </FormControl>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0" align="start">
+                                                    <Calendar
+                                                        mode="single"
+                                                        selected={field.value}
+                                                        onSelect={(date) => {
+                                                            field.onChange(date)
+                                                            setPopoverOpen(false)
+                                                        }}
+                                                        initialFocus
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
+                                            <FormMessage />
+                                        </div>
+                                        <FormDescription>
+                                            Edit project start date
+                                        </FormDescription>
+                                    </FormItem>
+                                )}
+                            />
 
-                    <FormField
-                        control={form.control}
-                        name="project_end_date"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Project End Date<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                                <div className="md:basis-1/4">
-                                    <Popover open={popoverOpen2} onOpenChange={setPopoverOpen2}>
-                                        <PopoverTrigger asChild>
-                                            <FormControl>
-                                                <Button
-                                                    variant={"outline"}
-                                                    className={cn(
-                                                        "w-full pl-3 text-left font-normal",
-                                                        !field.value && "text-muted-foreground"
-                                                    )}
-                                                >
-                                                    {field.value ? (
-                                                        format(field.value, "dd-MM-yyyy")
-                                                    ) : (
-                                                        <span>Pick a date</span>
-                                                    )}
-                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                </Button>
-                                            </FormControl>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0" align="start">
-                                            <Calendar
-                                                mode="single"
-                                                selected={field.value}
-                                                onSelect={(date) => {
-                                                    field.onChange(date)
-                                                    setPopoverOpen2(false)
-                                                }}
-                                                disabled={(date) =>
-                                                    date < form.getValues("project_start_date")
-                                                }
-                                                initialFocus
-                                            />
-                                        </PopoverContent>
-                                    </Popover>
-                                    <FormMessage />
+                            <FormField
+                                control={form.control}
+                                name="project_end_date"
+                                render={({ field }) => (
+                                    <FormItem className="lg:flex lg:items-center gap-4">
+                                        <FormLabel className="md:basis-2/12">Project End Date<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                        <div className="md:basis-1/4">
+                                            <Popover open={popoverOpen2} onOpenChange={setPopoverOpen2}>
+                                                <PopoverTrigger asChild>
+                                                    <FormControl>
+                                                        <Button
+                                                            variant={"outline"}
+                                                            className={cn(
+                                                                "w-full pl-3 text-left font-normal",
+                                                                !field.value && "text-muted-foreground"
+                                                            )}
+                                                        >
+                                                            {field.value ? (
+                                                                format(field.value, "dd-MM-yyyy")
+                                                            ) : (
+                                                                <span>Pick a date</span>
+                                                            )}
+                                                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                        </Button>
+                                                    </FormControl>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0" align="start">
+                                                    <Calendar
+                                                        mode="single"
+                                                        selected={field.value}
+                                                        onSelect={(date) => {
+                                                            field.onChange(date)
+                                                            setPopoverOpen2(false)
+                                                        }}
+                                                        disabled={(date) =>
+                                                            date < form.getValues("project_start_date")
+                                                        }
+                                                        initialFocus
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
+                                            <FormMessage />
+                                        </div>
+                                        <FormDescription>
+                                            Edit project end date
+                                        </FormDescription>
+                                    </FormItem>
+                                )}
+                            />
+                            <div className="flex items-center">
+                                <FormLabel className="md:basis-2/12">Duration: </FormLabel>
+                                <div className=" pl-4 flex items-center gap-2">
+                                    <h1>{duration}</h1>
+                                    <h1 className="text-sm text-red-600"><sup>*</sup>(Days)</h1>
                                 </div>
-                                <FormDescription>
-                                    Edit project end date
-                                </FormDescription>
-                            </FormItem>
-                        )}
-                    />
-                    <div className="flex items-center">
-                        <FormLabel className="md:basis-2/12">Duration: </FormLabel>
-                        <div className=" pl-4 flex items-center gap-2">
-                            <h1>{duration}</h1>
-                            <h1 className="text-sm text-red-600"><sup>*</sup>(Days)</h1>
+                            </div>
+
                         </div>
-                    </div>
 
-                    </div>
-                    
                         {/* <Separator className="my-6" />
                         <p className="text-sky-600 font-semibold pb-9">Package Specification</p>
                         <FormField
@@ -824,12 +833,12 @@ export const EditProjectForm = () => {
                         {/* <p className="text-sky-600 font-semibold pb-9">DEBUG Package Specification</p> */}
                         <div className="my-6">
                             {(loading) ? (<ButtonLoading />) : (<Button type="submit" className="flex items-center gap-1">
-                                <ListChecks className="h-4 w-4"  />
+                                <ListChecks className="h-4 w-4" />
                                 Submit</Button>)}
                         </div>
-                        </div>
                     </div>
-                </form>
-            </Form>
+                </div>
+            </form>
+        </Form>
     )
 }
