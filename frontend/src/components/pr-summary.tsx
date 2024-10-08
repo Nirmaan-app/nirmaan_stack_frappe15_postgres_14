@@ -164,19 +164,22 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                             </AlertDialogTrigger>
                                             <AlertDialogContent>
                                                 <AlertDialogHeader>
-                                                    <AlertDialogTitle>
-                                                        Are you sure, you want to delete the PR
+                                                    <AlertDialogTitle className="text-center">
+                                                        Are you sure, you want to delete this PR?
                                                     </AlertDialogTitle>
                                                 </AlertDialogHeader>
-                                                <AlertDialogDescription className="flex gap-2 items-center justify-center">
-                                                    <AlertDialogCancel className="flex items-center gap-1">
-                                                        <Undo2 className="h-4 w-4" />
-                                                        Cancel
-                                                    </AlertDialogCancel>
-                                                    <AlertDialogAction className="flex items-center gap-1" onClick={handleDeletePr}>
-                                                        <ListChecks className="h-4 w-4" />
-                                                        Confirm
-                                                    </AlertDialogAction>
+                                                <AlertDialogDescription className="">
+                                                    This action will delete this pr from the system. Are you sure you want to continue?
+                                                    <div className="flex gap-2 items-center justify-center">
+                                                        <AlertDialogCancel className="flex items-center gap-1">
+                                                            <Undo2 className="h-4 w-4" />
+                                                            Cancel
+                                                        </AlertDialogCancel>
+                                                        <AlertDialogAction className="flex items-center gap-1" onClick={handleDeletePr}>
+                                                            <ListChecks className="h-4 w-4" />
+                                                            Confirm
+                                                        </AlertDialogAction>
+                                                    </div>
                                                 </AlertDialogDescription>
                                             </AlertDialogContent>
                                         </AlertDialog>

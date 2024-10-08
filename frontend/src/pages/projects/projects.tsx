@@ -16,14 +16,14 @@ import { formatDate } from "@/utils/FormatDate";
 export default function Projects() {
     const navigate = useNavigate()
 
-    const {data: projectTypesList, isLoading: projectTypesListLoading} = useFrappeGetDocList("Project Types", {
+    const { data: projectTypesList, isLoading: projectTypesListLoading } = useFrappeGetDocList("Project Types", {
         fields: ["*"],
         limit: 1000
     },
-    "Project Types"
+        "Project Types"
     )
 
-    const projectTypeOptions = projectTypesList?.map((pt) => ({label : pt.name, value: pt.name}))
+    const projectTypeOptions = projectTypesList?.map((pt) => ({ label: pt.name, value: pt.name }))
 
     // console.log("projecttype", projectTypeOptions)
 
@@ -135,9 +135,9 @@ export default function Projects() {
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
                 </div>
 
-                    <Button asChild data-cy="add-project-button">
-                        <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> Project</span></Link>
-                    </Button>
+                <Button asChild data-cy="add-project-button">
+                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
+                </Button>
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2 cursor-pointer">
                 <Card className="hover:animate-shadow-drop-center" onClick={() => {

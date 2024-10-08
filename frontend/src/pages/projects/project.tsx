@@ -748,17 +748,16 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     <div className="flex-1 md:space-y-4">
       <div className="flex items-center">
         <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-          {isLoading ? <Skeleton className="w-[30%] h-10" /> : (
-            <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
-          )}
+        {isLoading ? <Skeleton className="w-[30%] h-10" /> : (
+          <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
+        )}
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
-        <sup className="text-red-700">*(beta)</sup>
       </div>
       <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
 
       {/* Overview Section */}
 
-      {(isLoading || usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" &&  (
+      {(isLoading || usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" && (
         <div className="flex flex-col gap-4 max-md:pt-4">
           <Card>
             <CardHeader>

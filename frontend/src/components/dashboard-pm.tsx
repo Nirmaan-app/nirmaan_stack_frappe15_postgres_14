@@ -1,5 +1,5 @@
-import {  useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
-import {  CirclePlus, Milestone, PackagePlus, ShoppingCart, Truck } from "lucide-react";
+import { useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { CirclePlus, Milestone, PackagePlus, ShoppingCart, Truck } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react"
 import { ArrowLeft } from 'lucide-react';
@@ -94,8 +94,7 @@ export const ProjectManager = () => {
                             title="Update Milestones"
                             icon={<Milestone className="h-8 w-8 text-white" />}
                             onClick={() => navigate("/milestone-update")}
-                            className="bg-red-300"
-                            beta
+                            className="bg-red-600"
                         />
                         <DashboardCard
                             title="Update Delivery Notes"
