@@ -19,7 +19,6 @@ import { AlertDialogAction } from "@radix-ui/react-alert-dialog";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
-import { Badge } from '../ui/badge';
 
 const { Sider, Content } = Layout;
 
@@ -242,15 +241,14 @@ export const ReleasePONew: React.FC = () => {
     if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
 
 
-  return (
-    <div className='flex-1 md:space-y-4'>
-                <div className="py-4 flex items-center gap-1">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/release-po")} />
-                    <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
-                </div>
-                <Layout>
-                    <Sider theme='light' collapsedWidth={0} width={500}  trigger={null} collapsible collapsed={collapsed}>
-
+    return (
+        <div className='flex-1 md:space-y-4'>
+            <div className="flex py-4">
+                <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
+                <div className="font-semibold text-xl md:text-2xl pl-2">{(orderData?.name)?.toUpperCase()}: <span className='text-primary'>{orderData?.status}</span></div>
+            </div>
+            <Layout>
+                <Sider theme='light' collapsedWidth={0} width={500} trigger={null} collapsible collapsed={collapsed}>
                     <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4">
                         <div className="flex-col">
                             <h3 className="font-semibold text-lg mt-4">Additional Charges</h3>
@@ -321,26 +319,24 @@ export const ReleasePONew: React.FC = () => {
                         </div>
                     </form>
                 </Sider>
-      <Layout className='bg-white'>
-        <div className="flex">
-          <Button
-            type="text"
-            icon={collapsed ? <NotebookPen className='hover:text-primary/40' /> : <ArrowLeftToLine className='hover:text-primary/40' />}
-            onClick={() => setCollapsed(!collapsed)}
-            style={{
-              fontSize: '16px',
-              width: 64,
-              height: 64,
-              backgroundColor: "white"
-            }}
-          />
-          <Content
-          className={`${collapsed ? "md:mx-10 lg:mx-32" : ""} my-4 mx-2 flex flex-col gap-4 relative`}
-          >
-              <div className='absolute right-0 -top-20 max-md:-top-14 flex items-center gap-1'>
-                        <Badge variant={orderData?.status === "Generated" ? "default" : orderData?.status === "Dispatched" ? "orange" : "green"}>{orderData?.status === "Partially Delivered" ? "Delivered" : orderData?.status}</Badge>
-                        <button className='h-9 px-6 py-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 
-
+                <Layout className='bg-white'>
+                    <div className="flex">
+                        <Button
+                            type="text"
+                            icon={collapsed ? <NotebookPen className='hover:text-primary/40' /> : <ArrowLeftToLine className='hover:text-primary/40' />}
+                            onClick={() => setCollapsed(!collapsed)}
+                            style={{
+                                fontSize: '16px',
+                                width: 64,
+                                height: 64,
+                                backgroundColor: "white"
+                            }}
+                        />
+                        <Content
+                            className={`${collapsed ? "md:mx-10 lg:mx-32" : ""} my-4 mx-2 flex flex-col gap-4 relative`}
+                        >
+                            <div className='absolute right-0 -top-20 max-md:-top-14'>
+                                <button className='h-9 px-6 py-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 
                         focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' disabled={advance > 100 || advance < 0} onClick={() => {
                                         onSubmit(control._formValues)
                                         handlePrint()
@@ -609,11 +605,11 @@ export const ReleasePONew: React.FC = () => {
                                                         <p>Please enter the delivery person Name and Contact Number:</p>
                                                         <div className='ml-20 flex items-center gap-32 w-full'>
                                                             <div className='w-[50%] flex flex-col gap-2'>
-                                                                <Input type='text' value={contactPerson.name} placeholder='Person Name' onChange={(e) => setContactPerson((prev) => ({
+                                                                <Input type='text' value={contactPerson.name} placeholder='Person Name...' onChange={(e) => setContactPerson((prev) => ({
                                                                     ...prev,
                                                                     name: e.target.value
                                                                 }))} />
-                                                                <Input type='number' value={contactPerson.number} placeholder='Mobile Number' onChange={(e) => setContactPerson((prev) => ({
+                                                                <Input type='number' value={contactPerson.number} placeholder='and Number' onChange={(e) => setContactPerson((prev) => ({
                                                                     ...prev,
                                                                     number: e.target.value
                                                                 }))} />
@@ -644,93 +640,35 @@ export const ReleasePONew: React.FC = () => {
                                                         justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors 
                                                         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border 
                                                         bg-background shadow-sm hover:bg-accent hover:text-accent-foreground flex gap-1 items-center'>
-                                                            <ListChecks className="h-4 w-4" />
-                                                            Submit</button>
-                                        </AlertDialogTrigger>
-        < AlertDialogContent >
-        <AlertDialogHeader>
-        <AlertDialogTitle>
-        <h1 className="justify-center" > Is this order dispatched ? </h1>
-            </AlertDialogTitle>
+                                                                                <ListChecks className="h-4 w-4" />
+                                                                                Submit</button>
+                                                                        </AlertDialogTrigger>
+                                                                        < AlertDialogContent >
+                                                                            <AlertDialogHeader>
+                                                                                <AlertDialogTitle>
+                                                                                    <h1 className="justify-center" > Is this order dispatched ? </h1>
+                                                                                </AlertDialogTitle>
 
-            < AlertDialogDescription className = "items-center justify-center" >
-                This action will create a delivery note for the project manager on site.Are you sure you want to continue?
-    <div className='flex mt-2 gap-2 items-center justify-center' >
-        <AlertDialogCancel className="flex items-center gap-1" >
-            <Undo2 className="h-4 w-4" />
-                Cancel </AlertDialogCancel>
-                < AlertDialogAction onClick = { handleDispatchPO } >
-                    <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' >
-                        <CheckCheck className="h-4 w-4" />
-                            Confirm </button>
-                            </AlertDialogAction>
-                            </div>
-                            </AlertDialogDescription>
+                                                                                < AlertDialogDescription className="items-center justify-center" >
+                                                                                    This action will create a delivery note for the project manager on site.Are you sure you want to continue?
+                                                                                    <div className='flex mt-2 gap-2 items-center justify-center' >
+                                                                                        <AlertDialogCancel className="flex items-center gap-1" >
+                                                                                            <Undo2 className="h-4 w-4" />
+                                                                                            Cancel </AlertDialogCancel>
+                                                                                        < AlertDialogAction onClick={handleDispatchPO} >
+                                                                                            <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' >
+                                                                                                <CheckCheck className="h-4 w-4" />
+                                                                                                Confirm </button>
+                                                                                        </AlertDialogAction>
+                                                                                    </div>
+                                                                                </AlertDialogDescription>
 
-                            </AlertDialogHeader>
-                            </AlertDialogContent>
-                                    </AlertDialog>
-                                                )
-                                            }
-                                        </div>
-                                    </div>
-                                </CardDescription>
-
-                            </CardContent>
-                        </CardHeader>
-                    </Card>
-                )
-            }
-                     <Card className="border-primary">
-                        <CardHeader>
-                            <CardTitle>Cancel PO</CardTitle>
-                            <CardContent>
-                                <CardDescription className="flex justify-between items-center">
-                                    <p className="w-[70%]">on clicking the cancel button will create a "Sent Back Request"</p>
-                                    {orderData?.status === "Generated" ? (
-                                        <button
-                                            onClick={() => document.getElementById("alertTrigger")?.click()}
-                                            className="border-primary h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground"
-                                        >
-                                            Cancel PO
-                                        </button>
-                                    ) : (
-                                        <HoverCard>
-                                            <HoverCardTrigger>
-                                                <button disabled className="border-primary cursor-not-allowed h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground">Cancel PO</button>
-                                            </HoverCardTrigger>
-                                            <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                                <div>
-                                                    <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note or status has already been updated!
-                                                </div>
-                                            </HoverCardContent>
-                                        </HoverCard>
-                                    )}
-                                    <AlertDialog>
-                                        <AlertDialogTrigger>
-                                            <button className="hidden" id="alertTrigger">trigger</button>
-                                        </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                            <AlertDialogHeader>
-                                                <AlertDialogTitle>
-                                                    <h1 className="justify-center">Are you sure!</h1>
-                                                </AlertDialogTitle>
-
-                                                <AlertDialogDescription className="flex flex-col text-center gap-1">
-                                                    Cancelling this PO will create a new cancelled Sent Back. Continue?
-                                                    <div className='flex flex-col gap-2 mt-2'>
-                                                        <TextArea placeholder='input the reason for cancelling...' value={comment} onChange={(e) => setComment(e.target.value)} />
-                                                    </div>
-                                                    <div className='flex gap-2 items-center justify-center pt-2'>
-                                                        <AlertDialogCancel className="flex items-center gap-1">
-                                                        <Undo2 className="h-4 w-4" />
-                                                        Cancel</AlertDialogCancel>
-                                                        <AlertDialogAction onClick={handleCancelPo}>
-                                                            <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex items-center gap-1'>
-                                                            <CheckCheck className="h-4 w-4" />
-                                                            Confirm</button>
-                                                        </AlertDialogAction>
-
+                                                                            </AlertDialogHeader>
+                                                                        </AlertDialogContent>
+                                                                    </AlertDialog>
+                                                                )
+                                                            }
+                                                        </div>
                                                     </div>
                                                 </CardDescription>
 
@@ -759,7 +697,7 @@ export const ReleasePONew: React.FC = () => {
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                                         <div>
-                                                            <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note has already been created/updated!
+                                                            <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note has already been updated!
                                                         </div>
                                                     </HoverCardContent>
                                                 </HoverCard>
@@ -787,6 +725,7 @@ export const ReleasePONew: React.FC = () => {
                                                                     <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex items-center gap-1'>
                                                                         <CheckCheck className="h-4 w-4" />
                                                                         Confirm</button>
+                                                                </AlertDialogAction>
                                                             </div>
                                                         </AlertDialogDescription>
                                                     </AlertDialogHeader>
