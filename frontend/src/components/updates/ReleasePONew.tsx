@@ -19,6 +19,7 @@ import { AlertDialogAction } from "@radix-ui/react-alert-dialog";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
+import { Badge } from '../ui/badge';
 
 const { Sider, Content } = Layout;
 
@@ -243,9 +244,9 @@ export const ReleasePONew: React.FC = () => {
 
     return (
         <div className='flex-1 md:space-y-4'>
-            <div className="flex py-4">
-                <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/release-po")} />
-                <div className="font-semibold text-xl md:text-2xl pl-2">{(orderData?.name)?.toUpperCase()}: <span className='text-primary'>{orderData?.status}</span></div>
+            <div className="py-4 flex items-center gap-1">
+                <ArrowLeft className="cursor-pointer" onClick={() => navigate("/release-po")} />
+                <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
             </div>
             <Layout>
                 <Sider theme='light' collapsedWidth={0} width={500} trigger={null} collapsible collapsed={collapsed}>
@@ -335,7 +336,8 @@ export const ReleasePONew: React.FC = () => {
                         <Content
                             className={`${collapsed ? "md:mx-10 lg:mx-32" : ""} my-4 mx-2 flex flex-col gap-4 relative`}
                         >
-                            <div className='absolute right-0 -top-20 max-md:-top-14'>
+                            <div className='absolute right-0 -top-20 max-md:-top-14 flex items-center gap-1'>
+                                <Badge variant={orderData?.status === "Generated" ? "default" : orderData?.status === "Dispatched" ? "orange" : "green"}>{orderData?.status === "Partially Delivered" ? "Delivered" : orderData?.status}</Badge>
                                 <button className='h-9 px-6 py-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 
                         focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' disabled={advance > 100 || advance < 0} onClick={() => {
                                         onSubmit(control._formValues)
@@ -697,7 +699,7 @@ export const ReleasePONew: React.FC = () => {
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                                         <div>
-                                                            <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note has already been updated!
+                                                            <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note or status has already been updated!
                                                         </div>
                                                     </HoverCardContent>
                                                 </HoverCard>
