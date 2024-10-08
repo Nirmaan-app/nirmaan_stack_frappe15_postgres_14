@@ -27,6 +27,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 import { useToast } from "../ui/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { NewVendor } from "@/pages/vendors/new-vendor";
+import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
 
 export const UpdateQuote = () => {
     const { orderId } = useParams<{ orderId: string }>()
@@ -327,28 +328,7 @@ export const UpdateQuote = () => {
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate("/update-quote")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
                         </div>
-                        <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} />
                         <div className="flex justify-between">
                             <div className="p-2 sm:pl-7 font-light underline text-red-700">Selected Vendor List</div>
                             <div className="p-2 sm:pl-7 font-light underline text-red-700 pr-10 sm:pr-32">Options</div>

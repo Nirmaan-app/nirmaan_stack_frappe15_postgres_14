@@ -19,6 +19,7 @@ import { NewPRSkeleton } from "../ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 import { formatDate } from "@/utils/FormatDate";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 
 const NewPR = () => {
 
@@ -222,12 +223,15 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         if (curItem && Number(quantity)) {
             let itemIdToUpdate = null;
             let itemMake = null;
+            
+            // Find item ID and make
             item_list.forEach((item) => {
                 if (item.item_name === curItem) {
                     itemIdToUpdate = item.name;
                     itemMake = item.make_name;
                 }
             });
+    
             if (itemIdToUpdate) {
                 const curRequest = [...orderData.procurement_list.list];
                 const curValue = {
@@ -239,8 +243,20 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     tax: Number(tax),
                     status: "Pending"
                 };
+    
+                // Check if item exists in the current list
                 const isDuplicate = curRequest.some((item) => item.name === curValue.name);
+                
                 if (!isDuplicate) {
+                    // Check if the stack has this item and remove it
+                    const itemInStackIndex = stack.findIndex((stackItem) => stackItem?.name === curValue.name);
+                    
+                    if (itemInStackIndex > -1) {
+                        stack.splice(itemInStackIndex, 1);
+                        setStack([...stack]);  // Update stack state after removal
+                    }
+    
+                    // Add item to the current request list
                     curRequest.push(curValue);
                     setOrderData((prevState) => ({
                         ...prevState,
@@ -262,6 +278,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
             }
         }
     };
+    
 
     const { mutate } = useSWRConfig()
 
@@ -498,7 +515,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 </div>
             </div>}
             {page == 'itemlist' && <div className="flex-1 space-y-2 md:space-y-4">
-                <div className="flex items-center pt-1 pb-4">
+                <div className="flex items-center gap-1 pb-4">
                     {
                         !rejected_pr_data ? (
                             <ArrowLeft className="cursor-pointer" onClick={() => {
@@ -516,8 +533,13 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                             }} />
                         )
                     }
-
-                    <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
+                    {
+                        rejected_pr_data ? (
+                            <h2 className="text-2xl max-md:text-xl font-semibold flex items-center gap-1"> Resolve PR: <span className="text-primary">{rejected_pr_data.name}</span></h2>
+                        ) : (
+                            <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
+                        )
+                    }
                 </div>
                 <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40">
                     <div className="">
@@ -603,10 +625,9 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                     <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
                                                         {item.item}
                                                         {item.comment &&
-                                                            <div className="flex gap-1 items-start">
-                                                                <MessageCircleMore className="w-6 h-6 flex-shrink-0" />
-                                                                {/* <input disabled type="text" value={item.comment} className="block border rounded-md p-1 md:w-[60%]" /> */}
-                                                                <div className="block border rounded-md p-1 md:w-[60%]">{item.comment}</div>
+                                                            <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
+                                                                <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                                                                <div className="text-xs ">{item.comment}</div>
                                                             </div>
                                                         }
                                                     </td>
@@ -682,13 +703,26 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                             <span className="relative left-[15%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span> */}
                             {
                                 universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && comment.subject === "rejecting pr")).map((cmt) => (
-                                    <div className="flex flex-col px-3 py-1 shadow-sm rounded-lg">
+                                    <>
+                                    <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                                       <Avatar>
+                                         <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
+                                         <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
+                                       </Avatar>
+                                       <div className="flex-1">
+                                         <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
+                                         <div className="flex justify-between items-center mt-2">
+                                           <p className="text-sm text-gray-500">
+                                             {cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}
+                                           </p>
+                                           <p className="text-xs text-gray-400">
+                                           {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
+                                           </p>
+                                         </div>
+                                       </div>
+                                     </div>
+                                    {/* <div className="flex flex-col px-3 py-1 shadow-sm rounded-lg">
                                         <p className="font-semibold text-[15px] mb-1">{cmt.content}</p>
-                                        {/* {cmt.comment_by === "Administrator" ? (
-                                            <span className="text-sm italic">-Administrator</span>
-                                        ) : (
-                                            <span className="text-sm italic">- {getFullName(cmt.comment_by)}</span>
-                                        )} */}
                                         <div className="flex justify-between items-center text-sm text-gray-600 italic">
                                                 {cmt.comment_by === "Administrator" ? (
                                                   <span>- Administrator</span>
@@ -700,7 +734,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                   {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
                                                 </span>
                                         </div>
-                                    </div>
+                                    </div> */}
+                                    </>
                                 ))}
                         </div>
                     )}
