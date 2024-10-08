@@ -96,7 +96,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["*"],
         limit: 1000,
-        filters : [["role_profile", "in", ["Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"]]]
+        filters: [["role_profile", "in", ["Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"]]]
     })
 
     // console.log("universalCOmment", universalComments)
@@ -273,7 +273,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         if (curItem && Number(quantity)) {
             let itemIdToUpdate = null;
             let itemMake = null;
-            
+
             // Find item ID and make
             item_list.forEach((item) => {
                 if (item.item_name === curItem) {
@@ -281,7 +281,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     itemMake = item.make_name;
                 }
             });
-    
+
             if (itemIdToUpdate) {
                 const curRequest = [...orderData.procurement_list.list];
                 const curValue = {
@@ -293,19 +293,19 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     tax: Number(tax),
                     status: "Pending"
                 };
-    
+
                 // Check if item exists in the current list
                 const isDuplicate = curRequest.some((item) => item.name === curValue.name);
-                
+
                 if (!isDuplicate) {
                     // Check if the stack has this item and remove it
                     const itemInStackIndex = stack.findIndex((stackItem) => stackItem?.name === curValue.name);
-                    
+
                     if (itemInStackIndex > -1) {
                         stack.splice(itemInStackIndex, 1);
                         setStack([...stack]);  // Update stack state after removal
                     }
-    
+
                     // Add item to the current request list
                     curRequest.push(curValue);
                     setOrderData((prevState) => ({
@@ -328,7 +328,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             }
         }
     };
-    
+
     const handleSave = (itemName: string, newQuantity: string) => {
         let curRequest = orderData.procurement_list.list;
         curRequest = curRequest.map((curValue) => {
@@ -469,9 +469,9 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const handleReject = async () => {
         try {
 
-            await Promise.all(
-                Object.keys(uploadedFiles).map(cat => handleFileUpload(cat))
-            );
+            // await Promise.all(
+            //     Object.keys(uploadedFiles).map(cat => handleFileUpload(cat))
+            // );
 
             const res = await updateDoc("Procurement Requests", orderData.name, {
                 procurement_list: orderData.procurement_list,
@@ -859,37 +859,37 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         })}
                     </Card>
                     <div className="flex items-center space-y-2 pt-8">
-                      <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
+                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
                     </div>
 
                     <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-4">
-                      {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || 
-                      (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).length ? (
-                        universalComments
-                          .filter((comment) => managersIdList?.includes(comment.comment_by) || 
-                          (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr")))
-                          .map((cmt) => (
-                            <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
-                                       <Avatar>
-                                         <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
-                                         <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
-                                       </Avatar>
-                                       <div className="flex-1">
-                                         <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
-                                         <div className="flex justify-between items-center mt-2">
-                                           <p className="text-sm text-gray-500">
-                                             {cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}
-                                           </p>
-                                           <p className="text-xs text-gray-400">
-                                           {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
-                                           </p>
-                                         </div>
-                                       </div>
-                            </div>
-                          ))
-                      ) : (
-                        <span className="text-xs font-semibold flex items-center justify-center">No Comments Found.</span>
-                      )}
+                        {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) ||
+                            (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).length ? (
+                            universalComments
+                                .filter((comment) => managersIdList?.includes(comment.comment_by) ||
+                                    (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr")))
+                                .map((cmt) => (
+                                    <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                                        <Avatar>
+                                            <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
+                                            <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
+                                        </Avatar>
+                                        <div className="flex-1">
+                                            <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
+                                            <div className="flex justify-between items-center mt-2">
+                                                <p className="text-sm text-gray-500">
+                                                    {cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}
+                                                </p>
+                                                <p className="text-xs text-gray-400">
+                                                    {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                        ) : (
+                            <span className="text-xs font-semibold flex items-center justify-center">No Comments Found.</span>
+                        )}
                     </div>
 
                     <div className="flex gap-4 justify-end items-end mt-4">
@@ -1021,36 +1021,36 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                 <TextArea placeholder="type here..." defaultValue={universalComment || ""} onChange={handleUniversalCommentChange} />
                             </div>
 
-                      {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || 
-                      (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).length && (
-                        <div className="flex flex-col gap-2 py-4 px-4">
-                                <h2 className="text-base font-bold tracking-tight">Previous Comments</h2>
-                        <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-4">
-                        {universalComments
-                          .filter((comment) => managersIdList?.includes(comment.comment_by) || 
-                          (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr")))
-                          .map((cmt) => (
-                            <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
-                                       <Avatar>
-                                         <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
-                                         <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
-                                       </Avatar>
-                                       <div className="flex-1">
-                                         <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
-                                         <div className="flex justify-between items-center mt-2">
-                                           <p className="text-sm text-gray-500">
-                                             {cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}
-                                           </p>
-                                           <p className="text-xs text-gray-400">
-                                           {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
-                                           </p>
-                                         </div>
-                                       </div>
-                            </div>
-                          ))}
-                    </div>
-                            </div>
-                      )}
+                            {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) ||
+                                (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).length && (
+                                    <div className="flex flex-col gap-2 py-4 px-4">
+                                        <h2 className="text-base font-bold tracking-tight">Previous Comments</h2>
+                                        <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-4">
+                                            {universalComments
+                                                .filter((comment) => managersIdList?.includes(comment.comment_by) ||
+                                                    (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr")))
+                                                .map((cmt) => (
+                                                    <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                                                        <Avatar>
+                                                            <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
+                                                            <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
+                                                        </Avatar>
+                                                        <div className="flex-1">
+                                                            <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
+                                                            <div className="flex justify-between items-center mt-2">
+                                                                <p className="text-sm text-gray-500">
+                                                                    {cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}
+                                                                </p>
+                                                                <p className="text-xs text-gray-400">
+                                                                    {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                        </div>
+                                    </div>
+                                )}
                         </div>
                     </div>
                     {/* <div className="overflow-x-auto">
@@ -1129,7 +1129,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                         ) : (
                                             <Button variant="default" onClick={() => handleApprove()} className="flex items-center gap-1">
                                                 <CheckCheck />
-                                            Confirm</Button>
+                                                Confirm</Button>
                                         )
                                     }
                                 </DialogClose>
