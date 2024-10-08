@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, CirclePlus, HardHat, ShoppingCart } from "lucide-react";
+import { ArrowLeft, CirclePlus, ListChecks, ShoppingCart } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -28,7 +28,7 @@ export default function Items() {
     const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList("Items", {
 
         fields: ["name", "item_name", "unit_name", "make_name", "category", "creation"],
-        limit: 1000
+        limit: 10000
     })
     const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
 
@@ -192,12 +192,12 @@ export default function Items() {
             })
     }
 
-    if (isLoading || category_loading) return <h1>Loading</h1>
+    // if (isLoading || category_loading) return <h1>Loading</h1>
     if (error || category_error) return (error ? <h1>error.message</h1> : <h1>category_error.message</h1>)
 
     return (
 
-        <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex-1 md:space-y-4">
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
@@ -272,7 +272,9 @@ export default function Items() {
                                 </div>
                             </div>
                         </DialogHeader>
-                        <Button className="" onClick={() => handleAddItem()}>Submit</Button>
+                        <Button onClick={() => handleAddItem()} className="flex items-center gap-1">
+                        <ListChecks className="h-4 w-4" />
+                        Submit</Button>
                         <DialogClose className="hidden" id="dialogCloseItem">
                             close
                         </DialogClose>
@@ -297,7 +299,7 @@ export default function Items() {
                 </Card>
             </div>
             <div className="pl-0 pr-2">
-                {isLoading ? (
+                {isLoading || category_loading? (
                     <TableSkeleton />
                 ) : (
                     <DataTable columns={columns} data={data || []} category_options={categoryOptions} />

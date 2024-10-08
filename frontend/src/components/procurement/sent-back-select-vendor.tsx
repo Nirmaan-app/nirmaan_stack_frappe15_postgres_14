@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowBigUpDash, ArrowLeft, CheckCheck, Pencil, Undo2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
@@ -14,13 +14,13 @@ import {
     DialogTrigger
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Space, Switch, Table, ConfigProvider, Collapse, Checkbox } from 'antd';
+import { Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import { toast } from '../ui/use-toast';
+import formatToIndianRupee from '@/utils/FormatPrice';
+import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
-
-const { Panel } = Collapse;
 
 interface DataType {
     key: React.ReactNode;
@@ -59,6 +59,11 @@ const columns: TableColumnsType<DataType> = [
         dataIndex: 'rate',
         width: '7%',
         key: 'rate',
+        render: (text) => {
+            return (
+                <span>{text === undefined ? "" : text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}</span>
+            )
+        }
     },
     {
         title: 'Selected Vendor',
@@ -71,11 +76,14 @@ const columns: TableColumnsType<DataType> = [
         dataIndex: 'amount',
         width: '9%',
         key: 'amount',
-        render: (text, record) => (
-            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+        render: (text, record) => {
+            // console.log("text", text)
+            return(
+                <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                {Number.isNaN(text) ? "Delayed" : text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}
             </span>
-        ),
+            )
+        }
     },
     {
         title: 'Lowest Quoted Amount',
@@ -84,7 +92,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {text === "Delayed" ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -95,7 +103,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -148,8 +156,6 @@ export const SentBackSelectVendor = () => {
 
     const [selectedVendors, setSelectedVendors] = useState({})
     const [selectedCategories, setSelectedCategories] = useState({})
-    const [totals, setTotals] = useState()
-    const curCategory = orderData?.category_list?.list[0]?.name
 
     useEffect(() => {
         const updatedCategories = { ...selectedCategories };
@@ -172,7 +178,31 @@ export const SentBackSelectVendor = () => {
 
     const [data, setData] = useState<DataType>([])
 
-    console.log("orderData", orderData)
+    const [delayedItems, setDelayedItems] = useState({})
+
+    const delayedItemsCheck = () => {
+        let delayedItems = {};
+      
+        if (data) {
+          data.forEach((item) => {
+            item.children.forEach((i) => {
+              if (i.rate === "Delayed") {
+                if (!delayedItems[i.category]) {
+                  delayedItems[i.category] = [];
+                }
+                delayedItems[i.category].push(i.item);
+              }
+            });
+          });
+        }
+      
+        setDelayedItems(delayedItems);
+      };
+
+      console.log("data", data)
+      console.log("delayedItems", delayedItems)
+
+    // console.log("orderData", orderData)
     useEffect(() => {
         if (orderData.project) {
             const newData: DataType[] = [];
@@ -224,7 +254,9 @@ export const SentBackSelectVendor = () => {
             setData(newData)
         }
     }, [orderData, selectedVendors]);
-    console.log("data", data)
+
+    // console.log("data", data)
+
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
             console.log("onChange")
@@ -242,7 +274,7 @@ export const SentBackSelectVendor = () => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
 
-    console.log("orderData", orderData)
+    // console.log("orderData", orderData)
 
     const handleRadioChange = (item, vendor) => {
         setSelectedVendors(prevState => {
@@ -425,46 +457,19 @@ export const SentBackSelectVendor = () => {
     let count: number = 0;
 
     return (
-        // <MainLayout>
         <>
             {page == 'updatequotation' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 space-y-2 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => navigate(`/sent-back-request/${id}`)} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Select Vendor Quotes</h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request}</p>
-                            </div> */}
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} sentBack />
                         {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name;
                             return <div>
-                                <Card className="flex w-full shadow-none border border-grey-500">
-                                    <CardHeader className="w-full">
+                                <Card className="flex w-full shadow-none border border-grey-500 overflow-x-auto">
+                                    <CardHeader className="w-full overflow-x-auto">
                                         <div className='flex justify-between py-5'>
                                             <CardTitle className="font-bold text-xl">
                                                 {curCategory}
@@ -481,7 +486,7 @@ export const SentBackSelectVendor = () => {
                                                         const isSelected = selectedVendors[curCategory] === item;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                         return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}>{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
-                                                            <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory)} Days</div>
+                                                            <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory) || "--"} Days</div>
                                                         </th>
                                                     })}
                                                     <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
@@ -508,11 +513,11 @@ export const SentBackSelectVendor = () => {
                                                                 const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
                                                                 return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
                                                                     <input className="mr-2" disabled={price === "-" ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
-                                                                    {price * item.quantity}
+                                                                    {Number.isNaN((price * item.quantity)) ? "N/A" : formatToIndianRupee(price * item.quantity)}
                                                                 </td>
                                                             })}
                                                             <td className="py-2 text-sm px-2 border-b">
-                                                                {minQuote ? minQuote * item.quantity : "N/A"}
+                                                                {minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}
                                                             </td>
                                                         </tr>
                                                     }
@@ -522,8 +527,8 @@ export const SentBackSelectVendor = () => {
                                                     {selectedCategories[curCategory]?.map((value) => {
                                                         const isSelected = selectedVendors[curCategory] === value;
                                                         const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                        return <td className={`py-2 text-sm px-2 text-left font-bold ${dynamicClass}`}>
-                                                            {getTotal2(value, curCategory)}
+                                                        return <td className={`py-2 text-sm max-sm:pl-2 pl-8 text-left font-bold ${dynamicClass}`}>
+                                                            {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
                                                         </td>
                                                     })}
                                                     <td></td>
@@ -535,51 +540,93 @@ export const SentBackSelectVendor = () => {
                             </div>
                         })}
                         {/* <div className="pt-10"></div> */}
-                        <div className='pt-12 flex justify-between'>
-                            <Button className="bg-white text-red-500 border border-red-500 hover:text-white" onClick={() => navigate(`/sent-back-request/${id}`)}>
+                        <div className='pt-6 flex justify-between'>
+                            <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" onClick={() => navigate(`/sent-back-request/${id}`)}>
+                                <Pencil className='w-4 h-4' />
                                 Edit Price
                             </Button>
                             {/* </div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4"> */}
-                            <Button onClick={() => handleUpdateOrderData()}>
+
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button onClick={delayedItemsCheck} className='flex items-center gap-1'>
+                                        <CheckCheck className="h-4 w-4" />
+                                        Confirm
+                                    </Button>
+                                </DialogTrigger>
+                                {
+                                    Object.keys(delayedItems).length ? (
+                                        <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle>Attention Please!!</DialogTitle>
+                                        <DialogDescription>
+                                            No item status should be delayed. close the dialog and rectify delayed Items with quotes
+                                        </DialogDescription>
+                                                <DialogDescription className='text-start'>
+                                                    <div className='flex flex-col gap-2'>
+                                                        <h4 className='text-sm font-semibold'>For your reference, Here's the list of items whose quotes are not selected:</h4>
+                                                        {
+                                                            Object.keys(delayedItems).map((cat) => (
+                                                                <div>
+                                                                    <h3 className='font-semibold italic'>{cat}</h3>
+                                                                    <ul className='list-disc ml-4'>
+                                                                        {delayedItems[cat].map((item) => (
+                                                                            <li>{item}</li>
+                                                                        ))}
+                                                                    </ul>
+                                                                </div>
+                                                            ))
+                                                        }
+                                                    </div>
+                                                </DialogDescription>
+                                    </DialogHeader>
+                                    <DialogDescription className='flex items-center justify-center gap-2'>
+                                        <DialogClose><Button variant={"outline"} className="flex items-center gap-1">
+                                        <Undo2 className="h-4 w-4" />
+                                            Cancel
+                                            </Button></DialogClose>
+                                        <Button disabled variant="default" className="flex items-center gap-1">
+                                            <CheckCheck className="h-4 w-4" />
+                                            Confirm</Button>
+                                    </DialogDescription>
+                                </DialogContent>
+                                    ) : (
+                                        <DialogContent>
+                                            <DialogHeader>
+                                                <DialogTitle>
+                                                    Click on confirm to go to the comparison page
+                                                </DialogTitle>
+                                            </DialogHeader>
+                                            <DialogDescription className='flex items-center justify-center gap-2'>
+                                                <DialogClose><Button variant={"outline"} className="flex items-center gap-1">
+                                                <Undo2 className="h-4 w-4" />
+                                                    Cancel</Button></DialogClose>
+                                                <Button variant="default" className="flex items-center gap-1" onClick={() => {
+                                                    delayedItemsCheck()
+                                                    handleUpdateOrderData()
+                                                }}>
+                                                    <CheckCheck className="h-4 w-4" />
+                                                    Confirm</Button>
+                                            </DialogDescription>
+                                        </DialogContent>
+                                    )
+                                }
+                            </Dialog>
+
+                            {/* <Button onClick={() => handleUpdateOrderData()}>
                                 Confirm
-                            </Button>
+                            </Button> */}
                         </div>
-                    </div>
-                </div>}
+                    </div>}
             {page == 'approvequotation' &&
-                <><div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                <>
+                    <div className="flex-1 space-y-2 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft onClick={() => setPage('updatequotation')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Comparison</h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request}</p>
-                            </div> */}
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} sentBack />
                         <div className="w-full">
                             {/* <div className="font-bold text-xl py-2">{curCategory}</div> */}
                             {/* <Card className="flex w-1/2 shadow-none border border-grey-500" >
@@ -648,8 +695,8 @@ export const SentBackSelectVendor = () => {
 
 
                         </div>
-                    </div>
                 </div>
+                <div className='overflow-x-auto'>
                     <ConfigProvider
                         theme={{
                             token: {
@@ -670,10 +717,12 @@ export const SentBackSelectVendor = () => {
                         />
 
                     </ConfigProvider>
-                    <div className="flex flex-col justify-end items-end">
+                </div>
+                    <div className="flex flex-col justify-end items-end mr-2 mb-4 mt-4">
                         <Dialog>
                             <DialogTrigger asChild>
-                                <Button>
+                                <Button className="flex items-center gap-1">
+                                <ArrowBigUpDash/> 
                                     Send for Approval
                                 </Button>
                             </DialogTrigger>
@@ -681,31 +730,33 @@ export const SentBackSelectVendor = () => {
                                 <DialogHeader>
                                     <DialogTitle>Have you cross-checked your quote selections?</DialogTitle>
                                     <DialogDescription>
-                                        {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
-                                            <span>You can click confirm to send it for approval</span>
+                                        {/* {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
+                                            <span>You can click on confirm to send it for approval</span>
                                             :
                                             <span>No item status should be delayed. Go Back and rectify delayed Items with quotes</span>
-                                        }
+                                        } */}
+                                        <span>You can click on confirm to send it for approval</span>
                                     </DialogDescription>
                                 </DialogHeader>
-                                <DialogClose>
-                                    <Button>Go Back</Button>
-                                    {console.log("filter:", orderData.item_list?.list.filter((item) => item.vendor === undefined).length)}
-                                    {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
-                                        <Button className="ml-4" onClick={() => handleSubmit()}>Confirm</Button>
+                                <DialogDescription className='flex items-center justify-center gap-2'>
+                                    <Button variant={"secondary"} onClick={() => setPage("updatequotation")} className="flex items-center gap-1">
+                                        <Undo2 className="h-4 w-4" />
+                                        Go Back</Button>
+                                    {/* {console.log("filter:", orderData.item_list?.list.filter((item) => item.vendor === undefined).length)} */}
+                                    {/* {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
+                                        <Button onClick={() => handleSubmit()}>Confirm</Button>
                                         :
-                                        <Button variant="secondary" className="ml-4" disabled={true}>Confirm</Button>
-                                    }
-                                </DialogClose>
+                                        <Button variant="secondary" disabled={true}>Confirm</Button>
+                                    } */}
+                                    <Button onClick={() => handleSubmit()} className="flex items-center gap-1">
+                                        <CheckCheck className="h-4 w-4" />
+                                        Confirm</Button>
+                                </DialogDescription>
                             </DialogContent>
                         </Dialog>
-                    </div>
-                    <div className="flex flex-col justify-end items-end">
-                        {/* <Button onClick={()=>handleSubmit()}>Send For Approval</Button> */}
                     </div>
                 </>
             }
         </>
-        // </MainLayout>
     )
 }

@@ -8,6 +8,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 
 type PRTable = {
@@ -156,7 +157,7 @@ export const ReleasePOSelect = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {getTotal(row.getValue("name"))}
+                            {formatToIndianRupee(getTotal(row.getValue("name")))}
                         </div>
                     )
                 }
@@ -178,7 +179,7 @@ export const ReleasePOSelect = () => {
 
     return (
         <>
-                <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+                <div className="flex-1 md:space-y-4">
                     <div className="flex items-center justify-between space-y-2">
                         <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Release PO</h2>
                     </div>

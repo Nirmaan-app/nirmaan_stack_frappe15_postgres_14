@@ -14,7 +14,8 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
-import { ButtonLoading } from "./button-loading"
+import { ButtonLoading } from "./ui/button-loading"
+import { ListChecks } from "lucide-react"
 
 
 
@@ -239,12 +240,14 @@ export const AddressForm: React.FC<AddressFormProps> = ({ type, project_address_
                     )}
                 />
 
-                {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
+                {(loading) ? (<ButtonLoading />) : (<Button type="submit" className="flex items-center gap-1">
+                    <ListChecks className="h-4 w-4" />
+                    Submit</Button>)}
                 <DialogClose asChild><Button id="dialogClose" className="w-0 h-0 invisible"></Button></DialogClose>
                 <div>
                     {submit_complete &&
                         <div>
-                            <div className="font-semibold text-green-500"> Customer added</div>
+                            <div className="font-semibold text-green-500">Customer added</div>
                             {closewindow()}
                         </div>
                     }

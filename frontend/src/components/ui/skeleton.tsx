@@ -410,7 +410,7 @@ export function OverviewSkeleton2() {
 
 export const ProcurementRequestsSkeleton = () => {
   return (
-    <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
+    <div className="flex-1 md:space-y-4">
       {/* Header Section */}
       <div className="flex items-center pt-1 pb-4">
         <ArrowLeft className="cursor-pointer" />
@@ -512,7 +512,7 @@ export const ProcurementRequestsSkeleton = () => {
 
 export const PRSummarySkeleton = () => {
   return (
-    <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
+    <div className="flex-1 md:space-y-4">
   <div className="flex items-center pt-1">
     <Skeleton className="w-6 h-6 mb-3" /> {/* For ArrowLeft */}
     <Skeleton className="h-6 w-1/3 ml-2" /> {/* For Summary */}
@@ -594,7 +594,7 @@ export const PRSummarySkeleton = () => {
 
 export const NewPRSkeleton = () => {
   return (
-    <div className="flex-1 md:space-y-4 p-4 md:p-6 pt-6">
+    <div className="flex-1 md:space-y-4">
        <div className="flex items-center pt-1">
         <Skeleton className="w-6 h-6" />
         <Skeleton className="h-6 w-1/3 ml-2" />

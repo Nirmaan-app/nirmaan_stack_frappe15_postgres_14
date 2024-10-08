@@ -5,7 +5,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus } from 'lucide-react';
+import { ArrowBigRightDash, ArrowLeft, CirclePlus, ListChecks, MessageCircleMore } from 'lucide-react';
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -13,7 +13,7 @@ import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom";
 import { Button } from '@/components/ui/button'
 import { NewVendor } from '@/pages/vendors/new-vendor';
-import { ButtonLoading } from '../button-loading';
+import { ButtonLoading } from '../ui/button-loading';
 import { DataTable } from '../data-table/data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ColumnDef } from "@tanstack/react-table";
@@ -24,6 +24,10 @@ import { AddVendorCategories } from "../forms/addvendorcategories";
 import { Badge } from "../ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import formatToIndianRupee from "@/utils/FormatPrice";
+import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 
 export const ProcurementOrder = () => {
 
@@ -51,6 +55,11 @@ export const ProcurementOrder = () => {
     const [uniqueCategories, setUniqueCategories] = useState({
         list: []
     })
+    const [comment, setComment] = useState(null)
+    // console.log("selectedCategories", selectedCategories)
+    // console.log("orderData", orderData)
+
+    // console.log("unique categories", uniqueCategories)
 
     const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["*"],
@@ -63,7 +72,7 @@ export const ProcurementOrder = () => {
             filters: [["name", "=", orderId]],
             limit: 1000
         },
-        `Procurement Requests ${orderId}`
+        `Procurement Requests, filters(name,${orderId})`
     );
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
@@ -88,10 +97,35 @@ export const ProcurementOrder = () => {
         },
         `Quotation Requests`
     );
+
+    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+        fields: ["*"],
+        filters: [["reference_name", "=", orderId]],
+        orderBy: { field: "creation", order: "desc" }
+    }
+    )
+
+    const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["*"],
+        limit: 1000,
+        filters: [["role_profile", "=", "Nirmaan Project Lead Profile"]]
+    })
+
+    const getFullName = (id) => {
+        return usersList?.find((user) => user.name == id)?.full_name
+    }
+
+    // console.log("universalcomments", universalComments)
+
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
 
-
+    useEffect(() => {
+        if(universalComments) {
+            const comment = universalComments?.find((cmt) => cmt.subject === "approving pr")
+            setComment(comment)
+        }
+    }, [universalComments])
 
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
@@ -216,7 +250,7 @@ export const ProcurementOrder = () => {
     }, [vendor_category_list]);
 
     const handleChange = (category) => (selectedOptions) => {
-        console.log(selectedOptions)
+        console.log("selectedOptions", selectedOptions)
         const updatedCategories = { ...selectedCategories };
         const newVendors = [];
         selectedOptions?.map((item) => {
@@ -301,37 +335,17 @@ export const ProcurementOrder = () => {
         }
     };
 
+    console.log("orderdata", orderData)
+
     return (
         <>
             {page == 'approve' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
                             <ArrowLeft className='cursor-pointer' onClick={() => navigate("/procure-request")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Summary </h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} />
                         <div className="overflow-x-auto">
                             <div className="min-w-full inline-block align-middle">
                                 {orderData?.category_list.list.map((cat: any) => {
@@ -340,7 +354,7 @@ export const ProcurementOrder = () => {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow className="bg-red-100">
-                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>Items</TableHead>
+                                                    <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
                                                     <TableHead className="w-[20%]">UOM</TableHead>
                                                     <TableHead className="w-[10%]">Qty</TableHead>
                                                     <TableHead className="w-[10%]">Est. Amt</TableHead>
@@ -356,10 +370,26 @@ export const ProcurementOrder = () => {
                                                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
                                                         return (
                                                             <TableRow key={item.item}>
-                                                                <TableCell>{item.item}</TableCell>
+                                                                <TableCell>
+                                                                    <div className="inline items-baseline">
+                                                                    <span>{item.item}</span>
+                                                                    {item.comment && (
+                                                                    <HoverCard>
+                                                                        <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                                                                        <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                                        <div className="relative pb-4">
+                                                                            <span className="block">{item.comment}</span>
+                                                                            <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                                                        </div>
+
+                                                                        </HoverCardContent>
+                                                                    </HoverCard>
+                                                                    )}
+                                                                    </div>
+                                                                </TableCell>
                                                                 <TableCell>{item.unit}</TableCell>
                                                                 <TableCell>{item.quantity}</TableCell>
-                                                                <TableCell>{minQuote ? minQuote * item.quantity : "N/A"}</TableCell>
+                                                                <TableCell>{minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}</TableCell>
                                                             </TableRow>
                                                         )
                                                     }
@@ -402,55 +432,87 @@ export const ProcurementOrder = () => {
                                 </tbody>
                             </table> */}
                         </div>
-                        <div className="flex flex-col justify-end items-end">
-                            <Button onClick={() => setPage('vendors')}>
+
+                        <div className="flex items-center space-y-2">
+                            <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
+                        </div>
+                        <div className="border border-gray-200 rounded-lg p-4">
+                        {comment ?  (
+                                <>
+                                 {/* <div className="flex justify-between items-end">
+                                         <p className="font-semibold text-[15px]">{universalComments?.find((cmt) => cmt.subject === "approving pr")?.content}</p>
+                                         {universalComments?.find((cmt) => cmt.subject === "approving pr")?.comment_by === "Administrator" ? (
+                                             <span className="text-sm italic">-Administrator</span>
+                                         ) : (
+                                             <span className="text-sm italic">- {getFullName(universalComments?.find((cmt) => cmt.subject === "approving pr")?.comment_by)}</span>
+                                         )}
+                                     </div> */}
+                                <div key={comment.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                                       <Avatar>
+                                         <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment.comment_by}`} />
+                                         <AvatarFallback>{comment.comment_by[0]}</AvatarFallback>
+                                       </Avatar>
+                                       <div className="flex-1">
+                                         <p className="font-medium text-sm text-gray-900">{comment.content}</p>
+                                         <div className="flex justify-between items-center mt-2">
+                                           <p className="text-sm text-gray-500">
+                                             {comment.comment_by === "Administrator" ? "Administrator" : getFullName(comment.comment_by)}
+                                           </p>
+                                           <p className="text-xs text-gray-400">
+                                           {formatDate(comment.creation.split(" ")[0])} {comment.creation.split(" ")[1].substring(0, 5)}
+                                           </p>
+                                         </div>
+                                       </div>
+                                     </div>
+                                    </>
+                            ) : (
+                                <span className="text-xs font-semibold">No Comments Found</span>
+                            )
+                        }
+                        </div>
+                        <div className="flex flex-col justify-end items-end max-md:mt-4">
+                            <Button onClick={() => setPage('vendors')} className="flex items-center gap-1">
                                 Select Vendors
+                                <ArrowBigRightDash className="max-md:h-4 max-md:w-4" />
                             </Button>
                         </div>
-                    </div>
-                </div>}
+                    </div>}
             {page == 'vendors' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft onClick={() => setPage("approve")} />
+                            <ArrowLeft onClick={() => setPage("approve")} className="cursor-pointer" />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendors</h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} />
                         {orderData?.category_list?.list.map((cat) => {
                             return <div>
                                 <div className="flex m-2 justify-between">
                                     <div>
-                                        <div className="text-xl font-bold py-2 text-red-700">{cat.name}</div>
+                                        <HoverCard>
+                                            <HoverCardTrigger>
+                                                <div className="text-xl font-bold py-2 text-red-700 underline">{cat.name}</div>
+                                            </HoverCardTrigger>
+                                            <HoverCardContent className="bg-white p-4 rounded-lg shadow-lg w-[400px]">
+                                                <h3 className="text-lg font-semibold mb-2">Items</h3>
+                                                <ul className="bg-gray-50 space-y-2 list-disc rounded-md">
+                                                    {orderData?.procurement_list?.list
+                                                        ?.filter(item => item.category === cat.name)
+                                                        .map((item) => (
+                                                            <li key={item.name} className="p-1 ml-6">
+                                                                <span className="text-gray-800">{item.item}<span className="text-red-600 ml-2">({item.quantity} {item.unit})</span></span>
+                                                                {/* </span> */}
+                                                            </li>
+                                                        ))}
+                                                </ul>
+                                            </HoverCardContent>
+                                        </HoverCard>
                                         <div className="text-sm text-gray-400">Select vendors for <span className="text-red-700 italic">{cat.name}</span> category</div>
                                     </div>
                                     <Sheet>
                                         <SheetTrigger className="text-blue-500">
-                                            <div className="flex">
-                                                <div className="text-base text-blue-400 flex" >
-                                                    <CirclePlus className="w-5 h-5 mr-2" />Add Vendor</div>
-                                            </div>
+                                                <div className="text-base text-blue-400 flex items-center gap-1" >
+                                                    <CirclePlus className="w-5 h-5" />Add Vendor
+                                                </div>
                                         </SheetTrigger>
                                         <SheetContent className='overflow-auto'>
                                             <SheetHeader className="text-start">
@@ -478,7 +540,9 @@ export const ProcurementOrder = () => {
                                 Send RFQ
                             </Button>} */}
                             {(loading || update_loading) ? <ButtonLoading /> : (
-                                <Button disabled={selectedCategories === null} onClick={handleSubmit}>Send RFQ</Button>
+                                <Button disabled={selectedCategories === null || (selectedCategories && Object.values(selectedCategories).some((arr) => !arr.length)) || (selectedCategories && Object.keys(selectedCategories)?.length !== orderData?.category_list?.list?.length)} onClick={handleSubmit} className="flex items-center gap-1">
+                                    <ListChecks className="h-4 w-4" />
+                                    Send RFQ</Button>
                             )}
                         </div>
                         <Accordion type="multiple" defaultValue={["Vendors"]}>
@@ -492,15 +556,13 @@ export const ProcurementOrder = () => {
                                     </div>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                    <div className="">
-                                        <Card className=''>
-                                            <CardHeader>
+                                        <Card>
+                                            <CardHeader className="max-md:p-0">
                                                 <CardContent>
                                                     <DataTable columns={columns} data={vendor_list || []} category_options={categoryOptions} />
                                                 </CardContent>
                                             </CardHeader>
                                         </Card>
-                                    </div>
                                 </AccordionContent>
                             </AccordionItem>
                         </Accordion>
@@ -516,8 +578,7 @@ export const ProcurementOrder = () => {
                             </Card>
                         </div>
                         )} */}
-                    </div>
-                </div>}
+                    </div>}
         </>
     )
 }

@@ -36,17 +36,12 @@ export const ProjectLead = () => {
     })
 
     return (
-        // <MainLayout>
-        <div className="flex">
-            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-                <div className="flex items-center space-y-2">
-                    <h2 className="text-2xl pt-1 pl-2 pb-4 font-bold tracking-tight">Project Lead Dashboard</h2>
-                </div>
-                <div className="flex items-center space-y-2">
-                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Procurement Actions</h2>
+            <div className="flex-1 space-y-4">
+                    <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Project Lead Dashboard</h2>
 
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                <div className=" space-y-2">
+                <h2 className="text-base font-bold tracking-tight">Procurement Actions</h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/prs&milestones">
                             <p className="text-center py-6 font-bold text-gray-500">PRs and Milestones</p>
@@ -71,10 +66,8 @@ export const ProjectLead = () => {
                     </Card>
 
                 </div>
-                <div className="flex items-center space-y-2">
-                    <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Delayed/Rejected Sent Back Actions</h2>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                <h2 className="text-base font-bold tracking-tight pt-4">Delayed/Rejected Sent Back Actions</h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/approve-sent-back">
                             <p className="text-center py-6 font-bold text-gray-500">Approve Sent Back</p>
@@ -84,8 +77,7 @@ export const ProjectLead = () => {
                         </Link>
                     </Card>
                 </div>
+                </div>
             </div>
-        </div>
-        // </MainLayout>
     );
 }

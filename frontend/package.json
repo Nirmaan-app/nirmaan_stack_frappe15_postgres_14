@@ -35,6 +35,8 @@
     "@tanstack/react-table": "^8.13.2",
     "@types/js-cookie": "^3.0.6",
     "@types/node": "^20.11.19",
+    "ag-grid-community": "^32.2.2",
+    "ag-grid-react": "^32.2.2",
     "antd": "^5.18.3",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
@@ -45,6 +47,7 @@
     "get-orientation": "^1.1.2",
     "js-cookie": "^3.0.5",
     "lucide-react": "^0.378.0",
+    "pdfjs-dist": "^3.4.120",
     "react": "^18.2.0",
     "react-day-picker": "^8.10.0",
     "react-dom": "^18.2.0",
@@ -58,7 +61,8 @@
     "tailwind-merge": "^2.5.2",
     "tailwindcss-animate": "^1.0.7",
     "vite-plugin-pwa": "^0.20.0",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "zustand": "^5.0.0-rc.2"
   },
   "devDependencies": {
     "@types/react": "^18.2.56",

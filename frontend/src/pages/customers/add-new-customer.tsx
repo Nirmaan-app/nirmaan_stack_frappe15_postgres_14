@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useSWRConfig } from "frappe-react-sdk";
 import { Separator } from "@/components/ui/separator"
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ListChecks, ListRestart } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
 // import { useQueryClient } from "@tanstack/react-query";
@@ -38,14 +38,14 @@ const customerFormSchema = z.object({
         .min(1, {
             message: "Address line 1 Required"
         }),
-        
+
     company_address_line_2: z.string({
         required_error: "Address line 2 Required"
     })
-    .min(1, {
-        message: "Address line 2 Required"
-    }),
-    
+        .min(1, {
+            message: "Address line 2 Required"
+        }),
+
     company_city: z
         .string({
             required_error: "Must provide city"
@@ -53,7 +53,7 @@ const customerFormSchema = z.object({
         .min(1, {
             message: "Must Provide City"
         }),
-    
+
     company_state: z
         .string({
             required_error: "Must provide state"
@@ -61,7 +61,7 @@ const customerFormSchema = z.object({
         .min(1, {
             message: "Must Provide State"
         }),
-    
+
     company_pin: z
         .string({
             required_error: "Must provide pincode"
@@ -72,24 +72,24 @@ const customerFormSchema = z.object({
     company_contact_person: z
         .string()
         .optional(),
-    
+
     email: z.string().email().optional().or(z.literal('')),
-    
+
     phone: z
         .string()
         .max(10, { message: "Mobile number must be of 10 digits" })
         .min(10, { message: "Mobile number must be of 10 digits" })
         .optional(),
-    
+
     company_gst: z.string({
         required_error: "Must provide customer GST Details"
     })
-    .min(1, {
-        message: "Must Provide Customer GST Details"
-    })
-    .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
-        message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
-    }),
+        .min(1, {
+            message: "Must Provide Customer GST Details"
+        })
+        .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+            message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
+        }),
 });
 
 
@@ -103,8 +103,8 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
         mode: "onBlur",
     });
 
-    const {createDoc, loading, error: submitError} = useFrappeCreateDoc();
-    const {deleteDoc} = useFrappeDeleteDoc()
+    const { createDoc, loading, error: submitError } = useFrappeCreateDoc();
+    const { deleteDoc } = useFrappeDeleteDoc()
     const { toast } = useToast()
     const navigate = useNavigate()
     const { mutate } = useSWRConfig()
@@ -113,8 +113,8 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
 
     const onSubmit = async (values: CustomerFormValues) => {
         try {
-            if(values.company_city === "Not Found" || values.company_state === "Not Found") {
-                throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
+            if (values.company_city === "Not Found" || values.company_state === "Not Found") {
+                throw new Error('City and State are "Not Found", Please Enter a Valid Pincode')
             }
             // Create the address document
             const addressDoc = await createDoc("Address", {
@@ -129,7 +129,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                 email_id: values.email,
                 phone: values.phone,
             });
-    
+
             try {
                 // Create the customer document using the address document reference
                 await createDoc("Customers", {
@@ -140,7 +140,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                     company_email: values.email,
                     company_gst: values.company_gst,
                 });
-    
+
                 // Mutate customer data after successful creation
                 await mutate("Customers", async () => {
                     const data = await fetchDocList("Customers");
@@ -151,11 +151,11 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                     revalidate: true,
                     throwOnError: true,
                 });
-    
+
                 if (!navigation) {
                     company_mutate();
                 }
-    
+
                 // Success toast notification
                 toast({
                     title: "Success",
@@ -166,7 +166,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                     ),
                     variant: "success",
                 });
-    
+
                 // Reset form and handle navigation
                 form.reset();
                 if (navigation) {
@@ -174,7 +174,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                 } else {
                     closewindow();
                 }
-    
+
             } catch (customerError) {
                 // Delete the address document if customer creation fails
                 await deleteDoc('Address', addressDoc.name);
@@ -196,7 +196,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     //     try {
     //         // Validate form data asynchronously using Zod schema
     //         const validatedData = await customerFormSchema.parseAsync(values);
-    
+
     //         // If validation passes, proceed with creating the address document
     //         const addressDoc = await createDoc("Address", {
     //             address_title: validatedData.company_name,
@@ -210,7 +210,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     //             email_id: validatedData.email,
     //             phone: validatedData.phone,
     //         });
-    
+
     //         try {
     //             // Create the customer document using the address document reference
     //             await createDoc("Customers", {
@@ -221,7 +221,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     //                 company_email: validatedData.email,
     //                 company_gst: validatedData.company_gst,
     //             });
-    
+
     //             // Mutate customer data after successful creation
     //             await mutate("Customers", async () => {
     //                 const data = await fetchDocList("Customers");
@@ -232,11 +232,11 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     //                 revalidate: true,
     //                 throwOnError: true,
     //             });
-    
+
     //             if (!navigation) {
     //                 company_mutate();
     //             }
-    
+
     //             // Success toast notification
     //             toast({
     //                 title: "Success",
@@ -247,7 +247,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     //                 ),
     //                 variant: "success",
     //             });
-    
+
     //             // Reset form and handle navigation
     //             form.reset();
     //             if (navigation) {
@@ -255,13 +255,13 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     //             } else {
     //                 closewindow();
     //             }
-    
+
     //         } catch (customerError) {
     //             // Delete the address document if customer creation fails
     //             await deleteDoc('Address', addressDoc.name);
     //             throw customerError;
     //         }
-    
+
     //     } catch (err) {
     //         // If validation or any other error occurs, show the error in a toast
     //         if (err instanceof z.ZodError) {
@@ -283,7 +283,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     //         }
     //     }
     // };
-    
+
     // Pincode fetching function that can be used outside React hooks
 
 
@@ -343,15 +343,15 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
     // console.log("values", form.getValues())
 
     return (
-        <div className={`${navigation && "p-4"}`}>
+        <div>
             {
                 navigation && (<div className="space-y-0.5">
                     <div className="flex space-x-2 items-center">
                         <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} />
-                        <h2 className="text-2xl font-bold tracking-tight">Add Customer</h2>
+                        <h2 className="text-2xl font-bold tracking-tight">Add New Customer</h2>
                     </div>
                     <p className="text-muted-foreground pl-8">
-                        Fill out to create a new Customer
+                        Fill all the marked fields to create a new Customer
                     </p>
                 </div>)
             }
@@ -362,7 +362,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         event.stopPropagation();
                         return form.handleSubmit(onSubmit)(event);
                     }}
-                    className="space-y-8"
+                    className="space-y-8 px-6 max-md:px-2"
                 >
                     <FormField
                         control={form.control}
@@ -509,10 +509,12 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
                         )}
                     />
                     <div className="flex justify-end  space-x-2">
-                        <Button type="button" variant="outline" onClick={() => resetForm()}>
+                        <Button type="button" variant="secondary" onClick={() => resetForm()} className="flex items-center gap-1">
+                            <ListRestart className="h-4 w-4" />
                             Reset
                         </Button>
-                        <Button type="submit" disabled={loading}>
+                        <Button type="submit" disabled={loading} className="flex items-center gap-1">
+                            <ListChecks className="h-4 w-4" />
                             {loading ? "Submitting..." : "Submit"}
                         </Button>
                     </div>

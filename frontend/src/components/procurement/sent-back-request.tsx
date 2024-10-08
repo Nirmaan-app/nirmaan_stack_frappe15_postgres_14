@@ -9,6 +9,7 @@ import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import { Badge } from "../ui/badge";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 
 type PRTable = {
@@ -144,7 +145,7 @@ export const SentBackRequest = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {getTotal(row.getValue("name"))}
+                            {formatToIndianRupee(getTotal(row.getValue("name")))}
                         </div>
                     )
                 }
@@ -165,8 +166,7 @@ export const SentBackRequest = () => {
     }
 
     return (
-        <div className="flex">
-            <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
+            <div className="flex-1 md:space-y-4">
                 <div className="flex items-center justify-between pl-2 space-y-2">
                     <h2 className="text-lg font-bold tracking-tight">Sent Back PR</h2>
                 </div>
@@ -208,6 +208,5 @@ export const SentBackRequest = () => {
                         </table>
                     </div> */}
             </div>
-        </div>
     )
 }

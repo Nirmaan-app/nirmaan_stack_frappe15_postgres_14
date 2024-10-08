@@ -36,11 +36,11 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
   if (error || customerAddressError) return <h1 className="text-red-700">There is an Error while fetching the account</h1>;
 
   return (
-    <div className="flex-1 space-y-4 p-12 pt-8 max-md:p-8 max-sm:p-4">
-      <div className="flex items-center">
-        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/customers")} />
+    <div className="flex-1 md:space-y-4">
+      <div className="flex items-center gap-1 max-md:mb-2">
+        <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} />
         {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
-          <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.company_name}</h2>}
+          <h2 className="text-xl md:text-3xl font-bold tracking-tight">{data?.company_name}</h2>}
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
       </div>
       {(isLoading || customerAddressLoading) ? <OverviewSkeleton /> : (

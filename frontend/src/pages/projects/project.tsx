@@ -745,21 +745,20 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
   // if (isLoading) return <OverviewSkeleton />
 
   return (
-    <div className="flex-1 space-y-4 px-12 max-md:px-8 max-sm:px-4 pt-6">
+    <div className="flex-1 md:space-y-4">
       <div className="flex items-center">
         <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-          {isLoading ? <Skeleton className="w-[30%] h-10" /> : (
-            <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
-          )}
+        {isLoading ? <Skeleton className="w-[30%] h-10" /> : (
+          <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
+        )}
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
-        <sup className="text-red-700">*(beta)</sup>
       </div>
       <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
 
       {/* Overview Section */}
 
-      {(isLoading || usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" &&  (
-        <div className="flex flex-col gap-4">
+      {(isLoading || usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" && (
+        <div className="flex flex-col gap-4 max-md:pt-4">
           <Card>
             <CardHeader>
               <CardTitle>
@@ -879,7 +878,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
 
       {current === "projectTracking" && (
         <div className="pr-2 py-4">
-          <div className="flex gap-4 items-center">
+          <div className="grid grid-cols-3 gap-2 max-sm:grid-cols-2">
             <Button variant="outline" className=" cursor-pointer flex items-center gap-1"
               onClick={() => handlePrint()}
             >

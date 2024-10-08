@@ -140,17 +140,26 @@ doc_events = {
         "after_insert": [
             "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm",
             "nirmaan_stack.nirmaan_stack.doctype.projects.projects.generateUserPermissions"
-        ]
+        ],
+        "on_update": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.edit_pwm" 
     },
     "Vendors": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.generate_vendor_category",
         # IMPLEMENT ON_UPDATE
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.update_vendor_category",
         "on_trash": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.delete_vendor_category"
+    },
+    "Items": {
+        "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert" 
+    },
+    "Procurement Requests": {
+        "after_insert": "nirmaan_stack.integrations.controllers.procurement_requests.after_insert",
+        "on_update": "nirmaan_stack.integrations.controllers.procurement_requests.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.procurement_requests.on_trash"
+    },
+    "Procurement Orders": {
+        "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update"
     }
-    # "Procurement Requests": {
-    #     "on_submit": "nirmaan_stack.nirmaan_stack.doctype.pr_category.pr_category.generate_pr_category"
-    # }
 }
 
 # Scheduled Tasks

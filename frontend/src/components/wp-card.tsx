@@ -9,7 +9,7 @@ import * as z from "zod"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"
-import { PersonStanding } from "lucide-react"
+import { ListChecks, PersonStanding } from "lucide-react"
 import { SOWCard } from "./sow-card"
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
-import { ButtonLoading } from "./button-loading"
+import { ButtonLoading } from "./ui/button-loading"
 import { useToast } from "./ui/use-toast"
 import { Skeleton } from "./ui/skeleton"
 
@@ -136,7 +136,9 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
                                         <div className="flex items-center justify-center">
                                         {(loading) ? (<ButtonLoading />) : (
                                             <>
-                                            <Button type="submit">Submit</Button>
+                                            <Button type="submit" className="flex items-center gap-1">
+                                            <ListChecks className="h-4 w-4" />
+                                            Submit</Button>
                                             <DialogClose id="dialogClosewpCard" className="hidden">hello</DialogClose>
                                             </>
                                             )}      

@@ -14,4 +14,8 @@ export interface Milestones{
 	milestone_name: string
 	/**	Scope of Work : Link - Scopes of Work	*/
 	scope_of_work?: string
+	/**	Start Day : Data	*/
+	start_day?: string
+	/**	End Day : Data	*/
+	end_day?: string
 }

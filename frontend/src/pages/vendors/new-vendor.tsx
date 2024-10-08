@@ -6,11 +6,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
-import { ButtonLoading } from "@/components/button-loading"
+import { ButtonLoading } from "@/components/ui/button-loading"
 import ReactSelect from 'react-select';
 import { useState, useEffect, useCallback } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, ListChecks, ListRestart, Undo2 } from "lucide-react"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
 
@@ -32,11 +32,11 @@ const VendorFormSchema = z.object({
             message: "Address Line 1 Required"
         }),
     address_line_2: z
-    .string({
-        required_error: "Address Line 2 Required"
-    }).min(1, {
-        message: "Address Line 2 Required"
-    }),
+        .string({
+            required_error: "Address Line 2 Required"
+        }).min(1, {
+            message: "Address Line 2 Required"
+        }),
     vendor_city: z
         .string({
             required_error: "Must Provide City"
@@ -89,7 +89,7 @@ interface SelectOption {
     value: string;
 }
 
-export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined, prData=undefined }) => {
+export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined, prData = undefined }) => {
     const navigate = useNavigate()
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
@@ -257,7 +257,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
 
                 // Create quotation requests
                 const promises = [];
-                if(sentBackData) {
+                if (sentBackData) {
                     sentBackData?.item_list?.list.forEach((item) => {
                         const newItem = {
                             procurement_task: sentBackData.procurement_request,
@@ -268,7 +268,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         };
                         promises.push(createDoc("Quotation Requests", newItem));
                     });
-                } else if(prData) {
+                } else if (prData) {
                     prData?.procurement_list?.list.forEach((item) => {
                         const newItem = {
                             procurement_task: prData.name,
@@ -280,14 +280,14 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         promises.push(createDoc("Quotation Requests", newItem));
                     });
                 }
-                
+
                 await Promise.all(promises);
 
                 // Mutate the vendor-related data
                 await mutate("Vendors");
                 await mutate("Quotation Requests");
-                if(prData) {
-                    await mutate(`Quotations Requests, Procurement_task=${prData?.name}`)
+                if (prData) {
+                    await mutate(`Quotations Requests,Procurement_task=${prData?.name}`)
                 }
                 await mutate("Vendor Category");
 
@@ -351,25 +351,25 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     }
 
     return (
-        <div className={`flex-1 space-x-2 ${navigation ? " md:space-y-4 px-12 max-md:px-8 max-sm:px-4 pt-6" : ""} `}>
+        <div className={`flex-1 space-x-2 ${navigation ? "flex-1 md:space-y-4" : ""} `}>
             {navigation && (
                 <div className="flex gap-1">
                     <Link to="/vendors"><ArrowLeft className="mt-1.5" /></Link>
                     <div>
-                        <h2 className="text-2xl font-bold tracking-tight">Add Vendor</h2>
+                        <h2 className="text-2xl font-bold tracking-tight">Add New Vendor</h2>
                         <p className="text-muted-foreground">
-                            Fill out to create a new Vendor
+                            Fill all the marked fields to create a new Vendor
                         </p>
                     </div>
                 </div>
             )}
 
-            <Separator className="my-6" />
+            <Separator className="my-6 max-md:my-2" />
             <Form {...form}>
                 <form onSubmit={(event) => {
                     event.stopPropagation();
                     return form.handleSubmit(onSubmit)(event);
-                }} className="space-y-8">
+                }} className="space-y-8 px-6 max-md:px-2">
                     <FormField
                         control={form.control}
                         name="vendor_name"
@@ -523,14 +523,18 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                             </FormItem>
                         )}
                     />
-                        <div className="flex space-x-2 items-center justify-end">
-                            {(loading) ? (<ButtonLoading />) : (
-                                <>
-                                    <Button type="button" variant="outline" onClick={() => resetForm()}>Reset</Button>
-                                    <Button type="submit" >Submit</Button>
-                                </>
-                            )}
-                        </div>
+                    <div className="flex space-x-2 items-center justify-end">
+                        {(loading) ? (<ButtonLoading />) : (
+                            <>
+                                <Button type="button" variant="secondary" className="flex items-center gap-1" onClick={() => resetForm()}>
+                                    <ListRestart className="h-4 w-4" />
+                                    Reset</Button>
+                                <Button type="submit" className="flex items-center gap-1">
+                                    <ListChecks className="h-4 w-4" />
+                                    Submit</Button>
+                            </>
+                        )}
+                    </div>
                     {!navigation && (
                         <SheetClose asChild><Button id="sheetClose" className="w-0 h-0 invisible"></Button></SheetClose>
                     )}

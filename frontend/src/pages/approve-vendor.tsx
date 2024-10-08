@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2 } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
@@ -14,6 +14,9 @@ import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanS
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { formatDate } from '@/utils/FormatDate';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import formatToIndianRupee from '@/utils/FormatPrice';
+import { useUserData } from '@/hooks/useUserData';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -38,9 +41,23 @@ const columns: TableColumnsType<DataType> = [
         key: 'item',
         render: (text, record) => {
             return (
-                <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
-                    {text}
-                </span>
+                <div className="inline items-baseline">
+                    <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+                        {text}
+                    </span>
+                    {(!record.children && record.comment) && (
+                        <HoverCard>
+                            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                <div className="relative pb-4">
+                                    <span className="block">{record.comment}</span>
+                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                </div>
+
+                            </HoverCardContent>
+                        </HoverCard>
+                    )}
+                </div>
             )
         }
     },
@@ -61,6 +78,11 @@ const columns: TableColumnsType<DataType> = [
         dataIndex: 'rate',
         width: '7%',
         key: 'rate',
+        render: (text) => {
+            return (
+                <span>{text === undefined ? "" : formatToIndianRupee(text)}</span>
+            )
+        }
     },
     {
         title: 'Selected Vendor',
@@ -75,7 +97,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'amount',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -86,7 +108,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -97,7 +119,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -152,6 +174,11 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst'],
             limit: 1000
         });
+    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+        fields: ["*"],
+        filters: [["reference_name", "=", pr_data.name]],
+        orderBy: { field: "creation", order: "desc" }
+    })
     // const { data: project_list } = useFrappeGetDocList("Projects",
     //     {
     //         fields: ['name', 'project_name', 'project_address', 'procurement_lead'],
@@ -222,7 +249,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         // Compute new procurement list and categories
         const newCategories: { name: string }[] = [];
         const newList: DataType[] = [];
-        JSON.parse(newOrderData.procurement_list).list.forEach((item) => {
+        JSON.parse(newOrderData?.procurement_list)?.list?.forEach((item) => {
             if (item.status === "Pending") newList.push(item);
             if (!newCategories.some(category => category.name === item.category)) {
                 newCategories.push({ name: item.category });
@@ -336,6 +363,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             unit: item.unit,
                             quantity: item.quantity,
                             category: item.category,
+                            comment: item.comment,
                             tax: Number(item.tax),
                             rate: price,
                             amount: price * item.quantity,
@@ -390,9 +418,10 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     };
 
     const { toast } = useToast();
+    const userData = useUserData()
     const [isLoading, setIsLoading] = useState<string | null>(null);
 
-    console.log("selectedItems", selectedItems)
+    // console.log("selectedItems", selectedItems)
 
     const newHandleApprove = async () => {
         try {
@@ -415,7 +444,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                         unit: item.unit,
                         item: item.item,
                         category: item.category,
-                        tax: item.tax
+                        tax: item.tax,
+                        comment: item.comment
                     });
                 }
             });
@@ -534,7 +564,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     quote: price,
                     unit: value.unit,
                     category: value.category,
-                    status: "Pending"
+                    status: "Pending",
+                    comment: value.comment
                 };
             });
 
@@ -546,14 +577,23 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 project: orderData.project,
                 category_list: { list: newCategories },
                 item_list: { list: itemlist },
-                comments: comment,
+                // comments: comment,
                 type: "Rejected"
             };
 
             if (itemlist.length > 0) {
-                await createDoc('Sent Back Category', newSendBack);
+                const res = await createDoc('Sent Back Category', newSendBack);
+                if(comment) {
+                    await createDoc("Nirmaan Comments", {
+                        comment_type: "Comment",
+                        reference_doctype: "Sent Back Category",
+                        reference_name: res.name,
+                        comment_by: userData?.user_id,
+                        content: comment,
+                        subject: "creating sent-back"
+                    })
+                }
             }
-
             // Update item statuses and workflow state
             // const allItemsSentBack = filteredData.length === orderData.procurement_list.list.length;
             // const currentState = pr_data?.workflow_state;
@@ -638,13 +678,13 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     return (
         <>
-            {page == 'approvequotation' && <div className="flex" >
-                <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+            {page == 'approvequotation' &&
+                <div className="flex-1 md:space-y-4">
                     <div className="flex items-center pt-1  pb-4">
                         <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-vendor")} />
                         <h2 className="text-base pl-2 font-bold tracking-tight">Approve PO: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
-                    <Card className="flex md:grid md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                    <Card className="flex flex-wrap lg:grid lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
@@ -912,11 +952,11 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             </Button>}
                         </div>)
                     } */}
-                </div>
-            </div>}
+                </div>}
             {/* <Space align="center" style={{ marginBottom: 16 }}>
                 CheckStrictly: <Switch checked={checkStrictly} onChange={setCheckStrictly} />
             </Space> */}
+            <div className='overflow-x-auto pt-6'>
             <ConfigProvider
                 theme={{
                     token: {
@@ -930,20 +970,20 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 }}
             >
                 {data.length > 0 &&
-                    <div className='px-6'>
                         <Table
                             rowSelection={{ ...rowSelection, checkStrictly }}
                             dataSource={data}
                             expandable={{ defaultExpandAllRows: true }}
                             columns={columns}
                         />
-                    </div>
                 }
             </ConfigProvider>
-            {selectedItems?.length > 0 && <div className="text-right space-x-2 mr-6">
+            </div>
+            {selectedItems?.length > 0 && <div className="flex justify-end gap-2 mr-2 mt-2">
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
+                            <SendToBack  className='w-4 h-4'/>
                             {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
                         </Button>
                     </AlertDialogTrigger>
@@ -957,20 +997,25 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                                     id="textarea"
                                     className="w-full border rounded-lg p-2"
                                     value={comment}
-                                    placeholder="Type your comments here"
+                                    placeholder="type here..."
                                     onChange={(e) => setComment(e.target.value)}
                                 />
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleSentBack()}>Send Back</AlertDialogAction>
+                            <AlertDialogCancel className="flex items-center gap-1">
+                            <Undo2 className="h-4 w-4" />
+                                Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1">
+                            <CheckCheck className="h-4 w-4" />
+                                Confirm</AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
+                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
+                            <ListChecks className="h-4 w-4" />
                             {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
                         </Button>
                     </AlertDialogTrigger>
@@ -982,13 +1027,23 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleApprove()}>Approve</AlertDialogAction>
+                        <AlertDialogCancel className="flex items-center gap-1">
+                            <Undo2 className="h-4 w-4" />
+                                Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1">
+                                <CheckCheck className="h-4 w-4" />
+                                Confirm</AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
-            <div className="flex items-center pt-1  pb-4">
+            {/* {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by)).length ? (
+                <div className="relative py-4 px-10">
+                    <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
+                    <span className="relative left-[5%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span>
+                </div>
+            ) : ""} */}
+            <div className="flex items-center py-4">
                 <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
             </div>
             <div className="overflow-x-auto">
@@ -999,7 +1054,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                                 <ReactTable>
                                     <TableHeader>
                                         <TableRow className="bg-red-100">
-                                            <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{item.category}</span>(Items)</TableHead>
+                                            <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{item.category}</span></TableHead>
                                             <TableHead className="w-[25%]">UOM</TableHead>
                                             <TableHead className="w-[15%]">Qty</TableHead>
                                         </TableRow>

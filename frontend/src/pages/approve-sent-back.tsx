@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ListChecks, SendToBack, Undo2 } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
@@ -12,6 +12,8 @@ import { formatDate } from '@/utils/FormatDate';
 import { SentBackCategory as SentBackCategoryType } from '@/types/NirmaanStack/SentBackCategory';
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+import formatToIndianRupee from '@/utils/FormatPrice';
+import { useUserData } from '@/hooks/useUserData';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -59,6 +61,11 @@ const columns: TableColumnsType<DataType> = [
         dataIndex: 'rate',
         width: '7%',
         key: 'rate',
+        render: (text) => {
+            return (
+                <span>{text === undefined ? "" : formatToIndianRupee(text)}</span>
+            )
+        }
     },
     {
         title: 'Selected Vendor',
@@ -73,7 +80,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'amount',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -84,7 +91,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text}
+                {formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -166,7 +173,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
         const newOrderData = sb_data;
         const newCategories: { name: string }[] = [];
         const newList: DataType[] = [];
-        JSON.parse(newOrderData.item_list).list.forEach((item) => {
+        JSON.parse(newOrderData?.item_list)?.list?.forEach((item) => {
             if (item.status === "Pending") newList.push(item);
             if (!newCategories.some(category => category.name === item.category)) {
                 newCategories.push({ name: item.category });
@@ -290,6 +297,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
     };
 
     const { mutate } = useSWRConfig()
+    const userData = useUserData()
 
     const newHandleApprove = async () => {
 
@@ -454,12 +462,22 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 item_list: {
                     list: itemList
                 },
-                comments: comment,
+                // comments: comment,
                 type: "Rejected"
             }
 
             if (itemList.length > 0) {
-                await createDoc("Sent Back Category", newSendBack)
+                const res = await createDoc("Sent Back Category", newSendBack)
+                if(comment) {
+                    await createDoc("Nirmaan Comments", {
+                        comment_type: "Comment",
+                        reference_doctype: "Sent Back Category",
+                        reference_name: res.name,
+                        comment_by: userData?.user_id,
+                        content: comment,
+                        subject: "creating sent-back"
+                    })
+                }
             }
 
             // const currentState = sb_data?.workflow_state;
@@ -579,12 +597,12 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
     return (
         <>
             <div className="flex" >
-                <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                <div className="flex-1 md:space-y-4">
                     <div className="flex items-center pt-1 pb-4">
                         <ArrowLeft onClick={() => { navigate('/approve-sent-back') }} />
                         <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">{orderData?.type} SB-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
-                    <Card className="flex md:grid md:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                    <Card className="flex flex-wrap lg:grid lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
@@ -751,6 +769,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                     </div> */}
                 </div>
             </div>
+            <div className='overflow-x-auto pt-6'>
             <ConfigProvider
                 theme={{
                     token: {
@@ -764,24 +783,28 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 }}
             >
                 {data.length > 0 &&
-                    <div className='px-6'>
                         <Table
                             dataSource={data}
                             rowSelection={{ ...rowSelection, checkStrictly }}
                             expandable={{ defaultExpandAllRows: true }}
                             columns={columns}
                         />
-                    </div>
                 }
-
             </ConfigProvider>
-            {selectedItems?.length > 0 && <div className="text-right space-x-2 mr-4">
+            </div>
+            {selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2 mt-2">
                 <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
+                <AlertDialogTrigger asChild>
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
+                            <SendToBack  className='w-4 h-4'/>
                             {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
                         </Button>
                     </AlertDialogTrigger>
+                    {/* <AlertDialogTrigger asChild>
+                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
+                            {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
+                        </Button>
+                    </AlertDialogTrigger> */}
                     <AlertDialogContent className="sm:max-w-[425px]">
                         <AlertDialogHeader>
                             <AlertDialogTitle>Are you Sure</AlertDialogTitle>
@@ -792,23 +815,37 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                                     id="textarea"
                                     className="w-full border rounded-lg p-2"
                                     value={comment}
-                                    placeholder="Type your comments here"
+                                    placeholder="type here..."
                                     onChange={(e) => setComment(e.target.value)}
                                 />
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
+                            <AlertDialogCancel className="flex items-center gap-1">
+                            <Undo2 className="h-4 w-4" />
+                                Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1">
+                            <CheckCheck className="h-4 w-4" />
+                                Confirm</AlertDialogAction>
+                        </AlertDialogFooter>
+                        {/* <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => newHandleSentBack()}>Send Back</AlertDialogAction>
-                        </AlertDialogFooter>
+                        </AlertDialogFooter> */}
                     </AlertDialogContent>
                 </AlertDialog>
                 <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
+                <AlertDialogTrigger asChild>
+                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
+                            <ListChecks className="h-4 w-4" />
                             {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
                         </Button>
                     </AlertDialogTrigger>
+                    {/* <AlertDialogTrigger asChild>
+                        <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
+                            {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
+                        </Button>
+                    </AlertDialogTrigger> */}
                     <AlertDialogContent className="sm:max-w-[425px]">
                         <AlertDialogHeader>
                             <AlertDialogTitle>Are you Sure</AlertDialogTitle>
@@ -817,9 +854,17 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
+                        <AlertDialogCancel className="flex items-center gap-1">
+                            <Undo2 className="h-4 w-4" />
+                                Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1">
+                                <CheckCheck className="h-4 w-4" />
+                                Confirm</AlertDialogAction>
+                        </AlertDialogFooter>
+                        {/* <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => newHandleApprove()}>Approve</AlertDialogAction>
-                        </AlertDialogFooter>
+                        </AlertDialogFooter> */}
                     </AlertDialogContent>
                 </AlertDialog>
                 {/* <Dialog>

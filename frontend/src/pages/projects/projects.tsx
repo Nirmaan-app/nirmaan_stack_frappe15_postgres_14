@@ -16,16 +16,16 @@ import { formatDate } from "@/utils/FormatDate";
 export default function Projects() {
     const navigate = useNavigate()
 
-    const {data: projectTypesList, isLoading: projectTypesListLoading} = useFrappeGetDocList("Project Types", {
+    const { data: projectTypesList, isLoading: projectTypesListLoading } = useFrappeGetDocList("Project Types", {
         fields: ["*"],
         limit: 1000
     },
-    "Project Types"
+        "Project Types"
     )
 
-    const projectTypeOptions = projectTypesList?.map((pt) => ({label : pt.name, value: pt.name}))
+    const projectTypeOptions = projectTypesList?.map((pt) => ({ label: pt.name, value: pt.name }))
 
-    console.log("projecttype", projectTypeOptions)
+    // console.log("projecttype", projectTypeOptions)
 
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
@@ -116,7 +116,7 @@ export default function Projects() {
     })
 
     return (
-        <div className="flex-1 space-x-2 md:space-y-4 p-6 pt-6">
+        <div className="flex-1 md:space-y-4">
             {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
@@ -129,17 +129,15 @@ export default function Projects() {
                         </BreadcrumbItem>
                     </Breadcrumb>
                 </div> */}
-            <div className="flex items-center justify-between mb-2 space-y-2">
-                <div className="flex">
-                    <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/")} />
-                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
+            <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1">
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
+                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                    <Button asChild data-cy="add-project-button">
-                        <Link to="new"> <CirclePlus className="w-5 h-5 mt- pr-1 " />Add <span className="hidden md:flex pl-1"> Project</span></Link>
-                    </Button>
-                </div>
+                <Button asChild data-cy="add-project-button">
+                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
+                </Button>
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2 cursor-pointer">
                 <Card className="hover:animate-shadow-drop-center" onClick={() => {

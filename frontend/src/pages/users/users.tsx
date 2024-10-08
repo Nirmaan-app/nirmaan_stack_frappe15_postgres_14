@@ -24,9 +24,15 @@ export default function Users() {
         "Nirmaan Users"
     )
 
-    console.log("data", data)
+    // console.log("data", data)
 
-    // const roleTypeOptions = data?.map((u) => ({ label: u?.role_profile.split(" ").slice(1, 3).join(" "), value: u.role_profile }))
+    const roleTypeOptions = [{label: "Project Manager", value : "Nirmaan Project Manager Profile"}, 
+                             {label: "Project Lead", value : "Nirmaan Project Lead Profile"}, 
+                             {label: "Procurement Executive", value : "Nirmaan Procurement Executive Profile"}, 
+                             {label: "Admin Profile", value : "Nirmaan Admin Profile"},
+                             {label: "Design Executive", value : "Nirmaan Design Executive Profile"}
+                            ]
+
 
 
     const columns: ColumnDef<NirmaanUsers>[] = useMemo(
@@ -152,10 +158,10 @@ export default function Users() {
         ],
         []
     )
-    if (isLoading) return <h1>Loading</h1>
+    // if (isLoading) return <h1>Loading</h1>
     if (error) return <h1>error.message</h1>
     return (
-        <div className="flex-1 space-y-4 p-8 pt-6">
+        <div className="flex-1 md:space-y-4">
             {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
@@ -177,16 +183,14 @@ export default function Users() {
                     </div>
                 </div> */}
             <div className="flex items-center justify-between mb-2 space-y-2">
-                <div className="flex">
-                    <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/")} />
-                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">User List</h2>
+                <div className="flex items-center gap-1">
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
+                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">User List</h2>
                 </div>
 
-                <div className="flex items-center space-x-2">
                     <Button asChild>
-                        <Link to="new"> <CirclePlus className="w-5 h-5 mt- pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
+                        <Link to="new"> <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
                     </Button>
-                </div>
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
                 <Card className="hover:animate-shadow-drop-center" >
@@ -210,8 +214,7 @@ export default function Users() {
                 {isLoading ? (
                     <TableSkeleton />
                 ) : (
-                    // <DataTable columns={columns} data={data || []} roleTypeOptions={roleTypeOptions} />
-                    <DataTable columns={columns} data={data || []} />
+                    <DataTable columns={columns} data={data || []} roleTypeOptions={roleTypeOptions} />
                 )}
             </div>
         </div>

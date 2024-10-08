@@ -10,11 +10,11 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
-import { useState } from "react";
+import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { useContext, useState } from "react";
 import { DialogClose } from "@radix-ui/react-dialog";
-import { ArrowLeft, CirclePlus, Mail, MapPin, Phone, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, CirclePlus, KeyRound, ListChecks, Mail, MapPin, Phone, Plus, Trash2, Undo2 } from "lucide-react";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
@@ -26,6 +26,7 @@ interface SelectOption {
 }
 
 export default function Profile() {
+
     const [curProj, setCurProj] = useState('')
 
     const { id } = useParams<{ id: string }>()
@@ -56,6 +57,8 @@ export default function Profile() {
         "Address"
     )
 
+    const { call } = useContext(FrappeContext) as FrappeConfig
+
     const options: SelectOption[] = project_list?.map(item => ({
         label: item.project_name, // Adjust based on your data structure
         value: item.name
@@ -82,8 +85,8 @@ export default function Profile() {
             user: id,
             allow: "Projects",
             for_value: curProj
-        }).then(() => {
-            console.log(id)
+        }).then((doc) => {
+            // console.log("after_create", doc.user)
             toast({
                 title: "Success!",
                 description: `Successfully assigned ${getProjectName(curProj).projectName}`,
@@ -91,7 +94,7 @@ export default function Profile() {
             })
             permission_list_mutate()
         }).catch(() => {
-            console.log(submit_error)
+            // console.log(submit_error)
             toast({
                 title: "Failed!",
                 description: `Failed to assign ${getProjectName(curProj).projectName}`,
@@ -111,7 +114,7 @@ export default function Profile() {
                 })
                 navigate("/users")
             }).catch(() => {
-                console.log(submit_error)
+                // console.log(submit_error)
                 toast({
                     title: "Failed!",
                     description: `Failed to delete User: ${data?.full_name}`,
@@ -123,11 +126,11 @@ export default function Profile() {
 
     const handleDeleteProject = (project: string) => {
         let permission_id = permission_list?.filter((permissions) => permissions.for_value === project)[0]
-        console.log("permisison filtered", permission_id)
+        // console.log("permisison filtered", permission_id)
         if (permission_id) {
             deleteDoc("User Permission", permission_id.name)
                 .then((doc) => {
-                    console.log(doc)
+                    // console.log('after_delete', doc)
                     toast({
                         title: "Success!",
                         description: `${project} unlinked for ${id}`,
@@ -135,7 +138,7 @@ export default function Profile() {
                     })
                     permission_list_mutate()
                 }).catch((doc) => {
-                    console.log(submit_error)
+                    // console.log(submit_error)
                     toast({
                         title: "Failed!",
                         description: `Failed to unlink ${project} for ${id}`,
@@ -152,9 +155,28 @@ export default function Profile() {
         }
     }
 
+    const handlePasswordReset = () => {
+        call.post('frappe.core.doctype.user.user.reset_password', {
+            user: id
+        }).then(() => {
+            toast({
+                title: "Success!",
+                description: "Password Reset Email has been sent to the user",
+                variant: "success"
+            });
+        }).catch(err => {
+            toast({
+                title: "Error!",
+                description: err.exception,
+                variant: "destructive"
+            });
+        })
+
+    }
+
     if (isLoading || permission_list_loading || project_list_loading || addressDataLoading) return <UserProfileSkeleton />;
     if (error) {
-        console.log("Error in user-profile.tsx", error?.message)
+        // console.log("Error in user-profile.tsx", error?.message)
         toast({
             title: "Error!",
             description: `Error ${error?.message}`,
@@ -162,36 +184,60 @@ export default function Profile() {
         })
     }
     return (
-        <div className="min-h-screen p-12 pt-8 max-md:p-8 max-sm:p-4">
-            <div className="mx-auto space-y-6 sm:space-y-8">
-                <div className="flex items-center justify-between ">
-                    <Button variant="ghost" className="flex items-center gap-2">
-                        <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6" />
-                        <span className='text-xl font-semibold'>User Details</span>
-                    </Button>
-                </div>
-                <Card>
-                    <CardHeader className="flex flex-row items-start justify-between">
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                            <Avatar className="h-20 w-20 text-3xl">
-                                <AvatarImage src="/placeholder.svg" alt={data?.full_name} />
-                                <AvatarFallback>{data?.full_name.split(' ').map(n => n[0]).join('').toUpperCase()}</AvatarFallback>
-                            </Avatar>
-                            <div>
-                                <CardTitle className="text-2xl">{data?.full_name}</CardTitle>
-                                <CardDescription>{data?.role_profile}</CardDescription>
-                            </div>
+        <div className="flex-1 md:space-y-4 space-y-2">
+            <div className="flex items-center gap-1">
+                <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6 cursor-pointer" />
+                <span className='text-2xl max-md:text-xl font-semibold'>User Details</span>
+            </div>
+            <Card>
+                <CardHeader className="flex flex-row items-start justify-between">
+                    <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+                        <Avatar className="h-20 w-20 text-3xl">
+                            <AvatarImage src="/placeholder.svg" alt={data?.full_name} />
+                            <AvatarFallback>{data?.full_name.split(' ').map(n => n[0]).join('').toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                            <CardTitle className="text-2xl">{data?.full_name}</CardTitle>
+                            <CardDescription>{data?.role_profile}</CardDescription>
                         </div>
-                        {userData.role === "Nirmaan Admin Profile" &&
-                            (data?.role_profile === "Nirmaan Admin Profile" ?
+                    </div>
+                    {userData.role === "Nirmaan Admin Profile" &&
+                        <div className="flex flex-wrap max-sm:flex-col gap-2">
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button className="flex gap-1 items-center" >
+                                        <KeyRound className="w-5 h-5" />
+                                        <span className="max-md:hidden">Reset Password</span>
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                    <DialogHeader>
+                                        <DialogTitle>Reset password for {data?.full_name}</DialogTitle>
+                                    </DialogHeader>
+                                    <span>This action will send a reset password email to this user. Are you sure you want to continue?</span>
+                                    <div className="flex justify-end">
+                                        <DialogClose className="flex items-center gap-2">
+                                            <Button variant="secondary" className="flex items-center gap-1">
+                                                <Undo2 className="h-4 w-4" />
+                                                Cancel</Button>
+                                            <Button onClick={() => handlePasswordReset()} className="flex items-center gap-1">
+                                                <KeyRound className="w-5 h-5" />
+                                                <span className="max-md:hidden">Reset</span>
+                                            </Button>
+                                        </DialogClose>
+                                    </div>
+                                </DialogContent>
+                            </Dialog>
+                            {data?.role_profile === "Nirmaan Admin Profile" ?
 
-                                <Button disabled={true}><Trash2 className="w-5 h-5 pr-1" />Delete User</Button>
+                                <Button className="flex gap-1 items-center" disabled={true}><Trash2 className="w-5 h-5" />Delete User</Button>
                                 :
 
                                 <Dialog>
                                     <DialogTrigger asChild>
-                                        <Button asChild>
-                                            <div className="cursor-pointer"><Trash2 className="w-5 h-5  pr-1 " />Delete User</div>
+                                        <Button className="flex gap-1 items-center">
+                                            <Trash2 className="w-5 h-5" />
+                                            <span className="max-md:hidden">Delete User</span>
                                         </Button>
                                     </DialogTrigger>
                                     <DialogContent>
@@ -200,88 +246,132 @@ export default function Profile() {
                                         </DialogHeader>
                                         <span>This action will delete user from the system</span>
                                         <div className="flex justify-end">
-                                            <DialogClose >
-                                                <Button onClick={() => handleDeleteUser()}>Delete</Button>
-                                                <Button variant="secondary" className="ml-2">Cancel</Button>
+                                            <DialogClose className="flex items-center gap-2">
+                                                <Button variant="secondary" className="flex items-center gap-1">
+                                                    <Undo2 className="h-4 w-4" />
+                                                    Cancel</Button>
+                                                <Button onClick={() => handleDeleteUser()} className="flex items-center gap-1">
+                                                    <Trash2 className="h-4 w-4" />
+                                                    Delete</Button>
                                             </DialogClose>
                                         </div>
                                     </DialogContent>
                                 </Dialog>
 
-                            )}
-                    </CardHeader>
-                    <CardContent className="grid gap-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="flex items-center gap-2">
-                                <Mail className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm">{data?.email}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Phone className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm">{data?.mobile_no}</span>
-                            </div>
-                            <div className="flex items-center gap-2 sm:col-span-2">
-                                <MapPin className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm">N/A</span>
-                            </div>
+                            }
                         </div>
-                    </CardContent>
-                </Card>
-                <div>
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-2xl font-bold">Assigned Projects</h2>
-                        {userData.role === "Nirmaan Admin Profile" &&
-                            (data?.role_profile === "Nirmaan Admin Profile" ?
-                                <Button disabled={true}>
-                                    <div className="flex items-center"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
-                                </Button>
-                                :
-                                <Dialog>
-                                    <DialogTrigger asChild>
-                                        <Button asChild>
-                                            <div className="cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent>
-                                        <DialogHeader>
-                                            <DialogTitle>Assign New Projects</DialogTitle>
-                                            <div className="flex py-2 pt-4">
-                                                <span className="px-2 text-base font-medium pt-1">Assign</span>
-                                                <Select onValueChange={(item) => setCurProj(item)}>
-                                                    <SelectTrigger className="w-[220px]">
-                                                        <SelectValue placeholder="Select Project" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {options.map(option => {
-                                                            const isPresent = permission_list?.find((item => item.for_value === option.value))
-                                                            if (!isPresent) {
-                                                                return <SelectItem value={option.value}>{option.label}</SelectItem>
-                                                            }
-                                                        })}
-                                                    </SelectContent>
-                                                </Select>
-                                                <span className="px-4 text-base font-normal pt-1">to: {`${data?.first_name}`}</span>
-                                            </div>
-                                        </DialogHeader>
-                                        <div className="flex justify-end">
-                                            <DialogClose>
-                                                <Button onClick={() => handleSubmit()}>Submit</Button>
-                                            </DialogClose>
-                                        </div>
-                                    </DialogContent>
-                                </Dialog>
-                            )}
+                    }
+                </CardHeader>
+                <CardContent className="grid gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="flex items-center gap-2">
+                            <Mail className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">{data?.email}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Phone className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">{data?.mobile_no}</span>
+                        </div>
+                        <div className="flex items-center gap-2 sm:col-span-2">
+                            <MapPin className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">N/A</span>
+                        </div>
                     </div>
-                    {userData.role === "Nirmaan Admin Profile" ?
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {permission_list?.map((project, index) => (
+                </CardContent>
+            </Card>
+            <div>
+                <div className="flex justify-between items-center mb-2 mt-4">
+                    <h2 className="text-2xl max-md:text-xl font-semibold font-bold">Assigned Projects</h2>
+                    {userData.role === "Nirmaan Admin Profile" &&
+                        (data?.role_profile === "Nirmaan Admin Profile" ?
+                            <Button disabled={true}>
+                                <div className="flex items-center">
+                                    <CirclePlus className="w-5 h-5 mt- pr-1 " />
+                                    <span className="max-md:hidden">Assign New Project</span>
+                                </div>
+                            </Button>
+                            :
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button asChild>
+                                        <div className="cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign New Project</div>
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle className="text-xl font-semibold mb-4">Assign New Project:</DialogTitle>
+                                    </DialogHeader>
+                                    <div className="grid gap-4 py-4">
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <label htmlFor="project" className="text-right font-light">
+                                                Assign:
+                                            </label>
+                                            <Select onValueChange={(item) => setCurProj(item)}>
+                                                <SelectTrigger className="col-span-3">
+                                                    <SelectValue placeholder="Select Project" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {options.map(option => {
+                                                        const isPresent = permission_list?.find((item => item.for_value === option.value))
+                                                        if (!isPresent) {
+                                                            return (
+                                                                <SelectItem value={option.value}>
+                                                                    {option.label}
+                                                                </SelectItem>
+                                                            )
+                                                        }
+                                                        return null
+                                                    })}
+                                                </SelectContent>
+                                            </Select>
+
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <span className="text-right font-light">To:</span>
+                                            <span className="col-span-3 font-semibold">{data?.full_name}</span>
+                                        </div>
+                                    </div>
+
+                                    <DialogClose asChild>
+                                        <Button onClick={() => handleSubmit()} className="w-full">
+                                            <ListChecks className="mr-2 h-4 w-4" />
+                                            Submit</Button>
+                                    </DialogClose>
+                                </DialogContent>
+                            </Dialog>
+                        )}
+                </div>
+                {userData.role === "Nirmaan Admin Profile" ?
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {permission_list?.length === 0 ? <h1> No projects assigned</h1> :
+                            (permission_list?.map((project, index) => (
                                 <Card key={index} className="flex flex-col">
                                     <CardHeader>
                                         <CardTitle className="flex justify-between items-start">
                                             <span className="text-lg">{getProjectName(project.for_value).projectName}</span>
-                                            <Button variant="ghost" size="icon" onClick={() => handleDeleteProject(project.for_value)}>
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
+                                            <Dialog>
+                                                <DialogTrigger asChild>
+                                                    <Button variant="ghost" size="icon">
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </DialogTrigger>
+                                                <DialogContent>
+                                                    <DialogHeader>
+                                                        <DialogTitle>Delete access to {getProjectName(project.for_value).projectName}?</DialogTitle>
+                                                    </DialogHeader>
+                                                    <span>This action will delete access for this project to this user. Are you sure you want to continue?</span>
+                                                    <div className="flex justify-end">
+                                                        <DialogClose className="flex items-center gap-2">
+                                                            <Button variant="secondary" className="flex items-center gap-1">
+                                                                <Undo2 className="h-4 w-4" />
+                                                                Cancel</Button>
+                                                            <Button onClick={() => handleDeleteProject(project.for_value)} className="flex items-center gap-1">
+                                                                <Trash2 className="h-4 w-4" />
+                                                                Delete</Button>
+                                                        </DialogClose>
+                                                    </div>
+                                                </DialogContent>
+                                            </Dialog>
                                         </CardTitle>
                                         <CardDescription className="text-xs">{project.for_value}</CardDescription>
                                     </CardHeader>
@@ -296,39 +386,38 @@ export default function Profile() {
                   </div> */}
                                     </CardContent>
                                 </Card>
-                            ))}
-                        </div>
-                        :
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {userData.has_project === "true" ?
-                                (project_list?.map((project, index) => (
-                                    <Card key={index} className="flex flex-col">
-                                        <CardHeader>
-                                            <CardTitle className="flex justify-between items-start">
-                                                <span className="text-lg">{project.project_name}</span>
-                                            </CardTitle>
-                                            <CardDescription className="text-xs">{project.name}</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="flex-grow">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <MapPin className="h-4 w-4 text-muted-foreground" />
-                                                <span className="text-sm">{project.project_city + ", " + project.project_state}</span>
-                                            </div>
-                                            {/* <div className="flex items-start gap-2">
+                            )))}
+                    </div>
+                    :
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {userData.has_project === "true" ?
+                            (project_list?.map((project, index) => (
+                                <Card key={index} className="flex flex-col">
+                                    <CardHeader>
+                                        <CardTitle className="flex justify-between items-start">
+                                            <span className="text-lg">{project.project_name}</span>
+                                        </CardTitle>
+                                        <CardDescription className="text-xs">{project.name}</CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="flex-grow">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <MapPin className="h-4 w-4 text-muted-foreground" />
+                                            <span className="text-sm">{project.project_city + ", " + project.project_state}</span>
+                                        </div>
+                                        {/* <div className="flex items-start gap-2">
                     <Briefcase className="h-4 w-4 text-muted-foreground mt-1" />
                     <span className="text-sm">{project.workPackages.join(', ')}</span>
                             </div> */}
-                                        </CardContent>
-                                    </Card>
-                                )))
-                                :
-                                <h1>You Are Not Assigned any project</h1>
-                            }
+                                    </CardContent>
+                                </Card>
+                            )))
+                            :
+                            <h1>You Are Not Assigned any project</h1>
+                        }
 
-                        </div>
-                    }
+                    </div>
+                }
 
-                </div>
             </div>
         </div>
     )

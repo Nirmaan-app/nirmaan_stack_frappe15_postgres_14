@@ -6,7 +6,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet"
-import { ArrowLeft, CirclePlus, Download } from 'lucide-react';
+import { ArrowBigRightDash, ArrowLeft, CirclePlus, Download, Handshake, ListChecks, PencilLine } from 'lucide-react';
 import SentBackQuotationForm from "./sent-back-quotation-form"
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
@@ -21,14 +21,15 @@ import { formatDate } from '@/utils/FormatDate';
 import { Badge } from "../ui/badge";
 import { AddVendorCategories } from "../forms/addvendorcategories";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { DataTable } from "../data-table/data-table";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 import { useToast } from "../ui/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { ScrollArea } from "../ui/scroll-area";
 import { PrintRFQ } from "./rfq-pdf";
+import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 
 export const SentBackUpdateQuote = () => {
     const { id } = useParams<{ id: string }>()
@@ -38,12 +39,6 @@ export const SentBackUpdateQuote = () => {
         fields: ["*"],
         limit: 1000
     })
-
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
-        {
-            fields: ['*'],
-            limit: 1000
-        });
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
@@ -67,13 +62,27 @@ export const SentBackUpdateQuote = () => {
             limit: 1000
         });
 
+    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+        fields: ["*"],
+        filters: [["reference_name", "=", id]],
+        orderBy: { field: "creation", order: "desc" }
+    })
+
+    const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["*"],
+        limit: 1000,
+    })
+
+    // console.log("universalComments", universalComments)
+
+    const getFullName = (id) => {
+        return usersList?.find((user) => user.name == id)?.full_name
+    }
+
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
 
     const getVendorName = (vendorName: string) => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
-    }
-    const getPackage = (name: string) => {
-        return procurement_request_list?.find(item => item.name === name)?.work_package;
     }
 
     const [page, setPage] = useState<string>('summary')
@@ -198,7 +207,7 @@ export const SentBackUpdateQuote = () => {
                 },
                 cell: ({ row }) => {
                     const vendor_name = row.getValue("vendor_name")
-                    const vendorCategories = row.getValue("vendor_category").categories || [];
+                    const vendorCategories = row.getValue("vendor_category")?.categories || [];
                     return (
                         <>
                             {!isButtonDisabled(vendorCategories) && (
@@ -231,7 +240,7 @@ export const SentBackUpdateQuote = () => {
                                             </div>
                                         </Button>
                                     </HoverCardTrigger>
-                                    <HoverCardContent className="w-80">
+                                    <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                         <div>Please add <span className="font-semibold underline">All Associated Categories of Current Sent Back</span> to this vendor to enable</div>
                                     </HoverCardContent>
                                 </HoverCard>
@@ -279,7 +288,7 @@ export const SentBackUpdateQuote = () => {
                                         <span>Add categories</span>
                                     </button>
                                 </SheetTrigger>
-                                <SheetContent>
+                                <SheetContent className="overflow-auto">
                                     <AddVendorCategories vendor_name={vendor_name} isSheet={true} isSentBack={true} />
                                 </SheetContent>
                             </Sheet>
@@ -296,43 +305,24 @@ export const SentBackUpdateQuote = () => {
         [orderData, isButtonDisabled, vendor_list]
     )
 
-    console.log("orderData", orderData)
+    console.log("universalComments", universalComments)
+
+    // console.log("orderData", orderData)
+
+    const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
 
     return (
         <>
             {page == 'summary' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
-                        <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft className="cursor-pointer" onClick={() => navigate('/sent-back-request')} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
+                    <div className="flex-1 space-y-2 md:space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center pt-1 pb-4">
+                                <ArrowLeft className="cursor-pointer" onClick={() => navigate('/sent-back-request')} />
+                                <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
+                            </div>
+                            <Badge variant={orderData?.type === "Rejected" ? "destructive" : orderData?.type === "Delayed" ? "orange" : "gray"}>{orderData?.type}</Badge>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request}</p>
-                            </div> */}
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} sentBack />
                         <div className="pt-5 text-red-700 font-light text-base underline">{orderData?.type} Items</div>
                         <div className="overflow-x-auto">
                             <Table className="min-w-full divide-gray-200">
@@ -359,91 +349,94 @@ export const SentBackUpdateQuote = () => {
                             </Table>
                         </div>
                         <div className="flex items-center space-y-2 pt-8">
-                            <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Sent Back Comments</h2>
+                            <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Sent Back Comments</h2>
                         </div>
-                        <div className="border border-gray-200 rounded-lg p-4 font-semibold text-sm">
-                            {orderData.comments}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                            {/* {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")} */}
+                        {
+                            universalComments?.length ? (
+                                <div className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                                       <Avatar>
+                                         <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${universalComments[0]?.comment_by}`} />
+                                         <AvatarFallback>{universalComments[0]?.comment_by[0]}</AvatarFallback>
+                                       </Avatar>
+                                       <div className="flex-1">
+                                         <p className="font-medium text-sm text-gray-900">{universalComments[0]?.content}</p>
+                                         <div className="flex justify-between items-center mt-2">
+                                           <p className="text-sm text-gray-500">
+                                             {universalComments[0]?.comment_by.comment_by === "Administrator" ? "Administrator" : getFullName(universalComments[0]?.comment_by)}
+                                           </p>
+                                           <p className="text-xs text-gray-400">
+                                           {formatDate(universalComments[0]?.creation.split(" ")[0])} {universalComments[0]?.creation.split(" ")[1].substring(0, 5)}
+                                           </p>
+                                         </div>
+                                       </div>
+                                     </div>
+                            ) : (
+                                <span className="font-semibold text-xs">No Comments Found</span>
+                            )
+                        }
                         </div>
-                        <div className="flex flex-col justify-end items-end mt-4">
-                            <Button onClick={() => setPage('quotation')}>
+                        <div className="flex flex-col justify-end items-end">
+                            <Button onClick={() => setPage('quotation')} className="flex items-center gap-1">
                                 Next
+                                <ArrowBigRightDash className="max-md:w-4 max-md:h-4" />
                             </Button>
                         </div>
-                    </div>
-                </div>}
+                    </div>}
             {
                 page == 'quotation' &&
-                <div className="flex">
-                    <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
+                    <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1  pb-4">
                             <ArrowLeft className="cursor-pointer" onClick={() => setPage('summary')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request}</p>
-                            </div> */}
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} sentBack />
                         <div className="flex justify-between">
-                            <div className="p-2 pl-7 font-light underline text-red-700">Selected Vendor List</div>
-                            <div className="p-2 pl-7 font-light underline text-red-700 pr-16">Options</div>
+                            <div className="p-2 sm:pl-7 font-light underline text-red-700">Selected Vendor List</div>
+                            <div className="p-2 sm:pl-7 font-light underline text-red-700 pr-10 sm:pr-32">Options</div>
                         </div>
                         {uniqueVendors.list.map((item) => {
-                            return <div className="px-4 flex justify-between">
-                                <div className="py-4 font-semibold whitespace-nowrap">{getVendorName(item)}</div>
-                                <div className="flex space-x-2">
+                            return <div className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
+                                <div className="sm:pl-4 pl-2 py-4 font-semibold">{getVendorName(item)}</div>
+                                <div className="flex space-x-2 max-sm:flex-col items-center justify-center max-sm:gap-2">
                                     <Sheet>
                                         <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
-                                        <SheetContent>
-                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                                <SheetHeader>
-                                                    <SheetTitle className="text-center">Print PDF</SheetTitle>
-                                                    <SheetDescription>
-                                                        <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []} />
-                                                    </SheetDescription>
-                                                </SheetHeader>
-                                            </ScrollArea>
+                                        <SheetContent className="overflow-auto">
+                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
+                                            <SheetHeader>
+                                                <SheetTitle className="text-center">Print PDF</SheetTitle>
+                                                <SheetDescription>
+                                                    <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []} />
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                            {/* </ScrollArea> */}
                                         </SheetContent>
                                     </Sheet>
                                     <Sheet>
-                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price</SheetTrigger>
-                                        <SheetContent >
-                                            <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                                <SheetHeader className="text-start">
-                                                    <SheetTitle>Enter Price</SheetTitle>
-                                                    <SheetDescription>
-                                                        <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
-                                                    </SheetDescription>
-                                                </SheetHeader>
-                                            </ScrollArea>
+                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price(s)</SheetTrigger>
+                                        <SheetContent className="overflow-auto">
+                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
+                                            <SheetHeader className="text-start">
+                                                    <div className="flex items-center gap-1">
+                                                        <SheetTitle className="text-xl">Enter Price(s)</SheetTitle>
+                                                        <PencilLine className="w-5 h-5 text-primary" />
+                                                    </div>
+                                                <SheetDescription className="py-2">
+                                                {/* <Card className="p-5"> */}
+                                                    <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
+                                                {/* </Card> */}
+                                                </SheetDescription>
+                                            </SheetHeader>
+                                            {/* </ScrollArea> */}
                                         </SheetContent>
                                     </Sheet>
                                 </div>
                             </div>
                         })}
+                        <div className="flex items-center justify-between mt-6">
                         <Sheet>
-                            <SheetTrigger className="text-blue-500"><div className="flex pl-5"><CirclePlus className="w-4 mr-2" />Add New Vendor</div></SheetTrigger>
+                            <SheetTrigger className="text-blue-500"><div className="flex items-center gap-1 ml-4"><CirclePlus className="w-4 h-4" />Add New Vendor</div></SheetTrigger>
                             <SheetContent className="overflow-auto">
                                 <SheetHeader className="text-start">
                                     <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
@@ -459,19 +452,11 @@ export const SentBackUpdateQuote = () => {
                                 </SheetHeader>
                             </SheetContent>
                         </Sheet>
-                        <div className="flex flex-col justify-end items-end">
-                            <Button className="font-normal py-2 px-6" onClick={handleUpdateQuote}>
+                            <Button className="flex items-center gap-1" onClick={handleUpdateQuote}>
+                                <ListChecks className="h-4 w-4" />
                                 Update Quote
                             </Button>
                         </div>
-
-                        <div className="pl-2 flex gap-1 items-center pt-10 flex-wrap">
-                            <span className="font-light max-md:text-sm">All Categories of this Sent Back: </span>
-                            {orderData?.category_list?.list.map((cat) => (
-                                <Badge>{cat.name}</Badge>
-                            ))}
-                        </div>
-
                         <Accordion type="multiple" >
                             <AccordionItem value="Vendors">
                                 <AccordionTrigger>
@@ -480,20 +465,23 @@ export const SentBackUpdateQuote = () => {
                                     </Button>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                    <div className="">
-                                        <Card className=''>
-                                            <CardHeader>
+                                        <Card className="max-md:p-0">
+                                            <CardHeader className="max-md:p-0">
+                                            <div className="pl-6 flex gap-1 items-center pt-10 max-md:pt-6 flex-wrap">
+                                                <span className="font-light max-md:text-sm">Sent Back Categories: </span>
+                                                {orderData?.category_list?.list.map((cat) => (
+                                                    <Badge>{cat.name}</Badge>
+                                                ))}
+                                            </div>
                                                 <CardContent>
-                                                    <DataTable columns={columns} data={vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name)) || []} category_options={categoryOptions} />
+                                                    <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
                                                 </CardContent>
                                             </CardHeader>
                                         </Card>
-                                    </div>
                                 </AccordionContent>
                             </AccordionItem>
                         </Accordion>
                     </div>
-                </div>
             }
         </>
     )

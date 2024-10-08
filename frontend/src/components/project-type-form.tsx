@@ -13,8 +13,9 @@ import {
 import {DialogClose} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
-import { ButtonLoading } from "./button-loading"
+import { ButtonLoading } from "./ui/button-loading"
 import { toast } from "./ui/use-toast"
+import { ListChecks } from "lucide-react"
 
 const projectTypeFormSchema = z.object({
     project_type_name: z
@@ -106,7 +107,9 @@ export default function ProjectTypeForm({project_types_mutate}){
                         </FormItem>
                     )}
                 />
-                {(loading) ? (<ButtonLoading />) : (<Button type="submit">Submit</Button>)}
+                {(loading) ? (<ButtonLoading />) : (<Button type="submit" className="flex items-center gap-1">
+                    <ListChecks className="h-4 w-4" />
+                    Submit</Button>)}
                 <DialogClose asChild><Button id="dialogClose" className="hidden"></Button></DialogClose>
             </form>
         </Form>

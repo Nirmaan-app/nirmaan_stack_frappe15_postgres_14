@@ -38,8 +38,6 @@ export interface Projects{
 	status?: string
 	/**	Project Work Packages : JSON	*/
 	project_work_packages?: any
-	/**	Project Work Milestones : JSON	*/
-	project_work_milestones?: any
 	/**	Project Scopes : JSON	*/
 	project_scopes?: any
 	/**	Subdivisions : Data	*/

@@ -2,7 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogClose, DialogHeader, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton"
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
-import { ArrowLeft, FilePenLine } from "lucide-react"
+import { ArrowLeft, FilePenLine, ListChecks } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -78,8 +78,8 @@ const ItemView = ({ itemId }: { itemId: string }) => {
     if (error) return <h1 className="text-red-700">There is an error while fetching the document, please check!</h1>
 
     return (
-        <div className="flex-1 space-y-4 p-12 pt-8 max-md:p-8 max-sm:p-4">
-            <div className="flex items-center">
+        <div className="flex-1 md:space-y-4">
+            <div className="flex items-center max-md:mb-2">
                 <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/items")} />
                 {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
                     <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.item_name}</h2>}
@@ -143,8 +143,10 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                         </Select>
                                     </div>
                                 </div>
-                                <DialogClose className="">
-                                    <Button className="" onClick={() => handleEditItem()}>Submit</Button>
+                                <DialogClose className="flex justify-center">
+                                    <Button className="flex items-center gap-1" onClick={() => handleEditItem()}>
+                                    <ListChecks className="h-4 w-4" />
+                                        Submit</Button>
                                 </DialogClose>
                             </DialogDescription>
                         </DialogHeader>

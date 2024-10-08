@@ -70,6 +70,7 @@ import { TailSpin } from "react-loader-spinner";
 // import { useQuery } from "@tanstack/react-query";
 // import { fetchDocList } from "@/reactQuery/customFunctions";
 import { useFrappeGetDocList } from "frappe-react-sdk";
+import { formatDate } from "@/utils/FormatDate";
 
 export default function Customers() {
     const columns: ColumnDef<CustomersType>[] = useMemo(
@@ -150,7 +151,7 @@ export default function Customers() {
                     );
                 },
                 cell: ({ row }) => {
-                    return <div className="font-medium">{row.getValue("creation")?.split(" ")[0]}</div>;
+                    return <div className="font-medium">{formatDate(row.getValue("creation")?.split(" ")[0])}</div>;
                 },
             },
         ],
@@ -177,23 +178,20 @@ export default function Customers() {
     )
 
     return (
-        <div className="flex-1 space-x-2 md:space-y-4 p-4 md:p-8 pt-6">
-            <div className="flex items-center justify-between mb-2 space-y-2">
-                <div className="flex">
+        <div className="flex-1 space-y-2 md:space-y-4">
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
                     <Link to="/">
-                        <ArrowLeft className="mt-1.5" />
+                        <ArrowLeft className="" />
                     </Link>
-                    <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">Customers Dashboard</h2>
+                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Customers Dashboard</h2>
                 </div>
-
-                <div className="flex items-center space-x-2">
                     <Button asChild>
                         <Link to="new">
-                            <CirclePlus className="w-5 h-5 mt- pr-1 " />
+                            <CirclePlus className="w-5 h-5 pr-1 " />
                             Add <span className="hidden md:flex pl-1"> New Customer</span>
                         </Link>
                     </Button>
-                </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
