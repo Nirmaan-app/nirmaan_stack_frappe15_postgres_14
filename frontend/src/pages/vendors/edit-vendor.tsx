@@ -15,48 +15,49 @@ import { zodResolver } from "@hookform/resolvers/zod"
 const VendorFormSchema = z.object({
     vendor_contact_person_name: z.string().optional(),
     vendor_name: z
-    .string({
-        required_error: "Must provide Vendor Name"
-    })
-    .min(3, {
-        message: "Must be at least 3 characters.",
-    }),
+        .string({
+            required_error: "Must provide Vendor Name"
+        })
+        .min(3, {
+            message: "Must be at least 3 characters.",
+        }),
     address_line_1: z
-    .string({
-        required_error: "Address Line 1 Required"
-    }).min(1, {
-        message: "Address Line 1 Required"
-    }),
+        .string({
+            required_error: "Address Line 1 Required"
+        }).min(1, {
+            message: "Address Line 1 Required"
+        }),
     address_line_2: z
-    .string({
-        required_error: "Address Line 1 Required"
-    }).min(1, {
-        message: "Address Line 1 Required"
-    }),
+        .string({
+            required_error: "Address Line 1 Required"
+        }).min(1, {
+            message: "Address Line 1 Required"
+        }),
     pin: z
-    .string({
-        required_error: "Must provide Pincode"
-    })
-    .max(6, { message: "Pincode must be of 6 digits" })
-    .min(6, { message: "Pincode must be of 6 digits" }),
+        .string({
+            required_error: "Must provide Pincode"
+        })
+        .max(6, { message: "Pincode must be of 6 digits" })
+        .min(6, { message: "Pincode must be of 6 digits" }),
     email: z.string().email().optional().or(z.literal('')),
     vendor_mobile: z
-    .string({
-        required_error: "Must Provide Vendor Contact"
-    })
-    .max(10, { message: "Mobile number must be of 10 digits" })
-    .min(10, { message: "Mobile number must be of 10 digits" })
-    .optional(),
+        .string({
+            required_error: "Must Provide Vendor Contact"
+        })
+        .max(10, { message: "Mobile number must be of 10 digits" })
+        .min(10, { message: "Mobile number must be of 10 digits" })
+        .optional()
+        .or(z.literal('')),
     vendor_gst: z
-    .string({
-        required_error: "Vendor GST Required"
-    })
-    .min(1, {
-        message: "Vendor GST Required"
-    })
-    .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
-        message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
-    }),
+        .string({
+            required_error: "Vendor GST Required"
+        })
+        .min(1, {
+            message: "Vendor GST Required"
+        })
+        .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+            message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
+        }),
 })
 
 type VendorFormValues = z.infer<typeof VendorFormSchema>
@@ -75,12 +76,12 @@ export const EditVendor = () => {
         `Vendors ${id}`
     );
 
-    const {data: vendorAddress, isLoading: vendorAddressLoading, error: vendorAddressError, mutate: addressMutate} = useFrappeGetDoc(
-        "Address", 
-        data?.vendor_address, 
-        `Address ${data?.vendor_address}`, 
+    const { data: vendorAddress, isLoading: vendorAddressLoading, error: vendorAddressError, mutate: addressMutate } = useFrappeGetDoc(
+        "Address",
+        data?.vendor_address,
+        `Address ${data?.vendor_address}`,
         {
-        revalidateIfStale: false
+            revalidateIfStale: false
         }
     )
 
@@ -125,12 +126,12 @@ export const EditVendor = () => {
 
     const { updateDoc, loading } = useFrappeUpdateDoc()
     const { toast } = useToast()
-    
+
     const category_options: SelectOption[] = category_list
-    ?.map(item => ({
-        label: `${item.category_name}-(${item.work_package})`,
-        value: item.category_name
-    })) || [];
+        ?.map(item => ({
+            label: `${item.category_name}-(${item.work_package})`,
+            value: item.category_name
+        })) || [];
 
     const default_options: SelectOption[] = data && JSON.parse(data?.vendor_category)?.categories?.map(item => ({
         label: item,
@@ -175,7 +176,7 @@ export const EditVendor = () => {
     const onSubmit = async (values: VendorFormValues) => {
         let category_json = categories.map(c => c.value)
         try {
-            if(city === "Not Found" || state === "Not Found") {
+            if (city === "Not Found" || state === "Not Found") {
                 throw new Error('City and State are "Note Found", Please Enter a Valid Pincode')
             }
 
@@ -190,9 +191,9 @@ export const EditVendor = () => {
             })
 
             await updateDoc("Vendors", id, {
-                vendor_category : {categories : category_json},
+                vendor_category: { categories: category_json },
                 vendor_city: city,
-                vendor_contact_person_name : values.vendor_contact_person_name,
+                vendor_contact_person_name: values.vendor_contact_person_name,
                 vendor_email: values.email,
                 vendor_gst: values.vendor_gst,
                 vendor_mobile: values.vendor_mobile,
@@ -200,16 +201,16 @@ export const EditVendor = () => {
                 vendor_state: state
             })
 
-                await vendorMutate()
-                await addressMutate()
+            await vendorMutate()
+            await addressMutate()
 
-                toast({
-                    title: "Success!",
-                    description: `Vendor: ${id} updated successfully!`,
-                    variant: "success",
-                })
-                navigate(`/vendors/${id}`)
-                
+            toast({
+                title: "Success!",
+                description: `Vendor: ${id} updated successfully!`,
+                variant: "success",
+            })
+            navigate(`/vendors/${id}`)
+
         } catch (error) {
             toast({
                 title: "Failed!",
@@ -225,12 +226,12 @@ export const EditVendor = () => {
             <div className="space-y-0.5">
                 <div className="flex space-x-2 items-center">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/vendors/${id}`)} />
-                    <h2 className="text-2xl font-bold tracking-tight">Edit Vendor</h2>
+                    <h2 className="text-2xl font-bold tracking-tight">Edit: <span className="text-red-700">{id}</span></h2>
                 </div>
             </div>
             <Separator className="my-6 max-md:my-2" />
             <Form {...form}>
-            <form
+                <form
                     onSubmit={(event) => {
                         event.preventDefault(); // Prevents page reload
                         return form.handleSubmit(onSubmit)(event); // Calls your form submit logic
@@ -290,28 +291,28 @@ export const EditVendor = () => {
                         )}
                     />
                     <FormItem>
-                      <FormLabel>
-                        City<sup className="text-sm text-red-600">*</sup>
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                            disabled 
-                          type="text" 
-                          value={city}
-                        />
-                      </FormControl>
+                        <FormLabel>
+                            City<sup className="text-sm text-red-600">*</sup>
+                        </FormLabel>
+                        <FormControl>
+                            <Input
+                                disabled
+                                type="text"
+                                value={city}
+                            />
+                        </FormControl>
                     </FormItem>
                     <FormItem>
-                      <FormLabel>
-                        State<sup className="text-sm text-red-600">*</sup>
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                            disabled
-                          type="text" 
-                          value={state}
-                        />
-                      </FormControl>
+                        <FormLabel>
+                            State<sup className="text-sm text-red-600">*</sup>
+                        </FormLabel>
+                        <FormControl>
+                            <Input
+                                disabled
+                                type="text"
+                                value={state}
+                            />
+                        </FormControl>
                     </FormItem>
                     <FormField
                         control={form.control}
@@ -334,7 +335,7 @@ export const EditVendor = () => {
                         name="vendor_mobile"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Phone<sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormLabel>Phone</FormLabel>
                                 <FormControl>
                                     <Input type="number" {...field} />
                                 </FormControl>
