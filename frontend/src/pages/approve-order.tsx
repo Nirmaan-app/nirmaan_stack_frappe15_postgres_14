@@ -854,22 +854,38 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         })}
                     </Card>
                     <div className="flex items-center space-y-2 pt-8">
-                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
+                      <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
                     </div>
-                    <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2">
-                        {/* {universalComments?.filter((comment) => ["Administrator", "Nirmaan Project Manager Profile"].includes(comment.comment_by))[0]?.content} */}
-                        {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).length ?
-                            universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).map((cmt) => (
-                                <div className="flex justify-between items-end">
-                                    <p className="font-semibold text-[15px]">{cmt.content}</p>
-                                    {cmt.comment_by === "Administrator" ? (
-                                        <span className="text-sm italic">- Administrator</span>
-                                    ) : (
-                                        <span className="text-sm italic">- {getFullName(cmt.comment_by)}</span>
-                                    )}
-                                </div>
-                            )) : <span className="text-xs font-semibold flex items-center justify-center">No Comments Found.</span>}
+
+                    <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-4">
+                      {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || 
+                      (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).length ? (
+                        universalComments
+                          .filter((comment) => managersIdList?.includes(comment.comment_by) || 
+                          (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr")))
+                          .map((cmt, index) => (
+                            <div key={index} className="flex flex-col px-3 py-1 shadow-sm rounded-lg">
+                            
+                              <p className="font-semibold text-[15px] mb-1">{cmt.content}</p>
+                        
+                              <div className="flex justify-between items-center text-sm text-gray-600 italic">
+                                {cmt.comment_by === "Administrator" ? (
+                                  <span>- Administrator</span>
+                                ) : (
+                                  <span>- {getFullName(cmt.comment_by)}</span>
+                                )}
+
+                                <span className="text-xs text-gray-500">
+                                  {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                      ) : (
+                        <span className="text-xs font-semibold flex items-center justify-center">No Comments Found.</span>
+                      )}
                     </div>
+
                     <div className="flex gap-4 justify-end items-end mt-4">
                         <Button disabled={!orderData.procurement_list.list.length} variant="secondary" className="" onClick={() => {
                             setPage('summary')

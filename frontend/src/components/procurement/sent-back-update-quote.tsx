@@ -378,13 +378,25 @@ export const SentBackUpdateQuote = () => {
                             {/* {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")} */}
                         {
                             universalComments?.length ? (
-                                <div className="flex justify-between items-end">
-                                        <p className="font-semibold text-[15px]">{universalComments[0]?.content}</p>
-                                        {universalComments[0]?.comment_by === "Administrator" ? (
+                                <div className="flex flex-col px-3 py-1 shadow-sm rounded-lg">
+                                        <p className="font-semibold text-[15px] mb-1">{universalComments[0]?.content}</p>
+                                        {/* {universalComments[0]?.comment_by === "Administrator" ? (
                                             <span className="text-sm italic">-Administrator</span>
                                         ) : (
                                             <span className="text-sm italic">- {getFullName(universalComments[0]?.comment_by)}</span>
-                                        )}
+                                        )} */}
+
+                            <div className="flex justify-between items-center text-sm text-gray-600 italic">
+                                {universalComments[0]?.comment_by === "Administrator" ? (
+                                  <span>- Administrator</span>
+                                ) : (
+                                  <span>- {getFullName(universalComments[0]?.comment_by)}</span>
+                                )}
+
+                                <span className="text-xs text-gray-500">
+                                  {formatDate(universalComments[0]?.creation.split(" ")[0])} {universalComments[0]?.creation.split(" ")[1].substring(0, 5)}
+                                </span>
+                              </div>
                             </div>
                             ) : (
                                 <span className="font-semibold text-xs">No Comments Found</span>

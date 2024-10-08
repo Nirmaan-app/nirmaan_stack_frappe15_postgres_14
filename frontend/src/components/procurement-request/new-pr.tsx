@@ -18,6 +18,7 @@ import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NewPRSkeleton } from "../ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import { formatDate } from "@/utils/FormatDate";
 
 const NewPR = () => {
 
@@ -674,23 +675,33 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 }
 
                 <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
-                    <h3 className="font-bold py-1 flex"><MessageCircleMore className="w-5 h-5 mt-0.5" />Comments</h3>
+                    <h3 className="font-bold flex items-center gap-1"><MessageCircleMore className="w-5 h-5" />Comments</h3>
                     {rejected_pr_data && (
                         <div className="py-4 w-full flex flex-col gap-2">
                             {/* <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
                             <span className="relative left-[15%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span> */}
                             {
                                 universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && comment.subject === "rejecting pr")).map((cmt) => (
-                                    <div className="flex justify-between items-end">
-                                        <p className="font-semibold text-[15px]">{cmt.content}</p>
-                                        {cmt.comment_by === "Administrator" ? (
+                                    <div className="flex flex-col px-3 py-1 shadow-sm rounded-lg">
+                                        <p className="font-semibold text-[15px] mb-1">{cmt.content}</p>
+                                        {/* {cmt.comment_by === "Administrator" ? (
                                             <span className="text-sm italic">-Administrator</span>
                                         ) : (
                                             <span className="text-sm italic">- {getFullName(cmt.comment_by)}</span>
-                                        )}
+                                        )} */}
+                                        <div className="flex justify-between items-center text-sm text-gray-600 italic">
+                                                {cmt.comment_by === "Administrator" ? (
+                                                  <span>- Administrator</span>
+                                                ) : (
+                                                  <span>- {getFullName(cmt.comment_by)}</span>
+                                                )}
+
+                                                <span className="text-xs text-gray-500">
+                                                  {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
+                                                </span>
+                                        </div>
                                     </div>
-                                ))
-                            }
+                                ))}
                         </div>
                     )}
                     <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder={`${rejected_pr_data ? "Write Resolving Comments here..." : "Write comments here..."}`} value={universalComment || ""} onChange={(e) => handleCommentChange(e)} />
