@@ -28,6 +28,8 @@ import { useToast } from "../ui/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { PrintRFQ } from "./rfq-pdf";
+import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 
 export const SentBackUpdateQuote = () => {
     const { id } = useParams<{ id: string }>()
@@ -320,32 +322,7 @@ export const SentBackUpdateQuote = () => {
                             </div>
                             <Badge variant={orderData?.type === "Rejected" ? "destructive" : orderData?.type === "Delayed" ? "orange" : "gray"}>{orderData?.type}</Badge>
                         </div>
-                        <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black break-words">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request}</p>
-                            </div> */}
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} sentBack />
                         <div className="pt-5 text-red-700 font-light text-base underline">{orderData?.type} Items</div>
                         <div className="overflow-x-auto">
                             <Table className="min-w-full divide-gray-200">
@@ -378,14 +355,23 @@ export const SentBackUpdateQuote = () => {
                             {/* {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")} */}
                         {
                             universalComments?.length ? (
-                                <div className="flex justify-between items-end">
-                                        <p className="font-semibold text-[15px]">{universalComments[0]?.content}</p>
-                                        {universalComments[0]?.comment_by === "Administrator" ? (
-                                            <span className="text-sm italic">-Administrator</span>
-                                        ) : (
-                                            <span className="text-sm italic">- {getFullName(universalComments[0]?.comment_by)}</span>
-                                        )}
-                            </div>
+                                <div className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                                       <Avatar>
+                                         <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${universalComments[0]?.comment_by}`} />
+                                         <AvatarFallback>{universalComments[0]?.comment_by[0]}</AvatarFallback>
+                                       </Avatar>
+                                       <div className="flex-1">
+                                         <p className="font-medium text-sm text-gray-900">{universalComments[0]?.content}</p>
+                                         <div className="flex justify-between items-center mt-2">
+                                           <p className="text-sm text-gray-500">
+                                             {universalComments[0]?.comment_by.comment_by === "Administrator" ? "Administrator" : getFullName(universalComments[0]?.comment_by)}
+                                           </p>
+                                           <p className="text-xs text-gray-400">
+                                           {formatDate(universalComments[0]?.creation.split(" ")[0])} {universalComments[0]?.creation.split(" ")[1].substring(0, 5)}
+                                           </p>
+                                         </div>
+                                       </div>
+                                     </div>
                             ) : (
                                 <span className="font-semibold text-xs">No Comments Found</span>
                             )
@@ -405,32 +391,7 @@ export const SentBackUpdateQuote = () => {
                             <ArrowLeft className="cursor-pointer" onClick={() => setPage('summary')} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">{orderData?.type} by</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request}</p>
-                            </div> */}
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} sentBack />
                         <div className="flex justify-between">
                             <div className="p-2 sm:pl-7 font-light underline text-red-700">Selected Vendor List</div>
                             <div className="p-2 sm:pl-7 font-light underline text-red-700 pr-10 sm:pr-32">Options</div>

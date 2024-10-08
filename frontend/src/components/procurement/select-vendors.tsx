@@ -21,6 +21,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card'
 import formatToIndianRupee from '@/utils/FormatPrice';
 import TextArea from 'antd/es/input/TextArea';
 import { useUserData } from '@/hooks/useUserData';
+import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -652,28 +653,7 @@ export const SelectVendors = () => {
                             <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendor/Item Quotes</h2>
                         </div>
-                        <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} />
                         {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name;
                             return <div>
@@ -838,28 +818,7 @@ export const SelectVendors = () => {
                                 <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
                                 <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
                             </div>
-                            <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                                <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                                </div>
-                                <div className="border-0 flex flex-col justify-center">
-                                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
-                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                                </div>
-                                <div className="border-0 flex flex-col justify-center">
-                                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
-                                </div>
-                                <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                    <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
-                                    <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                                </div>
-                                {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                            </Card>
+                            <ProcurementHeaderCard orderData={orderData} />
                             {/* {orderData?.category_list?.list.map((cat) => {
                             const curCategory = cat.name
                             let total: number = 0;

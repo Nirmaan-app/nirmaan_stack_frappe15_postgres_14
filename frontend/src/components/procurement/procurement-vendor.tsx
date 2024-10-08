@@ -26,6 +26,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "..
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "@/components/ui/table";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 
 export const ProcurementOrder = () => {
 
@@ -53,6 +55,7 @@ export const ProcurementOrder = () => {
     const [uniqueCategories, setUniqueCategories] = useState({
         list: []
     })
+    const [comment, setComment] = useState(null)
     // console.log("selectedCategories", selectedCategories)
     // console.log("orderData", orderData)
 
@@ -117,7 +120,12 @@ export const ProcurementOrder = () => {
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
 
-
+    useEffect(() => {
+        if(universalComments) {
+            const comment = universalComments?.find((cmt) => cmt.subject === "approving pr")
+            setComment(comment)
+        }
+    }, [universalComments])
 
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
@@ -327,7 +335,7 @@ export const ProcurementOrder = () => {
         }
     };
 
-    // console.log("orderdata", orderData)
+    console.log("orderdata", orderData)
 
     return (
         <>
@@ -337,28 +345,7 @@ export const ProcurementOrder = () => {
                             <ArrowLeft className='cursor-pointer' onClick={() => navigate("/procure-request")} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Summary </h2>
                         </div>
-                        <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} />
                         <div className="overflow-x-auto">
                             <div className="min-w-full inline-block align-middle">
                                 {orderData?.category_list.list.map((cat: any) => {
@@ -383,10 +370,12 @@ export const ProcurementOrder = () => {
                                                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
                                                         return (
                                                             <TableRow key={item.item}>
-                                                                <TableCell className="flex gap-1 items-center">{item.item}
+                                                                <TableCell>
+                                                                    <div className="inline items-baseline">
+                                                                    <span>{item.item}</span>
                                                                     {item.comment && (
                                                                     <HoverCard>
-                                                                        <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6" /></HoverCardTrigger>
+                                                                        <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
                                                                         <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                                                         <div className="relative pb-4">
                                                                             <span className="block">{item.comment}</span>
@@ -396,6 +385,7 @@ export const ProcurementOrder = () => {
                                                                         </HoverCardContent>
                                                                     </HoverCard>
                                                                     )}
+                                                                    </div>
                                                                 </TableCell>
                                                                 <TableCell>{item.unit}</TableCell>
                                                                 <TableCell>{item.quantity}</TableCell>
@@ -447,16 +437,34 @@ export const ProcurementOrder = () => {
                             <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
                         </div>
                         <div className="border border-gray-200 rounded-lg p-4">
-                        {
-                            universalComments?.find((cmt) => cmt.subject === "approving pr") ?  (
-                                <div className="flex justify-between items-end">
-                                        <p className="font-semibold text-[15px]">{universalComments?.find((cmt) => cmt.subject === "approving pr")?.content}</p>
-                                        {universalComments?.find((cmt) => cmt.subject === "approving pr")?.comment_by === "Administrator" ? (
-                                            <span className="text-sm italic">-Administrator</span>
-                                        ) : (
-                                            <span className="text-sm italic">- {getFullName(universalComments?.find((cmt) => cmt.subject === "approving pr")?.comment_by)}</span>
-                                        )}
-                                    </div>
+                        {comment ?  (
+                                <>
+                                 {/* <div className="flex justify-between items-end">
+                                         <p className="font-semibold text-[15px]">{universalComments?.find((cmt) => cmt.subject === "approving pr")?.content}</p>
+                                         {universalComments?.find((cmt) => cmt.subject === "approving pr")?.comment_by === "Administrator" ? (
+                                             <span className="text-sm italic">-Administrator</span>
+                                         ) : (
+                                             <span className="text-sm italic">- {getFullName(universalComments?.find((cmt) => cmt.subject === "approving pr")?.comment_by)}</span>
+                                         )}
+                                     </div> */}
+                                <div key={comment.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                                       <Avatar>
+                                         <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment.comment_by}`} />
+                                         <AvatarFallback>{comment.comment_by[0]}</AvatarFallback>
+                                       </Avatar>
+                                       <div className="flex-1">
+                                         <p className="font-medium text-sm text-gray-900">{comment.content}</p>
+                                         <div className="flex justify-between items-center mt-2">
+                                           <p className="text-sm text-gray-500">
+                                             {comment.comment_by === "Administrator" ? "Administrator" : getFullName(comment.comment_by)}
+                                           </p>
+                                           <p className="text-xs text-gray-400">
+                                           {formatDate(comment.creation.split(" ")[0])} {comment.creation.split(" ")[1].substring(0, 5)}
+                                           </p>
+                                         </div>
+                                       </div>
+                                     </div>
+                                    </>
                             ) : (
                                 <span className="text-xs font-semibold">No Comments Found</span>
                             )
@@ -475,33 +483,29 @@ export const ProcurementOrder = () => {
                             <ArrowLeft onClick={() => setPage("approve")} className="cursor-pointer" />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendors</h2>
                         </div>
-                        <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.project}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
-                            </div>
-                            <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Lead</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.owner}</p>
-                            </div>
-                            {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                        </Card>
+                        <ProcurementHeaderCard orderData={orderData} />
                         {orderData?.category_list?.list.map((cat) => {
                             return <div>
                                 <div className="flex m-2 justify-between">
                                     <div>
-                                        <div className="text-xl font-bold py-2 text-red-700">{cat.name}</div>
+                                        <HoverCard>
+                                            <HoverCardTrigger>
+                                                <div className="text-xl font-bold py-2 text-red-700 underline">{cat.name}</div>
+                                            </HoverCardTrigger>
+                                            <HoverCardContent className="bg-white p-4 rounded-lg shadow-lg w-[400px]">
+                                                <h3 className="text-lg font-semibold mb-2">Items</h3>
+                                                <ul className="bg-gray-50 space-y-2 list-disc rounded-md">
+                                                    {orderData?.procurement_list?.list
+                                                        ?.filter(item => item.category === cat.name)
+                                                        .map((item) => (
+                                                            <li key={item.name} className="p-1 ml-6">
+                                                                <span className="text-gray-800">{item.item}<span className="text-red-600 ml-2">({item.quantity} {item.unit})</span></span>
+                                                                {/* </span> */}
+                                                            </li>
+                                                        ))}
+                                                </ul>
+                                            </HoverCardContent>
+                                        </HoverCard>
                                         <div className="text-sm text-gray-400">Select vendors for <span className="text-red-700 italic">{cat.name}</span> category</div>
                                     </div>
                                     <Sheet>

@@ -252,7 +252,7 @@ export const NavBar = () => {
                 )}
 
                 {/* Content Area */}
-                <div className="flex-1 px-4 py-2 overflow-auto transition-all duration-300 ease-in-out">
+                <div id="scrollwindow" className="flex-1 px-4 py-2 overflow-auto transition-all duration-300 ease-in-out">
                     <ErrorBoundaryWithNavigationReset>
                         <ScrollToTop />
                         <Outlet />
