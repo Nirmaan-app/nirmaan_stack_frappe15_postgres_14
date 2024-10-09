@@ -56,6 +56,8 @@ import DeliveryNotes from './pages/DeliveryNotes/deliverynotes'
 import DeliveryNote from './pages/DeliveryNotes/deliverynote'
 import { ProjectForm } from './pages/projects/project-form'
 import { ReleasePONew } from './components/updates/ReleasePONew'
+import { ApprovedQuotationsTable } from './pages/ApprovedQuotationsFlow/ApprovedQuotationsTable'
+import EditUserForm from './pages/users/EditUserForm'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -125,6 +127,7 @@ const router = createBrowserRouter(
 						<Route index element={<Users />} />
 						<Route path="new" element={<UserForm />} />
 						<Route path=":id" element={<Profile />} />
+						<Route path=':id/edit' element={<EditUserForm />} />
 					</Route>
 
 					<Route path="wp" element={<WorkPackages />} />
@@ -159,7 +162,8 @@ const router = createBrowserRouter(
 					</Route>
 
 					<Route path="debug">
-						<Route index element={<Debug />} />
+						{/* <Route index element={<Debug />} /> */}
+						<Route index element={<ApprovedQuotationsTable />} />
 					</Route>
 				</Route>
 
