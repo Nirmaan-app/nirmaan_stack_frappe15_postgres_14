@@ -513,7 +513,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
 
   const { data: projectCustomer } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
 
-  const { data: projectAssignees, isLoading: projectAssigneesLoading } = useFrappeGetDocList("User Permission", {
+  const { data: projectAssignees, isLoading: projectAssigneesLoading } = useFrappeGetDocList("Nirmaan User Permissions", {
     fields: ["*"],
     limit: 1000,
     filters: [["for_value", "=", projectId], ["allow", "=", "Projects"]]

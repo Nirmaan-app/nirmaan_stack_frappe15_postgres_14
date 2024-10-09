@@ -38,7 +38,7 @@ export default function Profile() {
         'Nirmaan Users',
         `${id}`
     );
-    const { data: permission_list, isLoading: permission_list_loading, error: permission_list_error, mutate: permission_list_mutate } = useFrappeGetDocList("User Permission",
+    const { data: permission_list, isLoading: permission_list_loading, error: permission_list_error, mutate: permission_list_mutate } = useFrappeGetDocList("Nirmaan User Permissions",
         {
             fields: ['name', 'for_value'],
             filters: [["user", "=", id], ["allow", "=", "Projects"]]
