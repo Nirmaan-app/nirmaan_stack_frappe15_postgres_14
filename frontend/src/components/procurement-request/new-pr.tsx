@@ -223,7 +223,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         if (curItem && Number(quantity)) {
             let itemIdToUpdate = null;
             let itemMake = null;
-            
+
             // Find item ID and make
             item_list.forEach((item) => {
                 if (item.item_name === curItem) {
@@ -231,7 +231,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     itemMake = item.make_name;
                 }
             });
-    
+
             if (itemIdToUpdate) {
                 const curRequest = [...orderData.procurement_list.list];
                 const curValue = {
@@ -243,19 +243,19 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     tax: Number(tax),
                     status: "Pending"
                 };
-    
+
                 // Check if item exists in the current list
                 const isDuplicate = curRequest.some((item) => item.name === curValue.name);
-                
+
                 if (!isDuplicate) {
                     // Check if the stack has this item and remove it
                     const itemInStackIndex = stack.findIndex((stackItem) => stackItem?.name === curValue.name);
-                    
+
                     if (itemInStackIndex > -1) {
                         stack.splice(itemInStackIndex, 1);
                         setStack([...stack]);  // Update stack state after removal
                     }
-    
+
                     // Add item to the current request list
                     curRequest.push(curValue);
                     setOrderData((prevState) => ({
@@ -278,7 +278,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
             }
         }
     };
-    
+
 
     const { mutate } = useSWRConfig()
 
@@ -676,7 +676,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                                             <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex items-center gap-1" onClick={() => handleDelete(item.item)}><Trash2 className="h-4 w-4" /> Delete</AlertDialogAction>
                                                                             <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}
                                                                                 className="flex items-center gap-1"
-                                                                                ><ListChecks className="h-4 w-4" />Update</AlertDialogAction>
+                                                                            ><ListChecks className="h-4 w-4" />Update</AlertDialogAction>
                                                                         </div>
                                                                     </AlertDialogDescription>
                                                                 </AlertDialogHeader>
@@ -704,24 +704,24 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                             {
                                 universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && comment.subject === "rejecting pr")).map((cmt) => (
                                     <>
-                                    <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
-                                       <Avatar>
-                                         <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
-                                         <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
-                                       </Avatar>
-                                       <div className="flex-1">
-                                         <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
-                                         <div className="flex justify-between items-center mt-2">
-                                           <p className="text-sm text-gray-500">
-                                             {cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}
-                                           </p>
-                                           <p className="text-xs text-gray-400">
-                                           {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
-                                           </p>
-                                         </div>
-                                       </div>
-                                     </div>
-                                    {/* <div className="flex flex-col px-3 py-1 shadow-sm rounded-lg">
+                                        <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                                            <Avatar>
+                                                <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
+                                                <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
+                                            </Avatar>
+                                            <div className="flex-1">
+                                                <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
+                                                <div className="flex justify-between items-center mt-2">
+                                                    <p className="text-sm text-gray-500">
+                                                        {cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}
+                                                    </p>
+                                                    <p className="text-xs text-gray-400">
+                                                        {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {/* <div className="flex flex-col px-3 py-1 shadow-sm rounded-lg">
                                         <p className="font-semibold text-[15px] mb-1">{cmt.content}</p>
                                         <div className="flex justify-between items-center text-sm text-gray-600 italic">
                                                 {cmt.comment_by === "Administrator" ? (
@@ -747,9 +747,9 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
-                            <DialogTitle>Are you Sure</DialogTitle>
+                            <DialogTitle>Are you Sure?</DialogTitle>
                             <DialogDescription>
-                                {!rejected_pr_data ? "Click on Confirm to create new PR." : "Click on Confirm to resolve and send the PR for Approval"}
+                                {!rejected_pr_data ? "If there is any pending PR created by you with the same Project & Package, then the older PRs will be merged with this PR. Are you sure you want to continue?" : "Click on Confirm to resolve and send the PR for Approval"}
                             </DialogDescription>
                         </DialogHeader>
                         <DialogClose className="flex justify-center">

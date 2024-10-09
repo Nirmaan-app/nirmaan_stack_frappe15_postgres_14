@@ -35,7 +35,7 @@ const PRSummary = () => {
         fields: ["*"],
         limit: 1000,
         filters: [["reference_name", "=", id]],
-        orderBy: { field: "creation", order: "asc" }
+        orderBy: { field: "creation", order: "desc" }
     })
 
     const { data: project, error: project_error, isLoading: projectLoading } = useFrappeGetDocList<ProjectsType>("Projects", {
