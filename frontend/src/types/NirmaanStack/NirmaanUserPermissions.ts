@@ -10,7 +10,7 @@ export interface NirmaanUserPermissions{
 	parentfield?: string
 	parenttype?: string
 	idx?: number
-	/**	User : Link - Nirmaan Users	*/
+	/**	User : Data	*/
 	user: string
 	/**	Allow : Link - DocType	*/
 	allow: string
