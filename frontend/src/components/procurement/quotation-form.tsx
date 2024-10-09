@@ -151,93 +151,186 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     }, [prAttachment])
 
     const {mutate} = useSWRConfig()
+    // const handleSubmit = async () => {
+    //     try {
+    //       // Update quotation requests for each item in the list.
+    //       await Promise.all(
+    //         quotationData.list.map(async (item) => {
+    //           try {
+    //             await updateDoc("Quotation Requests", item.qr_id, {
+    //               lead_time: deliveryTime,
+    //               quote: item.price,
+    //             });
+    //             await mutate(`Quotations Requests,Procurement_task=${pr_id}`)
+    //             toast({
+    //               title: "Success!",
+    //               description: `Quote(s) for ${vendor_name} updated successfully`,
+    //               variant: "success",
+    //             });
+    //           } catch (error) {
+    //             console.error(`Error updating quotation request for ${item.qr_id}:`, error);
+    //             toast({
+    //               title: "Failed!",
+    //               description: `There was an error while updating the Quote(s) for ${vendor_name}`,
+    //               variant: "destructive",
+    //             });
+    //           }
+    //         })
+    //       );
+      
+    //       // Handle file upload if a file is selected.
+    //       if (selectedFile) {
+    //         // Check if the selected file is an object (newly uploaded file) or a string (existing file).
+    //         if (typeof selectedFile === "object" || (typeof selectedFile === "string" && selectedFile !== prAttachment[0]?.rfq_pdf.split("/")[3])) {
+    //           let docId;
+      
+    //           // If a PR attachment for this vendor already exists, update the document. Otherwise, create a new document.
+    //           if (prAttachment.length > 0) {
+    //             docId = prAttachment[0].name;
+    //           } else {
+    //             const newDoc = await createDoc("PR Attachments", {
+    //               procurement_request: pr_id,
+    //               vendor: vendor_id,
+    //             });
+    //             docId = newDoc.name;
+    //             await prAttachmentMutate();
+    //           }
+      
+    //           // Upload the file and update the document's file URL.
+    //           const fileArgs = {
+    //             doctype: "PR Attachments",
+    //             docname: docId,
+    //             fieldname: "rfq_pdf",
+    //             isPrivate: true,
+    //           };
+      
+    //           const uploadedFile = await upload(selectedFile, fileArgs);
+    //           await call({
+    //             doctype: "PR Attachments",
+    //             name: docId,
+    //             fieldname: "rfq_pdf",
+    //             value: uploadedFile.file_url,
+    //           });
+      
+    //           console.log("File upload and document update successful");
+    //           toast({
+    //             title: "Success!",
+    //             description: "File uploaded and updated successfully.",
+    //             variant: "success",
+    //           });
+    //           await prAttachmentMutate();
+    //         }
+    //       }
+      
+    //       // Trigger the save button click if everything is completed successfully.
+    //       const btn = document.getElementById("save-button");
+    //       btn?.click();
+    //     } catch (error) {
+    //       console.error("Error during submission:", error);
+    //       toast({
+    //         title: "Submission Failed",
+    //         description: "An error occurred while submitting the form. Please try again.",
+    //         variant: "destructive",
+    //       });
+    //     } finally {
+    //       // Clear the selected file after submission.
+    //       setSelectedFile(null);
+    //     }
+    //   };
+      
     const handleSubmit = async () => {
-        try {
-          // Update quotation requests for each item in the list.
-          await Promise.all(
-            quotationData.list.map(async (item) => {
-              try {
+      try {
+        const batchSize = 10; // Number of items per batch
+        const promises = [];
+    
+        for (let i = 0; i < quotationData.list.length; i += batchSize) {
+          const batch = quotationData.list.slice(i, i + batchSize);
+          promises.push(
+            Promise.all(
+              batch.map(async (item) => {
                 await updateDoc("Quotation Requests", item.qr_id, {
                   lead_time: deliveryTime,
                   quote: item.price,
                 });
-                mutate(`Quotations Requests,Procurement_task=${pr_id}`)
-                toast({
-                  title: "Success!",
-                  description: `Quote(s) for ${vendor_name} updated successfully`,
-                  variant: "success",
-                });
-              } catch (error) {
-                console.error(`Error updating quotation request for ${item.qr_id}:`, error);
-                toast({
-                  title: "Failed!",
-                  description: `There was an error while updating the Quote(s) for ${vendor_name}`,
-                  variant: "destructive",
-                });
-              }
-            })
+              })
+            )
           );
-      
-          // Handle file upload if a file is selected.
-          if (selectedFile) {
-            // Check if the selected file is an object (newly uploaded file) or a string (existing file).
-            if (typeof selectedFile === "object" || (typeof selectedFile === "string" && selectedFile !== prAttachment[0]?.rfq_pdf.split("/")[3])) {
-              let docId;
-      
-              // If a PR attachment for this vendor already exists, update the document. Otherwise, create a new document.
-              if (prAttachment.length > 0) {
-                docId = prAttachment[0].name;
-              } else {
-                const newDoc = await createDoc("PR Attachments", {
-                  procurement_request: pr_id,
-                  vendor: vendor_id,
-                });
-                docId = newDoc.name;
-                await prAttachmentMutate();
-              }
-      
-              // Upload the file and update the document's file URL.
-              const fileArgs = {
-                doctype: "PR Attachments",
-                docname: docId,
-                fieldname: "rfq_pdf",
-                isPrivate: true,
-              };
-      
-              const uploadedFile = await upload(selectedFile, fileArgs);
-              await call({
-                doctype: "PR Attachments",
-                name: docId,
-                fieldname: "rfq_pdf",
-                value: uploadedFile.file_url,
+        }
+    
+        // Wait for all the batches to complete.
+        await Promise.all(promises);
+    
+        // Single success toast after all batches have completed.
+        toast({
+          title: "Success!",
+          description: `All Quote(s) for ${vendor_name} have been updated successfully.`,
+          variant: "success",
+        });
+    
+        // Call mutate only once after all updates.
+        await mutate(`Quotations Requests,Procurement_task=${pr_id}`);
+    
+        // File upload logic remains unchanged.
+        if (selectedFile) {
+          if (
+            typeof selectedFile === "object" ||
+            (typeof selectedFile === "string" &&
+              selectedFile !== prAttachment[0]?.rfq_pdf.split("/")[3])
+          ) {
+            let docId;
+    
+            if (prAttachment.length > 0) {
+              docId = prAttachment[0].name;
+            } else {
+              const newDoc = await createDoc("PR Attachments", {
+                procurement_request: pr_id,
+                vendor: vendor_id,
               });
-      
-              console.log("File upload and document update successful");
-              toast({
-                title: "Success!",
-                description: "File uploaded and updated successfully.",
-                variant: "success",
-              });
+              docId = newDoc.name;
               await prAttachmentMutate();
             }
+    
+            const fileArgs = {
+              doctype: "PR Attachments",
+              docname: docId,
+              fieldname: "rfq_pdf",
+              isPrivate: true,
+            };
+    
+            const uploadedFile = await upload(selectedFile, fileArgs);
+            await call({
+              doctype: "PR Attachments",
+              name: docId,
+              fieldname: "rfq_pdf",
+              value: uploadedFile.file_url,
+            });
+    
+            console.log("File upload and document update successful");
+            toast({
+              title: "Success!",
+              description: "File uploaded and updated successfully.",
+              variant: "success",
+            });
+            await prAttachmentMutate();
           }
-      
-          // Trigger the save button click if everything is completed successfully.
-          const btn = document.getElementById("save-button");
-          btn?.click();
-        } catch (error) {
-          console.error("Error during submission:", error);
-          toast({
-            title: "Submission Failed",
-            description: "An error occurred while submitting the form. Please try again.",
-            variant: "destructive",
-          });
-        } finally {
-          // Clear the selected file after submission.
-          setSelectedFile(null);
         }
-      };
-      
+    
+        // Trigger the save button click if everything is completed successfully.
+        const btn = document.getElementById("save-button");
+        btn?.click();
+      } catch (error) {
+        console.error("Error during submission:", error);
+        toast({
+          title: "Submission Failed",
+          description: "An error occurred while submitting the form. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        // Clear the selected file after submission.
+        setSelectedFile(null);
+      }
+    };
+    
 
     // console.log("selectedFile", selectedFile, typeof(selectedFile))
     // console.log("prAttachment", prAttachment)

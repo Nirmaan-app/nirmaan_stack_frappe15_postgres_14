@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Button, Layout } from 'antd';
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useEffect, useRef } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 // import { Button } from "../ui/button";
-import { ArrowLeft, ArrowLeftToLine, CheckCheck, ListChecks, NotebookPen, Printer, Undo2, X } from "lucide-react";
+import { ArrowLeft, ArrowLeftToLine, CheckCheck, Eye, ListChecks, Merge, MessageCircleWarning, NotebookPen, Printer, Split, Undo2, X } from "lucide-react";
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import { Controller, useForm } from "react-hook-form";
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,9 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
 import { Badge } from '../ui/badge';
+import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 
 const { Sider, Content } = Layout;
 
@@ -52,6 +55,8 @@ export const ReleasePONew: React.FC = () => {
     const [orderData, setOrderData] = useState(null);
     const [projectAddress, setProjectAddress] = useState()
     const [vendorAddress, setVendorAddress] = useState()
+    const [mergeablePOs, setMergeablePOs] = useState([])
+    const [mergedItems, setMergedItems] = useState([]);
 
     useEffect(() => {
         if (orderData?.project_address) {
@@ -64,6 +69,37 @@ export const ReleasePONew: React.FC = () => {
         }
 
     }, [orderData, address_list]);
+
+    const handleMerge = (po) => {
+        const updatedOrderList = po.order_list.list.map((item) => ({
+          ...item,
+          po: po.name,
+        }));
+        
+        if (orderData) {
+          const updatedList = [...orderData.order_list.list, ...updatedOrderList];
+          
+          setOrderData((prev) => ({
+            ...prev,
+            order_list: { ...prev.order_list, list: updatedList },
+          }));
+          setMergedItems((prev) => [...prev, po.name]);
+        }
+      };
+      
+      const handleUnmerge = (po) => {
+        if (orderData) {
+          const updatedList = orderData.order_list.list.filter((item) => item.po !== po.name);
+          
+          setOrderData((prev) => ({
+            ...prev,
+            order_list: { ...prev.order_list, list: updatedList },
+          }));
+      
+          // Remove the unmerged PO from the mergedItems array
+          setMergedItems((prev) => prev.filter((mergedPo) => mergedPo !== po.name));
+        }
+      };
 
     const componentRef = useRef<HTMLDivElement>(null);
 
@@ -94,6 +130,10 @@ export const ReleasePONew: React.FC = () => {
     useEffect(() => {
         if (procurement_order_list && orderId) {
             const curOrder = procurement_order_list.find(item => item.name === orderId);
+            if(curOrder?.status === "Generated") {
+                const mergeablePOs = procurement_order_list.filter((item) => (item.project === curOrder?.project && item.vendor === curOrder?.vendor && item.status === "Generated" && item.name !== orderId))
+                setMergeablePOs(mergeablePOs)
+            }
             if (curOrder) {
                 setOrderData(curOrder);
                 reset({
@@ -236,7 +276,57 @@ export const ReleasePONew: React.FC = () => {
         }
     }
 
-    console.log("values", contactPerson)
+    const {deleteDoc} = useFrappeDeleteDoc()
+
+    const handleMergePOs = async () => {
+        const deletionResults = await Promise.all(
+            mergedItems.map(async (po) => {
+                try {
+                    await deleteDoc("Procurement Orders", po);
+                    return { po, success: true }; // Deletion successful
+                } catch (error) {
+                    console.error(`Error while merging PO(s)`, error);
+                    return { po, success: false }; // Deletion failed
+                }
+            })
+        );
+    
+        // Filter out unsuccessful POs
+        const unsuccessfulPOs = deletionResults.filter(result => !result.success).map(result => result.po);
+    
+        // console.log("unsuccess", unsuccessfulPOs)
+        // Update order_list based on successful deletions
+        const updatedOrderList = orderData.order_list.list.filter(item => 
+            !unsuccessfulPOs.includes(item.po)
+        );
+
+        // console.log("updatedOrderList", updatedOrderList)
+    
+        // Proceed to update the current PO
+        try {
+            await updateDoc("Procurement Orders", orderId, {
+                order_list: { list: updatedOrderList }
+            });
+    
+            toast({
+                title: "Success!",
+                description: `Successfully merged PO(s)`,
+                variant: "success",
+            });
+            await mutate();
+        } catch (error) {
+            console.log("Error while updating the PO's order list", error);
+            toast({
+                title: "Failed!",
+                description: `Unable to Merge PO(s)`,
+                variant: "destructive",
+            });
+        }
+    };
+    // console.log("values", contactPerson)
+
+    // console.log("orderData", orderData?.order_list?.list)
+    // console.log("mergedItems", mergedItems)
 
     if (procurement_order_list_loading || address_list_loading) return <div>Loading</div>
     if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
@@ -347,6 +437,156 @@ export const ReleasePONew: React.FC = () => {
                                     Print
                                 </button>
                             </div>
+
+                    {(orderData?.status === "Generated" && mergeablePOs.length !== 0) && (
+                        <>
+                        <Alert variant="warning" className="">
+                            <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
+                            <AlertDescription className="text-xs flex justify-between items-center">
+                                PO Merging Feature is available for this PO.
+                <Sheet>
+                    <SheetTrigger>
+                      <Button className='flex items-center gap-1'  color="primary">
+                        <Merge className="w-4 h-4" />
+                        Merge PO(s)</Button>
+                    </SheetTrigger>
+                    <SheetContent>
+                      <div className="p-6">
+                        <h2 className="text-2xl font-bold mb-4">Merge Purchase Orders</h2>
+                        
+                        {mergeablePOs.length > 0 ? (
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-red-100">
+                                <TableHead className="w-[15%]">PO Id</TableHead>
+                                <TableHead>Project</TableHead>
+                                <TableHead>Vendor</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Items</TableHead>
+                                <TableHead>Action</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {mergeablePOs.map((po) => {
+                                    // Helper function to check if merge should be disabled
+                                    const isMergeDisabled = po.order_list.list.some((poItem) => {
+                                      // Check if any item in orderData has the same name but different rate
+                                      return orderData?.order_list.list.some(
+                                        (currentItem) => currentItem.name === poItem.name && currentItem.quote !== poItem.quote
+                                      );
+                                    });
+                              
+                              return (
+                                <TableRow key={po.name}>
+                                  <TableCell>{po.name.slice(3, 6)}</TableCell>
+                                  <TableCell>{po.project.split("-").slice(1).join("-")}</TableCell>
+                                  <TableCell>{po.vendor}</TableCell>
+                                  <TableCell>{po.status}</TableCell>
+                                  <TableCell>{po.order_list.list.length}</TableCell>
+                                  <TableCell>
+                                    {!mergedItems.includes(po.name) ? (
+                                        isMergeDisabled ? (
+                                            <HoverCard>
+                                                <HoverCardTrigger>
+                                                     <Button
+                                                     className='flex items-center gap-1'
+                                                       type="primary"
+                                                       disabled={isMergeDisabled}
+                                                       onClick={() => handleMerge(po)}
+                                                     >
+                                                        <Merge className="w-4 h-4" />
+                                                       Merge
+                                                     </Button>
+                                                </HoverCardTrigger>
+                                                <HoverCardContent className='w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg mr-28'>
+                                                    Unable to Merge this PO as it has some <span className='text-primary'>overlapping item(s) with different quotes</span>
+                                                </HoverCardContent>
+                                            </HoverCard>
+                                        ) : (
+                                            <Button
+                                            className='flex items-center gap-1'
+                                        type="primary"
+                                        onClick={() => handleMerge(po)}
+                                      >
+                                        <Merge className="w-4 h-4" />
+                                        Merge
+                                      </Button>
+                                        )
+                                    ) : (
+                                        <Button
+                                        className='flex items-center gap-1'
+                                          danger
+                                          onClick={() => handleUnmerge(po)}
+                                        >
+                                            <Split className='w-4 h-4' />
+                                          Split
+                                        </Button>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              )})}
+                            </TableBody>
+                          </Table>
+                        ) : (
+                          <p>No mergeable POs available.</p>
+                        )}
+              
+                        {/* Summary Section */}
+                        {/* <div className="mt-6 p-4 border rounded-lg">
+                          <h3 className="text-xl font-semibold mb-2">Merged PO Details</h3>
+                          <p>Total PO's Merged: {mergedItems.length}</p>
+                        </div> */}
+              
+                        {/* Button Section */}
+                        <div className="flex justify-end space-x-4 mt-6">
+                          <Button className='flex items-center gap-1' onClick={handlePrint}>
+                          <Eye className='w-4 h-4' />
+                            Preview
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger>
+                            <Button
+                            className='flex items-center gap-1'
+                                disabled={!mergedItems.length}
+                            >
+                                <CheckCheck className="h-4 w-4" />
+                                Confirm
+                            </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>
+                                        Are you sure!
+                                    </AlertDialogTitle>
+                                </AlertDialogHeader>
+                                <AlertDialogDescription>
+                                    Below are the subsequent actions executed on clicking the Confirm button:
+                                    <ul className='list-disc ml-6 italic'>
+                                        <li>Merged PO(s) will be permanently deleted!</li>
+                                        <li>The current PO will be updated to contain the merged PO(s) items</li>
+                                    </ul>
+                                    <p className='mt-2 font-semibold text-base'>Continue?</p>
+                                </AlertDialogDescription>
+                                <AlertDialogDescription className='flex gap-2 items-center justify-center'>
+                                <AlertDialogCancel className="flex items-center gap-1" >
+                                    <Undo2 className="h-4 w-4" />
+                                    Cancel </AlertDialogCancel>
+                                < AlertDialogAction onClick={handleMergePOs}>
+                                    <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' >
+                                        <CheckCheck className="h-4 w-4" />
+                                        Confirm </button>
+                                </AlertDialogAction>
+                                </AlertDialogDescription>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </div>
+                    </SheetContent>
+                  </Sheet>
+                </AlertDescription>
+            </Alert>
+                        </>
+            )}
                             <div className={`w-full border rounded-lg h-screen overflow-y-scroll`}>
                                 <div ref={componentRef} className="w-full p-4">
                                     <div className="overflow-x-auto">
@@ -405,7 +645,7 @@ export const ReleasePONew: React.FC = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className={`bg-white`}>
-                                                {orderData?.order_list?.list.map((item: any, index: number) => {
+                                                {/* {orderData?.order_list?.list.map((item: any, index: number) => {
                                                     return (<tr key={index} className={`${(!loadingCharges && !freightCharges && index === orderData?.order_list?.list.length - 1) && "border-b border-black"} page-break-inside-avoid ${index === 15 ? 'page-break-before' : ''}`}>
                                                         <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
                                                         <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
@@ -415,7 +655,30 @@ export const ReleasePONew: React.FC = () => {
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap">{item.tax}%</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(((item.quote) * (item.quantity)).toFixed(2))}</td>
                                                     </tr>)
-                                                })}
+                                                })} */}
+
+                                                {[...new Map(orderData?.order_list?.list.map(item => 
+                                                    [item.item, { ...item, quantity: orderData.order_list.list
+                                                      .filter(({ item: itemName }) => itemName === item.item)
+                                                      .reduce((total, curr) => total + curr.quantity, 0)}]
+                                                  )).values()].map((item, index) => {
+
+                                                    const length = [...new Map(orderData?.order_list?.list.map(item => 
+                                                        [item.item, { ...item, quantity: orderData.order_list.list
+                                                          .filter(({ item: itemName }) => itemName === item.item)
+                                                          .reduce((total, curr) => total + curr.quantity, 0)}]
+                                                      )).values()].length
+                                                    return (
+                                                  <tr key={index} className={`${(!loadingCharges && !freightCharges && index === length - 1) && "border-b border-black"} page-break-inside-avoid ${index === 15 ? 'page-break-before' : ''}`}>
+                                                    <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
+                                                    <td className="py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
+                                                    <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
+                                                    <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
+                                                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.quote)}</td>
+                                                    <td className="px-4 py-2 text-sm whitespace-nowrap">{item.tax}%</td>
+                                                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(((item.quote) * (item.quantity)).toFixed(2))}</td>
+                                                  </tr>
+                                                ) })}
                                                 {/* {[...Array(19)].map((_, index) => (
                                         orderData?.order_list?.list.map((item) => (
                                              <tr className="">
