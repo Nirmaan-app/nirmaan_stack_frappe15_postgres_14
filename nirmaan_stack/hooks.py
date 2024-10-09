@@ -157,6 +157,7 @@ doc_events = {
         "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert" 
     },
     "Procurement Requests": {
+        "before_insert": "nirmaan_stack.integrations.controllers.procurement_requests.before_insert",
         "after_insert": "nirmaan_stack.integrations.controllers.procurement_requests.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.procurement_requests.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.procurement_requests.on_trash"
