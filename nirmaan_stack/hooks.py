@@ -134,7 +134,11 @@ doc_events = {
         "on_trash": "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash"
     },
     "User Permission": {
-        "after_insert": "nirmaan_stack.integrations.controllers.user_permission.after_insert"
+        "after_insert": [
+            "nirmaan_stack.integrations.controllers.user_permission.after_insert",
+            "nirmaan_stack.integrations.controllers.user_permission.add_nirmaan_user_permissions"
+        ],
+        "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash" 
     },
     "Projects": {
         "after_insert": [
