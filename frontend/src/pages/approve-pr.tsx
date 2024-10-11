@@ -38,9 +38,9 @@ export const ApprovePR = () => {
             fields: ["name", "project_name"],
             limit: 1000
         })
-    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+    const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item', 'quote'],
+            fields: ['item_id', 'quote'],
             limit: 2000
         });
 
@@ -52,7 +52,7 @@ export const ApprovePR = () => {
         // console.log("orderData", orderData)
         orderData?.list.map((item: any) => {
             const quotesForItem = quote_data
-                ?.filter(value => value.item === item.name && value.quote != null)
+                ?.filter(value => value.item_id === item.name && value.quote != null)
                 ?.map(value => value.quote);
             let minQuote;
             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);

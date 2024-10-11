@@ -149,9 +149,9 @@ export const DelayedPR = () => {
             filters: [["procurement_task", "=", orderId]],
             limit: 2000
         });
-    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+    const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item', 'quote'],
+            fields: ['item_id', 'quote'],
             limit: 2000
         });
 
@@ -293,7 +293,7 @@ export const DelayedPR = () => {
                         if (selectedVendors[item.name]) {
                             const price = Number(getPrice(selectedVendors[item.name], item.name))
                             const quotesForItem = quote_data
-                                ?.filter(value => value.item === item.name && value.quote)
+                                ?.filter(value => value.item_id === item.name && value.quote)
                                 ?.map(value => value.quote);
                             let minQuote;
                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -890,7 +890,7 @@ export const DelayedPR = () => {
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat && selectedVendors[item.name]) {
                 const quotesForItem = quote_data
-                    ?.filter(value => value.item === item.name && value.quote)
+                    ?.filter(value => value.item_id === item.name && value.quote)
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -1011,7 +1011,7 @@ export const DelayedPR = () => {
                                                             const lowest2 = getLowest2(item.name)
 
                                                             const quotesForItem = quote_data
-                                                                ?.filter(value => value.item === item.name && value.quote)
+                                                                ?.filter(value => value.item_id === item.name && value.quote)
                                                                 ?.map(value => value.quote);
                                                             let minQuote;
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -1101,7 +1101,7 @@ export const DelayedPR = () => {
                                                             total += price ? parseFloat(price) : 0;
 
                                                             const quotesForItem = quote_data
-                                                                ?.filter(value => value.item === item.name && value.quote)
+                                                                ?.filter(value => value.item_id === item.name && value.quote)
                                                                 ?.map(value => value.quote);
                                                             let minQuote;
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
