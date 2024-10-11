@@ -7,6 +7,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
+import { Badge } from "../ui/badge";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 
@@ -34,14 +35,14 @@ export const ReleasePOSelect = () => {
         limit: 1000
     })
 
-    const {data : vendorsList, isLoading: vendorsListLoading, error: vendorsError} = useFrappeGetDocList("Vendors", {
+    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
         fields: ["vendor_name"],
         limit: 1000
     },
-    "Vendors"
+        "Vendors"
     )
 
-    const vendorOptions = vendorsList?.map((ven) => ({label : ven.vendor_name, value: ven.vendor_name}))
+    const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const getTotal = (order_id: string) => {
@@ -148,6 +149,19 @@ export const ReleasePOSelect = () => {
                 }
             },
             {
+                accessorKey: "status",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Status" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <Badge variant={row.getValue("status") === "PO Approved" ? "default" : row.getValue("status") === "PO Sent" ? "yellow" : row.getValue("status") === "Dispatched" ? "orange" : "green"}>{row.getValue("status") === "Partially Delivered" ? "Delivered" : row.getValue("status")}</Badge>
+                    )
+                }
+            },
+            {
                 accessorKey: "total",
                 header: ({ column }) => {
                     return (
@@ -168,7 +182,7 @@ export const ReleasePOSelect = () => {
 
     const { toast } = useToast()
 
-    if (procurement_order_list_error || projects_error || vendorsError ) {
+    if (procurement_order_list_error || projects_error || vendorsError) {
         console.log("Error in release-po-select.tsx", procurement_order_list_error?.message, projects_error?.message, vendorsError?.message)
         toast({
             title: "Error!",
@@ -179,15 +193,15 @@ export const ReleasePOSelect = () => {
 
     return (
         <>
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center justify-between space-y-2">
-                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Release PO</h2>
-                    </div>
-                    {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
-                        <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} />
-                    )}
+            <div className="flex-1 md:space-y-4">
+                <div className="flex items-center justify-between space-y-2">
+                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Release PO</h2>
                 </div>
-            
+                {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
+                    <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} />
+                )}
+            </div>
+
         </>
     )
 }
