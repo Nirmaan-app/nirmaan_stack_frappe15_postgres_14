@@ -15,13 +15,15 @@ import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
 import { Link, useLocation } from 'react-router-dom';
 import { Sheet, SheetContent } from "../ui/sheet";
-import { useFrappeGetDoc } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import Cookies from "js-cookie";
 import { useNotificationStore } from "@/hooks/useNotificationStore";
 import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
 import ScrollToTop from "@/hooks/ScrollToTop";
+import { getToken } from "firebase/messaging";
+import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
 
-export const NavBar = () => {
+export const NavBar = () => { 
     const [collapsed, setCollapsed] = useState(false);
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
     const [isSmallScreen, setIsSmallScreen] = useState(false);
@@ -31,6 +33,53 @@ export const NavBar = () => {
     const [notify, setNotify] = useState({
         pr_created: 0
     })
+
+    const user_id = Cookies.get('user_id') ?? ''
+
+    const { data, isLoading, error } = useFrappeGetDoc("Nirmaan Users", user_id, user_id === "Administrator" ? null : undefined)
+
+    // console.log("data", data)
+
+    const {updateDoc} = useFrappeUpdateDoc()
+
+    const requestNotificationPermission = async () => {
+        if(user_id && data) {
+            try {
+                const permission = await Notification.requestPermission();
+                if (permission === 'granted') {
+                    const token = await getToken(messaging, { vapidKey: VAPIDKEY });
+                    
+                    if (data?.fcm_token !== token) {
+                        // Update token if it's different from the stored one
+                        await updateDoc("Nirmaan Users", user_id, {
+                            fcm_token: token,
+                            push_notification: "true"
+                        });
+                        console.log('Updated FCM Token:', token);
+                    } else if(data?.push_notification !== "true") {
+                        await updateDoc("Nirmaan Users", user_id, {
+                            push_notification: "true"
+                        });
+                        console.log('FCM Token already up-to-date.');
+                    }
+                } else {
+                    if(data?.push_notification === "true") {
+                        await updateDoc("Nirmaan Users", user_id, {
+                            push_notification : "false"
+                        })
+                    }
+                    console.log('Unable to get permission to notify.');
+                }
+            } catch (error) {
+                console.error('Error getting notification permission:', error);
+            }
+        }
+    };
+    
+	  
+	  useEffect(() => {
+		requestNotificationPermission();
+	  }, [user_id, data]);
 
     const notifications = useNotificationStore((state) => state.notifications);
     const markSeenNotification = useNotificationStore((state) => state.mark_seen_notification);
@@ -43,10 +92,6 @@ export const NavBar = () => {
     const toggleCollapsed = () => {
         setCollapsed(!collapsed);
     };
-
-    const user_id = Cookies.get('user_id') ?? ''
-
-    const { data, isLoading, error } = useFrappeGetDoc("Nirmaan Users", user_id, user_id === "Administrator" ? null : undefined)
 
     useEffect(() => {
         if (data) {

@@ -1,7 +1,37 @@
 import frappe
 import json
+from firebase_admin import messaging
 
 def after_insert(doc, method):
+    project_leads = frappe.db.get_list(
+        'Nirmaan User Permissions',
+        filters={'for_value': doc.project},
+        fields=['user']
+    )
+    print(f"projectleads : {project_leads}")
+    lead_user_ids = [pl['user'] for pl in project_leads]
+    print(f"led user ids : {lead_user_ids}")
+    lead_users = frappe.db.get_list(
+        'Nirmaan Users',
+        filters={
+            'name': ['in', lead_user_ids],
+            'role_profile': 'Nirmaan Project Lead Profile',
+            'push_notification': 'true'
+        },
+        fields=['fcm_token', 'name']
+    )
+
+    print(f"lead users: {lead_users}")
+
+    # Create the notification message
+    notification_title = f"New PR Created for Project: {doc.project}"
+    notification_body = f"A new PR has been created for the project {doc.project}."
+    
+    # Send push notifications to each project lead
+    for lead in lead_users:
+        if lead['fcm_token']:
+            print(f"running send firebase notification")
+            send_firebase_notification(lead['fcm_token'], notification_title, notification_body)
     # if(frappe.db.exists({"doctype": "Procurement Requests", "project": doc.project, "work_package": doc.work_package, "owner": doc.owner, "workflow_state": "Pending"})):
     last_prs = frappe.db.get_list("Procurement Requests", 
                                      filters={
@@ -74,6 +104,22 @@ def after_insert(doc, method):
     #         user=user
     #         )
     # pass
+
+def send_firebase_notification(fcm_token, title, body):
+    """Sends a push notification using Firebase Admin SDK."""
+    message = messaging.Message(
+        notification=messaging.Notification(
+            title=title,
+            body=body
+        ),
+        token=fcm_token
+    )
+    try:
+        print(f"Sending FCM Notification to {fcm_token} with payload: {message}")
+        response = messaging.send(message)
+        frappe.logger().info(f"Successfully sent message: {response}")
+    except Exception as e:
+        frappe.logger().error(f"Failed to send notification: {e}")
 
 def update_quantity(data, target_name, new_quantity):
     for item in data['list']:
