@@ -25,6 +25,14 @@ const messaging = firebase.messaging();
 //   );
 // });
 
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    self.clients.claim().then(() => {
+      self.registration.update({ scope: 'https://test.nirmaan.app/frontend' }); 
+    })
+  );
+});
+
 // Background message handler
 messaging.onBackgroundMessage((payload) => {
   console.log('Received background message: ', payload);
