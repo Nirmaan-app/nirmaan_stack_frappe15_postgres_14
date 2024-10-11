@@ -44,4 +44,6 @@ export interface ProcurementOrders{
 	notes?: string
 	/**	Status : Data	*/
 	status?: string
+	/**	Delivery Contact : Data	*/
+	delivery_contact?: string
 }
