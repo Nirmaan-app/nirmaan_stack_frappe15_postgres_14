@@ -32,9 +32,9 @@ export const QuoteUpdateSelect = () => {
         fields: ["name", "project_name"],
         limit: 1000
     })
-    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+    const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item', 'quote'],
+            fields: ['item_id', 'quote'],
             limit: 2000
         });
 
@@ -47,7 +47,7 @@ export const QuoteUpdateSelect = () => {
         console.log("orderData", orderData)
         orderData?.list.map((item) => {
             const quotesForItem = quote_data
-                ?.filter(value => value.item === item.name && value.quote != null)
+                ?.filter(value => value.item_id === item.name && value.quote != null)
                 ?.map(value => value.quote);
             let minQuote;
             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -177,15 +177,15 @@ export const QuoteUpdateSelect = () => {
     }
 
     return (
-            <div className="flex-1 md:space-y-4">
-                <div className="flex items-center justify-between space-y-2">
-                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Quote Update PR</h2>
-                </div>
-                {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
-                {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
-                )}
-                {/* 
+        <div className="flex-1 md:space-y-4">
+            <div className="flex items-center justify-between space-y-2">
+                <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Quote Update PR</h2>
+            </div>
+            {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
+            {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
+                <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
+            )}
+            {/* 
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
@@ -214,6 +214,6 @@ export const QuoteUpdateSelect = () => {
                             </tbody>
                         </table>
                     </div> */}
-            </div>
+        </div>
     )
 }

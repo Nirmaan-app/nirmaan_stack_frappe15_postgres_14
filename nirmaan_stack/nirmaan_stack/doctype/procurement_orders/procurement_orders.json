@@ -127,7 +127,7 @@
    "label": "Tracking Details"
   },
   {
-   "default": "Generated",
+   "default": "PO Approved",
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
@@ -151,7 +151,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-09-19 11:56:09.157841",
+ "modified": "2024-10-11 19:23:24.865134",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

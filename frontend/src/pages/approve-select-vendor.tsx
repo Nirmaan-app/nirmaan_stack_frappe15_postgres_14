@@ -9,6 +9,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 
 type PRTable = {
@@ -35,6 +36,16 @@ export const ApproveSelectVendor = () => {
     })
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+
+    const getTotal = (order_id: string) => {
+        let total: number = 0;
+        const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
+        orderData?.list.map((item) => {
+            const price = item.quote;
+            total += (price ? parseFloat(price) : 0) * item.quantity;
+        })
+        return total;
+    }
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -133,10 +144,10 @@ export const ApproveSelectVendor = () => {
                         <DataTableColumnHeader column={column} title="Estimated Price" />
                     )
                 },
-                cell: () => {
+                cell: (row) => {
                     return (
                         <div className="font-medium">
-                            N/A
+                            {formatToIndianRupee(getTotal(row.getValue("name")))}
                         </div>
                     )
                 }
@@ -164,14 +175,14 @@ export const ApproveSelectVendor = () => {
     }
 
     return (
-            <div className="flex-1 md:space-y-4">
-                <div className="flex items-center justify-between space-y-2 pl-2">
-                    <h2 className="text-lg font-bold tracking-tight">Approve PO</h2>
-                </div>
-                {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={filteredList || []} project_values={project_values} />
-                )}
-                {/* <div className="overflow-x-auto">
+        <div className="flex-1 md:space-y-4">
+            <div className="flex items-center justify-between space-y-2 pl-2">
+                <h2 className="text-lg font-bold tracking-tight">Approve PO</h2>
+            </div>
+            {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
+                <DataTable columns={columns} data={filteredList || []} project_values={project_values} />
+            )}
+            {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
@@ -199,6 +210,6 @@ export const ApproveSelectVendor = () => {
                             </tbody>
                         </table>
                     </div> */}
-            </div>
+        </div>
     )
 }

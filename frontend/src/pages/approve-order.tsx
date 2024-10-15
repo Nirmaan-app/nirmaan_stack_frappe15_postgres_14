@@ -81,9 +81,9 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             limit: 10000
         });
 
-    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+    const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item', 'quote'],
+            fields: ['item_id', 'quote'],
             limit: 2000
         });
 
@@ -971,7 +971,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                             {orderData?.procurement_list.list.map((item: any) => {
                                                 if (item.category === cat.name) {
                                                     const quotesForItem = quote_data
-                                                        ?.filter(value => value.item === item.name && value.quote != null)
+                                                        ?.filter(value => value.item_id === item.name && value.quote != null)
                                                         ?.map(value => value.quote);
                                                     let minQuote;
                                                     if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -1067,7 +1067,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {orderData.procurement_list?.list?.map(item => {
                                         const quotesForItem = quote_data
-                                            ?.filter(value => value.item === item.name && value.quote != null)
+                                            ?.filter(value => value.item_id === item.name && value.quote != null)
                                             ?.map(value => value.quote);
                                         let minQuote;
                                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);

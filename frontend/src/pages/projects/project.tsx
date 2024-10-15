@@ -484,20 +484,35 @@ import { formatDate } from "@/utils/FormatDate"
 const Project = () => {
   const { projectId } = useParams<{ projectId: string }>()
 
+  const { data, isLoading } = useFrappeGetDoc("Projects", projectId, `Projects ${projectId}`, {
+    revalidateIfStale: false
+  })
+
+  const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
+
   return (
     <div>
-      {projectId && <ProjectView projectId={projectId} />}
+      {(isLoading || projectCustomerLoading) && <Skeleton className="w-[30%] h-10" />}
+      {data && <ProjectView projectId={projectId} data={data} projectCustomer={projectCustomer} />}
     </div>
   )
 }
 
+// Cannot add rest of hook calls to lazy component since skeleton loading is dependent upon them
+interface ProjectViewProps {
+  projectId: string | undefined
+  data: any
+  //mile_data?: any
+  projectCustomer: any
+  //projectAssignees?: any
+  //usersList?: any
+  //pr_data?: any
+  //po_data?: any
+}
+
 export const Component = Project
 
-const ProjectView = ({ projectId }: { projectId: string }) => {
-
-  const { data, isLoading } = useFrappeGetDoc("Projects", projectId, `Projects ${projectId}`, {
-    revalidateIfStale: false
-  })
+const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => {
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList("Project Work Milestones", {
     fields: ["*"],
@@ -511,12 +526,10 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     }
   )
 
-  const { data: projectCustomer } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
-
   const { data: projectAssignees, isLoading: projectAssigneesLoading } = useFrappeGetDocList("Nirmaan User Permissions", {
     fields: ["*"],
     limit: 1000,
-    filters: [["for_value", "=", projectId], ["allow", "=", "Projects"]]
+    filters: [["for_value", "=", `${projectId}`], ["allow", "=", "Projects"]]
   },
     `User Permission, filters(for_value),=,${projectId}`
   )
@@ -527,6 +540,21 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
   },
     "Nirmaan Users"
   )
+
+  const { data: pr_data, isLoading: pr_loading } = useFrappeGetDocList("Procurement Requests", {
+    fields: ["*"],
+    limit: 1000
+  })
+
+  const { data: sent_back_data, isLoading: sent_back_loading } = useFrappeGetDocList("Sent Back Category", {
+    fields: ["*"],
+    limit: 1000
+  })
+
+  const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
+    fields: ["*"],
+    limit: 1000
+  })
 
   // Grouping functionality
   const groupedAssignees = useMemo(() => {
@@ -611,8 +639,8 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
       key: 'projectTracking',
     },
     {
-      label: 'Status',
-      key: 'status',
+      label: 'Procurement Summary',
+      key: 'procurementSummary',
     },
   ];
 
@@ -748,16 +776,14 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
     <div className="flex-1 md:space-y-4">
       <div className="flex items-center">
         <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-        {isLoading ? <Skeleton className="w-[30%] h-10" /> : (
-          <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
-        )}
+        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
       </div>
       <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
 
       {/* Overview Section */}
 
-      {(isLoading || usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" && (
+      {(usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" && (
         <div className="flex flex-col gap-4 max-md:pt-4">
           <Card>
             <CardHeader>
@@ -837,39 +863,40 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
             </CardHeader>
             <CardContent>
               <CardDescription className="space-y-2">
-                <ul className="flex gap-2 flex-wrap">
-                  {Object.entries(groupedAssignees).map(([roleProfile, assigneeList], index) => (
-                    <li key={index} className="border p-1 bg-white rounded-lg max-sm:w-full">
-                      <div
-                        className="flex items-center justify-between gap-4 cursor-pointer hover:bg-gray-100 p-2 rounded-md transition-all duration-200"
-                        onClick={() => toggleExpand(roleProfile)}
-                      >
-                        <div className="flex items-center gap-2">
-                          {expandedRoles[roleProfile] ? (
-                            <ChevronDownIcon className="w-5 h-5 text-gray-500" />
-                          ) : (
-                            <ChevronRightIcon className="w-5 h-5 text-gray-500" />
-                          )}
-                          <span className="text-md font-medium text-gray-800">{roleProfile}</span>
+                {Object.entries(groupedAssignees).length === 0 ? <p>No one is assigned to this project</p> :
+                  <ul className="flex gap-2 flex-wrap">
+                    {Object.entries(groupedAssignees).map(([roleProfile, assigneeList], index) => (
+                      <li key={index} className="border p-1 bg-white rounded-lg max-sm:w-full">
+                        <div
+                          className="flex items-center justify-between gap-4 cursor-pointer hover:bg-gray-100 p-2 rounded-md transition-all duration-200"
+                          onClick={() => toggleExpand(roleProfile)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {expandedRoles[roleProfile] ? (
+                              <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                            ) : (
+                              <ChevronRightIcon className="w-5 h-5 text-gray-500" />
+                            )}
+                            <span className="text-md font-medium text-gray-800">{roleProfile}</span>
+                          </div>
+                          <span className="text-sm text-gray-500">{assigneeList.length} users</span>
                         </div>
-                        <span className="text-sm text-gray-500">{assigneeList.length} users</span>
-                      </div>
-                      {expandedRoles[roleProfile] && (
-                        <ul className="pl-8 mt-2 space-y-2">
-                          {assigneeList.map((fullName, index) => (
-                            <li
-                              key={index}
-                              className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
-                            >
-                              <CheckCircleIcon className="w-5 h-5 text-green-500" />
-                              <span className="text-sm font-medium text-gray-600">{fullName}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                        {expandedRoles[roleProfile] && (
+                          <ul className="pl-8 mt-2 space-y-2">
+                            {assigneeList.map((fullName, index) => (
+                              <li
+                                key={index}
+                                className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
+                              >
+                                <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                                <span className="text-sm font-medium text-gray-600">{fullName}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    ))}
+                  </ul>}
               </CardDescription>
             </CardContent>
           </Card>
@@ -907,7 +934,7 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
       )}
 
       {
-        current === "status" && (
+        current === "procurementSummary" && (
           <div>Pending....</div>
         )
       }

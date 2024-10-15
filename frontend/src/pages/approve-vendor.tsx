@@ -196,9 +196,9 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             filters: [["procurement_task", "=", pr_data?.name]],
             limit: 2000
         });
-    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+    const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item', 'quote'],
+            fields: ['item_id', 'quote'],
             limit: 2000
         });
 
@@ -331,7 +331,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         orderData.procurement_list?.list.forEach((item) => {
             if (item.category === cat && selectedVendors[item.name]) {
                 const quotesForItem = quote_data
-                    ?.filter(q => q.item === item.name && q.quote)
+                    ?.filter(q => q.item_id === item.name && q.quote)
                     ?.map(q => q.quote);
                 const minQuote = quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
                 total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
@@ -352,7 +352,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     if (selectedVendors[item.name]) {
                         const price = Number(getPrice(selectedVendors[item.name], item.name))
                         const quotesForItem = quote_data
-                            ?.filter(q => q.item === item.name && q.quote)
+                            ?.filter(q => q.item_id === item.name && q.quote)
                             ?.map(q => q.quote);
                         let minQuote = quotesForItem?.length ? Math.min(...quotesForItem) : 0;
                         minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
@@ -583,7 +583,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
             if (itemlist.length > 0) {
                 const res = await createDoc('Sent Back Category', newSendBack);
-                if(comment) {
+                if (comment) {
                     await createDoc("Nirmaan Comments", {
                         comment_type: "Comment",
                         reference_doctype: "Sent Back Category",
@@ -768,7 +768,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                                                             const lowest2 = getLowest2(item.name)
 
                                                             const quotesForItem = quote_data
-                                                                ?.filter(value => value.item === item.name && value.quote)
+                                                                ?.filter(value => value.item_id === item.name && value.quote)
                                                                 ?.map(value => value.quote);
                                                             let minQuote;
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -858,7 +858,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                                                             total += price ? parseFloat(price) : 0;
 
                                                             const quotesForItem = quote_data
-                                                                ?.filter(value => value.item === item.name && value.quote)
+                                                                ?.filter(value => value.item_id === item.name && value.quote)
                                                                 ?.map(value => value.quote);
                                                             let minQuote;
                                                             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -957,33 +957,33 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 CheckStrictly: <Switch checked={checkStrictly} onChange={setCheckStrictly} />
             </Space> */}
             <div className='overflow-x-auto pt-6'>
-            <ConfigProvider
-                theme={{
-                    token: {
-                        // Seed Token
-                        colorPrimary: '#FF2828',
-                        borderRadius: 4,
+                <ConfigProvider
+                    theme={{
+                        token: {
+                            // Seed Token
+                            colorPrimary: '#FF2828',
+                            borderRadius: 4,
 
-                        // Alias Token
-                        colorBgContainer: '#FFFFFF',
-                    },
-                }}
-            >
-                {data.length > 0 &&
+                            // Alias Token
+                            colorBgContainer: '#FFFFFF',
+                        },
+                    }}
+                >
+                    {data.length > 0 &&
                         <Table
                             rowSelection={{ ...rowSelection, checkStrictly }}
                             dataSource={data}
                             expandable={{ defaultExpandAllRows: true }}
                             columns={columns}
                         />
-                }
-            </ConfigProvider>
+                    }
+                </ConfigProvider>
             </div>
             {selectedItems?.length > 0 && <div className="flex justify-end gap-2 mr-2 mt-2">
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
-                            <SendToBack  className='w-4 h-4'/>
+                            <SendToBack className='w-4 h-4' />
                             {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
                         </Button>
                     </AlertDialogTrigger>
@@ -1004,10 +1004,10 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                             <AlertDialogCancel className="flex items-center gap-1">
-                            <Undo2 className="h-4 w-4" />
+                                <Undo2 className="h-4 w-4" />
                                 Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1">
-                            <CheckCheck className="h-4 w-4" />
+                                <CheckCheck className="h-4 w-4" />
                                 Confirm</AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
@@ -1027,8 +1027,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                        <AlertDialogCancel className="flex items-center gap-1">
-                            <Undo2 className="h-4 w-4" />
+                            <AlertDialogCancel className="flex items-center gap-1">
+                                <Undo2 className="h-4 w-4" />
                                 Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1">
                                 <CheckCheck className="h-4 w-4" />

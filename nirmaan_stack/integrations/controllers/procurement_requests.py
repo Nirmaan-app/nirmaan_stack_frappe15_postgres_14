@@ -2,8 +2,8 @@ import frappe
 import json
 
 def after_insert(doc, method):
-    if(frappe.db.exists({"doctype": "Procurement Requests", "project": doc.project, "work_package": doc.work_package, "owner": doc.owner, "workflow_state": "Pending"})):
-        last_prs = frappe.db.get_list("Procurement Requests", 
+    # if(frappe.db.exists({"doctype": "Procurement Requests", "project": doc.project, "work_package": doc.work_package, "owner": doc.owner, "workflow_state": "Pending"})):
+    last_prs = frappe.db.get_list("Procurement Requests", 
                                      filters={
                                          "project": doc.project,
                                          "work_package": doc.work_package,
@@ -13,6 +13,7 @@ def after_insert(doc, method):
                                          fields=['name', 'project', 'work_package', 'owner', 'workflow_state', 'procurement_list', 'category_list'],
                                          order_by='creation desc'
                                          )
+    if(len(last_prs)>1):
         last_pr = last_prs[1]
         new_item_ids = [item['name'] for item in doc.procurement_list['list']]
         new_procurement_list = doc.procurement_list
@@ -71,7 +72,7 @@ def after_insert(doc, method):
     #         message=doc,
     #         doctype=doc.doctype,
     #         user=user
-            # )
+    #         )
     # pass
 
 def update_quantity(data, target_name, new_quantity):
