@@ -16,15 +16,6 @@ firebase.messaging().usePublicVapidKey("BKCnCTRykNel6hGvgixZVcBs7Hyzzox6H9qZdmWV
 
 const messaging = firebase.messaging();
 
-// self.addEventListener('activate', (event) => {
-//   event.waitUntil(
-//     self.clients.claim().then(() => {
-//       // Replace 'https://your-ngrok-url.com' with your actual HTTPS URL
-//       self.registration.update({ scope: 'http://localhost:8000' });
-//     })
-//   );
-// });
-
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     self.clients.claim().then(() => {
