@@ -256,11 +256,19 @@ export const ReleasePONew: React.FC = () => {
     }
 
     const handleDispatchPO = async () => {
+        
         try {
-            await updateDoc("Procurement Orders", orderId, {
-                status: "Dispatched",
-                delivery_contact: `${contactPerson.name}:${contactPerson.number}`
-            })
+            if(contactPerson.name !== "" || contactPerson.number !== "") {
+                await updateDoc("Procurement Orders", orderId, {
+                    status: "Dispatched",
+                    delivery_contact: `${contactPerson.name}:${contactPerson.number}`
+                })
+            } else {
+                await updateDoc("Procurement Orders", orderId, {
+                    status: "Dispatched",
+                })
+            }
+            
             await mutate()
             toast({
                 title: "Success!",
@@ -969,7 +977,40 @@ export const ReleasePONew: React.FC = () => {
                                                                     number: e.target.value
                                                                 }))} />
                                                             </div>
-                                                            {
+
+                                                            <AlertDialog>
+                                                                        <AlertDialogTrigger>
+                                                                            <button className='border-green-500 h-9 px-4 py-2 inline-flex items-center 
+                                                        justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors 
+                                                        focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border 
+                                                        bg-background shadow-sm hover:bg-accent hover:text-accent-foreground flex gap-1 items-center'>
+                                                                                <ListChecks className="h-4 w-4" />
+                                                                                Submit</button>
+                                                                        </AlertDialogTrigger>
+                                                                        < AlertDialogContent >
+                                                                            <AlertDialogHeader>
+                                                                                <AlertDialogTitle>
+                                                                                    <h1 className="justify-center" > Is this order dispatched ? </h1>
+                                                                                </AlertDialogTitle>
+
+                                                                                < AlertDialogDescription className="items-center justify-center" >
+                                                                                    This action will create a delivery note for the project manager on site.Are you sure you want to continue?
+                                                                                    <div className='flex mt-2 gap-2 items-center justify-center' >
+                                                                                        <AlertDialogCancel className="flex items-center gap-1" >
+                                                                                            <Undo2 className="h-4 w-4" />
+                                                                                            Cancel </AlertDialogCancel>
+                                                                                        < AlertDialogAction onClick={handleDispatchPO} >
+                                                                                            <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' >
+                                                                                                <CheckCheck className="h-4 w-4" />
+                                                                                                Confirm </button>
+                                                                                        </AlertDialogAction>
+                                                                                    </div>
+                                                                                </AlertDialogDescription>
+
+                                                                            </AlertDialogHeader>
+                                                                        </AlertDialogContent>
+                                                                    </AlertDialog>
+                                                            {/* {
                                                                 (Object.values(contactPerson).some((val) => !val) || contactPerson.number.length !== 10) ? (
                                                                     <HoverCard>
                                                                         <HoverCardTrigger>
@@ -1022,7 +1063,7 @@ export const ReleasePONew: React.FC = () => {
                                                                         </AlertDialogContent>
                                                                     </AlertDialog>
                                                                 )
-                                                            }
+                                                            } */}
                                                         </div>
                                                     </div>
                                                 </CardDescription>

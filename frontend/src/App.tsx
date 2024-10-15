@@ -123,13 +123,10 @@ const router = createBrowserRouter(
 						<Route path="new" element={<ProjectForm />} />
 						<Route
 							path=":projectId"
-							// loader={(({ params }) => {
-							// 	console.log(params.projectId)
-							// })}
-							// action={(({ params }) => {})}
 							lazy={() => import('@/pages/projects/project')}
 						/>
 						<Route path=":projectId/edit" element={<EditProjectForm />} />
+						<Route path=":projectId/:id" lazy={() => import('@/components/pr-summary')} />
 					</Route>
 
 					<Route path="users">
