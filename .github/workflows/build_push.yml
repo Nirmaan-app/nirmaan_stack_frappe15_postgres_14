@@ -34,6 +34,7 @@ jobs:
           }
         ]'
         echo "APPS_JSON_BASE64=$(echo ${APPS_JSON} | base64 -w 0)" >> $GITHUB_ENV
+        echo "FCM SECRET: ${{ secrets.FCM_ACCESS }}"
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
       
