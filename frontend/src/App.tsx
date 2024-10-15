@@ -107,9 +107,14 @@ const router = createBrowserRouter(
 					<Route path="/procure-request/:orderId" element={<ProcurementOrder />} />
 					<Route path="/procure-request/quote-update/:orderId" element={<UpdateQuote />} />
 					<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
-					<Route path="release-po" element={<ReleasePOSelect />} />
+					<Route path="release-po" element={<ReleasePOSelect not={false} status="PO Approved" />} />
 					{/* <Route path="/release-po/:id" element={<ReleasePO />} /> */}
 					<Route path="/release-po/:id" element={<ReleasePONew />} />
+
+					<Route path="released-po" element={<ReleasePOSelect not={true} status="PO Approved" />} />
+					{/* <Route path="/release-po/:id" element={<ReleasePO />} /> */}
+					<Route path="/released-po/:id" element={<ReleasePONew />} />
+
 					<Route path="delivery-notes" element={<DeliveryNotes />} />
 					<Route path="/delivery-notes/:id" element={<DeliveryNote />} />
 

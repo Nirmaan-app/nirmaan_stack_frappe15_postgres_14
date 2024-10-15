@@ -207,7 +207,8 @@ export const NavBar = () => {
                         { key: '/procure-request', label: 'New PR Request' },
                         { key: '/update-quote', label: 'Update Quote' },
                         { key: '/select-vendor-list', label: 'Select Vendor' },
-                        { key: '/release-po', label: 'Release PO' },
+                        { key: '/release-po', label: 'Approved PO' },
+                        { key: '/released-po', label: 'Released PO' }
                     ],
                 }
             ]
@@ -223,7 +224,8 @@ export const NavBar = () => {
         "projects", "users", "items", "vendors", "customers",
         "prs&milestones", "approve-order", "approve-vendor",
         "approve-sent-back", "procure-request", "update-quote",
-        "select-vendor-list", "release-po", "sent-back-request"
+        "select-vendor-list", "release-po", "sent-back-request",
+        "released-po"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
@@ -280,7 +282,7 @@ export const NavBar = () => {
                 {isSmallScreen && (data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
                     <Sheet open={isMobileSidebarOpen} onOpenChange={handleMobileSidebarToggle}>
                         <SheetContent side="left" className={`overflow-y-auto overflow-x-hidden scrollbar-container ${role === "Nirmaan Project Manager Profile" ? "w-64" : ""}`}>
-                            <div className={`${role === "Nirmaan Project Manager Profile" ? "" : "max-w-[95%]" }`}>
+                            <div className={`${role === "Nirmaan Project Manager Profile" ? "" : "max-w-[95%]"}`}>
                                 <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", activeBarBorderWidth: 0 } } }}>
                                     <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                         ...item,
