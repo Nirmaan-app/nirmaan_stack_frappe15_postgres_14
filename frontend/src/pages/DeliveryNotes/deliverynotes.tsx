@@ -10,25 +10,25 @@ import { Link } from "react-router-dom"
 
 const DeliveryNotes = () => {
 
-    const {data : procurementRequestsList, isLoading: procurementRequestsLoading} = useFrappeGetDocList("Procurement Requests", {
+    const { data: procurementRequestsList, isLoading: procurementRequestsLoading } = useFrappeGetDocList("Procurement Requests", {
         fields: ["*"],
         limit: 1000,
-        orderBy: {field : "creation", order: "desc"}
+        orderBy: { field: "creation", order: "desc" }
     },
-    "Procurement Requests"
+        "Procurement Requests"
     )
 
-    const {data : procurementOrdersList, isLoading: procurementRequestsListLoading} = useFrappeGetDocList("Procurement Orders", {
+    const { data: procurementOrdersList, isLoading: procurementRequestsListLoading } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
         limit: 1000
     },
-    "Procurement Orders"
+        "Procurement Orders"
     )
 
     // console.log("data", procurementOrdersList, procurementRequestsList)
 
     const getPrsAssociated = (prId) => {
-        return procurementOrdersList?.filter((po) => po.procurement_request === prId && !["Cancelled", "Generated"].includes(po.status)) || []
+        return procurementOrdersList?.filter((po) => po.procurement_request === prId && !["PO Approved"].includes(po.status)) || []
     }
 
     const [project, setProject] = useState(null)
@@ -60,7 +60,7 @@ const DeliveryNotes = () => {
     //             cell: ({ row }) => {
     //                 const id = row.getValue("name");
     //                 const associatedPOs = getPrsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
-                
+
     //                 return (
     //                     <div className="font-medium">
     //                         {associatedPOs.length === 0 ? (
@@ -92,7 +92,7 @@ const DeliveryNotes = () => {
     //             cell: ({ row }) => {
     //                 const id = row.getValue("name");
     //                 const associatedPOs = getPrsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
-                
+
     //                 return (
     //                     <div className="font-medium">
     //                         {associatedPOs.length === 0 ? (
@@ -128,31 +128,31 @@ const DeliveryNotes = () => {
         <div className="flex-1 space-y-2 md:space-y-4">
             <div className="">
                 <div className="flex items-center ">
-                        <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
-                        <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">Update Delivery Notes</h2>
-                    </div>
+                    <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
+                    <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">Update Delivery Notes</h2>
+                </div>
             </div>
             {/* {(!procurementRequestsLoading && !procurementRequestsListLoading) && <DataTable columns={columns} data={procurementRequestsList} />} */}
 
             <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
 
-            <ProjectSelect onChange={handleChange} />
-                    {project && <div className="mx-0 px-0 pt-4">
-                        {/* <h2 className="text-lg pl-2 font-semibold tracking-normal py-2">Created By {userData?.full_name}</h2> */}
-                        <Table>
-                            <TableHeader className="bg-red-100">
-                                <TableRow>
-                                    <TableHead className=" font-extrabold">PR no.</TableHead>
-                                    <TableHead className=" font-extrabold">Delivery Note</TableHead>
-                                    <TableHead className=" font-extrabold">Creation</TableHead>
-                                    <TableHead className=" font-extrabold">Status</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {procurementRequestsList?.map((item) => {
-                                    if(item.project === project) {
-                                        return (
-                                            <TableRow key={item.name}>
+                <ProjectSelect onChange={handleChange} />
+                {project && <div className="mx-0 px-0 pt-4">
+                    {/* <h2 className="text-lg pl-2 font-semibold tracking-normal py-2">Created By {userData?.full_name}</h2> */}
+                    <Table>
+                        <TableHeader className="bg-red-100">
+                            <TableRow>
+                                <TableHead className=" font-extrabold">PR no.</TableHead>
+                                <TableHead className=" font-extrabold">Delivery Note</TableHead>
+                                <TableHead className=" font-extrabold">Creation</TableHead>
+                                <TableHead className=" font-extrabold">Status</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {procurementRequestsList?.map((item) => {
+                                if (item.project === project) {
+                                    return (
+                                        <TableRow key={item.name}>
                                             <TableCell className="text-sm">{item.name.split("-")[2]}</TableCell>
                                             {getPrsAssociated(item.name).length ? (
                                                 <>
@@ -164,15 +164,15 @@ const DeliveryNotes = () => {
                                                         </TableRow>
                                                     ))}</TableCell>
                                                     <TableCell className="text-sm">
-                                                    {getPrsAssociated(item.name)?.map((po) => (
-                                                        <TableRow>
-                                                            <TableCell>
-                                                                {formatDate(po.creation)}
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    ))}
+                                                        {getPrsAssociated(item.name)?.map((po) => (
+                                                            <TableRow>
+                                                                <TableCell>
+                                                                    {formatDate(po.creation)}
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        ))}
                                                     </TableCell>
-                                                     <TableCell className="text-sm">
+                                                    <TableCell className="text-sm">
                                                         {getPrsAssociated(item.name)?.map((po) => (
                                                             <TableRow>
                                                                 <TableCell>
@@ -183,20 +183,21 @@ const DeliveryNotes = () => {
                                                             </TableRow>
                                                         ))}
                                                     </TableCell>
-                                                    </>
+                                                </>
                                             ) : (
                                                 <>
-                                                <TableCell></TableCell>
-                                            <TableCell className="text-red-300">**Not Found**</TableCell>
-                                            </>
-                                            ) }
+                                                    <TableCell></TableCell>
+                                                    <TableCell className="text-red-300">**Not Found**</TableCell>
+                                                </>
+                                            )}
                                         </TableRow>
-                                        )}   
-                                })}
-                            </TableBody>
-                        </Table>
-                    </div>}
-                    </div>
+                                    )
+                                }
+                            })}
+                        </TableBody>
+                    </Table>
+                </div>}
+            </div>
         </div>
     )
 }

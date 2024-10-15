@@ -837,39 +837,40 @@ const ProjectView = ({ projectId }: { projectId: string }) => {
             </CardHeader>
             <CardContent>
               <CardDescription className="space-y-2">
-                <ul className="flex gap-2 flex-wrap">
-                  {Object.entries(groupedAssignees).map(([roleProfile, assigneeList], index) => (
-                    <li key={index} className="border p-1 bg-white rounded-lg max-sm:w-full">
-                      <div
-                        className="flex items-center justify-between gap-4 cursor-pointer hover:bg-gray-100 p-2 rounded-md transition-all duration-200"
-                        onClick={() => toggleExpand(roleProfile)}
-                      >
-                        <div className="flex items-center gap-2">
-                          {expandedRoles[roleProfile] ? (
-                            <ChevronDownIcon className="w-5 h-5 text-gray-500" />
-                          ) : (
-                            <ChevronRightIcon className="w-5 h-5 text-gray-500" />
-                          )}
-                          <span className="text-md font-medium text-gray-800">{roleProfile}</span>
+                {Object.entries(groupedAssignees).length === 0 ? <p>No one is assigned to this project</p> :
+                  <ul className="flex gap-2 flex-wrap">
+                    {Object.entries(groupedAssignees).map(([roleProfile, assigneeList], index) => (
+                      <li key={index} className="border p-1 bg-white rounded-lg max-sm:w-full">
+                        <div
+                          className="flex items-center justify-between gap-4 cursor-pointer hover:bg-gray-100 p-2 rounded-md transition-all duration-200"
+                          onClick={() => toggleExpand(roleProfile)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {expandedRoles[roleProfile] ? (
+                              <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                            ) : (
+                              <ChevronRightIcon className="w-5 h-5 text-gray-500" />
+                            )}
+                            <span className="text-md font-medium text-gray-800">{roleProfile}</span>
+                          </div>
+                          <span className="text-sm text-gray-500">{assigneeList.length} users</span>
                         </div>
-                        <span className="text-sm text-gray-500">{assigneeList.length} users</span>
-                      </div>
-                      {expandedRoles[roleProfile] && (
-                        <ul className="pl-8 mt-2 space-y-2">
-                          {assigneeList.map((fullName, index) => (
-                            <li
-                              key={index}
-                              className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
-                            >
-                              <CheckCircleIcon className="w-5 h-5 text-green-500" />
-                              <span className="text-sm font-medium text-gray-600">{fullName}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                        {expandedRoles[roleProfile] && (
+                          <ul className="pl-8 mt-2 space-y-2">
+                            {assigneeList.map((fullName, index) => (
+                              <li
+                                key={index}
+                                className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
+                              >
+                                <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                                <span className="text-sm font-medium text-gray-600">{fullName}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    ))}
+                  </ul>}
               </CardDescription>
             </CardContent>
           </Card>
