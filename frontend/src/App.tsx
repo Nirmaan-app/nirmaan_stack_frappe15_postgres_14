@@ -1,7 +1,7 @@
 // import { useState } from 'react'
-import { FrappeProvider } from 'frappe-react-sdk'
+import { FrappeConfig, FrappeContext, FrappeProvider, useFrappePutCall } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
-import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
+import {  Route, RouterProvider, createBrowserRouter, createRoutesFromElements, useFetcher } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
 import Login from './pages/auth/old-login'
 import Projects from './pages/projects/projects'
@@ -24,7 +24,7 @@ import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
 import { PDF } from './pages/pdf'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/ui/theme-provider'
-import { ProtectedRoute } from './utils/auth/ProtectedRoute'
+import {  LeadRoute, ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
 
 //import AuthenticationPage from './pages/auth/login-shadcn'
@@ -41,7 +41,7 @@ import Vendors from './pages/vendors/vendors'
 
 import ListPR from './components/procurement-request/list-pr'
 import { EditVendor } from './pages/vendors/edit-vendor'
-import { FC } from 'react'
+import { FC, useContext, useEffect } from 'react'
 import { MainLayout } from './components/layout/main-layout'
 import { ProjectManager } from './components/dashboard-pm'
 
@@ -58,6 +58,8 @@ import { ProjectForm } from './pages/projects/project-form'
 import { ReleasePONew } from './components/updates/ReleasePONew'
 import { ApprovedQuotationsTable } from './pages/ApprovedQuotationsFlow/ApprovedQuotationsTable'
 import EditUserForm from './pages/users/EditUserForm'
+import { messaging, VAPIDKEY } from './firebase/firebaseConfig'
+import { onMessage } from 'firebase/messaging'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -81,8 +83,10 @@ const router = createBrowserRouter(
 					{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
 					{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
 
+					{/* <Route path='/prs&milestones' element={<LeadRoute />}> */}
+						<Route path='/prs&milestones' element={<ProjectManager />} />
+					{/* </Route> */}
 
-					<Route path='/prs&milestones' element={<ProjectManager />} />
 					<Route path='/milestone-update' element={<NewMilestones />} />
 
 					<Route path="approve-order" element={<ApprovePR />} />
@@ -181,10 +185,41 @@ const router = createBrowserRouter(
 )
 
 
-
+// if ('serviceWorker' in navigator) {
+// 	navigator.serviceWorker
+// 	  .register('./public/firebase-messaging-sw.js')
+// 	  .then((registration) => {
+// 		console.log('Service Worker registered with scope:', registration.scope);
+// 	  })
+// 	  .catch((err) => {
+// 		console.log('Service Worker registration failed:', err);
+// 	  });
+//   }
+  
 
 const App: FC = () => {
-	// Sitename support for frappe v15
+
+	useEffect(() => {
+		if ('serviceWorker' in navigator) {
+		  navigator.serviceWorker
+			.register('/firebase-messaging-sw.js') // Corrected path
+			.then((registration) => {
+			  console.log('Service Worker registered with scope:', registration.scope);
+			})
+			.catch((err) => {
+			  console.log('Service Worker registration failed:', err);
+			});
+		}
+	
+		// Firebase onMessage handler for foreground notifications
+		onMessage(messaging, (payload) => {
+		  console.log('Message received in the foreground: ', payload);
+		  new Notification(payload.notification?.title || '', {
+			body: payload.notification?.body || '',
+		  });
+		});
+	  }, []);
+
 	const getSiteName = () => {
 		// @ts-ignore
 		if (window.frappe?.boot?.versions?.frappe && (window.frappe.boot.versions.frappe.startsWith('15') || window.frappe.boot.versions.frappe.startsWith('16'))) {

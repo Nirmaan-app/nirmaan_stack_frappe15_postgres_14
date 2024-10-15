@@ -8,8 +8,6 @@ export const ProtectedRoute = () => {
 
     const { currentUser, isLoading } = useContext(UserContext)
 
-    const {role} = useUserData()
-
     if (isLoading) {
         return (<div className='w-full h-screen flex items-center justify-center'>
                     <TailSpin visible={true} height="100" width="100" color="#D03B45" ariaLabel="tail-spin-loading" />

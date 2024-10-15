@@ -164,6 +164,9 @@ doc_events = {
     },
     "Procurement Orders": {
         "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update"
+    },
+    "Sent Back Category": {
+        "on_update": "nirmaan_stack.integrations.controllers.sent_back_category.on_update"
     }
 }
 
