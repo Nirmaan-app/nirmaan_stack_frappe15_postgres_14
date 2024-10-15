@@ -47,20 +47,21 @@ jobs:
         username: _json_key
         password: ${{ secrets.GAR_JSON_KEY }}
     - name: Build and push
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: images/custom/Containerfile
         platforms: linux/amd64
         push: true
         tags: asia-south1-docker.pkg.dev/nirmaan-stack/nirmaan-project-stack/nirmaan-project-stack:${{ env.RELEASE_VERSION }}
+        secrets: |
+          "fcm_access=${{ secrets.FCM_ACCESS }}"
         build-args: |
           FRAPPE_PATH=https://github.com/frappe/frappe
           FRAPPE_BRANCH=version-15
           PYTHON_VERSION=3.11.6
           NODE_VERSION=18.17.0
           APPS_JSON_BASE64=${{ env.APPS_JSON_BASE64 }}
-          FCM_ACCESS=${{ secrets.FCM_ACCESS }}
           
           
       
