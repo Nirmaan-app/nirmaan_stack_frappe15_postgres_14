@@ -1,7 +1,7 @@
 // import { useState } from 'react'
 import { FrappeProvider } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
-import {  Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
+import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
 import Login from './pages/auth/old-login'
 import Projects from './pages/projects/projects'
@@ -24,7 +24,7 @@ import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
 import { PDF } from './pages/pdf'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/ui/theme-provider'
-import {  ProtectedRoute } from './utils/auth/ProtectedRoute'
+import { ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
 
 //import AuthenticationPage from './pages/auth/login-shadcn'
@@ -103,9 +103,14 @@ const router = createBrowserRouter(
 					<Route path="/procure-request/:orderId" element={<ProcurementOrder />} />
 					<Route path="/procure-request/quote-update/:orderId" element={<UpdateQuote />} />
 					<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
-					<Route path="release-po" element={<ReleasePOSelect />} />
+					<Route path="release-po" element={<ReleasePOSelect not={false} status="PO Approved" />} />
 					{/* <Route path="/release-po/:id" element={<ReleasePO />} /> */}
 					<Route path="/release-po/:id" element={<ReleasePONew />} />
+
+					<Route path="released-po" element={<ReleasePOSelect not={true} status="PO Approved" />} />
+					{/* <Route path="/release-po/:id" element={<ReleasePO />} /> */}
+					<Route path="/released-po/:id" element={<ReleasePONew />} />
+
 					<Route path="delivery-notes" element={<DeliveryNotes />} />
 					<Route path="/delivery-notes/:id" element={<DeliveryNote />} />
 
