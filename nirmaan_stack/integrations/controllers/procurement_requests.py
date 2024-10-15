@@ -15,7 +15,7 @@ def after_insert(doc, method):
                                          order_by='creation desc'
                                          )
     if(len(last_prs)>1):
-        last_pr = last_prs[0]
+        last_pr = last_prs[1]
         new_item_ids = [item['name'] for item in doc.procurement_list['list']]
         new_procurement_list = doc.procurement_list
         for item in last_pr.procurement_list['list']:
