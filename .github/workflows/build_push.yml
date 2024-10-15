@@ -13,7 +13,7 @@ jobs:
     - name: Check out my other private repo
       uses: actions/checkout@v4
       with:
-        repository: frappe/frappe_docker
+        repository: Nirmaan-app/frappe_docker
         # token: ${{ secrets.NIRMAAN_ADMIN_PAT }}
     - name: Set env
       run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
