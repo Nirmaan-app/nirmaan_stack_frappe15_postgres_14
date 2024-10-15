@@ -31,6 +31,8 @@ env_vars = dotenv_values(stream=env_stream)
 # Step 4: Manually load these environment variables into os.environ
 os.environ.update(env_vars)
 
+print("DEBUG fcm.env: "+os.getenv('FIREBASE_PROJECT_ID'))
+
 
 firebase_credentials = {
     "type": os.getenv('FIREBASE_TYPE'),
