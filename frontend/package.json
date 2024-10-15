@@ -43,6 +43,7 @@
     "cmdk": "^1.0.0",
     "cypress": "^13.7.2",
     "date-fns": "^3.6.0",
+    "firebase": "^10.14.1",
     "frappe-react-sdk": "^1.7.0",
     "get-orientation": "^1.1.2",
     "js-cookie": "^3.0.5",
