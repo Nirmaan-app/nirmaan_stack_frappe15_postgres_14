@@ -24,7 +24,7 @@ import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
 import { PDF } from './pages/pdf'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/ui/theme-provider'
-import {  ProtectedRoute } from './utils/auth/ProtectedRoute'
+import {  LeadRoute, ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
 
 //import AuthenticationPage from './pages/auth/login-shadcn'
@@ -59,8 +59,7 @@ import { ReleasePONew } from './components/updates/ReleasePONew'
 import { ApprovedQuotationsTable } from './pages/ApprovedQuotationsFlow/ApprovedQuotationsTable'
 import EditUserForm from './pages/users/EditUserForm'
 import { messaging, VAPIDKEY } from './firebase/firebaseConfig'
-import { getToken, onMessage } from 'firebase/messaging'
-import { useUserData } from './hooks/useUserData'
+import { onMessage } from 'firebase/messaging'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -84,8 +83,10 @@ const router = createBrowserRouter(
 					{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
 					{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
 
+					{/* <Route path='/prs&milestones' element={<LeadRoute />}> */}
+						<Route path='/prs&milestones' element={<ProjectManager />} />
+					{/* </Route> */}
 
-					<Route path='/prs&milestones' element={<ProjectManager />} />
 					<Route path='/milestone-update' element={<NewMilestones />} />
 
 					<Route path="approve-order" element={<ApprovePR />} />

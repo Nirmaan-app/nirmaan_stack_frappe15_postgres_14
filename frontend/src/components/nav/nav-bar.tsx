@@ -242,9 +242,11 @@ export const NavBar = () => {
             <div className="fixed top-0 left-0 w-full bg-white shadow-md z-50">
                 <div className="flex h-16 items-center px-2 md:px-4">
                     <div className="flex items-center justify-center">
-                        <Button type="text" className={`border border-slate-400 px-4 ${!collapsed && "bg-gray-200"}`} onClick={isSmallScreen ? handleMobileSidebarToggle : toggleCollapsed}>
+                        {(data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
+                            <Button type="text" className={`border border-slate-400 px-4 ${!collapsed && "bg-gray-200"}`} onClick={isSmallScreen ? handleMobileSidebarToggle : toggleCollapsed}>
                             {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                         </Button>
+                        )}
                         <MainNav className="mx-2 md:mx-6" />
                     </div>
                     <div className="ml-auto flex items-center space-x-4">
@@ -258,7 +260,7 @@ export const NavBar = () => {
             {/* Main Content Wrapper */}
             <div className="flex mt-16 overflow-hidden" style={{ height: 'calc(var(--vh, 1vh) * 100 - 64px)' }}>
                 {/* Sidebar for large screens */}
-                {!isSmallScreen && (
+                {!isSmallScreen && (data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
                     <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto overflow-x-hidden scrollbar-container ${collapsed ? "sm:w-16 w-0" : role === "Nirmaan Project Manager Profile" ? "sm:w-40 w-0" : "sm:w-64 w-0"}`}>
                         <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70 } } }}>
                             <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
@@ -275,7 +277,7 @@ export const NavBar = () => {
                 )}
 
                 {/* Sheet for small screens */}
-                {isSmallScreen && (
+                {isSmallScreen && (data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
                     <Sheet open={isMobileSidebarOpen} onOpenChange={handleMobileSidebarToggle}>
                         <SheetContent side="left" className={`overflow-y-auto overflow-x-hidden scrollbar-container ${role === "Nirmaan Project Manager Profile" ? "w-64" : ""}`}>
                             <div className={`${role === "Nirmaan Project Manager Profile" ? "" : "max-w-[95%]" }`}>
