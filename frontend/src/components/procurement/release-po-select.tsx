@@ -19,15 +19,20 @@ type PRTable = {
     category: string
 }
 
+interface ReleasePOSelectProps {
+    status: string
+    not: boolean
+}
 
-export const ReleasePOSelect = () => {
+
+export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
+            filters: [["status", not ? "!=" : "=", status]],
             limit: 1000
         },
-        "Procurement Orders"
     );
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
@@ -195,7 +200,7 @@ export const ReleasePOSelect = () => {
         <>
             <div className="flex-1 md:space-y-4">
                 <div className="flex items-center justify-between space-y-2">
-                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Release PO</h2>
+                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">{not ? "Released" : "Approved"} PO</h2>
                 </div>
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} />
