@@ -26,6 +26,8 @@ import { DataTablePagination } from "./data-table-pagination"
 import { DataTableToolbar } from "./data-table-toolbar";
 import { fuzzyFilter } from "./data-table-models"
 import DebouncedInput from "./debounced-input"
+import { DataTableViewOptions } from "./data-table-view-options";
+import { DataTableFacetedFilter } from "./data-table-faceted-filter";
 
 type ProjectOptions = {
     label: string,
@@ -41,7 +43,7 @@ interface DataTableProps<TData, TValue> {
     error?: any
 }
 
-export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions=undefined, roleTypeOptions=undefined }: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions=undefined, roleTypeOptions=undefined, statusOptions=undefined, totalPOsRaised=undefined }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([
         {
             id: "creation",
@@ -93,7 +95,8 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
         <div className="space-y-4">
             {/* Look for data-table-toolbar in tasks example */}
 
-            <div className="flex gap-2 items-center py-4 pr-2">
+            <div className="flex justify-between items-center">
+            <div className="flex gap-2 items-center py-4 sm:w-full">
                 <DebouncedInput
                     placeholder="Search..."
                     //value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
@@ -104,8 +107,15 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                     onChange={value => setGlobalFilter(String(value))}
                     className="max-w-sm"
                 />
-                <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} roleTypeOptions={roleTypeOptions}/>
-                {/* <DataTableViewOptions table={table} /> */}
+                {/* <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} statusOptions={statusOptions} roleTypeOptions={roleTypeOptions}/> */}
+            </div>
+            {totalPOsRaised && (
+            <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
+                <span className=" whitespace-nowrap">Total PO's raised</span>
+                <span>: </span>
+                <span className="max-sm:text-end max-sm:w-full text-primary">{totalPOsRaised}</span>
+             </div>
+            )}
             </div>
 
             <div className="rounded-md border">
@@ -113,12 +123,89 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                     <TableHeader>
                         {table.getHeaderGroups().map((headerGroup) => (
                             <TableRow key={headerGroup.id}>
+                                    <DataTableViewOptions table={table} />
                                 {headerGroup.headers.map((header) => {
                                     return (
                                         <TableHead key={header.id} colSpan={header.colSpan}>
                                             {header.isPlaceholder
                                                 ? null
-                                                : flexRender(header.column.columnDef.header, header.getContext())}
+                                                :
+                                                (
+                                                    <div className="flex items-center gap-2">
+                                                        {(statusOptions && header.id === table.getColumn("workflow_state")?.id) && (
+                                                            table.getColumn("workflow_state") ? (
+                                                                <DataTableFacetedFilter
+                                                                    column={table.getColumn("workflow_state")}
+                                                                    title={"Status"}
+                                                                    options={statusOptions || []}
+                                                                />
+                                                            ) : null
+                                                        )}
+
+                                                        {(project_values && header.id === table.getColumn("project")?.id) && (
+                                                            table.getColumn("project") ? (
+                                                                            <DataTableFacetedFilter
+                                                                                column={table.getColumn("project")}
+                                                                                title={"Project"}
+                                                                                options={project_values || []}
+                                                                            />
+                                                            ) : null
+                                                        )}
+
+                                                        {(category_options && table.getAllColumns().map(item => item.id).find(id => id === "vendor_category") !== undefined) ? (
+
+                                                            header.id === table.getColumn("vendor_category")?.id && (
+                                                                <DataTableFacetedFilter
+                                                                column={table.getColumn("vendor_category")}
+                                                                title={"Category"}
+                                                                options={category_options || []}
+                                                            />
+                                                            )
+                                                                        ) : (category_options &&
+                                                                            table.getAllColumns().map(item => item.id).find(id => id === "category") !== undefined ? (
+                                                                            header.id === table.getColumn("category")?.id && (
+                                                                                <DataTableFacetedFilter
+                                                                                column={table.getColumn("category")}
+                                                                                title={"Category"}
+                                                                                options={category_options || []}
+                                                                            />
+                                                                            )
+                                                        ) : null)}
+
+                                                    {(vendorOptions && header.id === table.getColumn("vendor_name")?.id) && (
+                                                    table.getColumn("vendor_name") ? (
+                                                                        <DataTableFacetedFilter
+                                                                            column={table.getColumn("vendor_name")}
+                                                                            title={"Vendor"}
+                                                                            options={vendorOptions || []}
+                                                                        />
+                                                        ) : null
+                                                    )}
+
+                                                        {(projectTypeOptions && header.id === table.getColumn("project_type")?.id) && (
+                                                        table.getColumn("project_type") ? (
+                                                                        <DataTableFacetedFilter
+                                                                            column={table.getColumn("project_type")}
+                                                                            title={"Project Type"}
+                                                                            options={projectTypeOptions || []}
+                                                                        />
+                                                        ) : null
+                                                        )}
+
+                                                        {(roleTypeOptions && header.id === table.getColumn("role_profile")?.id) && (
+                                                        table.getColumn("role_profile") ? (
+                                                                        <DataTableFacetedFilter
+                                                                            column={table.getColumn("role_profile")}
+                                                                            title={"Role"}
+                                                                            options={roleTypeOptions || []}
+                                                                        />
+                                                        ) : null
+                                                        )}
+
+                                                        {flexRender(header.column.columnDef.header, header.getContext())}
+                                                    </div>
+                                                ) 
+                                                }
                                         </TableHead>
                                     )
                                 })}
@@ -152,6 +239,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                         {table.getRowModel().rows?.length ? (
                             table.getRowModel().rows.map((row) => (
                                 <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
+                                    <TableCell className="max-lg:hidden" />
                                     {row.getVisibleCells().map((cell) => (
                                         <TableCell
                                             key={cell.id}

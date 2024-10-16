@@ -85,7 +85,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     };
 
     const [orderData, setOrderData] = useState({
-        project: project.name,
+        project: project?.name,
         work_package: '',
         procurement_list: {
             list: []

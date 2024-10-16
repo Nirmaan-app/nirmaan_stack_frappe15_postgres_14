@@ -1047,46 +1047,46 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
             </div>
             <div className="overflow-x-auto">
-                <div className="min-w-full inline-block align-middle">
-                    {JSON.parse(pr_data?.procurement_list).list.map(item => {
-                        if (item.status === "Delayed") {
-                            return <div className="p-5">
-                                <ReactTable>
-                                    <TableHeader>
-                                        <TableRow className="bg-red-100">
-                                            <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{item.category}</span></TableHead>
-                                            <TableHead className="w-[25%]">UOM</TableHead>
-                                            <TableHead className="w-[15%]">Qty</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {/* {orderData.procurement_list?.list.map((item) => {
-                                        if (item.category === cat.name) {
-                                            if(!selectedVendors[item.name]){return (
-                                                <TableRow key={item.item}>
-                                                    <TableCell>{item.item}</TableCell>
-                                                    <TableCell>{item.unit}</TableCell>
-                                                    <TableCell>{item.quantity}</TableCell>
-                                                </TableRow>
-                                            )}
-                                        }
-                                    })} */}
-                                        <TableRow key={item.item}>
-                                            <TableCell>{item.item}</TableCell>
-                                            <TableCell>{item.unit}</TableCell>
-                                            <TableCell>{item.quantity}</TableCell>
-                                        </TableRow>
+    <div className="min-w-full inline-block align-middle">
+        {/* Group items by category */}
+        {(() => {
+            const delayedItems = JSON.parse(pr_data?.procurement_list)?.list.filter(item => item.status === "Delayed");
+            const groupedByCategory = delayedItems.reduce((acc, item) => {
+                if (!acc[item.category]) {
+                    acc[item.category] = [];
+                }
+                acc[item.category].push(item);
+                return acc;
+            }, {});
 
-                                    </TableBody>
-                                </ReactTable>
-                            </div>
-                        }
-                        // else {
-                        //     return <div className='flex justify-center text-gray-400 tracking-tight my-4'>No delayed items</div>
-                        // }
-                    })}
+            // Render each category group
+            return Object.keys(groupedByCategory).map(category => (
+                <div key={category} className="p-5">
+                    <ReactTable>
+                        <TableHeader>
+                            <TableRow className="bg-red-100">
+                                <TableHead className="w-[60%]">
+                                    <span className="text-red-700 pr-1 font-extrabold">{category}</span>
+                                </TableHead>
+                                <TableHead className="w-[25%]">UOM</TableHead>
+                                <TableHead className="w-[15%]">Qty</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {groupedByCategory[category].map(item => (
+                                <TableRow key={item.item}>
+                                    <TableCell>{item.item}</TableCell>
+                                    <TableCell>{item.unit}</TableCell>
+                                    <TableCell>{item.quantity}</TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </ReactTable>
                 </div>
-            </div>
+            ));
+        })()}
+    </div>
+</div>
         </>
     )
 }

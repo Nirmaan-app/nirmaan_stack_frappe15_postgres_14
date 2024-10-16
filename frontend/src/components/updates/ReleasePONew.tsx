@@ -24,6 +24,7 @@ import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 import { Dialog, DialogTrigger, DialogTitle, DialogDescription, DialogContent, DialogHeader, DialogClose } from '../ui/dialog';
+import { RadioGroup, RadioGroupItem } from '../ui/radiogroup';
 
 const { Sider, Content } = Layout;
 
@@ -58,6 +59,7 @@ export const ReleasePONew: React.FC = () => {
     const [vendorAddress, setVendorAddress] = useState()
     const [mergeablePOs, setMergeablePOs] = useState([])
     const [mergedItems, setMergedItems] = useState([]);
+    const [customAdvance, setCustomAdvance] = useState(false);
 
     useEffect(() => {
         if (orderData?.project_address) {
@@ -353,6 +355,8 @@ export const ReleasePONew: React.FC = () => {
             })
         }
     }
+
+    // console.log("advance", control.)
     // console.log("values", contactPerson)
 
     // console.log("orderData", orderData?.order_list?.list)
@@ -404,17 +408,72 @@ export const ReleasePONew: React.FC = () => {
                             <h3 className="font-semibold text-lg mt-4">Terms and Other Description</h3>
                             <div className="flex-1 mt-2">
                                 <Label>Advance (in %)</Label>
-                                <Controller
+                                {/* <Controller
                                     control={control}
                                     name="advance"
                                     render={({ field }) => (
-                                        <Input type="number" {...field} onChange={(e) => {
+                                        <Input type="radio" {...field} onChange={(e) => {
                                             const value = e.target.value
                                             field.onChange(e);
                                             setAdvance(value !== "" ? parseInt(value) : 0);
                                         }} className="w-full" />
                                     )}
-                                />
+                                /> */}
+                                <Controller
+                control={control}
+                name="advance"
+                render={({ field }) => (
+                    <>
+                        <RadioGroup
+                            onValueChange={(value) => {
+                                field.onChange(value === "Other" ? "" : value); // Reset value if 'Other'
+                                setAdvance(value !== "Other" ? parseInt(value) : 0);
+                                setCustomAdvance(value === "Other");
+                            }}
+                            className="flex flex-col space-y-2 mt-2"
+                        >
+                            {/* Radio options */}
+                            <div className="flex gap-4 items-center">
+                                <RadioGroupItem value="25" id="advance-25" />
+                                <Label htmlFor="advance-25" className="font-medium text-gray-700">25%</Label>
+
+                                <RadioGroupItem value="50" id="advance-50" />
+                                <Label htmlFor="advance-50" className="font-medium text-gray-700">50%</Label>
+
+                                <RadioGroupItem value="75" id="advance-75" />
+                                <Label htmlFor="advance-75" className="font-medium text-gray-700">75%</Label>
+
+                                <RadioGroupItem value="100" id="advance-100" />
+                                <Label htmlFor="advance-100" className="font-medium text-gray-700">100%</Label>
+
+                                <RadioGroupItem value="Other" id="advance-other" />
+                                <Label htmlFor="advance-other" className="font-medium text-gray-700">Other</Label>
+                            </div>
+
+                            {/* Conditional rendering for custom input */}
+                            {customAdvance && (
+                                <div className="mt-4">
+                                    <Label htmlFor="custom-advance">Enter Custom Advance %</Label>
+                                    <Input
+                                        id="custom-advance"
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        placeholder="Enter percentage"
+                                        className="mt-2 border border-gray-300 rounded-lg p-2"
+                                        value={field.value}
+                                        onChange={(e) => {
+                                            const value = e.target.value
+                                            field.onChange(value)
+                                            setAdvance(value !== "" ? parseInt(value) : 0);
+                                        }}
+                                    />
+                                </div>
+                            )}
+                        </RadioGroup>
+                    </>
+                )}
+            />
                             </div>
                             <div className="flex-1 mt-2">
                                 <Label>Add Notes</Label>

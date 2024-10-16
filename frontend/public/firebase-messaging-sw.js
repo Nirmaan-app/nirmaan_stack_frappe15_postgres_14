@@ -16,13 +16,13 @@ firebase.messaging().usePublicVapidKey("BKCnCTRykNel6hGvgixZVcBs7Hyzzox6H9qZdmWV
 
 const messaging = firebase.messaging();
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    self.clients.claim().then(() => {
-      self.registration.update({ scope: 'https://test.nirmaan.app/frontend' }); 
-    })
-  );
-});
+// self.addEventListener('activate', (event) => {
+//   event.waitUntil(
+//     self.clients.claim().then(() => {
+//       self.registration.update({ scope: 'https://test.nirmaan.app/frontend' }); 
+//     })
+//   );
+// });
 
 // Background message handler
 messaging.onBackgroundMessage((payload) => {

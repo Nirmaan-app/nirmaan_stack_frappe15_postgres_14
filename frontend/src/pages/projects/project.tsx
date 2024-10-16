@@ -20,7 +20,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
-import { Menu, MenuProps, TableProps } from "antd"
+import { ConfigProvider, Menu, MenuProps, TableProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, Download, FilePenLine } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
@@ -806,7 +806,16 @@ const checkPrToSB = (prId) => {
   }
 }
 
+const statusOptions = [
+  {label : "New PR", value : "New PR"},
+  {label: "Open PR", value : "Open PR"},
+  {label : "Approved PO", value : "Approved PO"},
+  {label : "Rejected", value : "Rejected"}
+]
 
+const statusRender = (status, prId) => {
+  return ["RFQ Generated", "Quote Updated", "Vendor Selected", "Approved"].includes(status) ? "Open PR" : status === "Pending" ? "New PR" : ["Vendor Approved", "Partially Approved"].includes(status) ? "Approved PO" : status === "Rejected" ? "Rejected" : checkPrToSB(prId)
+}
   const procurementSummaryColumns =  [
     {
       accessorKey: "name",
@@ -843,8 +852,15 @@ const checkPrToSB = (prId) => {
       },
       cell: ({row}) => {
         const status = row.getValue("workflow_state")
-        return <div className="font-medium">{["RFQ Generated", "Quote Updated", "Vendor Selected", "Approved"].includes(status) ? "Open PR" : status === "Pending" ? "New PR" : ["Vendor Approved", "Partially Approved"].includes(status) ? "Approved PO" : status === "Rejected" ? "Rejected" : checkPrToSB(row.getValue("name"))}</div>
-      }
+        const prId = row.getValue("name")
+        return <div className="font-medium">{statusRender(status, prId)}</div>
+      },
+      filterFn: (row, id, value) => {
+        const rowValue = row.getValue(id)
+        const prId = row.getValue("name")
+        const renderValue = statusRender(rowValue, prId)
+        return value.includes(renderValue)
+    }
     },
     {
       accessorKey: "work_package",
@@ -946,16 +962,19 @@ const checkPrToSB = (prId) => {
         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
       </div>
-      <div className="flex justify-between items-center">
-        <div className="w-full">
-          <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
-        </div>
-         <div className="flex">
-            <span className="text-primary whitespace-nowrap">Total PO's raised</span>
-            <span>-</span>
-            <span>{formatToIndianRupee(totalPosRaised())}</span>
-         </div>
-      </div>
+      <ConfigProvider
+      theme={{
+        components: {
+          Menu: {
+            horizontalItemSelectedColor: "#D03B45",
+            itemSelectedBg: "#FFD3CC",
+            itemSelectedColor: "#D03B45"
+          }
+        }
+      }}
+      >
+        <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
+      </ConfigProvider>
 
       {/* Overview Section */}
 
@@ -1112,7 +1131,7 @@ const checkPrToSB = (prId) => {
       {
         current === "procurementSummary" && (
           prData_loading ? ( <TableSkeleton />) : 
-          <DataTable columns={procurementSummaryColumns} data={pr_data || []} />
+          <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} totalPOsRaised={formatToIndianRupee(totalPosRaised())} />
         )
       }
 
