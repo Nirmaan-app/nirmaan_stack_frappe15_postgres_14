@@ -83,9 +83,7 @@ const router = createBrowserRouter(
 					{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
 					{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
 
-					{/* <Route path='/prs&milestones' element={<LeadRoute />}> */}
 						<Route path='/prs&milestones' element={<ProjectManager />} />
-					{/* </Route> */}
 
 					<Route path='/milestone-update' element={<NewMilestones />} />
 
@@ -123,13 +121,10 @@ const router = createBrowserRouter(
 						<Route path="new" element={<ProjectForm />} />
 						<Route
 							path=":projectId"
-							// loader={(({ params }) => {
-							// 	console.log(params.projectId)
-							// })}
-							// action={(({ params }) => {})}
 							lazy={() => import('@/pages/projects/project')}
 						/>
 						<Route path=":projectId/edit" element={<EditProjectForm />} />
+						<Route path=":projectId/:id" lazy={() => import('@/components/pr-summary')} />
 					</Route>
 
 					<Route path="users">

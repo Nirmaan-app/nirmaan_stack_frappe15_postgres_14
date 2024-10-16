@@ -44,8 +44,10 @@ export const ApproveSelectVendor = () => {
             const price = item.quote;
             total += (price ? parseFloat(price) : 0) * item.quantity;
         })
-        return total;
+        return total ;
     }
+
+    console.log("procurement request", procurement_request_list)
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [

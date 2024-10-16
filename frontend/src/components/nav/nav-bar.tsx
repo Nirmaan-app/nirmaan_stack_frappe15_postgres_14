@@ -46,10 +46,20 @@ export const NavBar = () => {
         if(user_id && data) {
             try {
                 const permission = await Notification.requestPermission();
-                if (permission === 'granted') {
-                    const token = await getToken(messaging, { vapidKey: VAPIDKEY });
+                console.log("permision", permission)
+                if (permission == 'granted') {
+                    const registration = await navigator.serviceWorker.ready;
+                        console.log("registration", registration)
+
+                    const token = await getToken(messaging, { 
+                        vapidKey: VAPIDKEY,
+                        serviceWorkerRegistration: registration
+                    });
+
+                    console.log("token", token)
                     
                     if (data?.fcm_token !== token) {
+                        console.log("running fcm token updating")
                         // Update token if it's different from the stored one
                         await updateDoc("Nirmaan Users", user_id, {
                             fcm_token: token,

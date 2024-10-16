@@ -24,6 +24,7 @@ import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 import { Dialog, DialogTrigger, DialogTitle, DialogDescription, DialogContent, DialogHeader, DialogClose } from '../ui/dialog';
+import { RadioGroup, RadioGroupItem } from '../ui/radiogroup';
 
 const { Sider, Content } = Layout;
 
@@ -58,6 +59,7 @@ export const ReleasePONew: React.FC = () => {
     const [vendorAddress, setVendorAddress] = useState()
     const [mergeablePOs, setMergeablePOs] = useState([])
     const [mergedItems, setMergedItems] = useState([]);
+    const [customAdvance, setCustomAdvance] = useState(false);
 
     useEffect(() => {
         if (orderData?.project_address) {
@@ -256,11 +258,19 @@ export const ReleasePONew: React.FC = () => {
     }
 
     const handleDispatchPO = async () => {
+        
         try {
-            await updateDoc("Procurement Orders", orderId, {
-                status: "Dispatched",
-                delivery_contact: `${contactPerson.name}:${contactPerson.number}`
-            })
+            if(contactPerson.name !== "" || contactPerson.number !== "") {
+                await updateDoc("Procurement Orders", orderId, {
+                    status: "Dispatched",
+                    delivery_contact: `${contactPerson.name}:${contactPerson.number}`
+                })
+            } else {
+                await updateDoc("Procurement Orders", orderId, {
+                    status: "Dispatched",
+                })
+            }
+            
             await mutate()
             toast({
                 title: "Success!",
@@ -345,6 +355,8 @@ export const ReleasePONew: React.FC = () => {
             })
         }
     }
+
+    // console.log("advance", control.)
     // console.log("values", contactPerson)
 
     // console.log("orderData", orderData?.order_list?.list)
@@ -396,17 +408,72 @@ export const ReleasePONew: React.FC = () => {
                             <h3 className="font-semibold text-lg mt-4">Terms and Other Description</h3>
                             <div className="flex-1 mt-2">
                                 <Label>Advance (in %)</Label>
-                                <Controller
+                                {/* <Controller
                                     control={control}
                                     name="advance"
                                     render={({ field }) => (
-                                        <Input type="number" {...field} onChange={(e) => {
+                                        <Input type="radio" {...field} onChange={(e) => {
                                             const value = e.target.value
                                             field.onChange(e);
                                             setAdvance(value !== "" ? parseInt(value) : 0);
                                         }} className="w-full" />
                                     )}
-                                />
+                                /> */}
+                                <Controller
+                control={control}
+                name="advance"
+                render={({ field }) => (
+                    <>
+                        <RadioGroup
+                            onValueChange={(value) => {
+                                field.onChange(value === "Other" ? "" : value); // Reset value if 'Other'
+                                setAdvance(value !== "Other" ? parseInt(value) : 0);
+                                setCustomAdvance(value === "Other");
+                            }}
+                            className="flex flex-col space-y-2 mt-2"
+                        >
+                            {/* Radio options */}
+                            <div className="flex gap-4 items-center">
+                                <RadioGroupItem value="25" id="advance-25" />
+                                <Label htmlFor="advance-25" className="font-medium text-gray-700">25%</Label>
+
+                                <RadioGroupItem value="50" id="advance-50" />
+                                <Label htmlFor="advance-50" className="font-medium text-gray-700">50%</Label>
+
+                                <RadioGroupItem value="75" id="advance-75" />
+                                <Label htmlFor="advance-75" className="font-medium text-gray-700">75%</Label>
+
+                                <RadioGroupItem value="100" id="advance-100" />
+                                <Label htmlFor="advance-100" className="font-medium text-gray-700">100%</Label>
+
+                                <RadioGroupItem value="Other" id="advance-other" />
+                                <Label htmlFor="advance-other" className="font-medium text-gray-700">Other</Label>
+                            </div>
+
+                            {/* Conditional rendering for custom input */}
+                            {customAdvance && (
+                                <div className="mt-4">
+                                    <Label htmlFor="custom-advance">Enter Custom Advance %</Label>
+                                    <Input
+                                        id="custom-advance"
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        placeholder="Enter percentage"
+                                        className="mt-2 border border-gray-300 rounded-lg p-2"
+                                        value={field.value}
+                                        onChange={(e) => {
+                                            const value = e.target.value
+                                            field.onChange(value)
+                                            setAdvance(value !== "" ? parseInt(value) : 0);
+                                        }}
+                                    />
+                                </div>
+                            )}
+                        </RadioGroup>
+                    </>
+                )}
+            />
                             </div>
                             <div className="flex-1 mt-2">
                                 <Label>Add Notes</Label>
@@ -969,7 +1036,40 @@ export const ReleasePONew: React.FC = () => {
                                                                     number: e.target.value
                                                                 }))} />
                                                             </div>
-                                                            {
+
+                                                            <AlertDialog>
+                                                                        <AlertDialogTrigger>
+                                                                            <button className='border-green-500 h-9 px-4 py-2 inline-flex items-center 
+                                                        justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors 
+                                                        focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border 
+                                                        bg-background shadow-sm hover:bg-accent hover:text-accent-foreground flex gap-1 items-center'>
+                                                                                <ListChecks className="h-4 w-4" />
+                                                                                Submit</button>
+                                                                        </AlertDialogTrigger>
+                                                                        < AlertDialogContent >
+                                                                            <AlertDialogHeader>
+                                                                                <AlertDialogTitle>
+                                                                                    <h1 className="justify-center" > Is this order dispatched ? </h1>
+                                                                                </AlertDialogTitle>
+
+                                                                                < AlertDialogDescription className="items-center justify-center" >
+                                                                                    This action will create a delivery note for the project manager on site.Are you sure you want to continue?
+                                                                                    <div className='flex mt-2 gap-2 items-center justify-center' >
+                                                                                        <AlertDialogCancel className="flex items-center gap-1" >
+                                                                                            <Undo2 className="h-4 w-4" />
+                                                                                            Cancel </AlertDialogCancel>
+                                                                                        < AlertDialogAction onClick={handleDispatchPO} >
+                                                                                            <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' >
+                                                                                                <CheckCheck className="h-4 w-4" />
+                                                                                                Confirm </button>
+                                                                                        </AlertDialogAction>
+                                                                                    </div>
+                                                                                </AlertDialogDescription>
+
+                                                                            </AlertDialogHeader>
+                                                                        </AlertDialogContent>
+                                                                    </AlertDialog>
+                                                            {/* {
                                                                 (Object.values(contactPerson).some((val) => !val) || contactPerson.number.length !== 10) ? (
                                                                     <HoverCard>
                                                                         <HoverCardTrigger>
@@ -1022,7 +1122,7 @@ export const ReleasePONew: React.FC = () => {
                                                                         </AlertDialogContent>
                                                                     </AlertDialog>
                                                                 )
-                                                            }
+                                                            } */}
                                                         </div>
                                                     </div>
                                                 </CardDescription>

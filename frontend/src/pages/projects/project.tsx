@@ -20,15 +20,17 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
-import { Menu, MenuProps, TableProps } from "antd"
+import { ConfigProvider, Menu, MenuProps, TableProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, Download, FilePenLine } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
 import { Button } from "@/components/ui/button"
 import { useReactToPrint } from "react-to-print"
 import { formatDate } from "@/utils/FormatDate"
+import formatToIndianRupee from "@/utils/FormatPrice"
+import { Badge } from "@/components/ui/badge"
 
 // interface WPN {
 //     name: string
@@ -541,20 +543,64 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     "Nirmaan Users"
   )
 
-  const { data: pr_data, isLoading: pr_loading } = useFrappeGetDocList("Procurement Requests", {
+  const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList("Procurement Requests", {
     fields: ["*"],
+    filters: [["project", "=", `${projectId}`]],
     limit: 1000
-  })
+  },
+  `Procurement Requests ${projectId}`
+)
+
+
+const getUserFullName = (id) => {
+  if(id === "Administrator") return id
+  if(usersList) {
+    return usersList.find((user) => user.name === id)?.full_name
+  }
+}
 
   const { data: sent_back_data, isLoading: sent_back_loading } = useFrappeGetDocList("Sent Back Category", {
     fields: ["*"],
+    filters: [["project", "=", projectId]],
     limit: 1000
-  })
+  },
+  `Sent Back Category ${projectId}`
+)
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
     fields: ["*"],
+    filters: [["project", "=", projectId], ["status", "in", ["Dispatched", "Delivered", "Partially Delivered"]]],
     limit: 1000
-  })
+  },
+  `Procurement Orders ${projectId}`
+)
+
+const totalPosRaised = () => {
+  if (po_data && po_data.length > 0) {
+    // Loop through each procurement order and sum up the total value
+    const total = po_data.reduce((acc, po) => {
+      // Check if the procurement order has an order_list with items
+      if (po.order_list && po.order_list.list && po.order_list.list.length > 0) {
+        // Sum the quote * quantity for each item in the order_list
+        const poTotal = po.order_list.list.reduce((itemAcc, item) => {
+          return itemAcc + (item.quote * item.quantity);
+        }, 0);
+        // Add the poTotal to the overall accumulator
+        return acc + poTotal;
+      }
+      return acc;
+    }, 0);
+
+    return total;
+  }
+
+  return 0; // Return 0 if po_data is not available or empty
+};
+
+
+console.log("po_data",po_data)
+
+
 
   // Grouping functionality
   const groupedAssignees = useMemo(() => {
@@ -646,7 +692,6 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
 
   const [areaNames, setAreaNames] = useState(null)
 
-
   const getStatusListColumns = (mile_data: ScopesMilestones[]) => {
     const statusNames = Array.from(
       new Set(
@@ -730,6 +775,144 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     return [...staticColumns, ...dynamicColumns];
   }, [mile_data]);
 
+  const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
+    {
+        fields: ['item_id', 'quote'],
+        limit: 10000
+    });
+
+  const getTotal = (order_id) => {
+    let total: number = 0;
+    const orderData = pr_data?.find(item => item.name === order_id)?.procurement_list;
+    // console.log("orderData", orderData)
+    orderData?.list.map((item: any) => {
+        const quotesForItem = quote_data
+            ?.filter(value => value.item_id === item.name && value.quote != null)
+            ?.map(value => value.quote);
+        let minQuote;
+        if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
+        total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+    })
+    return total || "N/A";
+}
+
+const checkPrToSB = (prId) => {
+  if(sent_back_data) {
+    const sentBacks = sent_back_data.filter((sb) => sb.procurement_request === prId)
+    if(sentBacks.every((sb) => sb.workflow_state === "Pending")) return "New PR"
+    else if(sentBacks.some((sb) => ["Approved", "Partially Approved"].includes(sb.workflow_state))) return "Approved PO"
+    else if(sentBacks.every((sb) => sb.workflow_state === "Vendor Selected")) return "Open PR"
+    else return "Rejected"
+  }
+}
+
+const statusOptions = [
+  {label : "New PR", value : "New PR"},
+  {label: "Open PR", value : "Open PR"},
+  {label : "Approved PO", value : "Approved PO"},
+  {label : "Rejected", value : "Rejected"}
+]
+
+const statusRender = (status, prId) => {
+  return ["RFQ Generated", "Quote Updated", "Vendor Selected", "Approved"].includes(status) ? "Open PR" : status === "Pending" ? "New PR" : ["Vendor Approved", "Partially Approved"].includes(status) ? "Approved PO" : status === "Rejected" ? "Rejected" : checkPrToSB(prId)
+}
+  const procurementSummaryColumns =  [
+    {
+      accessorKey: "name",
+      header: ({column}) => {
+        return <DataTableColumnHeader  className="text-black font-bold" column={column} title="PR Id"/>
+      },
+      cell: ({row}) => {
+        return <Link className="text-blue-500 underline" to={row.getValue("name")}><div>{row.getValue("name").split("-")[2]}</div></Link>
+      }
+    },
+    {
+      accessorKey: "creation",
+      header: ({column}) => {
+        return <DataTableColumnHeader  className="text-black font-bold" column={column} title="Creation"/>
+      },
+      cell: ({row}) => {
+        return <div className="text-[#11050599]">{formatDate(row.getValue("creation"))}</div>
+      }
+    },
+    {
+      accessorKey: "owner",
+      header: ({column}) => {
+        return <DataTableColumnHeader  className="text-black font-bold" column={column} title="Created By"/>
+      },
+      cell: ({row}) => {
+        return <div className="text-[#11050599]">{getUserFullName(row.getValue("owner"))}</div>
+      }
+    },
+
+    {
+      accessorKey: "workflow_state",
+      header: ({column}) => {
+        return <DataTableColumnHeader  className="text-black font-bold" column={column} title="Status"/>
+      },
+      cell: ({row}) => {
+        const status = row.getValue("workflow_state")
+        const prId = row.getValue("name")
+        return <div className="font-medium">{statusRender(status, prId)}</div>
+      },
+      filterFn: (row, id, value) => {
+        const rowValue = row.getValue(id)
+        const prId = row.getValue("name")
+        const renderValue = statusRender(rowValue, prId)
+        return value.includes(renderValue)
+    }
+    },
+    {
+      accessorKey: "work_package",
+      header: ({ column }) => {
+          return (
+              <DataTableColumnHeader column={column} title="Package" />
+          )
+      },
+      cell: ({ row }) => {
+          return (
+              <div className="text-[#11050599]">
+                  {row.getValue("work_package")}
+              </div>
+          )
+      }
+  },
+  {
+      accessorKey: "category_list",
+      header: ({ column }) => {
+          return (
+              <DataTableColumnHeader column={column} title="Categories" />
+          )
+      },
+      cell: ({ row }) => {
+          return (
+              <div className="flex flex-col gap-1 items-start justify-center">
+                  {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+              </div>
+          )
+      }
+  },
+    {
+      id: "estimated_price",
+      header: ({ column }) => {
+          return (
+              <DataTableColumnHeader column={column} title="Estimated Price" />
+          )
+      },
+      cell: ({ row }) => {
+        const total = getTotal(row.getValue("name"))
+          return (
+              <div className="font-medium">
+                  {total === "N/A" ? total : formatToIndianRupee(total)}
+              </div>
+          )
+      }
+  }
+  ]
+
+
+  // console.log("pr_data", pr_data)
+
   const [current, setCurrent] = useState('overview')
 
   const onClick: MenuProps['onClick'] = (e) => {
@@ -779,7 +962,19 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
       </div>
-      <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
+      <ConfigProvider
+      theme={{
+        components: {
+          Menu: {
+            horizontalItemSelectedColor: "#D03B45",
+            itemSelectedBg: "#FFD3CC",
+            itemSelectedColor: "#D03B45"
+          }
+        }
+      }}
+      >
+        <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
+      </ConfigProvider>
 
       {/* Overview Section */}
 
@@ -935,7 +1130,8 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
 
       {
         current === "procurementSummary" && (
-          <div>Pending....</div>
+          prData_loading ? ( <TableSkeleton />) : 
+          <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} totalPOsRaised={formatToIndianRupee(totalPosRaised())} />
         )
       }
 

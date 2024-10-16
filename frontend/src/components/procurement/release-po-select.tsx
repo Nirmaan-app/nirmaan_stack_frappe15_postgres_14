@@ -73,7 +73,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                     return (
                         // onClick={() => handleSet(row.getValue("name"))}
                         <div className="font-medium underline cursor-pointer">
-                            <Link className="underline hover:underline-offset-2" to={`/release-po/${row.getValue("name").replaceAll("/", "&=")}`}>
+                            <Link className="underline hover:underline-offset-2" to={`${row.getValue("name").replaceAll("/", "&=")}`}>
                                 {(row.getValue("name"))?.toUpperCase()}
                             </Link>
                         </div>

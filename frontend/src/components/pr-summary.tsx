@@ -149,7 +149,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                     <>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1 flex-wrap">
-                                <ArrowLeft className="cursor-pointer" onClick={() => navigate("/procurement-request")} />
+                                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                                 <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
                                 <span className="text-red-500 text-2xl max-md:text-xl">PR-{pr_no}</span>
                             </div>

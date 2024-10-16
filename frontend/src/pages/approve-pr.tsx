@@ -41,7 +41,7 @@ export const ApprovePR = () => {
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
             fields: ['item_id', 'quote'],
-            limit: 2000
+            limit: 10000
         });
 
     const { toast } = useToast()
@@ -58,7 +58,7 @@ export const ApprovePR = () => {
             if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
             total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
         })
-        return total;
+        return total || "N/A";
     }
 
     const isNewPR = (prName: string) => {
@@ -177,9 +177,10 @@ export const ApprovePR = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const total = getTotal(row.getValue("name"))
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")))}
+                            {total === "N/A" ? "N/A" : formatToIndianRupee(total)}
                         </div>
                     )
                 }

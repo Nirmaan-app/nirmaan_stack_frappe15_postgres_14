@@ -17,6 +17,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
+import { Filter } from "lucide-react";
 
 interface DataTableFacetedFilterProps<TData, TValue> {
     column?: Column<TData, TValue>;
@@ -39,10 +40,10 @@ export function DataTableFacetedFilter<TData, TValue>({
     return (
         <Popover>
             <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 border-dashed">
-                    <PlusCircledIcon className="mr-2 h-4 w-4" />
-                    Filter by {title}
-                    {selectedValues?.size > 0 && (
+                <div className="p-2 cursor-pointer hover:bg-gray-100 rounded-md">
+                    <Filter  className="text-primary h-4 w-4" />
+                    {/* Filter by {title} */}
+                    {/* {selectedValues?.size > 0 && (
                         <>
                             <Separator orientation="vertical" className="mx-2 h-4" />
                             <Badge variant="secondary" className="rounded-sm px-1 font-normal lg:hidden">
@@ -87,8 +88,8 @@ export function DataTableFacetedFilter<TData, TValue>({
                                 )}
                             </div>
                         </>
-                    )}
-                </Button>
+                    )} */}
+                </div>
             </PopoverTrigger>
             <PopoverContent className="w-[200px] p-0" align="start">
                 <Command>
