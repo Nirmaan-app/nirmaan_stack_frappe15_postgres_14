@@ -5,8 +5,11 @@ import os
 import base64
 from dotenv import dotenv_values
 
-# Use the absolute path to fcm.env
-env_file_path = '/home/frappe/fcm.env'
+# Dynamically get the absolute path of the script's location
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Join the absolute path with the relative path to fcm.env
+env_file_path = os.path.join(script_dir, '../../../../../sites/fcm.env')
 
 # Step 1: Read the base64-encoded content from the file
 try:
