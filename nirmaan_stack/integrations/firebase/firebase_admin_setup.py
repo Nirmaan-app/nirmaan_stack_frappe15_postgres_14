@@ -5,22 +5,22 @@ import os
 import base64
 from dotenv import dotenv_values
 
-# Dynamically get the absolute path of the script's location
-script_dir = os.path.dirname(os.path.abspath(__file__))
+# # Dynamically get the absolute path of the script's location
+# script_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Join the absolute path with the relative path to fcm.env
-env_file_path = os.path.join(script_dir, '../../../../../../fcm.env')
+# # Join the absolute path with the relative path to fcm.env
+# env_file_path = os.path.join(script_dir, '../../../../../../fcm.env')
 
-# Step 1: Read the base64-encoded content from the file
-try:
-    with open(env_file_path, 'r') as file:
-        base64_content = file.read().strip()
-except FileNotFoundError:
-    print(f"Error: The file '{env_file_path}' was not found.")
-    exit(1)
+# # Step 1: Read the base64-encoded content from the file
+# try:
+#     with open(env_file_path, 'r') as file:
+#         base64_content = file.read().strip()
+# except FileNotFoundError:
+#     print(f"Error: The file '{env_file_path}' was not found.")
+#     exit(1)
 
 # Step 2: Decode the base64 content into a UTF-8 string
-decoded_env_content = base64.b64decode(base64_content).decode('utf-8')
+decoded_env_content = base64.b64decode(os.getenv('FCM_ACCESS')).decode('utf-8')
 
 # Step 3: Create a StringIO stream to simulate a file for dotenv_values
 env_stream = io.StringIO(decoded_env_content)
@@ -31,7 +31,7 @@ env_vars = dotenv_values(stream=env_stream)
 # Step 4: Manually load these environment variables into os.environ
 os.environ.update(env_vars)
 
-print("DEBUG fcm.env: "+os.getenv('FIREBASE_PROJECT_ID'))
+
 
 
 firebase_credentials = {
