@@ -55,7 +55,7 @@ jobs:
         push: true
         tags: asia-south1-docker.pkg.dev/nirmaan-stack/nirmaan-project-stack/nirmaan-project-stack:${{ env.RELEASE_VERSION }}
         secrets: |
-          "fcm_access=${{ secrets.FCM_ACCESS }}"
+          "FCM_ACCESS=${{ secrets.FCM_ACCESS }}"
         build-args: |
           FRAPPE_PATH=https://github.com/frappe/frappe
           FRAPPE_BRANCH=version-15
