@@ -1,6 +1,6 @@
 import { NavBar } from '../nav/nav-bar';
 import ScrollToTop from '@/hooks/ScrollToTop';
-import { useFrappeEventListener } from "frappe-react-sdk";
+import { useFrappeDocTypeEventListener, useFrappeDocumentEventListener, useFrappeEventListener } from "frappe-react-sdk";
 import { useNotificationStore } from '@/hooks/useNotificationStore';
 
 
@@ -24,18 +24,35 @@ export const MainLayout = () => {
     //     console.log('all_notifications', notifications)
     // })
 
-    // const add_new_notifications = useNotificationStore((state) => state.add_new_notification);
+    const add_new_notifications = useNotificationStore((state) => state.add_new_notification);
     const notifications = useNotificationStore((state) => state.notifications); // Separate getter
 
     // Listen to specific event: "pr:created"
-    // useFrappeEventListener("pr:created", (event) => {
-    //     console.log('before_zustand', event);
+    useFrappeEventListener("notification", (event) => {
+        console.log('before_zustand data', event);
 
-    //     // Only update unseen count and notifications if the event data is new
-    //     if (event) {
-    //         add_new_notifications("pr:created", event);
-    //     }
-    // });
+        // Only update unseen count and notifications if the event data is new
+        // if (event) {
+        //     add_new_notifications("pr:created", event);
+        // }
+    });
+
+    useFrappeEventListener("pr:new", (event) => {
+        console.log('before_zustand data pr:new', event);
+
+        // Only update unseen count and notifications if the event data is new
+        // if (event) {
+        //     add_new_notifications("pr:created", event);
+        // }
+    });
+
+    useFrappeDocTypeEventListener("Procurement Requests", (data) => {
+        console.log("docData", data)
+    })
+
+    useFrappeDocTypeEventListener("Nirmaan Comments", (data) => {
+        console.log("docData", data)
+    })
 
     // Log notifications outside of the listener to prevent infinite loops
     console.log('all_notifications', notifications);

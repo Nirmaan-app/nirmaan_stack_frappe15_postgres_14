@@ -1,0 +1,180 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-10-17 17:19:24.373286",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "recipient_section",
+  "user",
+  "role",
+  "notification_details",
+  "title",
+  "description",
+  "document",
+  "docname",
+  "project",
+  "work_package",
+  "seen",
+  "action_url",
+  "notification_type",
+  "type",
+  "event_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "recipient_section",
+   "fieldtype": "Section Break",
+   "label": "Recipient"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "Nirmaan Users"
+  },
+  {
+   "fieldname": "role",
+   "fieldtype": "Link",
+   "label": "Role",
+   "options": "Role Profile"
+  },
+  {
+   "fieldname": "notification_details",
+   "fieldtype": "Section Break",
+   "label": "Notification Detalis"
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "label": "Description"
+  },
+  {
+   "fieldname": "document",
+   "fieldtype": "Link",
+   "label": "Document",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "docname",
+   "fieldtype": "Dynamic Link",
+   "label": "DocName",
+   "options": "document"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "work_package",
+   "fieldtype": "Link",
+   "label": "Work Package",
+   "options": "Work Packages"
+  },
+  {
+   "fieldname": "seen",
+   "fieldtype": "Data",
+   "label": "Seen"
+  },
+  {
+   "fieldname": "action_url",
+   "fieldtype": "Data",
+   "label": "Action URL"
+  },
+  {
+   "fieldname": "notification_type",
+   "fieldtype": "Section Break",
+   "label": "Notification Type"
+  },
+  {
+   "fieldname": "type",
+   "fieldtype": "Select",
+   "label": "type",
+   "options": "info\nwarning\nalert"
+  },
+  {
+   "fieldname": "event_id",
+   "fieldtype": "Data",
+   "label": "Event Id"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-10-17 18:07:29.215701",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Nirmaan Notifications",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
