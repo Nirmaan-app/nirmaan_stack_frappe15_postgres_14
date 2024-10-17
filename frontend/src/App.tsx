@@ -1,7 +1,7 @@
 // import { useState } from 'react'
 import { FrappeConfig, FrappeContext, FrappeProvider, useFrappePutCall } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
-import {  Route, RouterProvider, createBrowserRouter, createRoutesFromElements, useFetcher } from 'react-router-dom'
+import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements, useFetcher } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
 import Login from './pages/auth/old-login'
 import Projects from './pages/projects/projects'
@@ -24,7 +24,7 @@ import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
 import { PDF } from './pages/pdf'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/ui/theme-provider'
-import {  LeadRoute, ProtectedRoute } from './utils/auth/ProtectedRoute'
+import { LeadRoute, ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
 
 //import AuthenticationPage from './pages/auth/login-shadcn'
@@ -82,8 +82,9 @@ const router = createBrowserRouter(
 					{/* <Route path="/new-pr/:id" element={<NewPR />} /> */}
 					{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
 					{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
-
-						<Route path='/prs&milestones' element={<ProjectManager />} />
+					{/* <Route path='/prs&milestones' element={<LeadRoute />}> */}
+					<Route path='/prs&milestones' element={<ProjectManager />} />
+					{/* </Route> */}
 
 					<Route path='/milestone-update' element={<NewMilestones />} />
 
@@ -190,30 +191,19 @@ const router = createBrowserRouter(
 // 		console.log('Service Worker registration failed:', err);
 // 	  });
 //   }
-  
+
 
 const App: FC = () => {
 
 	useEffect(() => {
-		if ('serviceWorker' in navigator) {
-		  navigator.serviceWorker
-			.register('/firebase-messaging-sw.js') // Corrected path
-			.then((registration) => {
-			  console.log('Service Worker registered with scope:', registration.scope);
-			})
-			.catch((err) => {
-			  console.log('Service Worker registration failed:', err);
-			});
-		}
-	
 		// Firebase onMessage handler for foreground notifications
 		onMessage(messaging, (payload) => {
-		  console.log('Message received in the foreground: ', payload);
-		  new Notification(payload.notification?.title || '', {
-			body: payload.notification?.body || '',
-		  });
+			console.log('Message received in the foreground: ', payload);
+			new Notification(payload.notification?.title || '', {
+				body: payload.notification?.body || '',
+			});
 		});
-	  }, []);
+	}, []);
 
 	const getSiteName = () => {
 		// @ts-ignore

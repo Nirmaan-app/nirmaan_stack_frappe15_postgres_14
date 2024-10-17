@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry",
+    "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry && yarn run copy-sw",
     "preview": "vite preview",
     "test-local": "cypress open --e2e --browser chrome",
-    "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html"
+    "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html",
+    "copy-sw": "cp ../nirmaan_stack/public/frontend/firebase-messaging-sw.js ../nirmaan_stack/www/firebase-messaging-sw.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
