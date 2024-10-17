@@ -60,7 +60,7 @@ def get_context(context):
 @frappe.whitelist(methods=["POST"], allow_guest=True)
 def get_context_for_dev():
 	if not frappe.conf.developer_mode:
-		frappe.throw(_("This method is only meant for developer mode"))
+		frappe.throw(("This method is only meant for developer mode"))
 	return json.loads(get_boot())
 
 
