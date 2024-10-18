@@ -5,9 +5,11 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "recipient_section",
-  "user",
-  "role",
+  "recipient_details",
+  "recipient",
+  "recipient_role",
+  "sender_details",
+  "sender",
   "notification_details",
   "title",
   "description",
@@ -22,23 +24,6 @@
   "event_id"
  ],
  "fields": [
-  {
-   "fieldname": "recipient_section",
-   "fieldtype": "Section Break",
-   "label": "Recipient"
-  },
-  {
-   "fieldname": "user",
-   "fieldtype": "Link",
-   "label": "User",
-   "options": "Nirmaan Users"
-  },
-  {
-   "fieldname": "role",
-   "fieldtype": "Link",
-   "label": "Role",
-   "options": "Role Profile"
-  },
   {
    "fieldname": "notification_details",
    "fieldtype": "Section Break",
@@ -103,11 +88,39 @@
    "fieldname": "event_id",
    "fieldtype": "Data",
    "label": "Event Id"
+  },
+  {
+   "fieldname": "sender_details",
+   "fieldtype": "Section Break",
+   "label": "Sender Details"
+  },
+  {
+   "fieldname": "sender",
+   "fieldtype": "Link",
+   "label": "Sender",
+   "options": "Nirmaan Users"
+  },
+  {
+   "fieldname": "recipient_details",
+   "fieldtype": "Section Break",
+   "label": "Recipient Details"
+  },
+  {
+   "fieldname": "recipient",
+   "fieldtype": "Link",
+   "label": "Recipient",
+   "options": "Nirmaan Users"
+  },
+  {
+   "fieldname": "recipient_role",
+   "fieldtype": "Link",
+   "label": "Recipient Role",
+   "options": "Role Profile"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-10-17 18:07:29.215701",
+ "modified": "2024-10-17 19:25:02.947713",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Nirmaan Notifications",

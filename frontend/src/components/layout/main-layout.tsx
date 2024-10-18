@@ -1,61 +1,93 @@
 import { NavBar } from '../nav/nav-bar';
-import ScrollToTop from '@/hooks/ScrollToTop';
-import { useFrappeDocTypeEventListener, useFrappeDocumentEventListener, useFrappeEventListener } from "frappe-react-sdk";
+import {  FrappeConfig, FrappeContext, useFrappeEventListener, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useContext, useEffect } from 'react';
+import { useUserData } from '@/hooks/useUserData';
 import { useNotificationStore } from '@/hooks/useNotificationStore';
 
 
 
 export const MainLayout = () => {
+    const { user_id } = useUserData();
+    const { notifications, add_new_notification } = useNotificationStore();
+    const {db} = useContext(FrappeContext) as FrappeConfig
 
-    // const [notifications, update_seen_count, update_notifications] = useNotificationStore((state) => [
-    //     state.notifications,
-    //     state.update_unseen_count,
-    //     state.update_notification
-    // ])
-
-    // useFrappeDocTypeEventListener("Procurement Requests", (event) => {
-    //     console.log("Hello from pr doctype room listener")
-    // })
-
-    // useFrappeEventListener("pr:created", (event) => {
-    //     console.log('before_zustand', event)
-    //     update_seen_count()
-    //     update_notifications(event)
-    //     console.log('all_notifications', notifications)
-    // })
-
-    const add_new_notifications = useNotificationStore((state) => state.add_new_notification);
-    const notifications = useNotificationStore((state) => state.notifications); // Separate getter
-
-    // Listen to specific event: "pr:created"
-    useFrappeEventListener("notification", (event) => {
-        console.log('before_zustand data', event);
-
-        // Only update unseen count and notifications if the event data is new
-        // if (event) {
-        //     add_new_notifications("pr:created", event);
-        // }
+    // Fetch all notifications that are unseen for the current user
+    const { data: notificationsData } = useFrappeGetDocList("Nirmaan Notifications", {
+        fields: ["*"],
+        filters: [["recipient", "=", user_id]],
+        limit: 1000,
+        orderBy: {field: "creation", order: "asc"}
     });
 
-    useFrappeEventListener("pr:new", (event) => {
-        console.log('before_zustand data pr:new', event);
+    // On initial render, segregate notifications and store in Zustand
+    useEffect(() => {
+        if (notificationsData) {
+            notificationsData.forEach((notification: any) => {
+                add_new_notification({
+                    name: notification.name,
+                    creation: notification.creation,
+                    description: notification.description,
+                    docname: notification.docname,
+                    document: notification.document,
+                    event_id: notification.event_id,
+                    project: notification.project,
+                    recipient: notification.recipient,
+                    recipient_role: notification.recipient_role,
+                    seen: notification.seen,
+                    sender: notification?.sender,
+                    title: notification.title,
+                    type: notification.type,
+                    work_package: notification.work_package,
+                    action_url: notification?.action_url
+                });
+            });
+        }
+    }, [notificationsData, user_id]);
 
-        // Only update unseen count and notifications if the event data is new
-        // if (event) {
-        //     add_new_notifications("pr:created", event);
-        // }
+    // Event listener for new notifications (e.g., "pr:new")
+    useFrappeEventListener("pr:new", async (event) => {
+        console.log("Received new notification event", event);
+
+        if (event?.notificationId) {
+            // Fetch the new notification data based on the notification ID from the event
+            // const { data: newNotificationData } = useFrappeGetDoc("Nirmaan Notifications", event.notificationId);
+
+            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
+
+            if (newNotificationData) {
+                // Add new notification to Zustand store
+                add_new_notification({
+                    name: newNotificationData.name,
+                    creation: newNotificationData.creation,
+                    description: newNotificationData.description,
+                    docname: newNotificationData.docname,
+                    document: newNotificationData.document,
+                    event_id: newNotificationData.event_id,
+                    project: newNotificationData.project,
+                    recipient: newNotificationData.recipient,
+                    recipient_role: newNotificationData.recipient_role,
+                    seen: newNotificationData.seen,
+                    sender: newNotificationData?.sender,
+                    title: newNotificationData.title,
+                    type: newNotificationData.type,
+                    work_package: newNotificationData.work_package,
+                    action_url: newNotificationData?.action_url
+                });
+
+                console.log("Updated notifications state with new data", newNotificationData);
+            }
+        }
     });
 
-    useFrappeDocTypeEventListener("Procurement Requests", (data) => {
-        console.log("docData", data)
-    })
+    console.log("new Notifications", notifications)
 
-    useFrappeDocTypeEventListener("Nirmaan Comments", (data) => {
-        console.log("docData", data)
-    })
+    // useFrappeDocTypeEventListener("Procurement Requests", (data) => {
+    //     console.log("docData", data)
+    // })
 
-    // Log notifications outside of the listener to prevent infinite loops
-    console.log('all_notifications', notifications);
+    // useFrappeDocTypeEventListener("Nirmaan Comments", (data) => {
+    //     console.log("docData", data)
+    // })
 
     return (
         <>

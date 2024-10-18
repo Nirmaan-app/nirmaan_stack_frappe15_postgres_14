@@ -17,11 +17,11 @@ import { Link, useLocation } from 'react-router-dom';
 import { Sheet, SheetContent } from "../ui/sheet";
 import { useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import Cookies from "js-cookie";
-import { useNotificationStore } from "@/hooks/useNotificationStore";
 import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
 import ScrollToTop from "@/hooks/ScrollToTop";
 import { getToken } from "firebase/messaging";
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
+import { useNotificationStore } from "@/hooks/useNotificationStore";
 
 export const NavBar = () => { 
     const [collapsed, setCollapsed] = useState(false);
@@ -30,10 +30,6 @@ export const NavBar = () => {
     const location = useLocation();
     const [role, setRole] = useState(null)
 
-    const [notify, setNotify] = useState({
-        pr_created: 0
-    })
-
     const user_id = Cookies.get('user_id') ?? ''
 
     const { data, isLoading, error } = useFrappeGetDoc("Nirmaan Users", user_id, user_id === "Administrator" ? null : undefined)
@@ -41,6 +37,8 @@ export const NavBar = () => {
     // console.log("data", data)
 
     const {updateDoc} = useFrappeUpdateDoc()
+
+    const {eventBasedNotificationCount} = useNotificationStore()
 
     const requestNotificationPermission = async () => {
         if(user_id && data) {
@@ -91,14 +89,6 @@ export const NavBar = () => {
 		requestNotificationPermission();
 	  }, [user_id, data]);
 
-    const notifications = useNotificationStore((state) => state.notifications);
-    const markSeenNotification = useNotificationStore((state) => state.mark_seen_notification);
-
-
-    // const prCreatedNotificationCount = notifications.filter(
-    //     (notification) => notification.type === "pr:created" && notification.unseen
-    // ).length;
-
     const toggleCollapsed = () => {
         setCollapsed(!collapsed);
     };
@@ -108,13 +98,6 @@ export const NavBar = () => {
             setRole(data.role_profile)
         }
     }, [data])
-
-    useEffect(() => {
-        let temp_notify: any = {}
-        temp_notify.pr_created = notifications.filter((notification) => notification.type === "pr:created" && notification.unseen).length;
-        setNotify(temp_notify)
-
-    }, [notifications])
 
     const handleMobileSidebarToggle = () => {
         setIsMobileSidebarOpen(!isMobileSidebarOpen);
@@ -164,10 +147,6 @@ export const NavBar = () => {
         };
     }, []);
 
-    const handleNotificationClick = (type: string) => {
-        markSeenNotification(type); // Marks all notifications of the given type as seen
-    };
-
 
     type MenuItem = Required<MenuProps>['items'][number];
     const items: MenuItem[] = [
@@ -198,8 +177,20 @@ export const NavBar = () => {
                         { key: '/prs&milestones', label: 'PRs & Milestones' },
                         {
                             key: '/approve-order',
-                            label: `Approve PR ${notify.pr_created > 0 ? `(${notify.pr_created}` : ''}`,
-                            onClick: () => handleNotificationClick("pr:created")
+                            label: (
+                                <div className="flex justify-between items-center">
+                                    Approve PR 
+                                    {eventBasedNotificationCount["pr:new"] && (
+                                        <div className="relative flex items-center justify-center">
+                                            <div className="absolute -left-6 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {eventBasedNotificationCount["pr:new"]}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ),
                         },
                         { key: '/approve-vendor', label: 'Approve PO' },
                         { key: '/approve-sent-back', label: 'Approve Sent Back PO' },
@@ -280,8 +271,7 @@ export const NavBar = () => {
                                 label: ["pe-actions", "pl-actions", "admin-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                 children: item.children?.map((child) => ({
                                     ...child,
-                                    label: <Link to={child.key}>{child.label}</Link>,
-                                    onClick: child.key === '/approve-order' ? () => handleNotificationClick("pr:created") : undefined
+                                    label: <Link to={child.key}>{child.label}</Link>
                                 })),
                             }))} />
                         </ConfigProvider>
@@ -300,8 +290,7 @@ export const NavBar = () => {
                                         label: ["pe-actions", "pl-actions", "admin-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                         children: item.children?.map((child) => ({
                                             ...child,
-                                            label: <Link to={child.key}>{child.label}</Link>,
-                                            onClick: child.key === '/approve-order' ? () => handleNotificationClick("pr:created") : undefined
+                                            label: <Link to={child.key}>{child.label}</Link>
                                         })),
                                     }))} />
                                 </ConfigProvider>

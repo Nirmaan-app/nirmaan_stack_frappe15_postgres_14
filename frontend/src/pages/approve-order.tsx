@@ -47,9 +47,39 @@ const ApprovePRList = () => {
         }
     }, [pr, pr_loading, project, owner])
 
+    const navigate = useNavigate()
+
     // console.log("within 1st component", owner_data)
     if (pr_loading || project_loading || owner_loading) return <h1>Loading...</h1>
     if (pr_error || project_error || owner_error) return <h1>Error</h1>
+    if (pr?.workflow_state !== "Pending") {
+        return (
+            <div className="fixed inset-0 flex items-center justify-center bg-gray-100">
+                <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                    <h2 className="text-2xl font-semibold text-gray-800">
+                        Heads Up!
+                    </h2>
+                    <p className="text-gray-600 text-lg">
+                        Hey there, the PR:{" "}
+                        <span className="font-medium text-gray-900">{pr?.name}</span>{" "}
+                        is no longer available in the{" "}
+                        <span className="italic">Pending</span> state. The current state is{" "}
+                        <span className="font-semibold text-blue-600">
+                            {pr?.workflow_state}
+                        </span>
+                        !
+                    </p>
+                    <button
+                        className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                        onClick={() => navigate("/approve-order")}
+                    >
+                        Go Back to PR List
+                    </button>
+                </div>
+            </div>
+        );
+    }
+    
     return (
         <ApprovePRListPage pr_data={pr} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} />
     )

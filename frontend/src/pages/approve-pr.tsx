@@ -1,6 +1,6 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -21,9 +21,6 @@ type PRTable = {
 }
 
 export const ApprovePR = () => {
-    const notifications = useNotificationStore((state) => state.notifications);
-
-    const markClickedNotification = useNotificationStore((state) => state.mark_clicked_notification);
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
@@ -46,6 +43,8 @@ export const ApprovePR = () => {
 
     const { toast } = useToast()
 
+    const {notifications, mark_seen_notification} = useNotificationStore()
+
     const getTotal = (order_id: string) => {
         let total: number = 0;
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
@@ -61,13 +60,14 @@ export const ApprovePR = () => {
         return total || "N/A";
     }
 
-    const isNewPR = (prName: string) => {
-        return notifications.some(
-            (notification) => notification.message.name === prName && !notification.clicked
-        );
-    };
-
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+
+    const {db} = useContext(FrappeContext) as FrappeConfig
+    const handleNewPRSeen = (notification) => {
+        if(notification) {
+            mark_seen_notification(db, notification)
+        }
+    }
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -79,21 +79,21 @@ export const ApprovePR = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const prId = row.getValue("name")
+                    const isNew = notifications.find(
+                        (item) => item.docname === prId && item.seen === "false" && item.event_id === "pr:new"
+                    )
                     return (
-                        <div className="font-medium flex">
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                            {isNew && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                            )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`/approve-order/${row.getValue("name")}`}
-                            // onClick={() => {
-                            //     let mark_seen = (notifications.filter((item) => (item.type === 'pr:created' && item.message.name === row.getValue("name")))[0])
-                            //     console.log("on-CLICK PR", mark_seen)
-
-                            //     markClickedNotification(mark_seen.id)
-                            // }}
+                                to={`/approve-order/${prId}`}
                             >
-                                {row.getValue("name")?.slice(-4)}
+                                {prId?.slice(-4)}
                             </Link>
-                            {/* {isNewPR(row.getValue("name")) && <div className="bg-red-700 w-2 h-2 rounded-full" />} */}
                         </div>
                     )
                 },

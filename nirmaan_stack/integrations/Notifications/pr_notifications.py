@@ -31,24 +31,23 @@ def PrNotification(lead, notification_title, notification_body):
 
 
 def leads(doc):
-        project_leads = frappe.db.get_list(
+        allowed_users = frappe.db.get_list(
             'Nirmaan User Permissions',
             filters={'for_value': doc.project},
             fields=['user']
         )
-        print(f"projectleads : {project_leads}")
-        lead_user_ids = [pl['user'] for pl in project_leads]
-        print(f"lead user ids : {lead_user_ids}")
-        lead_users = frappe.db.get_list(
+        lead_admin_user_ids = [pl['user'] for pl in allowed_users]
+
+        lead_admin_users = frappe.db.get_list(
             'Nirmaan Users',
             filters={
-                'name': ['in', lead_user_ids],
-                'role_profile': 'Nirmaan Project Lead Profile',
+                'name': ['in', lead_admin_user_ids],
+                'role_profile': ['in', ['Nirmaan Project Lead Profile', 'Nirmaan Admin Profile']],
                 'push_notification': 'true'
             },
             fields=['fcm_token', 'name', 'full_name']
         )
-        return lead_users
+        return lead_admin_users
 
 def send_firebase_notification(fcm_token, title, body):
     """Sends a push notification using Firebase Admin SDK."""
