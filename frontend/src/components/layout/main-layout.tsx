@@ -1,5 +1,5 @@
 import { NavBar } from '../nav/nav-bar';
-import {  FrappeConfig, FrappeContext, useFrappeEventListener, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import {  FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeEventListener, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useContext, useEffect } from 'react';
 import { useUserData } from '@/hooks/useUserData';
 import { useNotificationStore } from '@/hooks/useNotificationStore';
@@ -8,7 +8,7 @@ import { useNotificationStore } from '@/hooks/useNotificationStore';
 
 export const MainLayout = () => {
     const { user_id } = useUserData();
-    const { notifications, add_new_notification } = useNotificationStore();
+    const { notifications, add_new_notification, delete_notification } = useNotificationStore();
     const {db} = useContext(FrappeContext) as FrappeConfig
 
     // Fetch all notifications that are unseen for the current user
@@ -18,6 +18,8 @@ export const MainLayout = () => {
         limit: 1000,
         orderBy: {field: "creation", order: "asc"}
     });
+
+    // useFrappeDocTypeEventListener("")
 
     // On initial render, segregate notifications and store in Zustand
     useEffect(() => {
@@ -79,10 +81,16 @@ export const MainLayout = () => {
         }
     });
 
+    useFrappeEventListener("pr:delete", (event) => {
+        if(event?.notificationId) {
+            delete_notification(event?.notificationId)
+        }
+    })
+
     console.log("new Notifications", notifications)
 
     // useFrappeDocTypeEventListener("Procurement Requests", (data) => {
-    //     console.log("docData", data)
+    //     console.log("doctype event data: procurement requests", data)
     // })
 
     // useFrappeDocTypeEventListener("Nirmaan Comments", (data) => {

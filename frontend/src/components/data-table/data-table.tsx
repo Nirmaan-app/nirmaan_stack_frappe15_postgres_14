@@ -239,7 +239,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                         {table.getRowModel().rows?.length ? (
                             table.getRowModel().rows.map((row) => (
                                 <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
-                                    <TableCell className="max-lg:hidden" />
+                                    <TableCell />
                                     {row.getVisibleCells().map((cell) => (
                                         <TableCell
                                             key={cell.id}

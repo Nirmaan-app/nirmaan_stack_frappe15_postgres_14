@@ -1,4 +1,4 @@
-import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
@@ -22,7 +22,7 @@ type PRTable = {
 
 export const ApprovePR = () => {
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate : pr_list_mutate } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ["*"],
             filters: [["workflow_state", "=", "Pending"]],
@@ -40,6 +40,10 @@ export const ApprovePR = () => {
             fields: ['item_id', 'quote'],
             limit: 10000
         });
+
+    useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
+        await pr_list_mutate()
+    })
 
     const { toast } = useToast()
 
@@ -187,7 +191,7 @@ export const ApprovePR = () => {
             }
 
         ],
-        [project_values, notifications]
+        [project_values, notifications, procurement_request_list]
     )
 
     if (procurement_request_list_error || projects_error) {

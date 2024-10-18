@@ -31,6 +31,7 @@ export interface NotificationStateType {
     eventBasedNotificationCount: any;
     add_new_notification: (notification: NotificationType) => void;
     mark_seen_notification: (db: any, notification: NotificationType) => void;
+    delete_notification: (notificationId : string) => void;
 }
 
 export const useNotificationStore = create<NotificationStateType>()(
@@ -91,6 +92,15 @@ export const useNotificationStore = create<NotificationStateType>()(
                     console.error("Error marking notification as seen: ", error);
                 }
             },
+            delete_notification: (notificationId : string) => {
+                set((state) => {
+                    const deletedNotification = state.notifications.find((item) => item.name === notificationId);
+
+                    return {
+                    notifications: state.notifications.filter((item) => item.name !== notificationId),
+                    notificationsCount: deletedNotification?.seen === "true" ? state.notificationsCount : state.notificationsCount - 1,
+            }})
+            }
         }),
         {
             name: 'notifications',

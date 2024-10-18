@@ -40,6 +40,11 @@ const ApprovePRList = () => {
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
     const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
 
+    const {data: usersList, isLoading: usersListLoading, error: usersListError} = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["name", "full_name"],
+        limit: 1000
+    })
+
     useEffect(() => {
         if (pr && !pr_loading) {
             setProject(pr?.project)
@@ -49,12 +54,18 @@ const ApprovePRList = () => {
 
     const navigate = useNavigate()
 
+    const getUserName = (id) => {
+        if(usersList) {
+            return usersList.find((user) => user?.name === id)?.full_name
+        }
+    }
+
     // console.log("within 1st component", owner_data)
-    if (pr_loading || project_loading || owner_loading) return <h1>Loading...</h1>
-    if (pr_error || project_error || owner_error) return <h1>Error</h1>
+    if (pr_loading || project_loading || owner_loading || usersListLoading) return <h1>Loading...</h1>
+    if (pr_error || project_error || owner_error || usersListError) return <h1>Error</h1>
     if (pr?.workflow_state !== "Pending") {
         return (
-            <div className="fixed inset-0 flex items-center justify-center bg-gray-100">
+            <div className="flex items-center justify-center h-full">
                 <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                     <h2 className="text-2xl font-semibold text-gray-800">
                         Heads Up!
@@ -66,6 +77,9 @@ const ApprovePRList = () => {
                         <span className="italic">Pending</span> state. The current state is{" "}
                         <span className="font-semibold text-blue-600">
                             {pr?.workflow_state}
+                        </span>{" "}
+                        And the last modification was done by <span className="font-medium text-gray-900">
+                            {pr?.modified_by === "Administrator" ? pr?.modified_by : getUserName(pr?.modified_by)}
                         </span>
                         !
                     </p>

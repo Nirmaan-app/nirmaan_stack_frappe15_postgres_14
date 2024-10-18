@@ -68,7 +68,7 @@ def after_insert(doc, method):
 
         message = {
             "title": _("New PR Created"),
-            "description": _(f"A new PR {doc.name} has been created."),
+            "description": _(f"A new PR: {doc.name} has been created."),
             "project": doc.project,
             "work_package": doc.work_package,
             "created_by": doc.owner,
@@ -175,6 +175,25 @@ def on_trash(doc, method):
     frappe.db.delete("Nirmaan Comments", {
         "reference_name" : ("=", doc.name)
     })
+    print(f"flagged for delete pr document: {doc} {doc.modified_by} {doc.owner}")
+    notifications = frappe.db.get_all("Nirmaan Notifications", 
+                                      filters={"docname": doc.name},
+                                      fields={"name", "recipient"}
+                                      )
+
+    if notifications:
+        for notification in notifications:
+            message = {
+            "title": _("PR Deleted"),
+            "description": _(f"PR: {doc.name} has been deleted."),
+            "docname": doc.name,
+            "notificationId" : notification["name"]
+            }
+            frappe.publish_realtime(
+                event="pr:delete",
+                message=message,
+                user=notification["recipient"]
+            )
     frappe.db.delete("Nirmaan Notifications", {
         "docname": ("=", doc.name)
     })

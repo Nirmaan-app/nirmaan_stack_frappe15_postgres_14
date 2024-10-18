@@ -15,13 +15,12 @@ import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
 import { Link, useLocation } from 'react-router-dom';
 import { Sheet, SheetContent } from "../ui/sheet";
-import { useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocCount, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import Cookies from "js-cookie";
 import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
 import ScrollToTop from "@/hooks/ScrollToTop";
 import { getToken } from "firebase/messaging";
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
-import { useNotificationStore } from "@/hooks/useNotificationStore";
 
 export const NavBar = () => { 
     const [collapsed, setCollapsed] = useState(false);
@@ -38,7 +37,21 @@ export const NavBar = () => {
 
     const {updateDoc} = useFrappeUpdateDoc()
 
-    const {eventBasedNotificationCount} = useNotificationStore()
+    const {data: projectPermissions} = useFrappeGetDocList("Nirmaan User Permissions", {
+        fields: ["for_value"],
+        filters: [["allow", "=", "Projects"], ["user", "=", user_id]],
+        limit: 1000
+    },
+    user_id === "Administrator" ? null : undefined
+    )
+
+    const permissionsList = projectPermissions?.map((i) => i?.for_value)
+
+    const {data : prDocCount, mutate: pr_length_mutate} = useFrappeGetDocCount("Procurement Requests", [["workflow_state", "=", "Pending"], ["project", "in", permissionsList]], false, false, (user_id === "Administrator" || !permissionsList.length) ? null : undefined)
+
+    useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
+        await pr_length_mutate()
+    })
 
     const requestNotificationPermission = async () => {
         if(user_id && data) {
@@ -180,11 +193,11 @@ export const NavBar = () => {
                             label: (
                                 <div className="flex justify-between items-center">
                                     Approve PR 
-                                    {eventBasedNotificationCount["pr:new"] && (
+                                    {(prDocCount && prDocCount !== 0) && (
                                         <div className="relative flex items-center justify-center">
                                             <div className="absolute -left-6 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                                 <span className="text-white text-xs font-bold">
-                                                    {eventBasedNotificationCount["pr:new"]}
+                                                    {prDocCount}
                                                 </span>
                                             </div>
                                         </div>
