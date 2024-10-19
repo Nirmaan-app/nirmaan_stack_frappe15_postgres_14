@@ -22,7 +22,7 @@ export function DataTableViewOptions<TData>({
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <div
-                    className="hidden lg:block mt-2 pl-3 p-1 rounded-md text-primary cursor-pointer hover:bg-gray-100"
+                    className="mt-2 pl-3 p-1 rounded-md text-primary cursor-pointer hover:bg-gray-100"
                 >
                     <MixerHorizontalIcon className="h-5 w-5" />
                 </div>
