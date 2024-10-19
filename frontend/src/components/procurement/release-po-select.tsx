@@ -24,7 +24,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
-            filters: [["status", not ? "!=" : "=", status]],
+            filters: [["status", not ? "not in" : "in", not ? [status, "PO Amendment"] : [status]]],
             limit: 1000
         },
     );
@@ -176,7 +176,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                 }
             }
         ],
-        [project_values]
+        [project_values, procurement_order_list]
     )
 
     const { toast } = useToast()
