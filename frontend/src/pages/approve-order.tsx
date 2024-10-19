@@ -35,7 +35,7 @@ const ApprovePRList = () => {
 
     const { id } = useParams<{ id: string }>()
     const [project, setProject] = useState()
-    const [owner, setOwner] = useState()
+    const [owner, setOwner] = useState(null)
     const { data: pr, isLoading: pr_loading, error: pr_error } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id, `Procurement Requests ${id}`);
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
     const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
@@ -46,11 +46,11 @@ const ApprovePRList = () => {
     })
 
     useEffect(() => {
-        if (pr && !pr_loading) {
+        if (pr) {
             setProject(pr?.project)
             setOwner(pr?.owner)
         }
-    }, [pr, pr_loading, project, owner])
+    }, [pr])
 
     const navigate = useNavigate()
 

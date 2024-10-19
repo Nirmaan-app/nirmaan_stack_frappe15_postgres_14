@@ -1,6 +1,6 @@
 import frappe
 import json
-from ..Notifications.pr_notifications import PrNotification, leads
+from ..Notifications.pr_notifications import PrNotification, get_allowed_users
 from frappe import _
 
 def after_insert(doc, method):
@@ -52,34 +52,33 @@ def after_insert(doc, method):
 
         frappe.delete_doc("Procurement Requests", last_pr.name)
     else: 
-        lead_admin_users = leads(doc)
+        lead_admin_users = get_allowed_users(doc)
         if lead_admin_users:
             for user in lead_admin_users:
-                # Dynamically generate notification title/body for each lead
-                notification_title = f"Procurement Request Created for Project {doc.project}"
-                notification_body = (
-                    f"Hi {user['full_name']}, a new procurement request for the {doc.work_package} "
-                    f"work package has been submitted and is awaiting your review."
-                    )
-                # Send notification for each lead
-                PrNotification(user, notification_title, notification_body)
+                if user["push_notification"] == "true":
+                    # Dynamically generate notification title/body for each lead
+                    notification_title = f"Procurement Request Created for Project {doc.project}"
+                    notification_body = (
+                        f"Hi {user['full_name']}, a new procurement request for the {doc.work_package} "
+                        f"work package has been submitted and is awaiting your review."
+                        )
+                    # Send notification for each lead
+                    PrNotification(user, notification_title, notification_body)
+                else:
+                    print(f"push notifications were not enabled for user: {user['full_name']}")
         else:
-            print("No project leads found with push notifications enabled.")
+            print("No project leads or admins found with push notifications enabled.")
 
         message = {
             "title": _("New PR Created"),
             "description": _(f"A new PR: {doc.name} has been created."),
             "project": doc.project,
             "work_package": doc.work_package,
-            "created_by": doc.owner,
+            "sender": doc.owner,
             "docname": doc.name
         }
-
-        # Find the users who should receive this notification based on their project permissions
-        allowed_users = get_allowed_users(doc.project)
-
         # Emit the event to the allowed users
-        for user in allowed_users:
+        for user in lead_admin_users:
             new_notification_doc = frappe.new_doc('Nirmaan Notifications')
             new_notification_doc.recipient = user['name']
             new_notification_doc.recipient_role = user['role_profile']
@@ -131,22 +130,22 @@ def after_insert(doc, method):
     #         )
     # pass
 
-def get_allowed_users(project):
-    """ Get the list of users who have access to the given project """
-    allowed_users = frappe.get_all("Nirmaan User Permissions", 
-                                   filters={"for_value": project}, 
-                                   fields=["user"])
-    allowed_users_ids = [user['user'] for user in allowed_users]
+# def get_allowed_users(project):
+#     """ Get the list of users who have access to the given project """
+#     allowed_users = frappe.get_all("Nirmaan User Permissions", 
+#                                    filters={"for_value": project}, 
+#                                    fields=["user"])
+#     allowed_users_ids = [user['user'] for user in allowed_users]
 
-    lead_admin_users = frappe.db.get_list(
-            'Nirmaan Users',
-            filters={
-                'name': ['in', allowed_users_ids],
-                'role_profile': ['in', ['Nirmaan Project Lead Profile', 'Nirmaan Admin Profile']],
-            },
-            fields=['name', 'role_profile']
-        )
-    return lead_admin_users
+#     lead_admin_users = frappe.db.get_list(
+#             'Nirmaan Users',
+#             filters={
+#                 'name': ['in', allowed_users_ids],
+#                 'role_profile': ['in', ['Nirmaan Project Lead Profile', 'Nirmaan Admin Profile']],
+#             },
+#             fields=['name', 'role_profile']
+#         )
+#     return lead_admin_users
 
 
 
@@ -157,18 +156,58 @@ def update_quantity(data, target_name, new_quantity):
 
 def on_update(doc, method):
     if doc.workflow_state == "Vendor Selected":
-        lead_users = leads(doc)
-        if lead_users:
-            for lead in lead_users:
-                notification_title = f"Vendors Selected for Project {doc.project}"
-                notification_body = (
-                        f"Hi {lead['full_name']}, Vendors have been selected been selected for the {doc.work_package} work package. "
-                        "Please review the selection and proceed with approval or rejection."
-                    )
-                PrNotification(lead, notification_title, notification_body)
+        lead_admin_users = get_allowed_users(doc)
+        if lead_admin_users:
+            for user in lead_admin_users:
+                if user["push_notification"] == "true":
+                    notification_title = f"Vendors Selected for Project {doc.project}"
+                    notification_body = (
+                            f"Hi {user['full_name']}, Vendors have been selected for the {doc.work_package} work package. "
+                            "Please review the selection and proceed with approval or rejection."
+                        )
+                    PrNotification(user, notification_title, notification_body)
+                else:
+                    print(f"push notifications were not enabled for user: {user['full_name']}")
+
+                # send in-app notification for all allowed users
+                message = {
+                    "title": _("PR Status Updated"),
+                    "description": _(f"Vendors have been selected for the PR: {doc.name}!"),
+                    "project": doc.project,
+                    "work_package": doc.work_package,
+                    "sender": frappe.session.user,
+                    "docname": doc.name
+                }
+                new_notification_doc = frappe.new_doc('Nirmaan Notifications')
+                new_notification_doc.recipient = user['name']
+                new_notification_doc.recipient_role = user['role_profile']
+                if frappe.session.user != 'Administrator':
+                    new_notification_doc.sender = frappe.session.user
+                new_notification_doc.title = message["title"]
+                new_notification_doc.description = message["description"]
+                new_notification_doc.document = 'Procurement Requests'
+                new_notification_doc.docname = doc.name
+                new_notification_doc.project = doc.project
+                new_notification_doc.work_package = doc.work_package
+                new_notification_doc.seen = "false"
+                new_notification_doc.type = "info"
+                new_notification_doc.event_id = "pr:vendorSelected"
+                new_notification_doc.action_url = f"approve-vendor/{doc.name}"
+                new_notification_doc.insert()
+                frappe.db.commit()
+
+                message["notificationId"] = new_notification_doc.name
+                print(f"running publish realtime for: {user}")
+
+                frappe.publish_realtime(
+                    event="pr:vendorSelected",  # Custom event name
+                    message=message,
+                    user=user['name']  # Notify only specific users
+                )
         else:
-            print("No project leads found with push notifications enabled.")
-    pass
+            print("No project leads or admins found with push notifications enabled.")
+    else:
+        pass
         
 
 def on_trash(doc, method):
@@ -187,6 +226,7 @@ def on_trash(doc, method):
             "title": _("PR Deleted"),
             "description": _(f"PR: {doc.name} has been deleted."),
             "docname": doc.name,
+            "sender": frappe.session.user,
             "notificationId" : notification["name"]
             }
             frappe.publish_realtime(

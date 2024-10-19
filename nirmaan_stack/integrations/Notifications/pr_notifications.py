@@ -30,23 +30,31 @@ def PrNotification(lead, notification_title, notification_body):
                     print(f"Notification failed after {MAX_RETRY_ATTEMPTS} attempts for {lead['name']}.")
 
 
-def leads(doc):
+def get_allowed_users(doc):
         allowed_users = frappe.db.get_list(
             'Nirmaan User Permissions',
             filters={'for_value': doc.project},
             fields=['user']
         )
-        lead_admin_user_ids = [pl['user'] for pl in allowed_users]
+        lead_user_ids = [pl['user'] for pl in allowed_users]
 
-        lead_admin_users = frappe.db.get_list(
+        lead_users = frappe.db.get_list(
             'Nirmaan Users',
             filters={
-                'name': ['in', lead_admin_user_ids],
-                'role_profile': ['in', ['Nirmaan Project Lead Profile', 'Nirmaan Admin Profile']],
-                'push_notification': 'true'
+                'name': ['in', lead_user_ids],
+                'role_profile': 'Nirmaan Project Lead Profile',
             },
-            fields=['fcm_token', 'name', 'full_name']
+            fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
         )
+        admin_users = frappe.db.get_list(
+            'Nirmaan Users',
+            filters={
+                'role_profile': 'Nirmaan Admin Profile',
+            },
+            fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
+        )
+
+        lead_admin_users = lead_users + admin_users
         return lead_admin_users
 
 def send_firebase_notification(fcm_token, title, body):

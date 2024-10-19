@@ -42,15 +42,72 @@ export const NavBar = () => {
         filters: [["allow", "=", "Projects"], ["user", "=", user_id]],
         limit: 1000
     },
-    user_id === "Administrator" ? null : undefined
+    user_id === "Administrator" || role === "Nirmaan Admin Profile" ? null : undefined
     )
 
     const permissionsList = projectPermissions?.map((i) => i?.for_value)
 
-    const {data : prDocCount, mutate: pr_length_mutate} = useFrappeGetDocCount("Procurement Requests", [["workflow_state", "=", "Pending"], ["project", "in", permissionsList]], false, false, (user_id === "Administrator" || !permissionsList.length) ? null : undefined)
+    const {data : prData, mutate: prDataMutate} = useFrappeGetDocList("Procurement Requests", {
+        fields: ["workflow_state", "procurement_list"],
+        filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved"]], ["project", "in", permissionsList || []]],
+        limit: 1000
+    },
+    (user_id === "Administrator" || !permissionsList) ? null : undefined
+    )
+
+    const {data: adminPrData, mutate: adminPRDataMutate} = useFrappeGetDocList("Procurement Requests", {
+        fields: ["workflow_state", "procurement_list"],
+        filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved"]]],
+        limit: 1000
+    },
+
+    user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
+    )
+
+    const {data: sbData, mutate: sbDataMutate} = useFrappeGetDocList("Sent Back Category", {
+        fields: ["workflow_state", "item_list"],
+        filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]], ["project", "in", permissionsList || []]],
+        limit: 1000
+    },
+    (user_id === "Administrator" || !permissionsList) ? null : undefined
+    )
+
+    const {data: adminSBData, mutate: adminSBMutate} = useFrappeGetDocList("Sent Back Category", {
+        fields: ["workflow_state", "item_list"],
+        filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
+        limit: 1000
+    },
+
+    user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
+    )
+
+    const [pendingPRCount, setPendingPRCount] = useState(null)
+    const [approvePRCount, setApprovePRCount] = useState(null)
+
+    useEffect(() => {
+        if(prData) {
+            const count = prData.filter((pr) => pr?.workflow_state === "Pending")?.length
+            const count1 = prData.filter((pr) => ["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state) && pr?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length
+            setPendingPRCount(count)
+            setApprovePRCount(count1)
+        }
+    }, [prData])
+    // const {data : prDocCount, mutate: pr_length_mutate} = useFrappeGetDocCount("Procurement Requests", [["workflow_state", "=", "Pending"], ["project", "in", permissionsList || []]], false, false, (user_id === "Administrator" || !permissionsList) ? null : undefined)
 
     useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
-        await pr_length_mutate()
+        if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+            await adminSBMutate()
+        } else {
+            await prDataMutate()
+        }
+    })
+
+    useFrappeDocTypeEventListener("Sent Back Category", async (data) => {
+        if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+            await adminPRDataMutate()
+        } else {
+            await sbDataMutate()
+        }
     })
 
     const requestNotificationPermission = async () => {
@@ -191,22 +248,50 @@ export const NavBar = () => {
                         {
                             key: '/approve-order',
                             label: (
-                                <div className="flex justify-between items-center">
+                                <div className="flex justify-between items-center relative">
                                     Approve PR 
-                                    {(prDocCount && prDocCount !== 0) && (
-                                        <div className="relative flex items-center justify-center">
-                                            <div className="absolute -left-6 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    {((pendingPRCount && pendingPRCount !== 0) || adminPrData?.filter((item) => item?.workflow_state === "Pending")?.length !== 0) && (
+                                        // <div className="relative flex items-center justify-center">
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                                 <span className="text-white text-xs font-bold">
-                                                    {prDocCount}
+                                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrData?.filter((item) => item?.workflow_state === "Pending")?.length : pendingPRCount}
                                                 </span>
                                             </div>
-                                        </div>
+                                        // </div>
                                     )}
                                 </div>
                             ),
                         },
-                        { key: '/approve-vendor', label: 'Approve PO' },
-                        { key: '/approve-sent-back', label: 'Approve Sent Back PO' },
+                        { key: '/approve-vendor', label: (
+                            <div className="flex justify-between items-center relative">
+                                Approve PO 
+                                {((approvePRCount && approvePRCount !== 0) || adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0) && (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length : approvePRCount}
+
+                                            </span>
+                                        </div>
+                                )}
+                            </div>
+                        ), 
+
+                        },
+                        { key: '/approve-sent-back', label: (
+                            <div className="flex justify-between items-center relative">
+                                Approve Sent Back PO 
+                                {(sbData?.filter((sb) => ["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0 || adminSBData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0) && (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminSBData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length : sbData?.filter((sb) => ["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length}
+
+                                            </span>
+                                        </div>
+                                )}
+                            </div>
+                        ),  
+
+                        },
                     ],
                 }
             ]
@@ -278,7 +363,7 @@ export const NavBar = () => {
                 {/* Sidebar for large screens */}
                 {!isSmallScreen && (data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
                     <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto overflow-x-hidden scrollbar-container ${collapsed ? "sm:w-16 w-0" : role === "Nirmaan Project Manager Profile" ? "sm:w-40 w-0" : "sm:w-64 w-0"}`}>
-                        <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70 } } }}>
+                        <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70, dropdownWidth: 220 } } }}>
                             <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                 ...item,
                                 label: ["pe-actions", "pl-actions", "admin-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,

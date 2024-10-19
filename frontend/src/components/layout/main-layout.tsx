@@ -82,8 +82,67 @@ export const MainLayout = () => {
     });
 
     useFrappeEventListener("pr:delete", (event) => {
+        console.log("delete event", event)
         if(event?.notificationId) {
             delete_notification(event?.notificationId)
+        }
+    })
+
+    useFrappeEventListener("pr:vendorSelected", async (event) => {
+        console.log("vendorSelected for pr event", event)
+        if(event?.notificationId) {
+            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
+            if (newNotificationData) {
+                // Add new notification to Zustand store
+                add_new_notification({
+                    name: newNotificationData.name,
+                    creation: newNotificationData.creation,
+                    description: newNotificationData.description,
+                    docname: newNotificationData.docname,
+                    document: newNotificationData.document,
+                    event_id: newNotificationData.event_id,
+                    project: newNotificationData.project,
+                    recipient: newNotificationData.recipient,
+                    recipient_role: newNotificationData.recipient_role,
+                    seen: newNotificationData.seen,
+                    sender: newNotificationData?.sender,
+                    title: newNotificationData.title,
+                    type: newNotificationData.type,
+                    work_package: newNotificationData.work_package,
+                    action_url: newNotificationData?.action_url
+                });
+
+                console.log("Updated notifications state with new data", newNotificationData);
+            }
+        }
+    })
+
+    useFrappeEventListener("sb:vendorSelected", async (event) => {
+        console.log("vendorSelected for sb event", event)
+        if(event?.notificationId) {
+            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
+            if (newNotificationData) {
+                // Add new notification to Zustand store
+                add_new_notification({
+                    name: newNotificationData.name,
+                    creation: newNotificationData.creation,
+                    description: newNotificationData.description,
+                    docname: newNotificationData.docname,
+                    document: newNotificationData.document,
+                    event_id: newNotificationData.event_id,
+                    project: newNotificationData.project,
+                    recipient: newNotificationData.recipient,
+                    recipient_role: newNotificationData.recipient_role,
+                    seen: newNotificationData.seen,
+                    sender: newNotificationData?.sender,
+                    title: newNotificationData.title,
+                    type: newNotificationData.type,
+                    work_package: newNotificationData.work_package,
+                    action_url: newNotificationData?.action_url
+                });
+
+                console.log("Updated notifications state with new data", newNotificationData);
+            }
         }
     })
 

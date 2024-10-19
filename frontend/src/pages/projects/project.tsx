@@ -866,7 +866,7 @@ const statusRender = (status, prId) => {
       accessorKey: "work_package",
       header: ({ column }) => {
           return (
-              <DataTableColumnHeader column={column} title="Package" />
+              <DataTableColumnHeader className="text-black font-bold" column={column} title="Package" />
           )
       },
       cell: ({ row }) => {
@@ -881,7 +881,7 @@ const statusRender = (status, prId) => {
       accessorKey: "category_list",
       header: ({ column }) => {
           return (
-              <DataTableColumnHeader column={column} title="Categories" />
+              <DataTableColumnHeader className="text-black font-bold" column={column} title="Categories" />
           )
       },
       cell: ({ row }) => {
@@ -896,13 +896,13 @@ const statusRender = (status, prId) => {
       id: "estimated_price",
       header: ({ column }) => {
           return (
-              <DataTableColumnHeader column={column} title="Estimated Price" />
+              <DataTableColumnHeader className="text-black font-bold" column={column} title="Estimated Price" />
           )
       },
       cell: ({ row }) => {
         const total = getTotal(row.getValue("name"))
           return (
-              <div className="font-medium">
+              <div className="text-[#11050599]">
                   {total === "N/A" ? total : formatToIndianRupee(total)}
               </div>
           )
