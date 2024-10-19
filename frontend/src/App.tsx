@@ -60,6 +60,7 @@ import { ApprovedQuotationsTable } from './pages/ApprovedQuotationsFlow/Approved
 import EditUserForm from './pages/users/EditUserForm'
 import { messaging, VAPIDKEY } from './firebase/firebaseConfig'
 import { onMessage } from 'firebase/messaging'
+import { ApproveSelectAmendPO } from './pages/approve-select-amend-po'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -89,9 +90,11 @@ const router = createBrowserRouter(
 					<Route path='/milestone-update' element={<NewMilestones />} />
 
 					<Route path="approve-order" element={<ApprovePR />} />
-					<Route path="/approve-order/:id" lazy={() => import('@/pages/approve-order')} />
+					<Route path="approve-order/:id" lazy={() => import('@/pages/approve-order')} />
 					<Route path="approve-vendor" element={<ApproveSelectVendor />} />
 					<Route path="approve-vendor/:orderId" lazy={() => import('@/pages/approve-vendor')} />
+					<Route path="approve-amended-po" element={<ApproveSelectAmendPO />} />
+					<Route path="approve-amended-po/:po" lazy={() => import('@/pages/approve-amend-po')} />
 					<Route path="approve-sent-back" element={<ApproveSelectSentBack />} />
 					<Route path="approve-sent-back/:id" lazy={() => import('@/pages/approve-sent-back')} />
 					<Route path="delayed-pr" element={<DelayedPRSelect />} />

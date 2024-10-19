@@ -22,7 +22,7 @@ import ScrollToTop from "@/hooks/ScrollToTop";
 import { getToken } from "firebase/messaging";
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
 
-export const NavBar = () => { 
+export const NavBar = () => {
     const [collapsed, setCollapsed] = useState(false);
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
     const [isSmallScreen, setIsSmallScreen] = useState(false);
@@ -35,57 +35,57 @@ export const NavBar = () => {
 
     // console.log("data", data)
 
-    const {updateDoc} = useFrappeUpdateDoc()
+    const { updateDoc } = useFrappeUpdateDoc()
 
-    const {data: projectPermissions} = useFrappeGetDocList("Nirmaan User Permissions", {
+    const { data: projectPermissions } = useFrappeGetDocList("Nirmaan User Permissions", {
         fields: ["for_value"],
         filters: [["allow", "=", "Projects"], ["user", "=", user_id]],
         limit: 1000
     },
-    user_id === "Administrator" || role === "Nirmaan Admin Profile" ? null : undefined
+        user_id === "Administrator" || role === "Nirmaan Admin Profile" ? null : undefined
     )
 
     const permissionsList = projectPermissions?.map((i) => i?.for_value)
 
-    const {data : prData, mutate: prDataMutate} = useFrappeGetDocList("Procurement Requests", {
+    const { data: prData, mutate: prDataMutate } = useFrappeGetDocList("Procurement Requests", {
         fields: ["workflow_state", "procurement_list"],
         filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved"]], ["project", "in", permissionsList || []]],
         limit: 1000
     },
-    (user_id === "Administrator" || !permissionsList) ? null : undefined
+        (user_id === "Administrator" || !permissionsList) ? null : undefined
     )
 
-    const {data: adminPrData, mutate: adminPRDataMutate} = useFrappeGetDocList("Procurement Requests", {
+    const { data: adminPrData, mutate: adminPRDataMutate } = useFrappeGetDocList("Procurement Requests", {
         fields: ["workflow_state", "procurement_list"],
         filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved"]]],
         limit: 1000
     },
 
-    user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
+        user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
     )
 
-    const {data: sbData, mutate: sbDataMutate} = useFrappeGetDocList("Sent Back Category", {
+    const { data: sbData, mutate: sbDataMutate } = useFrappeGetDocList("Sent Back Category", {
         fields: ["workflow_state", "item_list"],
         filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]], ["project", "in", permissionsList || []]],
         limit: 1000
     },
-    (user_id === "Administrator" || !permissionsList) ? null : undefined
+        (user_id === "Administrator" || !permissionsList) ? null : undefined
     )
 
-    const {data: adminSBData, mutate: adminSBMutate} = useFrappeGetDocList("Sent Back Category", {
+    const { data: adminSBData, mutate: adminSBMutate } = useFrappeGetDocList("Sent Back Category", {
         fields: ["workflow_state", "item_list"],
         filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
         limit: 1000
     },
 
-    user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
+        user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
     )
 
     const [pendingPRCount, setPendingPRCount] = useState(null)
     const [approvePRCount, setApprovePRCount] = useState(null)
 
     useEffect(() => {
-        if(prData) {
+        if (prData) {
             const count = prData.filter((pr) => pr?.workflow_state === "Pending")?.length
             const count1 = prData.filter((pr) => ["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state) && pr?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length
             setPendingPRCount(count)
@@ -95,7 +95,7 @@ export const NavBar = () => {
     // const {data : prDocCount, mutate: pr_length_mutate} = useFrappeGetDocCount("Procurement Requests", [["workflow_state", "=", "Pending"], ["project", "in", permissionsList || []]], false, false, (user_id === "Administrator" || !permissionsList) ? null : undefined)
 
     useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
-        if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+        if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
             await adminSBMutate()
         } else {
             await prDataMutate()
@@ -103,7 +103,7 @@ export const NavBar = () => {
     })
 
     useFrappeDocTypeEventListener("Sent Back Category", async (data) => {
-        if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+        if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
             await adminPRDataMutate()
         } else {
             await sbDataMutate()
@@ -111,21 +111,21 @@ export const NavBar = () => {
     })
 
     const requestNotificationPermission = async () => {
-        if(user_id && data) {
+        if (user_id && data) {
             try {
                 const permission = await Notification.requestPermission();
                 console.log("permision", permission)
                 if (permission == 'granted') {
                     const registration = await navigator.serviceWorker.ready;
-                        console.log("registration", registration)
+                    console.log("registration", registration)
 
-                    const token = await getToken(messaging, { 
+                    const token = await getToken(messaging, {
                         vapidKey: VAPIDKEY,
                         serviceWorkerRegistration: registration
                     });
 
                     console.log("token", token)
-                    
+
                     if (data?.fcm_token !== token) {
                         console.log("running fcm token updating")
                         // Update token if it's different from the stored one
@@ -134,16 +134,16 @@ export const NavBar = () => {
                             push_notification: "true"
                         });
                         console.log('Updated FCM Token:', token);
-                    } else if(data?.push_notification !== "true") {
+                    } else if (data?.push_notification !== "true") {
                         await updateDoc("Nirmaan Users", user_id, {
                             push_notification: "true"
                         });
                         console.log('FCM Token already up-to-date.');
                     }
                 } else {
-                    if(data?.push_notification === "true") {
+                    if (data?.push_notification === "true") {
                         await updateDoc("Nirmaan Users", user_id, {
-                            push_notification : "false"
+                            push_notification: "false"
                         })
                     }
                     console.log('Unable to get permission to notify.');
@@ -153,11 +153,11 @@ export const NavBar = () => {
             }
         }
     };
-    
-	  
-	  useEffect(() => {
-		requestNotificationPermission();
-	  }, [user_id, data]);
+
+
+    useEffect(() => {
+        requestNotificationPermission();
+    }, [user_id, data]);
 
     const toggleCollapsed = () => {
         setCollapsed(!collapsed);
@@ -249,47 +249,50 @@ export const NavBar = () => {
                             key: '/approve-order',
                             label: (
                                 <div className="flex justify-between items-center relative">
-                                    Approve PR 
+                                    Approve PR
                                     {((pendingPRCount && pendingPRCount !== 0) || adminPrData?.filter((item) => item?.workflow_state === "Pending")?.length !== 0) && (
                                         // <div className="relative flex items-center justify-center">
-                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                <span className="text-white text-xs font-bold">
-                                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrData?.filter((item) => item?.workflow_state === "Pending")?.length : pendingPRCount}
-                                                </span>
-                                            </div>
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrData?.filter((item) => item?.workflow_state === "Pending")?.length : pendingPRCount}
+                                            </span>
+                                        </div>
                                         // </div>
                                     )}
                                 </div>
                             ),
                         },
-                        { key: '/approve-vendor', label: (
-                            <div className="flex justify-between items-center relative">
-                                Approve PO 
-                                {((approvePRCount && approvePRCount !== 0) || adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0) && (
+                        {
+                            key: '/approve-vendor', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Approve PO
+                                    {((approvePRCount && approvePRCount !== 0) || adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0) && (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length : approvePRCount}
+                                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length : approvePRCount}
 
                                             </span>
                                         </div>
-                                )}
-                            </div>
-                        ), 
+                                    )}
+                                </div>
+                            ),
 
                         },
-                        { key: '/approve-sent-back', label: (
-                            <div className="flex justify-between items-center relative">
-                                Approve Sent Back PO 
-                                {(sbData?.filter((sb) => ["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0 || adminSBData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0) && (
+                        { key: '/approve-amended-po', label: 'Approve Amended PO' },
+                        {
+                            key: '/approve-sent-back', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Approve Sent Back PO
+                                    {(sbData?.filter((sb) => ["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0 || adminSBData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0) && (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminSBData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length : sbData?.filter((sb) => ["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length}
+                                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminSBData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length : sbData?.filter((sb) => ["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length}
 
                                             </span>
                                         </div>
-                                )}
-                            </div>
-                        ),  
+                                    )}
+                                </div>
+                            ),
 
                         },
                     ],
@@ -324,7 +327,7 @@ export const NavBar = () => {
         "prs&milestones", "approve-order", "approve-vendor",
         "approve-sent-back", "procure-request", "update-quote",
         "select-vendor-list", "release-po", "sent-back-request",
-        "released-po"
+        "released-po", "approve-amended-po"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
@@ -345,8 +348,8 @@ export const NavBar = () => {
                     <div className="flex items-center justify-center">
                         {(data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
                             <Button type="text" className={`border border-slate-400 px-4 ${!collapsed && "bg-gray-200"}`} onClick={isSmallScreen ? handleMobileSidebarToggle : toggleCollapsed}>
-                            {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                        </Button>
+                                {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                            </Button>
                         )}
                         <MainNav className="mx-2 md:mx-6" />
                     </div>

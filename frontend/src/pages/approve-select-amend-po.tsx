@@ -1,35 +1,26 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
-import { useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
-import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Projects } from "@/types/NirmaanStack/Projects";
-import { useToast } from "../ui/use-toast";
-import { TableSkeleton } from "../ui/skeleton";
-import { Badge } from "../ui/badge";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import { ColumnDef } from "@tanstack/react-table";
+import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { useToast } from "@/components/ui/use-toast";
+import { DataTable } from "@/components/data-table/data-table";
+import { TableSkeleton } from "@/components/ui/skeleton";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
-
-interface ReleasePOSelectProps {
-    status: string
-    not: boolean
-}
-
-
-export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
-
+export const ApproveSelectAmendPO = () => {
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
-            filters: [["status", not ? "!=" : "=", status]],
+            filters: [["status", "=", "PO Amendment"]],
             limit: 1000
         },
     );
 
-    const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
+    const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<ProjectsType>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000
     })
@@ -148,19 +139,6 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                 }
             },
             {
-                accessorKey: "status",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Status" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <Badge variant={row.getValue("status") === "PO Approved" ? "default" : row.getValue("status") === "PO Sent" ? "yellow" : row.getValue("status") === "Dispatched" ? "orange" : "green"}>{row.getValue("status") === "Partially Delivered" ? "Delivered" : row.getValue("status")}</Badge>
-                    )
-                }
-            },
-            {
                 accessorKey: "total",
                 header: ({ column }) => {
                     return (
@@ -194,7 +172,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
         <>
             <div className="flex-1 md:space-y-4">
                 <div className="flex items-center justify-between space-y-2">
-                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">{not ? "Released" : "Approved"} PO</h2>
+                    <h2 className="text-lg pt-1 pl-2 font-bold tracking-tight">Approve Amended PO</h2>
                 </div>
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} />
@@ -204,6 +182,3 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
         </>
     )
 }
-
-
-

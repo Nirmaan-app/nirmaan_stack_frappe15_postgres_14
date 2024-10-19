@@ -6,7 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 // import { Button } from "../ui/button";
-import { ArrowLeft, ArrowLeftToLine, CheckCheck, Eye, ListChecks, ListX, Merge, MessageCircleWarning, NotebookPen, Printer, Send, Split, Undo2, X } from "lucide-react";
+import { ArrowLeft, ArrowLeftToLine, CheckCheck, Eye, ListChecks, ListTodo, ListX, Merge, MessageCircleWarning, NotebookPen, Pencil, Printer, Send, Split, Trash2, Undo, Undo2, X } from "lucide-react";
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import { Controller, useForm } from "react-hook-form";
 import { Input } from '@/components/ui/input';
@@ -20,7 +20,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
 import { Badge } from '../ui/badge';
-import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
+import { Sheet, SheetClose, SheetContent, SheetTrigger } from '../ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 import { Dialog, DialogTrigger, DialogTitle, DialogDescription, DialogContent, DialogHeader, DialogClose } from '../ui/dialog';
@@ -32,6 +32,15 @@ export const ReleasePONew: React.FC = () => {
 
     const [collapsed, setCollapsed] = useState(true);
     const [comment, setComment] = useState('')
+    const [orderData, setOrderData] = useState(null);
+    const [projectAddress, setProjectAddress] = useState()
+    const [vendorAddress, setVendorAddress] = useState()
+    const [mergeablePOs, setMergeablePOs] = useState([])
+    const [mergedItems, setMergedItems] = useState([]);
+    const [customAdvance, setCustomAdvance] = useState(false);
+    const [quantity, setQuantity] = useState<number | null | string>(null)
+    const [stack, setStack] = useState([]);
+
 
     const { id } = useParams<{ id: string }>()
     const orderId = id?.replaceAll("&=", "/")
@@ -53,13 +62,6 @@ export const ReleasePONew: React.FC = () => {
         },
         "Address"
     );
-
-    const [orderData, setOrderData] = useState(null);
-    const [projectAddress, setProjectAddress] = useState()
-    const [vendorAddress, setVendorAddress] = useState()
-    const [mergeablePOs, setMergeablePOs] = useState([])
-    const [mergedItems, setMergedItems] = useState([]);
-    const [customAdvance, setCustomAdvance] = useState(false);
 
     useEffect(() => {
         if (orderData?.project_address) {
@@ -257,10 +259,43 @@ export const ReleasePONew: React.FC = () => {
         }
     }
 
-    const handleDispatchPO = async () => {
-        
+    const handleAmendPo = async () => {
+
         try {
-            if(contactPerson.name !== "" || contactPerson.number !== "") {
+            await updateDoc("Procurement Orders", orderId, {
+                status: "PO Amendment",
+                order_list: orderData.order_list
+            })
+            if (comment) {
+                await createDoc("Nirmaan Comments", {
+                    comment_type: "Comment",
+                    reference_doctype: "Procurement Orders",
+                    reference_name: orderId,
+                    comment_by: userData?.user_id,
+                    content: comment,
+                    subject: "updating po(amendment)"
+                })
+            }
+            toast({
+                title: "Success!",
+                description: `${orderId} amended and sent to Project Lead!`,
+                variant: "success"
+            })
+            navigate("/release-po")
+        } catch (error) {
+            console.log("Error while cancelling po", error)
+            toast({
+                title: "Failed!",
+                description: `${orderId} Amendment Failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
+    const handleDispatchPO = async () => {
+
+        try {
+            if (contactPerson.name !== "" || contactPerson.number !== "") {
                 await updateDoc("Procurement Orders", orderId, {
                     status: "Dispatched",
                     delivery_contact: `${contactPerson.name}:${contactPerson.number}`
@@ -270,7 +305,7 @@ export const ReleasePONew: React.FC = () => {
                     status: "Dispatched",
                 })
             }
-            
+
             await mutate()
             toast({
                 title: "Success!",
@@ -356,6 +391,93 @@ export const ReleasePONew: React.FC = () => {
         }
     }
 
+    const handleSave = (itemName: string, newQuantity: string) => {
+        let curRequest = orderData.order_list.list;
+
+        // Find the current item and store its previous quantity in the stack
+        const previousItem = curRequest.find(curValue => curValue.item === itemName);
+
+        setStack(prevStack => [
+            ...prevStack,
+            {
+                operation: 'quantity_change',
+                item: previousItem.item,
+                previousQuantity: previousItem.quantity
+            }
+        ]);
+
+        curRequest = curRequest.map((curValue) => {
+            if (curValue.item === itemName) {
+                return { ...curValue, quantity: parseInt(newQuantity) };
+            }
+            return curValue;
+        });
+        setOrderData((prevState) => ({
+            ...prevState,
+            order_list: {
+                list: curRequest,
+            },
+        }));
+        setQuantity('')
+    };
+    const handleDelete = (item: string) => {
+        let curRequest = orderData.order_list.list;
+        let itemToPush = curRequest.find(curValue => curValue.item === item);
+
+        // Push the delete operation into the stack
+        setStack(prevStack => [
+            ...prevStack,
+            {
+                operation: 'delete',
+                item: itemToPush
+            }
+        ]);
+        curRequest = curRequest.filter(curValue => curValue.item !== item);
+        setOrderData(prevState => ({
+            ...prevState,
+            order_list: {
+                list: curRequest
+            }
+        }));
+        // setComments(prev => {
+        //     delete prev[item]
+        //     return prev
+        // })
+        setQuantity('')
+        // setCurItem('')
+    }
+
+    const UndoDeleteOperation = () => {
+        if (stack.length === 0) return; // No operation to undo
+
+        let curRequest = orderData.order_list.list;
+        const lastOperation = stack.pop();
+
+        if (lastOperation.operation === 'delete') {
+            // Restore the deleted item
+            curRequest.push(lastOperation.item);
+        } else if (lastOperation.operation === 'quantity_change') {
+            // Restore the previous quantity of the item
+            curRequest = curRequest.map(curValue => {
+                if (curValue.item === lastOperation.item) {
+                    return { ...curValue, quantity: lastOperation.previousQuantity };
+                }
+                return curValue;
+            });
+        }
+
+        // Update the order data with the restored item or quantity
+        setOrderData(prevState => ({
+            ...prevState,
+            order_list: {
+                list: curRequest
+            }
+        }));
+
+        // Update the stack after popping the last operation
+        setStack([...stack]);
+    };
+
     // console.log("advance", control.)
     // console.log("values", contactPerson)
 
@@ -420,60 +542,60 @@ export const ReleasePONew: React.FC = () => {
                                     )}
                                 /> */}
                                 <Controller
-                control={control}
-                name="advance"
-                render={({ field }) => (
-                    <>
-                        <RadioGroup
-                            onValueChange={(value) => {
-                                field.onChange(value === "Other" ? "" : value); // Reset value if 'Other'
-                                setAdvance(value !== "Other" ? parseInt(value) : 0);
-                                setCustomAdvance(value === "Other");
-                            }}
-                            className="flex flex-col space-y-2 mt-2"
-                        >
-                            {/* Radio options */}
-                            <div className="flex gap-4 items-center">
-                                <RadioGroupItem value="25" id="advance-25" />
-                                <Label htmlFor="advance-25" className="font-medium text-gray-700">25%</Label>
+                                    control={control}
+                                    name="advance"
+                                    render={({ field }) => (
+                                        <>
+                                            <RadioGroup
+                                                onValueChange={(value) => {
+                                                    field.onChange(value === "Other" ? "" : value); // Reset value if 'Other'
+                                                    setAdvance(value !== "Other" ? parseInt(value) : 0);
+                                                    setCustomAdvance(value === "Other");
+                                                }}
+                                                className="flex flex-col space-y-2 mt-2"
+                                            >
+                                                {/* Radio options */}
+                                                <div className="flex gap-4 items-center">
+                                                    <RadioGroupItem value="25" id="advance-25" />
+                                                    <Label htmlFor="advance-25" className="font-medium text-gray-700">25%</Label>
 
-                                <RadioGroupItem value="50" id="advance-50" />
-                                <Label htmlFor="advance-50" className="font-medium text-gray-700">50%</Label>
+                                                    <RadioGroupItem value="50" id="advance-50" />
+                                                    <Label htmlFor="advance-50" className="font-medium text-gray-700">50%</Label>
 
-                                <RadioGroupItem value="75" id="advance-75" />
-                                <Label htmlFor="advance-75" className="font-medium text-gray-700">75%</Label>
+                                                    <RadioGroupItem value="75" id="advance-75" />
+                                                    <Label htmlFor="advance-75" className="font-medium text-gray-700">75%</Label>
 
-                                <RadioGroupItem value="100" id="advance-100" />
-                                <Label htmlFor="advance-100" className="font-medium text-gray-700">100%</Label>
+                                                    <RadioGroupItem value="100" id="advance-100" />
+                                                    <Label htmlFor="advance-100" className="font-medium text-gray-700">100%</Label>
 
-                                <RadioGroupItem value="Other" id="advance-other" />
-                                <Label htmlFor="advance-other" className="font-medium text-gray-700">Other</Label>
-                            </div>
+                                                    <RadioGroupItem value="Other" id="advance-other" />
+                                                    <Label htmlFor="advance-other" className="font-medium text-gray-700">Other</Label>
+                                                </div>
 
-                            {/* Conditional rendering for custom input */}
-                            {customAdvance && (
-                                <div className="mt-4">
-                                    <Label htmlFor="custom-advance">Enter Custom Advance %</Label>
-                                    <Input
-                                        id="custom-advance"
-                                        type="number"
-                                        min="0"
-                                        max="100"
-                                        placeholder="Enter percentage"
-                                        className="mt-2 border border-gray-300 rounded-lg p-2"
-                                        value={field.value}
-                                        onChange={(e) => {
-                                            const value = e.target.value
-                                            field.onChange(value)
-                                            setAdvance(value !== "" ? parseInt(value) : 0);
-                                        }}
-                                    />
-                                </div>
-                            )}
-                        </RadioGroup>
-                    </>
-                )}
-            />
+                                                {/* Conditional rendering for custom input */}
+                                                {customAdvance && (
+                                                    <div className="mt-4">
+                                                        <Label htmlFor="custom-advance">Enter Custom Advance %</Label>
+                                                        <Input
+                                                            id="custom-advance"
+                                                            type="number"
+                                                            min="0"
+                                                            max="100"
+                                                            placeholder="Enter percentage"
+                                                            className="mt-2 border border-gray-300 rounded-lg p-2"
+                                                            value={field.value}
+                                                            onChange={(e) => {
+                                                                const value = e.target.value
+                                                                field.onChange(value)
+                                                                setAdvance(value !== "" ? parseInt(value) : 0);
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </RadioGroup>
+                                        </>
+                                    )}
+                                />
                             </div>
                             <div className="flex-1 mt-2">
                                 <Label>Add Notes</Label>
@@ -1038,37 +1160,37 @@ export const ReleasePONew: React.FC = () => {
                                                             </div>
 
                                                             <AlertDialog>
-                                                                        <AlertDialogTrigger>
-                                                                            <button className='border-green-500 h-9 px-4 py-2 inline-flex items-center 
+                                                                <AlertDialogTrigger>
+                                                                    <button className='border-green-500 h-9 px-4 py-2 inline-flex items-center 
                                                         justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors 
                                                         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border 
                                                         bg-background shadow-sm hover:bg-accent hover:text-accent-foreground flex gap-1 items-center'>
-                                                                                <ListChecks className="h-4 w-4" />
-                                                                                Submit</button>
-                                                                        </AlertDialogTrigger>
-                                                                        < AlertDialogContent >
-                                                                            <AlertDialogHeader>
-                                                                                <AlertDialogTitle>
-                                                                                    <h1 className="justify-center" > Is this order dispatched ? </h1>
-                                                                                </AlertDialogTitle>
+                                                                        <ListChecks className="h-4 w-4" />
+                                                                        Submit</button>
+                                                                </AlertDialogTrigger>
+                                                                < AlertDialogContent >
+                                                                    <AlertDialogHeader>
+                                                                        <AlertDialogTitle>
+                                                                            <h1 className="justify-center" > Is this order dispatched ? </h1>
+                                                                        </AlertDialogTitle>
 
-                                                                                < AlertDialogDescription className="items-center justify-center" >
-                                                                                    This action will create a delivery note for the project manager on site.Are you sure you want to continue?
-                                                                                    <div className='flex mt-2 gap-2 items-center justify-center' >
-                                                                                        <AlertDialogCancel className="flex items-center gap-1" >
-                                                                                            <Undo2 className="h-4 w-4" />
-                                                                                            Cancel </AlertDialogCancel>
-                                                                                        < AlertDialogAction onClick={handleDispatchPO} >
-                                                                                            <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' >
-                                                                                                <CheckCheck className="h-4 w-4" />
-                                                                                                Confirm </button>
-                                                                                        </AlertDialogAction>
-                                                                                    </div>
-                                                                                </AlertDialogDescription>
+                                                                        < AlertDialogDescription className="items-center justify-center" >
+                                                                            This action will create a delivery note for the project manager on site.Are you sure you want to continue?
+                                                                            <div className='flex mt-2 gap-2 items-center justify-center' >
+                                                                                <AlertDialogCancel className="flex items-center gap-1" >
+                                                                                    <Undo2 className="h-4 w-4" />
+                                                                                    Cancel </AlertDialogCancel>
+                                                                                < AlertDialogAction onClick={handleDispatchPO} >
+                                                                                    <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' >
+                                                                                        <CheckCheck className="h-4 w-4" />
+                                                                                        Confirm </button>
+                                                                                </AlertDialogAction>
+                                                                            </div>
+                                                                        </AlertDialogDescription>
 
-                                                                            </AlertDialogHeader>
-                                                                        </AlertDialogContent>
-                                                                    </AlertDialog>
+                                                                    </AlertDialogHeader>
+                                                                </AlertDialogContent>
+                                                            </AlertDialog>
                                                             {/* {
                                                                 (Object.values(contactPerson).some((val) => !val) || contactPerson.number.length !== 10) ? (
                                                                     <HoverCard>
@@ -1134,10 +1256,255 @@ export const ReleasePONew: React.FC = () => {
                             }
                             <Card className="border-primary">
                                 <CardHeader>
+                                    <CardTitle>Amend PO</CardTitle>
+                                    <CardContent>
+                                        <CardDescription className="flex justify-between items-center">
+                                            <div className='flex flex-col gap-2 w-full text-sm font-light'>
+                                                <ul className="list-disc w-[70%]">
+                                                    <li>If you want to change quantities or remove items from this PO, choose this option.</li>
+                                                    <li>This action will create a <span className='text-red-700'>Approve Ammendment</span> for this PO and send it to Project Lead for verification</li>
+                                                </ul>
+
+                                            </div>
+                                            {orderData?.status === "PO Approved" ? (
+                                                <button
+                                                    onClick={() => document.getElementById("amendAlertTrigger")?.click()}
+                                                    className="border-primary h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground"
+                                                >
+                                                    <ListTodo className="h-4 w-4 mr-1" />
+                                                    Amend PO
+                                                </button>
+                                            ) : (
+                                                <HoverCard>
+                                                    <HoverCardTrigger>
+                                                        <button disabled className="border-primary cursor-not-allowed h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground">Cancel PO</button>
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                        <div>
+                                                            <span className="text-primary underline">Amendment</span> not allowed for this PO as its delivery note or status has already been updated!
+                                                        </div>
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                            )}
+                                            <Sheet>
+                                                <SheetTrigger>
+                                                    <button className="hidden" id="amendAlertTrigger">trigger</button>
+                                                </SheetTrigger>
+                                                <SheetContent>
+                                                    <>
+                                                        <div className='pb-4 text-lg font-bold'>Amend: <span className='text-red-700'>{orderId}</span></div>
+                                                        {/* PENDING CARD */}
+                                                        <Card className="p-4">
+                                                            <div className="flex justify-between pb-2 gap-2">
+                                                                <div className="text-red-700 text-sm font-light">Order List</div>
+                                                                {stack.length !== 0 && (
+                                                                    <div className="flex items-center space-x-2">
+                                                                        <HoverCard>
+                                                                            <HoverCardTrigger>
+                                                                                <button
+                                                                                    onClick={() => UndoDeleteOperation()}
+                                                                                    className="flex items-center max-md:text-sm max-md:px-2 max-md:py-1  px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-600 transition duration-200 ease-in-out"
+                                                                                >
+                                                                                    <Undo className="mr-2 max-md:w-4 max-md:h-4" /> {/* Undo Icon */}
+                                                                                    Undo
+                                                                                </button>
+                                                                            </HoverCardTrigger>
+                                                                            <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
+                                                                                Click to undo the last operation
+                                                                            </HoverCardContent>
+                                                                        </HoverCard>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            <table className="table-auto md:w-full">
+                                                                <thead>
+                                                                    <tr className="bg-gray-200">
+                                                                        <th className="w-[60%] text-left px-4 py-1 text-xs">Item Name</th>
+                                                                        <th className="w-[20%] px-4 py-1 text-xs text-center">Unit</th>
+                                                                        <th className="w-[10%] px-4 py-1 text-xs text-center">Quantity</th>
+                                                                        <th className="w-[10%] px-4 py-1 text-xs text-center">Edit</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {orderData?.order_list.list.map((item) => {
+                                                                        return <tr key={item.item}>
+                                                                            <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
+                                                                                {item.item}
+                                                                            </td>
+                                                                            <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
+                                                                            <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
+                                                                            <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
+                                                                                <AlertDialog>
+                                                                                    <AlertDialogTrigger onClick={() => setQuantity(parseInt(item.quantity))}><Pencil className="w-4 h-4" /></AlertDialogTrigger>
+                                                                                    <AlertDialogContent>
+                                                                                        <AlertDialogHeader>
+                                                                                            <AlertDialogTitle className="flex justify-between">Edit Item
+                                                                                                <AlertDialogCancel onClick={() => setQuantity('')} className="border-none shadow-none p-0">X</AlertDialogCancel>
+                                                                                            </AlertDialogTitle>
+                                                                                            <AlertDialogDescription className="flex flex-col gap-2">
+                                                                                                <div className="flex space-x-2">
+                                                                                                    <div className="w-1/2 md:w-2/3">
+                                                                                                        <h5 className="text-base text-gray-400 text-left mb-1">Item Name</h5>
+                                                                                                        <div className="w-full  p-1 text-left">
+                                                                                                            {item.item}
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                    <div className="w-[30%]">
+                                                                                                        <h5 className="text-base text-gray-400 text-left mb-1">UOM</h5>
+                                                                                                        <div className=" w-full  p-2 text-center justify-left flex">
+                                                                                                            {item.unit}
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                    <div className="w-[25%]">
+                                                                                                        <h5 className="text-base text-gray-400 text-left mb-1">Qty</h5>
+                                                                                                        <input type="number" defaultValue={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value !== "" ? parseInt(e.target.value) : null)} />
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            </AlertDialogDescription>
+                                                                                            <AlertDialogDescription className="flex justify-end">
+                                                                                                <div className="flex gap-2">
+                                                                                                    {orderData.order_list.list.length === 1 ?
+                                                                                                        <Button disabled>
+                                                                                                            <Trash2 className="h-4 w-4" />
+                                                                                                            Delete
+                                                                                                        </Button>
+                                                                                                        :
+                                                                                                        <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex gap-1 items-center" onClick={() => handleDelete(item.item)}>
+                                                                                                            <Button>
+                                                                                                                <Trash2 className="h-4 w-4" />
+                                                                                                                Delete
+                                                                                                            </Button>
+                                                                                                        </AlertDialogAction>
+                                                                                                    }
+
+
+                                                                                                    <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)} className="flex gap-1 items-center">
+                                                                                                        <Button>
+                                                                                                            <ListChecks className="h-4 w-4" />
+                                                                                                            Save
+                                                                                                        </Button>
+                                                                                                    </AlertDialogAction>
+                                                                                                </div>
+                                                                                            </AlertDialogDescription>
+                                                                                        </AlertDialogHeader>
+                                                                                    </AlertDialogContent>
+                                                                                </AlertDialog>
+                                                                            </td>
+                                                                        </tr>
+
+                                                                    })}
+                                                                </tbody>
+
+                                                            </table>
+                                                        </Card>
+
+                                                        <div className='flex p-2 gap-2 align-right'>
+                                                            <SheetClose>
+                                                                <button
+
+                                                                    className="border-primary h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground"
+                                                                >
+                                                                    <Undo2 className="h-4 w-4" />
+                                                                    Cancel
+                                                                </button>
+                                                            </SheetClose>
+                                                            {stack.length === 0 ?
+                                                                <HoverCard>
+                                                                    <HoverCardTrigger>
+                                                                        <button disabled className="border-primary cursor-not-allowed h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground">
+                                                                            <CheckCheck className="h-4 w-4" />
+                                                                            Confirm
+                                                                        </button>
+                                                                    </HoverCardTrigger>
+                                                                    <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                                        <div>
+                                                                            <span className="text-primary underline">No Amend operations are performed in this PO</span>
+                                                                        </div>
+                                                                    </HoverCardContent>
+                                                                </HoverCard>
+                                                                :
+                                                                <AlertDialog>
+                                                                    <AlertDialogTrigger>
+                                                                        <button
+                                                                            className="border-primary h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground"
+                                                                        >
+                                                                            <CheckCheck className="h-4 w-4" />
+                                                                            Confirm
+                                                                        </button>
+                                                                    </AlertDialogTrigger>
+                                                                    <AlertDialogContent>
+                                                                        <AlertDialogHeader>
+                                                                            <AlertDialogTitle>
+                                                                                <h1 className="justify-center text-center">Are you sure you want to amend this PO?</h1>
+                                                                            </AlertDialogTitle>
+
+                                                                            <AlertDialogDescription className="flex flex-col text-center gap-1">
+                                                                                Amending this PO will send this to Project Lead for approval. Continue?
+                                                                                <div className='flex flex-col gap-2 mt-2'>
+                                                                                    <TextArea placeholder='input the reason for amending this PO...' value={comment} onChange={(e) => setComment(e.target.value)} />
+                                                                                </div>
+                                                                                <div className='flex gap-2 items-center justify-center pt-2'>
+                                                                                    <AlertDialogCancel className="flex items-center gap-1">
+                                                                                        <Undo2 className="h-4 w-4" />
+                                                                                        Cancel</AlertDialogCancel>
+                                                                                    <AlertDialogAction onClick={handleAmendPo}>
+                                                                                        <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex items-center gap-1'>
+                                                                                            <CheckCheck className="h-4 w-4" />
+                                                                                            Confirm</button>
+                                                                                    </AlertDialogAction>
+                                                                                </div>
+                                                                            </AlertDialogDescription>
+                                                                        </AlertDialogHeader>
+                                                                    </AlertDialogContent>
+                                                                </AlertDialog>
+                                                            }
+
+
+                                                        </div>
+
+                                                    </>
+                                                    {/* <AlertDialogHeader>
+                                                        <AlertDialogTitle>
+                                                            <h1 className="justify-center">Are you sure!</h1>
+                                                        </AlertDialogTitle>
+
+                                                        <AlertDialogDescription className="flex flex-col text-center gap-1">
+                                                            Cancelling this PO will create a new cancelled Sent Back. Continue?
+                                                            <div className='flex flex-col gap-2 mt-2'>
+                                                                <TextArea placeholder='input the reason for cancelling...' value={comment} onChange={(e) => setComment(e.target.value)} />
+                                                            </div>
+                                                            <div className='flex gap-2 items-center justify-center pt-2'>
+                                                                <AlertDialogCancel className="flex items-center gap-1">
+                                                                    <Undo2 className="h-4 w-4" />
+                                                                    Cancel</AlertDialogCancel>
+                                                                <AlertDialogAction onClick={handleCancelPo}>
+                                                                    <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex items-center gap-1'>
+                                                                        <CheckCheck className="h-4 w-4" />
+                                                                        Confirm</button>
+                                                                </AlertDialogAction>
+                                                            </div>
+                                                        </AlertDialogDescription>
+                                                    </AlertDialogHeader> */}
+                                                </SheetContent>
+                                            </Sheet>
+                                        </CardDescription>
+
+                                    </CardContent>
+                                </CardHeader>
+                            </Card>
+                            <Card className="border-primary">
+                                <CardHeader>
                                     <CardTitle>Cancel PO</CardTitle>
                                     <CardContent>
                                         <CardDescription className="flex justify-between items-center">
-                                            <p className="w-[70%]">on clicking the cancel button will create a "Sent Back Request"</p>
+                                            <div className='flex flex-col gap-2 w-full text-sm font-light'>
+                                                <ul className="list-disc w-[70%]">
+                                                    <li>If you want to add/change vendor quotes, Choose this option.</li>
+                                                    <li>This action will create a <Badge variant="red">Cancelled</Badge> Sent Back Request within <span className='text-red-700'>New Sent Back</span> side option.</li>
+                                                </ul>
+
+                                            </div>
                                             {orderData?.status === "PO Approved" ? (
                                                 <button
                                                     onClick={() => document.getElementById("alertTrigger")?.click()}
@@ -1196,6 +1563,6 @@ export const ReleasePONew: React.FC = () => {
                     </div>
                 </Layout>
             </Layout>
-        </div>
+        </div >
     );
 };
