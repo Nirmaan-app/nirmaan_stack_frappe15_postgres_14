@@ -491,7 +491,7 @@ export const ReleasePONew: React.FC = () => {
     return (
         <div className='flex-1 md:space-y-4'>
             <div className="py-4 flex items-center gap-1">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate("/release-po")} />
+                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                 <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
             </div>
             <Layout>

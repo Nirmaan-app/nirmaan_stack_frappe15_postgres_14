@@ -162,7 +162,7 @@ export const ApproveSelectSentBack = () => {
                 }
             }
         ],
-        [sent_back_list, notifications]
+        [sent_back_list, notifications, project_values]
     )
 
     let filteredList;

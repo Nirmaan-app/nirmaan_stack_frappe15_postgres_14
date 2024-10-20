@@ -180,7 +180,7 @@ export const ApproveSelectVendor = () => {
             }
 
         ],
-        [procurement_request_list, notifications]
+        [procurement_request_list, notifications, project_values]
     )
 
     let filteredList;
