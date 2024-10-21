@@ -81,8 +81,8 @@ export const ReleasePONew: React.FC = () => {
             const doc2 = address_list?.find(item => item.name == orderData?.vendor_address);
             const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
             setVendorAddress(address2)
-            doc2.phone ? setPhoneNumber(doc2.phone) : setPhoneNumber("")
-            doc2.email_id ? setEmail(doc2.email_id) : setEmail("")
+            setPhoneNumber(doc2.phone || "")
+            setEmail(doc2.email_id || "")
         }
 
     }, [orderData, address_list]);
