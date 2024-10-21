@@ -548,57 +548,57 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     filters: [["project", "=", `${projectId}`]],
     limit: 1000
   },
-  `Procurement Requests ${projectId}`
-)
+    `Procurement Requests ${projectId}`
+  )
 
 
-const getUserFullName = (id) => {
-  if(id === "Administrator") return id
-  if(usersList) {
-    return usersList.find((user) => user.name === id)?.full_name
+  const getUserFullName = (id) => {
+    if (id === "Administrator") return id
+    if (usersList) {
+      return usersList.find((user) => user.name === id)?.full_name
+    }
   }
-}
 
   const { data: sent_back_data, isLoading: sent_back_loading } = useFrappeGetDocList("Sent Back Category", {
     fields: ["*"],
     filters: [["project", "=", projectId]],
     limit: 1000
   },
-  `Sent Back Category ${projectId}`
-)
+    `Sent Back Category ${projectId}`
+  )
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
     fields: ["*"],
-    filters: [["project", "=", projectId], ["status", "in", ["Dispatched", "Delivered", "Partially Delivered"]]],
+    filters: [["project", "=", projectId], ["status", "in", ["PO Sent", "Dispatched", "Delivered", "Partially Delivered"]]],
     limit: 1000
   },
-  `Procurement Orders ${projectId}`
-)
+    `Procurement Orders ${projectId}`
+  )
 
-const totalPosRaised = () => {
-  if (po_data && po_data.length > 0) {
-    // Loop through each procurement order and sum up the total value
-    const total = po_data.reduce((acc, po) => {
-      // Check if the procurement order has an order_list with items
-      if (po.order_list && po.order_list.list && po.order_list.list.length > 0) {
-        // Sum the quote * quantity for each item in the order_list
-        const poTotal = po.order_list.list.reduce((itemAcc, item) => {
-          return itemAcc + (item.quote * item.quantity);
-        }, 0);
-        // Add the poTotal to the overall accumulator
-        return acc + poTotal;
-      }
-      return acc;
-    }, 0);
+  const totalPosRaised = () => {
+    if (po_data && po_data.length > 0) {
+      // Loop through each procurement order and sum up the total value
+      const total = po_data.reduce((acc, po) => {
+        // Check if the procurement order has an order_list with items
+        if (po.order_list && po.order_list.list && po.order_list.list.length > 0) {
+          // Sum the quote * quantity for each item in the order_list
+          const poTotal = po.order_list.list.reduce((itemAcc, item) => {
+            return itemAcc + (item.quote * item.quantity);
+          }, 0);
+          // Add the poTotal to the overall accumulator
+          return acc + poTotal;
+        }
+        return acc;
+      }, 0);
 
-    return total;
-  }
+      return total;
+    }
 
-  return 0; // Return 0 if po_data is not available or empty
-};
+    return 0; // Return 0 if po_data is not available or empty
+  };
 
 
-console.log("po_data",po_data)
+  console.log("po_data", po_data)
 
 
 
@@ -777,8 +777,8 @@ console.log("po_data",po_data)
 
   const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
     {
-        fields: ['item_id', 'quote'],
-        limit: 10000
+      fields: ['item_id', 'quote'],
+      limit: 10000
     });
 
   const getTotal = (order_id) => {
@@ -786,71 +786,71 @@ console.log("po_data",po_data)
     const orderData = pr_data?.find(item => item.name === order_id)?.procurement_list;
     // console.log("orderData", orderData)
     orderData?.list.map((item: any) => {
-        const quotesForItem = quote_data
-            ?.filter(value => value.item_id === item.name && value.quote != null)
-            ?.map(value => value.quote);
-        let minQuote;
-        if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
-        total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+      const quotesForItem = quote_data
+        ?.filter(value => value.item_id === item.name && value.quote != null)
+        ?.map(value => value.quote);
+      let minQuote;
+      if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
+      total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
     })
     return total || "N/A";
-}
-
-const checkPrToSB = (prId) => {
-  if(sent_back_data) {
-    const sentBacks = sent_back_data.filter((sb) => sb.procurement_request === prId)
-    if(sentBacks.every((sb) => sb.workflow_state === "Pending")) return "New PR"
-    else if(sentBacks.some((sb) => ["Approved", "Partially Approved"].includes(sb.workflow_state))) return "Approved PO"
-    else if(sentBacks.every((sb) => sb.workflow_state === "Vendor Selected")) return "Open PR"
-    else return "Rejected"
   }
-}
 
-const statusOptions = [
-  {label : "New PR", value : "New PR"},
-  {label: "Open PR", value : "Open PR"},
-  {label : "Approved PO", value : "Approved PO"},
-  {label : "Rejected", value : "Rejected"}
-]
+  const checkPrToSB = (prId) => {
+    if (sent_back_data) {
+      const sentBacks = sent_back_data.filter((sb) => sb.procurement_request === prId)
+      if (sentBacks.every((sb) => sb.workflow_state === "Pending")) return "New PR"
+      else if (sentBacks.some((sb) => ["Approved", "Partially Approved"].includes(sb.workflow_state))) return "Approved PO"
+      else if (sentBacks.every((sb) => sb.workflow_state === "Vendor Selected")) return "Open PR"
+      else return "Rejected"
+    }
+  }
 
-const statusRender = (status, prId) => {
-  return ["RFQ Generated", "Quote Updated", "Vendor Selected", "Approved"].includes(status) ? "Open PR" : status === "Pending" ? "New PR" : ["Vendor Approved", "Partially Approved"].includes(status) ? "Approved PO" : status === "Rejected" ? "Rejected" : checkPrToSB(prId)
-}
-  const procurementSummaryColumns =  [
+  const statusOptions = [
+    { label: "New PR", value: "New PR" },
+    { label: "Open PR", value: "Open PR" },
+    { label: "Approved PO", value: "Approved PO" },
+    { label: "Rejected", value: "Rejected" }
+  ]
+
+  const statusRender = (status, prId) => {
+    return ["RFQ Generated", "Quote Updated", "Vendor Selected", "Approved"].includes(status) ? "Open PR" : status === "Pending" ? "New PR" : ["Vendor Approved", "Partially Approved"].includes(status) ? "Approved PO" : status === "Rejected" ? "Rejected" : checkPrToSB(prId)
+  }
+  const procurementSummaryColumns = [
     {
       accessorKey: "name",
-      header: ({column}) => {
-        return <DataTableColumnHeader  className="text-black font-bold" column={column} title="PR Id"/>
+      header: ({ column }) => {
+        return <DataTableColumnHeader className="text-black font-bold" column={column} title="PR Id" />
       },
-      cell: ({row}) => {
+      cell: ({ row }) => {
         return <Link className="text-blue-500 underline" to={row.getValue("name")}><div>{row.getValue("name").split("-")[2]}</div></Link>
       }
     },
     {
       accessorKey: "creation",
-      header: ({column}) => {
-        return <DataTableColumnHeader  className="text-black font-bold" column={column} title="Creation"/>
+      header: ({ column }) => {
+        return <DataTableColumnHeader className="text-black font-bold" column={column} title="Creation" />
       },
-      cell: ({row}) => {
+      cell: ({ row }) => {
         return <div className="text-[#11050599]">{formatDate(row.getValue("creation"))}</div>
       }
     },
     {
       accessorKey: "owner",
-      header: ({column}) => {
-        return <DataTableColumnHeader  className="text-black font-bold" column={column} title="Created By"/>
+      header: ({ column }) => {
+        return <DataTableColumnHeader className="text-black font-bold" column={column} title="Created By" />
       },
-      cell: ({row}) => {
+      cell: ({ row }) => {
         return <div className="text-[#11050599]">{getUserFullName(row.getValue("owner"))}</div>
       }
     },
 
     {
       accessorKey: "workflow_state",
-      header: ({column}) => {
-        return <DataTableColumnHeader  className="text-black font-bold" column={column} title="Status"/>
+      header: ({ column }) => {
+        return <DataTableColumnHeader className="text-black font-bold" column={column} title="Status" />
       },
-      cell: ({row}) => {
+      cell: ({ row }) => {
         const status = row.getValue("workflow_state")
         const prId = row.getValue("name")
         return <div className="font-medium">{statusRender(status, prId)}</div>
@@ -860,54 +860,54 @@ const statusRender = (status, prId) => {
         const prId = row.getValue("name")
         const renderValue = statusRender(rowValue, prId)
         return value.includes(renderValue)
-    }
+      }
     },
     {
       accessorKey: "work_package",
       header: ({ column }) => {
-          return (
-              <DataTableColumnHeader className="text-black font-bold" column={column} title="Package" />
-          )
+        return (
+          <DataTableColumnHeader className="text-black font-bold" column={column} title="Package" />
+        )
       },
       cell: ({ row }) => {
-          return (
-              <div className="text-[#11050599]">
-                  {row.getValue("work_package")}
-              </div>
-          )
+        return (
+          <div className="text-[#11050599]">
+            {row.getValue("work_package")}
+          </div>
+        )
       }
-  },
-  {
+    },
+    {
       accessorKey: "category_list",
       header: ({ column }) => {
-          return (
-              <DataTableColumnHeader className="text-black font-bold" column={column} title="Categories" />
-          )
+        return (
+          <DataTableColumnHeader className="text-black font-bold" column={column} title="Categories" />
+        )
       },
       cell: ({ row }) => {
-          return (
-              <div className="flex flex-col gap-1 items-start justify-center">
-                  {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
-              </div>
-          )
+        return (
+          <div className="flex flex-col gap-1 items-start justify-center">
+            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+          </div>
+        )
       }
-  },
+    },
     {
       id: "estimated_price",
       header: ({ column }) => {
-          return (
-              <DataTableColumnHeader className="text-black font-bold" column={column} title="Estimated Price" />
-          )
+        return (
+          <DataTableColumnHeader className="text-black font-bold" column={column} title="Estimated Price" />
+        )
       },
       cell: ({ row }) => {
         const total = getTotal(row.getValue("name"))
-          return (
-              <div className="text-[#11050599]">
-                  {total === "N/A" ? total : formatToIndianRupee(total)}
-              </div>
-          )
+        return (
+          <div className="text-[#11050599]">
+            {total === "N/A" ? total : formatToIndianRupee(total)}
+          </div>
+        )
       }
-  }
+    }
   ]
 
 
@@ -963,15 +963,15 @@ const statusRender = (status, prId) => {
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
       </div>
       <ConfigProvider
-      theme={{
-        components: {
-          Menu: {
-            horizontalItemSelectedColor: "#D03B45",
-            itemSelectedBg: "#FFD3CC",
-            itemSelectedColor: "#D03B45"
+        theme={{
+          components: {
+            Menu: {
+              horizontalItemSelectedColor: "#D03B45",
+              itemSelectedBg: "#FFD3CC",
+              itemSelectedColor: "#D03B45"
+            }
           }
-        }
-      }}
+        }}
       >
         <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
       </ConfigProvider>
@@ -1130,8 +1130,8 @@ const statusRender = (status, prId) => {
 
       {
         current === "procurementSummary" && (
-          prData_loading ? ( <TableSkeleton />) : 
-          <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} totalPOsRaised={formatToIndianRupee(totalPosRaised())} />
+          prData_loading ? (<TableSkeleton />) :
+            <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} totalPOsRaised={formatToIndianRupee(totalPosRaised())} />
         )
       }
 
