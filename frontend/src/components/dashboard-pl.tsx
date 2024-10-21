@@ -28,18 +28,18 @@ export const ProjectLead = () => {
         if (item.workflow_state === "Vendor Selected") vendor_selected_procurement_request.push(item.name)
     })
 
-    useFrappeDocTypeEventListener("Procurement Requests",async () => {
+    useFrappeDocTypeEventListener("Procurement Requests", async () => {
         await procurement_request_list_mutate()
     })
-    useFrappeDocTypeEventListener("Sent Back Category",async () => {
+    useFrappeDocTypeEventListener("Sent Back Category", async () => {
         await sent_back_list_mutate()
     })
 
     return (
-            <div className="flex-1 space-y-4">
-                    <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Project Lead Dashboard</h2>
+        <div className="flex-1 space-y-4">
+            <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Project Lead Dashboard</h2>
 
-                <div className=" space-y-2">
+            <div className=" space-y-2">
                 <h2 className="text-base font-bold tracking-tight">Procurement Actions</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
@@ -58,10 +58,18 @@ export const ProjectLead = () => {
                     </Card>
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/approve-vendor">
-                            <p className="text-center py-6 font-bold text-gray-500">Approve Vendor</p>
+                            <p className="text-center py-6 font-bold text-gray-500">Approve PO</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(procurement_request_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                                 : (vendor_selected_procurement_request.length)}
                                 {procurement_request_list_error && <p>Error</p>}</p>
+                        </Link>
+                    </Card>
+                    <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                        <Link to="/approve-amended-po">
+                            <p className="text-center py-6 font-bold text-gray-500">Approve Amended PO</p>
+                            {/* <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(procurement_request_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                : (vendor_selected_procurement_request.length)}
+                                {procurement_request_list_error && <p>Error</p>}</p> */}
                         </Link>
                     </Card>
 
@@ -77,7 +85,7 @@ export const ProjectLead = () => {
                         </Link>
                     </Card>
                 </div>
-                </div>
             </div>
+        </div>
     );
 }
