@@ -43,13 +43,15 @@ export default function Profile() {
     const { data: permission_list, isLoading: permission_list_loading, error: permission_list_error, mutate: permission_list_mutate } = useFrappeGetDocList("User Permission",
         {
             fields: ['name', 'for_value'],
-            filters: [["user", "=", id], ["allow", "=", "Projects"]]
+            filters: [["user", "=", id], ["allow", "=", "Projects"]],
+            limit: 1000
         },
         userData.role === "Nirmaan Admin Profile" ? undefined : null
     );
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ["*"]
+            fields: ["*"],
+            limit: 1000
         });
 
     const { data: addressData, isLoading: addressDataLoading } = useFrappeGetDocList("Address", {
