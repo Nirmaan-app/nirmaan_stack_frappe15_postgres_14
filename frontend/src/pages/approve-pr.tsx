@@ -28,7 +28,8 @@ export const ApprovePR = () => {
             filters: [["workflow_state", "=", "Pending"]],
             limit: 1000,
             orderBy: { field: "modified", order: "desc" }
-        }
+        },
+        "Pending Procurement Requests"
     );
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects",
         {
@@ -41,9 +42,10 @@ export const ApprovePR = () => {
             limit: 10000
         });
 
-    useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
-        await pr_list_mutate()
-    })
+    // useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
+    //     console.log("running approve-pr mutating")
+    //     await pr_list_mutate()
+    // })
 
     const { toast } = useToast()
 

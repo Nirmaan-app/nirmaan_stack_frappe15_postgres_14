@@ -46,14 +46,14 @@ export default function ProcurementDashboard() {
         if (item.workflow_state === "Quote Updated") quote_updated_procurement_requests.push(item.name)
     })
 
-    useFrappeDocTypeEventListener("Procurement Requests", () => {
-        procurement_request_list_mutate()
+    useFrappeDocTypeEventListener("Procurement Requests",async () => {
+        await procurement_request_list_mutate()
     })
-    useFrappeDocTypeEventListener("Sent Back Category", () => {
-        sent_back_list_mutate()
+    useFrappeDocTypeEventListener("Sent Back Category",async () => {
+        await sent_back_list_mutate()
     })
-    useFrappeDocTypeEventListener("Procurement Orders", () => {
-        procurement_order_list_mutate()
+    useFrappeDocTypeEventListener("Procurement Orders",async () => {
+        await procurement_order_list_mutate()
     })
 
     return (

@@ -39,11 +39,11 @@ export const ProjectManager = () => {
             limit: 1000
         });
 
-    useFrappeDocTypeEventListener("Procurement Requests", () => {
-        procurement_request_list_mutate()
+    useFrappeDocTypeEventListener("Procurement Requests",async () => {
+        await procurement_request_list_mutate()
     })
-    useFrappeDocTypeEventListener("Projects", () => {
-        project_list_mutate()
+    useFrappeDocTypeEventListener("Projects",async () => {
+        await project_list_mutate()
     })
 
     const [orderData, setOrderData] = useState({

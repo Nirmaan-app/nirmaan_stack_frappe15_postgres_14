@@ -183,28 +183,25 @@ const router = createBrowserRouter(
 }
 )
 
-
-// if ('serviceWorker' in navigator) {
-// 	navigator.serviceWorker
-// 	  .register('./public/firebase-messaging-sw.js')
-// 	  .then((registration) => {
-// 		console.log('Service Worker registered with scope:', registration.scope);
-// 	  })
-// 	  .catch((err) => {
-// 		console.log('Service Worker registration failed:', err);
-// 	  });
-//   }
-
-
 const App: FC = () => {
 
 	useEffect(() => {
 		// Firebase onMessage handler for foreground notifications
 		onMessage(messaging, (payload) => {
 			console.log('Message received in the foreground: ', payload);
-			new Notification(payload.notification?.title || '', {
-				body: payload.notification?.body || '',
-			});
+
+			const notificationTitle = payload?.notification?.title || "";
+  			const notificationOptions = {
+  			  body: payload?.notification?.body,
+  			  icon: payload?.notification?.icon || '../src/assets/red-logo.png',
+  			  data: { click_action_url: payload?.data?.click_action_url }
+  			};
+
+			const notification = new Notification(notificationTitle, notificationOptions);
+
+			notification.onclick = () => {
+				window.open(notificationOptions.data.click_action_url || "/", '_blank');
+			  };
 		});
 	}, []);
 
