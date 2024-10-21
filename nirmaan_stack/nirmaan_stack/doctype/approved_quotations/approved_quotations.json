@@ -9,6 +9,8 @@
   "item_id",
   "vendor",
   "procurement_order",
+  "category",
+  "procurement_package",
   "quotation_details_section",
   "item_name",
   "unit",
@@ -81,11 +83,23 @@
    "fieldname": "state",
    "fieldtype": "Data",
    "label": "State"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "label": "Category",
+   "options": "Category"
+  },
+  {
+   "fieldname": "procurement_package",
+   "fieldtype": "Link",
+   "label": "Procurement Package",
+   "options": "Procurement Packages"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-10-07 14:28:12.653812",
+ "modified": "2024-10-21 12:10:49.312307",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Approved Quotations",

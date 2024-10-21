@@ -168,10 +168,8 @@ export const EditProjectForm = () => {
     //     limit: 1000
     // });
 
-    useFrappeDocTypeEventListener("Project Types", (d) => {
-        if (d.doctype === "Project Types") {
-            project_types_mutate()
-        }
+    useFrappeDocTypeEventListener("Project Types",async (d) => {
+           await project_types_mutate()
     })
 
     const form = useForm<ProjectFormValues>({

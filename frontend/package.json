@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry",
+    "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry && yarn run copy-sw",
     "preview": "vite preview",
     "test-local": "cypress open --e2e --browser chrome",
-    "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html"
+    "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html",
+    "copy-sw": "cp ../nirmaan_stack/public/frontend/firebase-messaging-sw.js ../nirmaan_stack/www/firebase-messaging-sw.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
@@ -22,6 +23,7 @@
     "@radix-ui/react-icons": "^1.3.0",
     "@radix-ui/react-label": "^2.0.2",
     "@radix-ui/react-popover": "^1.0.7",
+    "@radix-ui/react-radio-group": "^1.2.1",
     "@radix-ui/react-scroll-area": "^1.0.5",
     "@radix-ui/react-select": "^2.0.0",
     "@radix-ui/react-separator": "^1.0.3",
@@ -43,6 +45,7 @@
     "cmdk": "^1.0.0",
     "cypress": "^13.7.2",
     "date-fns": "^3.6.0",
+    "firebase": "^10.14.1",
     "frappe-react-sdk": "^1.7.0",
     "get-orientation": "^1.1.2",
     "js-cookie": "^3.0.5",

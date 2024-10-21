@@ -152,9 +152,9 @@ export const SelectVendors = () => {
             filters: [["procurement_task", "=", orderId]],
             limit: 2000
         });
-    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+    const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item', 'quote'],
+            fields: ['item_id', 'quote'],
             limit: 2000
         });
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
@@ -220,7 +220,7 @@ export const SelectVendors = () => {
                     if (item.category === cat.name) {
                         const price = Number(getPrice(selectedVendors[item.name], item.name))
                         const quotesForItem = quote_data
-                            ?.filter(value => value.item === item.name && value.quote)
+                            ?.filter(value => value.item_id === item.name && value.quote)
                             ?.map(value => value.quote);
                         let minQuote;
                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -559,8 +559,8 @@ export const SelectVendors = () => {
 
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat) {
-                const quotesForItem = quotation_request_list
-                    ?.filter(value => value.item === item.name && value.quote)
+                const quotesForItem = quote_data
+                    ?.filter(value => value.item_id === item.name && value.quote)
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -572,8 +572,8 @@ export const SelectVendors = () => {
     }
 
     const getLowest2 = (item: string) => {
-        const quotesForItem = quotation_request_list
-            ?.filter(value => value.item === item && value.quote)
+        const quotesForItem = quote_data
+            ?.filter(value => value.item_id === item && value.quote)
             ?.map(value => value.quote);
         let minQuote;
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -585,7 +585,7 @@ export const SelectVendors = () => {
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat) {
                 const quotesForItem = quote_data
-                    ?.filter(value => value.item === item.name && value.quote)
+                    ?.filter(value => value.item_id === item.name && value.quote)
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -684,7 +684,7 @@ export const SelectVendors = () => {
                                         <tbody className="bg-white divide-y divide-gray-200 ">
                                             {orderData?.procurement_list?.list.map((item) => {
                                                 const quotesForItem = quote_data
-                                                    ?.filter(value => value.item === item.name && value.quote)
+                                                    ?.filter(value => value.item_id === item.name && value.quote)
                                                     ?.map(value => value.quote);
                                                 let minQuote;
                                                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -875,7 +875,7 @@ export const SelectVendors = () => {
                                                                     const lowest2 = getLowest2(item.name)
 
                                                                     const quotesForItem = quote_data
-                                                                        ?.filter(value => value.item === item.name && value.quote)
+                                                                        ?.filter(value => value.item_id === item.name && value.quote)
                                                                         ?.map(value => value.quote);
                                                                     let minQuote;
                                                                     if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);

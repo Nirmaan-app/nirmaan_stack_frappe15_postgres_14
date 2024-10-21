@@ -9,6 +9,7 @@ import { Badge } from "../ui/badge";
 import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 
 type PRTable = {
@@ -33,7 +34,28 @@ export const SelectVendorList = () => {
         limit: 1000
     })
 
+    const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
+        {
+            fields: ['item_id', 'quote'],
+            limit: 2000
+        });
+
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+
+    const getTotal = (order_id: string) => {
+        let total: number = 0;
+        const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
+        console.log("orderData", orderData)
+        orderData?.list.map((item) => {
+            const quotesForItem = quote_data
+                ?.filter(value => value.item_id === item.name && value.quote != null)
+                ?.map(value => value.quote);
+            let minQuote;
+            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+            total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+        })
+        return total;
+    }
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -135,7 +157,7 @@ export const SelectVendorList = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            N/A
+                            {formatToIndianRupee(getTotal(row.getValue("name")))}
                         </div>
                     )
                 }
@@ -156,15 +178,15 @@ export const SelectVendorList = () => {
     }
 
     return (
-            <div className="flex-1 md:space-y-4">
-                <div className="flex items-center justify-between space-y-2">
-                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Select Vendor PR</h2>
-                </div>
-                {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
-                )}
+        <div className="flex-1 md:space-y-4">
+            <div className="flex items-center justify-between space-y-2">
+                <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Select Vendor PR</h2>
+            </div>
+            {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
+                <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
+            )}
 
-                {/* <div className="overflow-x-auto">
+            {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
@@ -192,6 +214,6 @@ export const SelectVendorList = () => {
                             </tbody>
                         </table>
                     </div> */}
-            </div>
+        </div>
     )
 }

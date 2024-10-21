@@ -111,7 +111,7 @@ export default function Dashboard() {
         <>
 
           {(role == 'Nirmaan Admin Profile' || user_id === "Administrator") && <Default />} 
-            {(!has_project && role !== "Nirmaan Admin Profile") ? 
+            {(has_project === "false" && role !== "Nirmaan Admin Profile") ? 
             <Alert className="flex flex-col max-md:w-[80%] max-lg:w-[60%] w-[50%] mx-auto justify-center max-md:mt-[40%] mt-[20%]">
               <div className="flex gap-2 items-center">
                 <RocketIcon className="h-4 w-4" />

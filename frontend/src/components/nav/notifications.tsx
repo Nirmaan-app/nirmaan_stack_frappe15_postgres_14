@@ -1,60 +1,107 @@
-import { Button } from "../ui/button";
-import { BellDot } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, } from "../ui/dropdown-menu";
-import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk";
-import { error } from "console";
-import { NotificationType, useNotificationStore } from "@/hooks/useNotificationStore";
+import { Bell } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from "../ui/dropdown-menu";
+import { useNotificationStore } from "@/hooks/useNotificationStore";
+import { useContext, useState } from "react";
+import { FrappeConfig, FrappeContext } from "frappe-react-sdk";
+import { useNavigate } from "react-router-dom";
+import { format, isToday, isYesterday } from "date-fns";
 
 export function Notifications() {
+    const { db } = useContext(FrappeContext) as FrappeConfig;
+    const navigate = useNavigate();
 
-    // const { data: notification_list, isLoading: notification_list_loading, error: notification_list_error } = useFrappeGetDocList("Notification Log",
-    //     {
-    //         fields: ['name', 'subject'],
-    //         filters: [["read", "=", 0]],
-    //         limit: 5,
-    //         orderBy: { field: "creation", order: "desc" }
-    //     });
-    // const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+    const { notifications, notificationsCount, mark_seen_notification } = useNotificationStore();
+    const [isDropdownOpen, setDropdownOpen] = useState(false);
 
+    const handleNavigate = (url, notification) => {
+        if (url) {
+            if (notification.seen === "false") {
+                mark_seen_notification(db, notification);
+            }
+            setDropdownOpen(false);
+            navigate(`/${url}`);
+        }
+    };
 
-    // const handleClick = () => {
-    //     console.log("clicked")
-    //     // notification_list?.forEach((item)=>{
-    //     //     updateDoc('Notification Log', item.name, {
-    //     //         read: 1,
-    //     //     })
-    //     //         .then(() => {
-    //     //             console.log(item.name)
-    //     //         }).catch(() => {
-    //     //             console.log(update_submit_error)
-    //     //         })
-    //     // })
-    // }
+    const formatNotificationDate = (creationDate) => {
+        const date = new Date(creationDate);
 
-    const notification_list: NotificationType[] = useNotificationStore((state) => state.notifications);
+        if (isToday(date)) {
+            return `Today, ${format(date, 'HH:mm')}`;
+        } else if (isYesterday(date)) {
+            return `Yesterday, ${format(date, 'HH:mm')}`;
+        }
+    
+        return format(date, 'MMM dd, yyyy, HH:mm');
+    };
 
     return (
-        <DropdownMenu>
+        <DropdownMenu open={isDropdownOpen} onOpenChange={setDropdownOpen}>
             <DropdownMenuTrigger>
-                {/* <Button className="bg-white shadow-none border-hidden" onClick={()=>handleClick()}> */}
-                <BellDot className="h-6 w-6 " />
-                {/* </Button> */}
+                <div className="relative">
+                    <Bell className="h-6 w-6" />
+                    {notificationsCount !== 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full h-4 w-4 flex items-center justify-center text-xs">
+                            {notificationsCount}
+                        </span>
+                    )}
+                </div>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56" align="end" forceMount>
+            <DropdownMenuContent className="w-80 overflow-y-auto max-h-[36rem]" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
-                    {notification_list.length > 0 ?
-                        <div className="">
-                            {notification_list.map((item) => {
-                                return <div className="p-2 rounded-lg border border-gray-300 my-1">
-                                    <h2>{item.type}</h2>
-                                    <h4>{item.message.name}</h4>
-                                </div>
-                            })}
+                    {notifications.length !== 0 ? (
+                        <div className="space-y-4">
+                            <ul className="space-y-3">
+                                {notifications.map((notification) => (
+                                    <li
+                                        key={notification.name}
+                                        className={`border-t first:border-t-0 rounded-sm transition-all ${notification.seen === "false" ? "bg-red-200 hover:bg-red-100" : "hover:bg-gray-100"}`}
+                                    >
+                                        <div
+                                            onClick={() => handleNavigate(notification?.action_url, notification)}
+                                            className="cursor-pointer py-2 px-5 relative"
+                                        >
+                                            {notification.seen === "false" && (
+                                                <div className="w-2 h-2 bg-red-500 absolute rounded-full top-3.5 left-1" />
+                                            )}
+                                            <div className="flex items-start justify-between">
+                                                <h4 className="font-semibold text-sm text-blue-600">
+                                                    {notification.title}
+                                                </h4>
+                                                <div className="text-xs text-gray-500 text-right">
+                                                    <p>{formatNotificationDate(notification.creation)}</p>
+                                                </div>
+                                            </div>
+                                            <p className="text-sm text-gray-600">
+                                                {notification.description}
+                                            </p>
+                                            <div className="text-xs text-gray-500 mt-1">
+                                                <p>Project: {notification.project}</p>
+                                                <p>Work Package: {notification.work_package}</p>
+                                                <p>Created By: {notification?.sender || "Unknown"}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex justify-end py-1 pr-2">
+                                            {notification.seen === "true" ? (
+                                                <span className="text-green-500">Seen</span>
+                                            ) : (
+                                                <span
+                                                    onClick={() => mark_seen_notification(db, notification)}
+                                                    className="underline text-primary hover:text-red-400 cursor-pointer"
+                                                >
+                                                    Mark as read
+                                                </span>
+                                            )}
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
-
-                        : <h1>NO NEW NOTIFICATIONS</h1>}
+                    ) : (
+                        <h1 className="text-center text-gray-500">NO NEW NOTIFICATIONS</h1>
+                    )}
                 </DropdownMenuLabel>
             </DropdownMenuContent>
         </DropdownMenu>
-    )
+    );
 }

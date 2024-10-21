@@ -12,3 +12,7 @@ nirmaan_stack.patches.v1_7.add_generated_to_po #v2
 nirmaan_stack.patches.v1_8.change_pr_rejected_to_delayed
 nirmaan_stack.patches.v1_9.add_approved_quotations
 nirmaan_stack.patches.v1_9.delete_cancelled_pos
+nirmaan_stack.patches.v1_9.generate_nirmaan_user_permissions
+nirmaan_stack.patches.v1_9.change_generated_to_po_approved #v2
+nirmaan_stack.patches.v1_9.delete_old_approved_quotations
+nirmaan_stack.patches.v1_9.resolve_approved_quotations #v3

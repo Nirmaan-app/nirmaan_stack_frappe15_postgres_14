@@ -106,19 +106,56 @@ const ApproveSentBack = () => {
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
     const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
 
+    const {data: usersList, isLoading: usersListLoading, error: usersListError} = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["name", "full_name"],
+        limit: 1000
+    })
+
     useEffect(() => {
-        if (sb && !sb_loading) {
+        if (sb) {
             setProject(sb?.project)
             setOwner(sb?.modified_by)
         }
-        else {
-            return
-        }
-    }, [sb, sb_loading, project, owner])
+    }, [sb])
 
-    console.log("within 1st component", owner_data)
+    const navigate = useNavigate()
+
+    const getUserName = (id) => {
+        if(usersList) {
+            return usersList.find((user) => user?.name === id)?.full_name
+        }
+    }
+
     if (sb_loading || project_loading || owner_loading) return <h1>Loading...</h1>
     if (sb_error || project_error || owner_error) return <h1>Error</h1>
+    if(!["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && !sb?.item_list?.list?.some((i) => i?.status === "Pending")) return (
+        <div className="flex items-center justify-center h-full">
+            <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                <h2 className="text-2xl font-semibold text-gray-800">
+                    Heads Up!
+                </h2>
+                <p className="text-gray-600 text-lg">
+                    Hey there, the SB:{" "}
+                    <span className="font-medium text-gray-900">{sb?.name}</span>{" "}
+                    is no longer available for{" "}
+                    <span className="italic">Reviewing</span>. The current state is{" "}
+                    <span className="font-semibold text-blue-600">
+                        {sb?.workflow_state}
+                    </span>{" "}
+                    And the last modification was done by <span className="font-medium text-gray-900">
+                        {sb?.modified_by === "Administrator" ? sb?.modified_by : getUserName(sb?.modified_by)}
+                    </span>
+                    !
+                </p>
+                <button
+                    className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                    onClick={() => navigate("/approve-vendor")}
+                >
+                    Go Back
+                </button>
+            </div>
+        </div>
+    );
     return (
         <ApproveSentBackPage sb_data={sb} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
     )
@@ -153,9 +190,9 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
     //         limit: 1000
     //     });
 
-    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+    const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item', 'quote'],
+            fields: ['item_id', 'quote'],
             limit: 2000
         });
 
@@ -201,7 +238,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 orderData.item_list?.list?.forEach((item) => {
                     if (item.category === cat.name) {
                         const quotesForItem = quote_data
-                            ?.filter(value => value.item === item.name && value.quote)
+                            ?.filter(value => value.item_id === item.name && value.quote)
                             ?.map(value => value.quote);
                         let minQuote;
                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -468,7 +505,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
 
             if (itemList.length > 0) {
                 const res = await createDoc("Sent Back Category", newSendBack)
-                if(comment) {
+                if (comment) {
                     await createDoc("Nirmaan Comments", {
                         comment_type: "Comment",
                         reference_doctype: "Sent Back Category",
@@ -584,7 +621,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
         orderData.item_list?.list.map((item) => {
             if (item.category === cat) {
                 const quotesForItem = quote_data
-                    ?.filter(value => value.item === item.name && value.quote)
+                    ?.filter(value => value.item_id === item.name && value.quote)
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -670,7 +707,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                                                 {orderData.item_list?.list.map((item) => {
                                                     const price = item.quote;
                                                     const quotesForItem = quote_data
-                                                        ?.filter(value => value.item === item.name && value.quote != null)
+                                                        ?.filter(value => value.item_id === item.name && value.quote != null)
                                                         ?.map(value => value.quote);
                                                     let minQuote;
                                                     if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -770,33 +807,33 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 </div>
             </div>
             <div className='overflow-x-auto pt-6'>
-            <ConfigProvider
-                theme={{
-                    token: {
-                        // Seed Token
-                        colorPrimary: '#FF2828',
-                        borderRadius: 4,
+                <ConfigProvider
+                    theme={{
+                        token: {
+                            // Seed Token
+                            colorPrimary: '#FF2828',
+                            borderRadius: 4,
 
-                        // Alias Token
-                        colorBgContainer: '#FFFFFF',
-                    },
-                }}
-            >
-                {data.length > 0 &&
+                            // Alias Token
+                            colorBgContainer: '#FFFFFF',
+                        },
+                    }}
+                >
+                    {data.length > 0 &&
                         <Table
                             dataSource={data}
                             rowSelection={{ ...rowSelection, checkStrictly }}
                             expandable={{ defaultExpandAllRows: true }}
                             columns={columns}
                         />
-                }
-            </ConfigProvider>
+                    }
+                </ConfigProvider>
             </div>
             {selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2 mt-2">
                 <AlertDialog>
-                <AlertDialogTrigger asChild>
+                    <AlertDialogTrigger asChild>
                         <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
-                            <SendToBack  className='w-4 h-4'/>
+                            <SendToBack className='w-4 h-4' />
                             {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
                         </Button>
                     </AlertDialogTrigger>
@@ -822,10 +859,10 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                             <AlertDialogCancel className="flex items-center gap-1">
-                            <Undo2 className="h-4 w-4" />
+                                <Undo2 className="h-4 w-4" />
                                 Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1">
-                            <CheckCheck className="h-4 w-4" />
+                                <CheckCheck className="h-4 w-4" />
                                 Confirm</AlertDialogAction>
                         </AlertDialogFooter>
                         {/* <AlertDialogFooter>
@@ -835,7 +872,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                     </AlertDialogContent>
                 </AlertDialog>
                 <AlertDialog>
-                <AlertDialogTrigger asChild>
+                    <AlertDialogTrigger asChild>
                         <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
                             <ListChecks className="h-4 w-4" />
                             {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
@@ -854,8 +891,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                        <AlertDialogCancel className="flex items-center gap-1">
-                            <Undo2 className="h-4 w-4" />
+                            <AlertDialogCancel className="flex items-center gap-1">
+                                <Undo2 className="h-4 w-4" />
                                 Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1">
                                 <CheckCheck className="h-4 w-4" />

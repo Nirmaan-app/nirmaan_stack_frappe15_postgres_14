@@ -165,7 +165,7 @@
 //     </div>
 //     <Button onClick={handlePrint} className='w-20'>Print</Button>
 //     </div>
-    
+
 //     <Card className="mb-6">
 //       <CardHeader>
 //         <div className="flex justify-between items-center">
@@ -181,7 +181,7 @@
 //         <p><strong>PR:</strong> {order?.procurement_request}</p>
 //       </CardContent>
 //     </Card>
-    
+
 //     <Card>
 //       <CardHeader className=''>
 //         <div className='flex items-center justify-between'>
@@ -423,7 +423,7 @@
 //                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
 //                                         </tr>)
 //                                     })}
-                                   
+
 //                                     <tr className="">
 //                                         <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
 //                                         <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
@@ -477,30 +477,30 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
     AlertDialogTrigger,
-  } from "@/components/ui/alert-dialog"
-  
+} from "@/components/ui/alert-dialog"
+
 
 export default function DeliveryNote() {
     const { id } = useParams();
     const poId = id?.replaceAll("&=", "/");
-    const { data, isLoading, mutate : poMutate } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
+    const { data, isLoading, mutate: poMutate } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
     const [order, setOrder] = useState(null);
     const [modifiedOrder, setModifiedOrder] = useState(null);
     // const [showAlert, setShowAlert] = useState(false);
     const { updateDoc } = useFrappeUpdateDoc();
     const { toast } = useToast();
     const navigate = useNavigate();
-      const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
-    {
-        fields: ["*"],
-        limit: 1000
-    },
-    "Address"
-);
+    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+        {
+            fields: ["*"],
+            limit: 1000
+        },
+        "Address"
+    );
 
-  const [projectAddress, setProjectAddress] = useState()
-  const [vendorAddress, setVendorAddress] = useState()
-  const [show, setShow] = useState(false)  
+    const [projectAddress, setProjectAddress] = useState()
+    const [vendorAddress, setVendorAddress] = useState()
+    const [show, setShow] = useState(false)
 
     useEffect(() => {
         if (data) {
@@ -525,12 +525,12 @@ export default function DeliveryNote() {
     // Handle change in received quantity
     const handleReceivedChange = (itemName, value) => {
         const parsedValue = value !== "" ? parseInt(value) : 0;
-            setModifiedOrder(prevState => ({
-                ...prevState,
-                list: prevState.list.map(item => 
-                    item.item === itemName ? { ...item, received: parsedValue } : item
-                )
-            }));
+        setModifiedOrder(prevState => ({
+            ...prevState,
+            list: prevState.list.map(item =>
+                item.item === itemName ? { ...item, received: parsedValue } : item
+            )
+        }));
     };
 
     // Handle save
@@ -559,19 +559,19 @@ export default function DeliveryNote() {
             console.log("error while updating delivery note", error)
             toast({
                 title: "Failed!",
-                description:  `Error while updating Delivery Note: ${poId.split('/')[1]}`,
+                description: `Error while updating Delivery Note: ${poId.split('/')[1]}`,
                 variant: "destructive",
             });
         }
     };
 
-    const handleProceed =   async () => {
+    const handleProceed = async () => {
         try {
             const allDelivered = modifiedOrder.list.every(item => item.received === item.quantity);
             const noValueItems = modifiedOrder.list.filter(item => !item.received || item.received === 0);
             const updatedOrder = {
                 ...modifiedOrder,
-                list: modifiedOrder.list.map(item => 
+                list: modifiedOrder.list.map(item =>
                     noValueItems.includes(item) ? { ...item, received: 0 } : item
                 ),
             };
@@ -584,14 +584,14 @@ export default function DeliveryNote() {
             setShow(false)
             toast({
                 title: "Success!",
-                description:  `Delivery Note: ${poId.split('/')[1]} updated successfully`,
+                description: `Delivery Note: ${poId.split('/')[1]} updated successfully`,
                 variant: "success",
             });
         } catch (error) {
             console.log("error while updating delivery note", error)
             toast({
                 title: "Failed!",
-                description:  `Error while updating Delivery Note: ${poId.split('/')[1]}`,
+                description: `Error while updating Delivery Note: ${poId.split('/')[1]}`,
                 variant: "destructive",
             });
         }
@@ -608,54 +608,54 @@ export default function DeliveryNote() {
 
     return (
         <div className="container mx-auto px-0 max-w-3xl">
-             <div className='flex items-center justify-between'>
-             <div className="flex items-center mb-4 gap-1">
-               <Button onClick={() => navigate("/delivery-notes")} variant="ghost" className="p-0">
-                 <ArrowLeft />
-                 <span className="sr-only">Back</span>
-               </Button>
-               <h1 className="text-2xl max-md:text-xl font-bold">DN-{poId.split('/')[1]}</h1>
-             </div>
-             <Button onClick={handlePrint} className="flex items-center gap-1">
-             <Printer className="h-4 w-4" />
-                Print</Button>
-             </div>  
-             <Card className="mb-6">
-               <CardHeader className='pb-2'>
-                 <div className="flex justify-between items-center">
-                   <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Order Details</CardTitle>
-                   <Badge variant={`${data?.status === "Dispatched" ? "orange" : "green"}`} className="">
-                        {data?.status === "Dispatched" ? "Dispatched" : "Delivered"}
-                    </Badge>
-                 </div>
-               </CardHeader>
-               <CardContent>
-               <p><strong>Project:</strong> {data?.project_name}</p>
-                 <p><strong>Address:</strong> {data?.project_address}</p>
-                 <p><strong>PR:</strong> {data?.procurement_request}</p>
-               </CardContent>
+            <div className='flex items-center justify-between'>
+                <div className="flex items-center mb-4 gap-1">
+                    <Button onClick={() => navigate("/delivery-notes")} variant="ghost" className="p-0">
+                        <ArrowLeft />
+                        <span className="sr-only">Back</span>
+                    </Button>
+                    <h1 className="text-2xl max-md:text-xl font-bold">DN-{poId.split('/')[1]}</h1>
+                </div>
+                <Button onClick={handlePrint} className="flex items-center gap-1">
+                    <Printer className="h-4 w-4" />
+                    Print</Button>
+            </div>
+            <Card className="mb-6">
+                <CardHeader className='pb-2'>
+                    <div className="flex justify-between items-center">
+                        <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Order Details</CardTitle>
+                        <Badge variant={`${data?.status === "Dispatched" ? "orange" : "green"}`} className="">
+                            {data?.status === "Dispatched" ? "Dispatched" : "Delivered"}
+                        </Badge>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    <p><strong>Project:</strong> {data?.project_name}</p>
+                    <p><strong>Address:</strong> {data?.project_address}</p>
+                    <p><strong>PR:</strong> {data?.procurement_request}</p>
+                </CardContent>
 
-               <CardHeader className='pb-2'>
-                <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Delivery Person Details</CardTitle>
-               </CardHeader>
-               <CardContent>
-                <p><strong>Name:</strong> {data?.delivery_contact?.split(":")[0]}</p>
-                <p><strong>Number:</strong> {data?.delivery_contact?.split(":")[1]}</p>
-               </CardContent>
-             </Card>
+                <CardHeader className='pb-2'>
+                    <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Delivery Person Details</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p><strong>Name:</strong> {data?.delivery_contact?.split(":")[0]}</p>
+                    <p><strong>Number:</strong> {data?.delivery_contact?.split(":")[1]}</p>
+                </CardContent>
+            </Card>
 
             <Card>
                 <CardHeader className='flex flex-row items-center justify-between'>
                     <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Item List</CardTitle>
                     {!show && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)} className="flex items-center gap-1">
-                        <Pencil className="h-4 w-4"  />
+                        <Pencil className="h-4 w-4" />
                         Edit</Button>)}
                 </CardHeader>
                 <CardContent>
-                    {show && 
-                    <div className='pl-2 transition-all duration-500 ease-in-out'>
-                        <i className="text-sm text-gray-600">"Please Update the quantity received for delivered items"</i>
-                    </div>
+                    {show &&
+                        <div className='pl-2 transition-all duration-500 ease-in-out'>
+                            <i className="text-sm text-gray-600">"Please Update the quantity received for delivered items"</i>
+                        </div>
                     }
                     <Table>
                         <TableHeader>
@@ -673,37 +673,37 @@ export default function DeliveryNote() {
                                     <TableCell>
                                         {!show ? (
                                             item.received === item.quantity ? (
-                                            <div className='flex gap-2'>
-                                                <Check className="h-5 w-5 text-green-500" />
-                                                <span>{item.received}</span>
-                                            </div>
-                                        ) : (
-                                            <div className='flex gap-2'>
-                                                {(item.received || 0) > item.quantity ? (
-                                                    <ArrowUp className='text-primary' />
-                                                ) : (
-                                                    <ArrowDown className='text-primary' />
-                                                )}
-                                                   <span className="text-sm text-gray-600">
-                                                     {item.received || 0}
-                                                   </span>
-                                            </div>
+                                                <div className='flex gap-2'>
+                                                    <Check className="h-5 w-5 text-green-500" />
+                                                    <span>{item.received}</span>
+                                                </div>
+                                            ) : (
+                                                <div className='flex gap-2'>
+                                                    {(item.received || 0) > item.quantity ? (
+                                                        <ArrowUp className='text-primary' />
+                                                    ) : (
+                                                        <ArrowDown className='text-primary' />
+                                                    )}
+                                                    <span className="text-sm text-gray-600">
+                                                        {item.received || 0}
+                                                    </span>
+                                                </div>
                                             )
-                                            
+
                                         ) : (
                                             item.received !== item.quantity ? (
                                                 <div>
-                                                <Input
-                                                    type="text"
-                                                    value={modifiedOrder?.list.find((mod) => mod.name === item.name).received || ''}
-                                                    onChange={(e) => handleReceivedChange(item.item, e.target.value)}
-                                                    placeholder="Qty"
-                                                />
+                                                    <Input
+                                                        type="text"
+                                                        value={modifiedOrder?.list.find((mod) => mod.name === item.name).received || ''}
+                                                        onChange={(e) => handleReceivedChange(item.item, e.target.value)}
+                                                        placeholder="Qty"
+                                                    />
 
-                                                {/* <span className='text-sm font-light text-red-500'>{validateMessage[item.item]}</span> */}
-                                            </div>
+                                                    {/* <span className='text-sm font-light text-red-500'>{validateMessage[item.item]}</span> */}
+                                                </div>
                                             ) : (
-                                            <Check className="h-5 w-5 text-green-500" />
+                                                <Check className="h-5 w-5 text-green-500" />
                                             )
                                         )}
                                     </TableCell>
@@ -720,113 +720,115 @@ export default function DeliveryNote() {
                 </CardContent>
             </Card>
 
-             <div className='hidden'>
-                 <div ref={componentRef} className=" w-full p-4">
+            <div className='hidden'>
+                <div ref={componentRef} className=" w-full p-4">
                     <div className="overflow-x-auto">
-                             <table className="min-w-full divide-gray-200">
-                                 <thead className="border-b border-black">
-                                     <tr>
-                                         <th colSpan={8}>
-                                             <div className="flex justify-between border-gray-600 pb-1">
-                                                 <div className="mt-2 flex justify-between">
-                                                     <div>
-                                                         <img className="w-44" src={redlogo} alt="Nirmaan" />
-                                                         <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
-                                                     </div>
-                                                 </div>
-                                                 <div>
-                                                     <div className="pt-2 text-xl text-gray-600 font-semibold">Delivery Note No.</div>
-                                                     <div className="text-lg font-semibold text-black">{(data?.name)?.toUpperCase().replace("PO", "DN")}</div>
-                                                 </div>
-                                             </div>
-                                             <div className=" border-b-2 border-gray-600 pb-1 mb-1">
-                                                 <div className="flex justify-between">
-                                                     <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
-                                                     <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
-                                                 </div>
-                                             </div>
-                                             <div className="flex justify-between">
-                                                 <div>
-                                                     <div className="text-gray-500 text-sm pb-2 text-left">Vendor Address</div>
-                                                     <div className="text-sm font-medium text-gray-900 max-w-[280px] truncate text-left">{data?.vendor_name}</div>
-                                                     <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{vendorAddress}</div>
-                                                     <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {data?.vendor_gst}</div>
-                                                 </div>
-                                                 <div>
-                                                     <div>
-                                                         <h3 className="text-gray-500 text-sm pb-2 text-left">Delivery Location</h3>
-                                                         <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{projectAddress}</div>
-                                                     </div>
-                                                     <div className="pt-2">
-                                                         <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{data?.creation?.split(" ")[0]}</i></div>
-                                                         <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{data?.project_name}</i></div>
-                                                     </div>
-                                                 </div>
-                                             </div>
-                                         </th>
-                                     </tr>
-                                     <tr className="border-t border-black">
-                                         <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">S. No.</th>
-                                         <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
-                                         <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
-                                         <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
-                                     </tr>
-                                 </thead>
-                                 <tbody className={`bg-white`}>
-                                     {order && JSON.parse(data.order_list)?.list?.map((item: any, index: number) => {
-                                         return (<tr key={index} className={` page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
-                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
-                                             <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
-                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
-                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.received || 0}</td>
-                                         </tr>)
-                                     })}                                 
-                                     <tr className="">
-                                         <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
-                                         <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
-                                         <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Total Quantity</td>
-                                         <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{data && JSON.parse(data.order_list)?.list?.reduce((acc, item) => acc + item.received || 0, 0)}</td>
-                                     </tr>
-                                     <tr className="end-of-page page-break-inside-avoid" >
-                                         <td colSpan={6}>
-                                             <div className="text-gray-400 text-sm py-2">Note</div>
-                                             <div className="text-sm text-gray-900">PlaceHolder</div>
-                                         {/* 
+                        <table className="min-w-full divide-gray-200">
+                            <thead className="border-b border-black">
+                                <tr>
+                                    <th colSpan={8}>
+                                        <div className="flex justify-between border-gray-600 pb-1">
+                                            <div className="mt-2 flex justify-between">
+                                                <div>
+                                                    <img className="w-44" src={redlogo} alt="Nirmaan" />
+                                                    <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Delivery Note No.</div>
+                                                <div className="text-lg font-semibold text-black">{(data?.name)?.toUpperCase().replace("PO", "DN")}</div>
+                                            </div>
+                                        </div>
+                                        <div className=" border-b-2 border-gray-600 pb-1 mb-1">
+                                            <div className="flex justify-between">
+                                                <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
+                                                <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                            </div>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <div>
+                                                <div className="text-gray-500 text-sm pb-2 text-left">Vendor Address</div>
+                                                <div className="text-sm font-medium text-gray-900 max-w-[280px] truncate text-left">{data?.vendor_name}</div>
+                                                <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{vendorAddress}</div>
+                                                <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {data?.vendor_gst}</div>
+                                                
+                                            </div>
+                                            <div>
+                                                <div>
+                                                    <h3 className="text-gray-500 text-sm pb-2 text-left">Delivery Location</h3>
+                                                    <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{projectAddress}</div>
+                                                </div>
+                                                <div className="pt-2">
+                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{data?.creation?.split(" ")[0]}</i></div>
+                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{data?.project_name}</i></div>
+                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Against PO:</span>&nbsp;&nbsp;&nbsp;<i>{data?.name}</i></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </th>
+                                </tr>
+                                <tr className="border-t border-black">
+                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">S. No.</th>
+                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Items</th>
+                                    <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
+                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody className={`bg-white`}>
+                                {order && JSON.parse(data.order_list)?.list?.map((item: any, index: number) => {
+                                    return (<tr key={index} className={` page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
+                                        <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
+                                        <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap">{item.received || 0}</td>
+                                    </tr>)
+                                })}
+                                <tr className="">
+                                    <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
+                                    <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
+                                    <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Total Quantity</td>
+                                    <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{data && JSON.parse(data.order_list)?.list?.reduce((acc, item) => acc + item.received || 0, 0)}</td>
+                                </tr>
+                                <tr className="end-of-page page-break-inside-avoid" >
+                                    <td colSpan={6}>
+                                        {/* <div className="text-gray-400 text-sm py-2">Note</div>
+                                        <div className="text-sm text-gray-900">PlaceHolder</div> */}
+                                        {/* 
                                              <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                              <div className="text-sm text-gray-900">
                                                  {orderData?.advance}% advance {orderData?.advance === "100" ? "" : `and remaining ${100 - orderData?.advance}% on material readiness before delivery of material to site`}
                                              </div> */}
-                                             <img src={Seal} className="w-24 h-24" />
-                                             <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
-                                         </td>
-                                     </tr>
-                                 </tbody>
-                             </table>
-                         </div>
+                                        <img src={Seal} className="w-24 h-24" />
+                                        <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
+            </div>
 
-                <AlertDialog>
-                  <AlertDialogTrigger>
+            <AlertDialog>
+                <AlertDialogTrigger>
                     <Button className='hidden' id='alertDialogOpen'>open</Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                      You have provided some items with 0 or no value, they will be marked as <span className='underline'>'0 items received'</span>.
-                      </AlertDialogDescription>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            You have provided some items with 0 or no value, they will be marked as <span className='underline'>'0 items received'</span>.
+                        </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel className="flex items-center gap-1">
-                        <Undo2 className="h-4 w-4" />
-                        Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleProceed()} className="flex items-center gap-1">
-                      <CheckCheck className="h-4 w-4" />
-                        Confirm</AlertDialogAction>
+                        <AlertDialogCancel className="flex items-center gap-1">
+                            <Undo2 className="h-4 w-4" />
+                            Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleProceed()} className="flex items-center gap-1">
+                            <CheckCheck className="h-4 w-4" />
+                            Confirm</AlertDialogAction>
                     </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

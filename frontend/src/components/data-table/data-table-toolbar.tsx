@@ -18,7 +18,7 @@ interface DataTableToolbarProps<TData> {
     category_options?: ProjectOptions[];
 }
 
-export function DataTableToolbar<TData>({ table, project_values, category_options, vendorOptions=undefined, projectTypeOptions=undefined, roleTypeOptions=undefined }: DataTableToolbarProps<TData>) {
+export function DataTableToolbar<TData>({ table, project_values, category_options, vendorOptions=undefined, projectTypeOptions=undefined, roleTypeOptions=undefined, statusOptions=undefined }: DataTableToolbarProps<TData>) {
 
     const [projectValues, setProjectValues] = useState(false)
     const [categoryValues, setCategoryValues] = useState(false)
@@ -82,7 +82,15 @@ export function DataTableToolbar<TData>({ table, project_values, category_option
                     />
                 ) : null)}
 
-                {isFiltered && (
+                {statusOptions && (table.getColumn("workflow_state") ? (
+                    <DataTableFacetedFilter
+                        column={table.getColumn("workflow_state")}
+                        title={"Status"}
+                        options={statusOptions || []}
+                    />
+                ) : null)}
+
+                {/* {isFiltered && (
                     <Button
                         variant="outline"
                         onClick={() => table.resetColumnFilters()}
@@ -90,9 +98,9 @@ export function DataTableToolbar<TData>({ table, project_values, category_option
                         {"Reset"}
                         <Cross2Icon className="ml-2 h-4 w-4" />
                     </Button>
-                )}
+                )} */}
             </div>
-            <DataTableViewOptions table={table} />
+            {/* <DataTableViewOptions table={table} /> */}
         </div>
     );
 }

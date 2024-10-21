@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card";
 import {
     Select,
@@ -14,11 +14,12 @@ import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDeleteDoc, us
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useContext, useState } from "react";
 import { DialogClose } from "@radix-ui/react-dialog";
-import { ArrowLeft, CirclePlus, KeyRound, ListChecks, Mail, MapPin, Phone, Plus, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, CirclePlus, Edit2, Edit2Icon, Edit3Icon, FolderArchiveIcon, FoldHorizontalIcon, FoldVertical, KeyRound, ListChecks, LucidePencil, LucideSettings, LucideSettings2, Mail, MapPin, PencilIcon, PencilLineIcon, PercentCircleIcon, Phone, Plus, Settings, Settings2, Settings2Icon, SettingsIcon, Trash2, Undo2 } from "lucide-react";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+import { Pencil1Icon, Pencil2Icon, ResumeIcon } from "@radix-ui/react-icons";
 
 interface SelectOption {
     label: string;
@@ -36,18 +37,21 @@ export default function Profile() {
 
     const { data, isLoading, error } = useFrappeGetDoc<NirmaanUsersType>(
         'Nirmaan Users',
-        `${id}`
+        `${id}`,
+        id ? `Nirmaan Users ${id}` : null
     );
     const { data: permission_list, isLoading: permission_list_loading, error: permission_list_error, mutate: permission_list_mutate } = useFrappeGetDocList("User Permission",
         {
             fields: ['name', 'for_value'],
-            filters: [["user", "=", id], ["allow", "=", "Projects"]]
+            filters: [["user", "=", id], ["allow", "=", "Projects"]],
+            limit: 1000
         },
         userData.role === "Nirmaan Admin Profile" ? undefined : null
     );
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
         {
-            fields: ["*"]
+            fields: ["*"],
+            limit: 1000
         });
 
     const { data: addressData, isLoading: addressDataLoading } = useFrappeGetDocList("Address", {
@@ -188,6 +192,7 @@ export default function Profile() {
             <div className="flex items-center gap-1">
                 <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6 cursor-pointer" />
                 <span className='text-2xl max-md:text-xl font-semibold'>User Details</span>
+                <Link to={"edit"}><Pencil2Icon className="w-6 h-6 text-blue-600" /></Link>
             </div>
             <Card>
                 <CardHeader className="flex flex-row items-start justify-between">

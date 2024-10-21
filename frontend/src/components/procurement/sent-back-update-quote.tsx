@@ -364,7 +364,7 @@ export const SentBackUpdateQuote = () => {
                                          <p className="font-medium text-sm text-gray-900">{universalComments[0]?.content}</p>
                                          <div className="flex justify-between items-center mt-2">
                                            <p className="text-sm text-gray-500">
-                                             {universalComments[0]?.comment_by.comment_by === "Administrator" ? "Administrator" : getFullName(universalComments[0]?.comment_by)}
+                                             {universalComments[0]?.comment_by === "Administrator" ? "Administrator" : getFullName(universalComments[0]?.comment_by)}
                                            </p>
                                            <p className="text-xs text-gray-400">
                                            {formatDate(universalComments[0]?.creation.split(" ")[0])} {universalComments[0]?.creation.split(" ")[1].substring(0, 5)}

@@ -1,7 +1,6 @@
-import { MainLayout } from "@/components/layout/main-layout";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -10,6 +9,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useNotificationStore } from "@/hooks/useNotificationStore";
 
 
 type PRTable = {
@@ -20,14 +20,16 @@ type PRTable = {
 }
 
 export const ApproveSelectSentBack = () => {
-    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
+    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sbListMutate } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ["*"],
             filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
-            limit: 1000
+            limit: 1000,
         },
         "Sent Back Category(filters,in,Vendor Selected,Partially Approved)"
     );
+
+    console.log("sbdata", sent_back_list)
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
@@ -46,6 +48,19 @@ export const ApproveSelectSentBack = () => {
         return total;
     }
 
+    useFrappeDocTypeEventListener("Sent Back Category", async (data) => {
+        await sbListMutate()
+    })
+
+    const {notifications, mark_seen_notification} = useNotificationStore()
+
+    const {db} = useContext(FrappeContext) as FrappeConfig
+    const handleNewPRSeen = (notification) => {
+        if(notification) {
+            mark_seen_notification(db, notification)
+        }
+    }
+
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
             {
@@ -56,10 +71,20 @@ export const ApproveSelectSentBack = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const sbId = row.getValue("name")
+                    const isNew = notifications.find(
+                        (item) => item.docname === sbId && item.seen === "false" && item.event_id === "sb:vendorSelected"
+                    )
                     return (
-                        <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/approve-sent-back/${row.getValue("name")}`}>
-                                {row.getValue<String>("name").slice(-5)}
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                            {isNew && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                            )}
+                            <Link
+                                className="underline hover:underline-offset-2"
+                                to={`/approve-sent-back/${sbId}`}
+                            >
+                                {sbId?.slice(-5)}
                             </Link>
                         </div>
                     )
@@ -137,7 +162,7 @@ export const ApproveSelectSentBack = () => {
                 }
             }
         ],
-        [project_values, sent_back_list]
+        [sent_back_list, notifications, project_values]
     )
 
     let filteredList;

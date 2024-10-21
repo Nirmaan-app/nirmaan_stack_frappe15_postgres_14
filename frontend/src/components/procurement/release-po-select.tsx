@@ -7,26 +7,26 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
+import { Badge } from "../ui/badge";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 
 
-type PRTable = {
-    name: string
-    project_name: string
-    creation: string
-    category: string
+interface ReleasePOSelectProps {
+    status: string
+    not: boolean
 }
 
 
-export const ReleasePOSelect = () => {
+export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
+            filters: [["status", not ? "not in" : "in", not ? [status, "PO Amendment"] : [status]]],
             limit: 1000
         },
-        "Procurement Orders"
     );
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
@@ -34,14 +34,14 @@ export const ReleasePOSelect = () => {
         limit: 1000
     })
 
-    const {data : vendorsList, isLoading: vendorsListLoading, error: vendorsError} = useFrappeGetDocList("Vendors", {
+    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
         fields: ["vendor_name"],
         limit: 1000
     },
-    "Vendors"
+        "Vendors"
     )
 
-    const vendorOptions = vendorsList?.map((ven) => ({label : ven.vendor_name, value: ven.vendor_name}))
+    const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     const getTotal = (order_id: string) => {
@@ -54,7 +54,7 @@ export const ReleasePOSelect = () => {
         return total;
     }
 
-    const columns: ColumnDef<PRTable>[] = useMemo(
+    const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -67,7 +67,7 @@ export const ReleasePOSelect = () => {
                     return (
                         // onClick={() => handleSet(row.getValue("name"))}
                         <div className="font-medium underline cursor-pointer">
-                            <Link className="underline hover:underline-offset-2" to={`/release-po/${row.getValue("name").replaceAll("/", "&=")}`}>
+                            <Link className="underline hover:underline-offset-2" to={`${row.getValue("name").replaceAll("/", "&=")}`}>
                                 {(row.getValue("name"))?.toUpperCase()}
                             </Link>
                         </div>
@@ -148,6 +148,19 @@ export const ReleasePOSelect = () => {
                 }
             },
             {
+                accessorKey: "status",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Status" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <Badge variant={row.getValue("status") === "PO Approved" ? "default" : row.getValue("status") === "PO Sent" ? "yellow" : row.getValue("status") === "Dispatched" ? "orange" : "green"}>{row.getValue("status") === "Partially Delivered" ? "Delivered" : row.getValue("status")}</Badge>
+                    )
+                }
+            },
+            {
                 accessorKey: "total",
                 header: ({ column }) => {
                     return (
@@ -163,12 +176,12 @@ export const ReleasePOSelect = () => {
                 }
             }
         ],
-        [project_values]
+        [project_values, procurement_order_list]
     )
 
     const { toast } = useToast()
 
-    if (procurement_order_list_error || projects_error || vendorsError ) {
+    if (procurement_order_list_error || projects_error || vendorsError) {
         console.log("Error in release-po-select.tsx", procurement_order_list_error?.message, projects_error?.message, vendorsError?.message)
         toast({
             title: "Error!",
@@ -179,15 +192,15 @@ export const ReleasePOSelect = () => {
 
     return (
         <>
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center justify-between space-y-2">
-                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Release PO</h2>
-                    </div>
-                    {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
-                        <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} />
-                    )}
+            <div className="flex-1 md:space-y-4">
+                <div className="flex items-center justify-between space-y-2">
+                    <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">{not ? "Released" : "Approved"} PO</h2>
                 </div>
-            
+                {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
+                    <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} />
+                )}
+            </div>
+
         </>
     )
 }

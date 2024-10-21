@@ -134,7 +134,11 @@ doc_events = {
         "on_trash": "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash"
     },
     "User Permission": {
-        "after_insert": "nirmaan_stack.integrations.controllers.user_permission.after_insert"
+        "after_insert": [
+            "nirmaan_stack.integrations.controllers.user_permission.after_insert",
+            "nirmaan_stack.integrations.controllers.user_permission.add_nirmaan_user_permissions"
+        ],
+        "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash" 
     },
     "Projects": {
         "after_insert": [
@@ -153,12 +157,22 @@ doc_events = {
         "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert" 
     },
     "Procurement Requests": {
+        # "before_insert": "nirmaan_stack.integrations.controllers.procurement_requests.before_insert",
         "after_insert": "nirmaan_stack.integrations.controllers.procurement_requests.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.procurement_requests.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.procurement_requests.on_trash"
     },
     "Procurement Orders": {
         "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update"
+    },
+    "Sent Back Category": {
+        "on_update": "nirmaan_stack.integrations.controllers.sent_back_category.on_update"
+    },
+    "Version": {
+        "after_insert": [
+            "nirmaan_stack.integrations.controllers.nirmaan_versions.generate_amend_version",
+            "nirmaan_stack.integrations.controllers.nirmaan_versions.remove_amend_version"
+            ]
     }
 }
 

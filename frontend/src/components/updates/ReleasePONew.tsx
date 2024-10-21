@@ -1,25 +1,33 @@
 import React, { useState } from 'react';
 import { Button, Layout } from 'antd';
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useEffect, useRef } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 // import { Button } from "../ui/button";
-import { ArrowLeft, ArrowLeftToLine, CheckCheck, ListChecks, NotebookPen, Printer, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowLeftToLine, CheckCheck, Download, Eye, ListChecks, ListTodo, ListX, Mail, Merge, MessageCircleWarning, NotebookPen, Pencil, Phone, Printer, Send, Split, Trash2, Truck, Undo, Undo2, X } from "lucide-react";
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import { Controller, useForm } from "react-hook-form";
 import { Input } from '@/components/ui/input';
 import { Label } from "../ui/label";
 import TextArea from "antd/es/input/TextArea";
 import { useToast } from "../ui/use-toast";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../ui/card";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { AlertDialogAction } from "@radix-ui/react-alert-dialog";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
 import { Badge } from '../ui/badge';
+import { Sheet, SheetClose, SheetContent, SheetTrigger } from '../ui/sheet';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
+import { Dialog, DialogTrigger, DialogTitle, DialogDescription, DialogContent, DialogHeader, DialogClose, DialogFooter } from '../ui/dialog';
+import { RadioGroup, RadioGroupItem } from '../ui/radiogroup';
+import { Button as ShadButton } from "@/components/ui/button";
+import { Separator } from '../ui/separator';
+import { ProcurementOrders as ProcurementOrdersType } from '@/types/NirmaanStack/ProcurementOrders';
 
 const { Sider, Content } = Layout;
 
@@ -27,6 +35,22 @@ export const ReleasePONew: React.FC = () => {
 
     const [collapsed, setCollapsed] = useState(true);
     const [comment, setComment] = useState('')
+    const [orderData, setOrderData] = useState(null);
+    const [projectAddress, setProjectAddress] = useState()
+    const [vendorAddress, setVendorAddress] = useState()
+    const [mergeablePOs, setMergeablePOs] = useState([])
+    const [mergedItems, setMergedItems] = useState([]);
+    const [customAdvance, setCustomAdvance] = useState(false);
+    const [quantity, setQuantity] = useState<number | null | string>(null)
+    const [stack, setStack] = useState([]);
+
+    const [phoneNumber, setPhoneNumber] = useState("")
+    const [email, setEmail] = useState("")
+    const [emailSubject, setEmailSubject] = useState("")
+    const [emailBody, setEmailBody] = useState("")
+    const [phoneError, setPhoneError] = useState("")
+    const [emailError, setEmailError] = useState("")
+
 
     const { id } = useParams<{ id: string }>()
     const orderId = id?.replaceAll("&=", "/")
@@ -49,10 +73,6 @@ export const ReleasePONew: React.FC = () => {
         "Address"
     );
 
-    const [orderData, setOrderData] = useState(null);
-    const [projectAddress, setProjectAddress] = useState()
-    const [vendorAddress, setVendorAddress] = useState()
-
     useEffect(() => {
         if (orderData?.project_address) {
             const doc = address_list?.find(item => item.name == orderData?.project_address);
@@ -61,9 +81,57 @@ export const ReleasePONew: React.FC = () => {
             const doc2 = address_list?.find(item => item.name == orderData?.vendor_address);
             const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
             setVendorAddress(address2)
+            setPhoneNumber(doc2.phone)
+            setEmail(doc2.email_id)
         }
 
     }, [orderData, address_list]);
+
+    const handlePhoneChange = (e: any) => {
+        const value = e.target.value.replace(/\D/g, '').slice(0, 10)
+        setPhoneNumber(value)
+        if (value.length === 10) {
+            setPhoneError("")
+        }
+    }
+
+    const handleEmailChange = (e: any) => {
+        setEmail(e.target.value)
+        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value)) {
+            setEmailError("")
+        }
+    }
+
+    const handleMerge = (po: ProcurementOrdersType) => {
+        const updatedOrderList = po.order_list.list.map((item) => ({
+            ...item,
+            po: po.name,
+        }));
+
+        if (orderData) {
+            const updatedList = [...orderData.order_list.list, ...updatedOrderList];
+
+            setOrderData((prev) => ({
+                ...prev,
+                order_list: { ...prev.order_list, list: updatedList },
+            }));
+            setMergedItems((prev) => [...prev, po.name]);
+        }
+    };
+
+    const handleUnmerge = (po) => {
+        if (orderData) {
+            const updatedList = orderData.order_list.list.filter((item) => item.po !== po.name);
+
+            setOrderData((prev) => ({
+                ...prev,
+                order_list: { ...prev.order_list, list: updatedList },
+            }));
+
+            // Remove the unmerged PO from the mergedItems array
+            setMergedItems((prev) => prev.filter((mergedPo) => mergedPo !== po.name));
+        }
+    };
 
     const componentRef = useRef<HTMLDivElement>(null);
 
@@ -94,6 +162,10 @@ export const ReleasePONew: React.FC = () => {
     useEffect(() => {
         if (procurement_order_list && orderId) {
             const curOrder = procurement_order_list.find(item => item.name === orderId);
+            if (curOrder?.status === "PO Approved") {
+                const mergeablePOs = procurement_order_list.filter((item) => (item.project === curOrder?.project && item.vendor === curOrder?.vendor && item.status === "PO Approved" && item.name !== orderId))
+                setMergeablePOs(mergeablePOs)
+            }
             if (curOrder) {
                 setOrderData(curOrder);
                 reset({
@@ -214,12 +286,53 @@ export const ReleasePONew: React.FC = () => {
         }
     }
 
-    const handleDispatchPO = async () => {
+    const handleAmendPo = async () => {
+
         try {
             await updateDoc("Procurement Orders", orderId, {
-                status: "Dispatched",
-                delivery_contact: `${contactPerson.name}:${contactPerson.number}`
+                status: "PO Amendment",
+                order_list: orderData.order_list
             })
+            if (comment) {
+                await createDoc("Nirmaan Comments", {
+                    comment_type: "Comment",
+                    reference_doctype: "Procurement Orders",
+                    reference_name: orderId,
+                    comment_by: userData?.user_id,
+                    content: comment,
+                    subject: "updating po(amendment)"
+                })
+            }
+            toast({
+                title: "Success!",
+                description: `${orderId} amended and sent to Project Lead!`,
+                variant: "success"
+            })
+            navigate("/release-po")
+        } catch (error) {
+            console.log("Error while cancelling po", error)
+            toast({
+                title: "Failed!",
+                description: `${orderId} Amendment Failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
+    const handleDispatchPO = async () => {
+
+        try {
+            if (contactPerson.name !== "" || contactPerson.number !== "") {
+                await updateDoc("Procurement Orders", orderId, {
+                    status: "Dispatched",
+                    delivery_contact: `${contactPerson.name}:${contactPerson.number}`
+                })
+            } else {
+                await updateDoc("Procurement Orders", orderId, {
+                    status: "Dispatched",
+                })
+            }
+
             await mutate()
             toast({
                 title: "Success!",
@@ -236,7 +349,167 @@ export const ReleasePONew: React.FC = () => {
         }
     }
 
-    console.log("values", contactPerson)
+    const { deleteDoc } = useFrappeDeleteDoc()
+
+    const handleMergePOs = async () => {
+        const deletionResults = await Promise.all(
+            mergedItems.map(async (po) => {
+                try {
+                    await deleteDoc("Procurement Orders", po);
+                    return { po, success: true }; // Deletion successful
+                } catch (error) {
+                    console.error(`Error while merging PO(s)`, error);
+                    return { po, success: false }; // Deletion failed
+                }
+            })
+        );
+
+        // Filter out unsuccessful POs
+        const unsuccessfulPOs = deletionResults.filter(result => !result.success).map(result => result.po);
+
+        // console.log("unsuccess", unsuccessfulPOs)
+        // Update order_list based on successful deletions
+        const updatedOrderList = orderData.order_list.list.filter(item =>
+            !unsuccessfulPOs.includes(item.po)
+        );
+
+        // console.log("updatedOrderList", updatedOrderList)
+
+        // Proceed to update the current PO
+        try {
+            await updateDoc("Procurement Orders", orderId, {
+                order_list: { list: updatedOrderList }
+            });
+
+            toast({
+                title: "Success!",
+                description: `Successfully merged PO(s)`,
+                variant: "success",
+            });
+            await mutate();
+        } catch (error) {
+            console.log("Error while updating the PO's order list", error);
+            toast({
+                title: "Failed!",
+                description: `Unable to Merge PO(s)`,
+                variant: "destructive",
+            });
+        }
+    };
+
+    const handleSendPO = async () => {
+        try {
+            await updateDoc("Procurement Orders", orderId, {
+                status: "PO Sent"
+            })
+            await mutate()
+            toast({
+                title: "Success!",
+                description: `PO: ${orderId} status updated to 'PO Sent' successfully!`,
+                variant: "success"
+            })
+        } catch (error) {
+            console.log("error while updating the status of the PO to PO Sent", error)
+            toast({
+                title: "Failed!",
+                description: `PO: ${orderId} Updation Failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
+    const handleSave = (itemName: string, newQuantity: string) => {
+        let curRequest = orderData.order_list.list;
+
+        // Find the current item and store its previous quantity in the stack
+        const previousItem = curRequest.find(curValue => curValue.item === itemName);
+
+        setStack(prevStack => [
+            ...prevStack,
+            {
+                operation: 'quantity_change',
+                item: previousItem.item,
+                previousQuantity: previousItem.quantity
+            }
+        ]);
+
+        curRequest = curRequest.map((curValue) => {
+            if (curValue.item === itemName) {
+                return { ...curValue, quantity: parseInt(newQuantity) };
+            }
+            return curValue;
+        });
+        setOrderData((prevState) => ({
+            ...prevState,
+            order_list: {
+                list: curRequest,
+            },
+        }));
+        setQuantity('')
+    };
+    const handleDelete = (item: string) => {
+        let curRequest = orderData.order_list.list;
+        let itemToPush = curRequest.find(curValue => curValue.item === item);
+
+        // Push the delete operation into the stack
+        setStack(prevStack => [
+            ...prevStack,
+            {
+                operation: 'delete',
+                item: itemToPush
+            }
+        ]);
+        curRequest = curRequest.filter(curValue => curValue.item !== item);
+        setOrderData(prevState => ({
+            ...prevState,
+            order_list: {
+                list: curRequest
+            }
+        }));
+        // setComments(prev => {
+        //     delete prev[item]
+        //     return prev
+        // })
+        setQuantity('')
+        // setCurItem('')
+    }
+
+    const UndoDeleteOperation = () => {
+        if (stack.length === 0) return; // No operation to undo
+
+        let curRequest = orderData.order_list.list;
+        const lastOperation = stack.pop();
+
+        if (lastOperation.operation === 'delete') {
+            // Restore the deleted item
+            curRequest.push(lastOperation.item);
+        } else if (lastOperation.operation === 'quantity_change') {
+            // Restore the previous quantity of the item
+            curRequest = curRequest.map(curValue => {
+                if (curValue.item === lastOperation.item) {
+                    return { ...curValue, quantity: lastOperation.previousQuantity };
+                }
+                return curValue;
+            });
+        }
+
+        // Update the order data with the restored item or quantity
+        setOrderData(prevState => ({
+            ...prevState,
+            order_list: {
+                list: curRequest
+            }
+        }));
+
+        // Update the stack after popping the last operation
+        setStack([...stack]);
+    };
+
+    // console.log("advance", control.)
+    // console.log("values", contactPerson)
+
+    // console.log("orderData", orderData?.order_list?.list)
+    // console.log("mergedItems", mergedItems)
 
     if (procurement_order_list_loading || address_list_loading) return <div>Loading</div>
     if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
@@ -245,7 +518,7 @@ export const ReleasePONew: React.FC = () => {
     return (
         <div className='flex-1 md:space-y-4'>
             <div className="py-4 flex items-center gap-1">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate("/release-po")} />
+                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                 <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
             </div>
             <Layout>
@@ -284,15 +557,70 @@ export const ReleasePONew: React.FC = () => {
                             <h3 className="font-semibold text-lg mt-4">Terms and Other Description</h3>
                             <div className="flex-1 mt-2">
                                 <Label>Advance (in %)</Label>
-                                <Controller
+                                {/* <Controller
                                     control={control}
                                     name="advance"
                                     render={({ field }) => (
-                                        <Input type="number" {...field} onChange={(e) => {
+                                        <Input type="radio" {...field} onChange={(e) => {
                                             const value = e.target.value
                                             field.onChange(e);
                                             setAdvance(value !== "" ? parseInt(value) : 0);
                                         }} className="w-full" />
+                                    )}
+                                /> */}
+                                <Controller
+                                    control={control}
+                                    name="advance"
+                                    render={({ field }) => (
+                                        <>
+                                            <RadioGroup
+                                                onValueChange={(value) => {
+                                                    field.onChange(value === "Other" ? "" : value); // Reset value if 'Other'
+                                                    setAdvance(value !== "Other" ? parseInt(value) : 0);
+                                                    setCustomAdvance(value === "Other");
+                                                }}
+                                                className="flex flex-col space-y-2 mt-2"
+                                            >
+                                                {/* Radio options */}
+                                                <div className="flex gap-4 items-center">
+                                                    <RadioGroupItem value="25" id="advance-25" />
+                                                    <Label htmlFor="advance-25" className="font-medium text-gray-700">25%</Label>
+
+                                                    <RadioGroupItem value="50" id="advance-50" />
+                                                    <Label htmlFor="advance-50" className="font-medium text-gray-700">50%</Label>
+
+                                                    <RadioGroupItem value="75" id="advance-75" />
+                                                    <Label htmlFor="advance-75" className="font-medium text-gray-700">75%</Label>
+
+                                                    <RadioGroupItem value="100" id="advance-100" />
+                                                    <Label htmlFor="advance-100" className="font-medium text-gray-700">100%</Label>
+
+                                                    <RadioGroupItem value="Other" id="advance-other" />
+                                                    <Label htmlFor="advance-other" className="font-medium text-gray-700">Other</Label>
+                                                </div>
+
+                                                {/* Conditional rendering for custom input */}
+                                                {customAdvance && (
+                                                    <div className="mt-4">
+                                                        <Label htmlFor="custom-advance">Enter Custom Advance %</Label>
+                                                        <Input
+                                                            id="custom-advance"
+                                                            type="number"
+                                                            min="0"
+                                                            max="100"
+                                                            placeholder="Enter percentage"
+                                                            className="mt-2 border border-gray-300 rounded-lg p-2"
+                                                            value={field.value}
+                                                            onChange={(e) => {
+                                                                const value = e.target.value
+                                                                field.onChange(value)
+                                                                setAdvance(value !== "" ? parseInt(value) : 0);
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </RadioGroup>
+                                        </>
                                     )}
                                 />
                             </div>
@@ -336,8 +664,8 @@ export const ReleasePONew: React.FC = () => {
                         <Content
                             className={`${collapsed ? "md:mx-10 lg:mx-32" : ""} my-4 mx-2 flex flex-col gap-4 relative`}
                         >
-                            <div className='absolute right-0 -top-20 max-md:-top-14 flex items-center gap-1'>
-                                <Badge variant={orderData?.status === "Generated" ? "default" : orderData?.status === "Dispatched" ? "orange" : "green"}>{orderData?.status === "Partially Delivered" ? "Delivered" : orderData?.status}</Badge>
+                            <div className='absolute right-0 -top-20 max-md:-top-14 flex items-center gap-4'>
+                                <Badge variant={orderData?.status === "PO Approved" ? "default" : orderData?.status === "PO Sent" ? "yellow" : orderData?.status === "Dispatched" ? "orange" : "green"}>{orderData?.status === "Partially Delivered" ? "Delivered" : orderData?.status}</Badge>
                                 <button className='h-9 px-6 py-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 
                         focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' disabled={advance > 100 || advance < 0} onClick={() => {
                                         onSubmit(control._formValues)
@@ -347,6 +675,157 @@ export const ReleasePONew: React.FC = () => {
                                     Print
                                 </button>
                             </div>
+
+                            {(orderData?.status === "PO Approved" && mergeablePOs.length !== 0) && (
+                                <>
+                                    <Alert variant="warning" className="">
+                                        <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
+                                        <AlertDescription className="text-xs flex justify-between items-center">
+                                            PO Merging Feature is available for this PO.
+                                            <Sheet>
+                                                <SheetTrigger>
+                                                    <Button className='flex items-center gap-1' color="primary">
+                                                        <Merge className="w-4 h-4" />
+                                                        Merge PO(s)</Button>
+                                                </SheetTrigger>
+                                                <SheetContent>
+                                                    <div className="p-6">
+                                                        <h2 className="text-2xl font-bold mb-4">Merge Purchase Orders</h2>
+
+                                                        {mergeablePOs.length > 0 ? (
+                                                            <Table>
+                                                                <TableHeader>
+                                                                    <TableRow className="bg-red-100">
+                                                                        <TableHead className="w-[15%]">PO Id</TableHead>
+                                                                        <TableHead>Project</TableHead>
+                                                                        <TableHead>Vendor</TableHead>
+                                                                        <TableHead>Status</TableHead>
+                                                                        <TableHead>Items</TableHead>
+                                                                        <TableHead>Action</TableHead>
+                                                                    </TableRow>
+                                                                </TableHeader>
+                                                                <TableBody>
+                                                                    {mergeablePOs.map((po) => {
+                                                                        // Helper function to check if merge should be disabled
+                                                                        const isMergeDisabled = po.order_list.list.some((poItem) => {
+                                                                            // Check if any item in orderData has the same name but different rate
+                                                                            return orderData?.order_list.list.some(
+                                                                                (currentItem) => currentItem.name === poItem.name && currentItem.quote !== poItem.quote
+                                                                            );
+                                                                        });
+
+                                                                        return (
+                                                                            <TableRow key={po.name}>
+                                                                                <TableCell>{po.name.slice(3, 6)}</TableCell>
+                                                                                <TableCell>{po.project.split("-").slice(1).join("-")}</TableCell>
+                                                                                <TableCell>{po.vendor}</TableCell>
+                                                                                <TableCell>{po.status}</TableCell>
+                                                                                <TableCell>{po.order_list.list.length}</TableCell>
+                                                                                <TableCell>
+                                                                                    {!mergedItems.includes(po.name) ? (
+                                                                                        isMergeDisabled ? (
+                                                                                            <HoverCard>
+                                                                                                <HoverCardTrigger>
+                                                                                                    <Button
+                                                                                                        className='flex items-center gap-1'
+                                                                                                        type="primary"
+                                                                                                        disabled={isMergeDisabled}
+                                                                                                        onClick={() => handleMerge(po)}
+                                                                                                    >
+                                                                                                        <Merge className="w-4 h-4" />
+                                                                                                        Merge
+                                                                                                    </Button>
+                                                                                                </HoverCardTrigger>
+                                                                                                <HoverCardContent className='w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg mr-28'>
+                                                                                                    Unable to Merge this PO as it has some <span className='text-primary'>overlapping item(s) with different quotes</span>
+                                                                                                </HoverCardContent>
+                                                                                            </HoverCard>
+                                                                                        ) : (
+                                                                                            <Button
+                                                                                                className='flex items-center gap-1'
+                                                                                                type="primary"
+                                                                                                onClick={() => handleMerge(po)}
+                                                                                            >
+                                                                                                <Merge className="w-4 h-4" />
+                                                                                                Merge
+                                                                                            </Button>
+                                                                                        )
+                                                                                    ) : (
+                                                                                        <Button
+                                                                                            className='flex items-center gap-1'
+                                                                                            danger
+                                                                                            onClick={() => handleUnmerge(po)}
+                                                                                        >
+                                                                                            <Split className='w-4 h-4' />
+                                                                                            Split
+                                                                                        </Button>
+                                                                                    )}
+                                                                                </TableCell>
+                                                                            </TableRow>
+                                                                        )
+                                                                    })}
+                                                                </TableBody>
+                                                            </Table>
+                                                        ) : (
+                                                            <p>No mergeable POs available.</p>
+                                                        )}
+
+                                                        {/* Summary Section */}
+                                                        {/* <div className="mt-6 p-4 border rounded-lg">
+                          <h3 className="text-xl font-semibold mb-2">Merged PO Details</h3>
+                          <p>Total PO's Merged: {mergedItems.length}</p>
+                        </div> */}
+
+                                                        {/* Button Section */}
+                                                        <div className="flex justify-end space-x-4 mt-6">
+                                                            <Button className='flex items-center gap-1' onClick={handlePrint}>
+                                                                <Eye className='w-4 h-4' />
+                                                                Preview
+                                                            </Button>
+                                                            <AlertDialog>
+                                                                <AlertDialogTrigger>
+                                                                    <Button
+                                                                        className='flex items-center gap-1'
+                                                                        disabled={!mergedItems.length}
+                                                                    >
+                                                                        <CheckCheck className="h-4 w-4" />
+                                                                        Confirm
+                                                                    </Button>
+                                                                </AlertDialogTrigger>
+                                                                <AlertDialogContent>
+                                                                    <AlertDialogHeader>
+                                                                        <AlertDialogTitle>
+                                                                            Are you sure!
+                                                                        </AlertDialogTitle>
+                                                                    </AlertDialogHeader>
+                                                                    <AlertDialogDescription>
+                                                                        Below are the subsequent actions executed on clicking the Confirm button:
+                                                                        <ul className='list-disc ml-6 italic'>
+                                                                            <li>Merged PO(s) will be permanently deleted!</li>
+                                                                            <li>The current PO will be updated to contain the merged PO(s) items</li>
+                                                                        </ul>
+                                                                        <p className='mt-2 font-semibold text-base'>Continue?</p>
+                                                                    </AlertDialogDescription>
+                                                                    <AlertDialogDescription className='flex gap-2 items-center justify-center'>
+                                                                        <AlertDialogCancel className="flex items-center gap-1" >
+                                                                            <Undo2 className="h-4 w-4" />
+                                                                            Cancel </AlertDialogCancel>
+                                                                        < AlertDialogAction onClick={handleMergePOs}>
+                                                                            <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' >
+                                                                                <CheckCheck className="h-4 w-4" />
+                                                                                Confirm </button>
+                                                                        </AlertDialogAction>
+                                                                    </AlertDialogDescription>
+                                                                </AlertDialogContent>
+                                                            </AlertDialog>
+                                                        </div>
+                                                    </div>
+                                                </SheetContent>
+                                            </Sheet>
+                                        </AlertDescription>
+                                    </Alert>
+                                </>
+                            )}
                             <div className={`w-full border rounded-lg h-screen overflow-y-scroll`}>
                                 <div ref={componentRef} className="w-full p-4">
                                     <div className="overflow-x-auto">
@@ -405,7 +884,7 @@ export const ReleasePONew: React.FC = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className={`bg-white`}>
-                                                {orderData?.order_list?.list.map((item: any, index: number) => {
+                                                {/* {orderData?.order_list?.list.map((item: any, index: number) => {
                                                     return (<tr key={index} className={`${(!loadingCharges && !freightCharges && index === orderData?.order_list?.list.length - 1) && "border-b border-black"} page-break-inside-avoid ${index === 15 ? 'page-break-before' : ''}`}>
                                                         <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
                                                         <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
@@ -415,6 +894,34 @@ export const ReleasePONew: React.FC = () => {
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap">{item.tax}%</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(((item.quote) * (item.quantity)).toFixed(2))}</td>
                                                     </tr>)
+                                                })} */}
+
+                                                {[...new Map(orderData?.order_list?.list.map(item =>
+                                                    [item.item, {
+                                                        ...item, quantity: orderData.order_list.list
+                                                            .filter(({ item: itemName }) => itemName === item.item)
+                                                            .reduce((total, curr) => total + curr.quantity, 0)
+                                                    }]
+                                                )).values()].map((item, index) => {
+
+                                                    const length = [...new Map(orderData?.order_list?.list.map(item =>
+                                                        [item.item, {
+                                                            ...item, quantity: orderData.order_list.list
+                                                                .filter(({ item: itemName }) => itemName === item.item)
+                                                                .reduce((total, curr) => total + curr.quantity, 0)
+                                                        }]
+                                                    )).values()].length
+                                                    return (
+                                                        <tr key={index} className={`${(!loadingCharges && !freightCharges && index === length - 1) && "border-b border-black"} page-break-inside-avoid ${index === 15 ? 'page-break-before' : ''}`}>
+                                                            <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
+                                                            <td className="py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
+                                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
+                                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
+                                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.quote)}</td>
+                                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{item.tax}%</td>
+                                                            <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(((item.quote) * (item.quantity)).toFixed(2))}</td>
+                                                        </tr>
+                                                    )
                                                 })}
                                                 {/* {[...Array(19)].map((_, index) => (
                                         orderData?.order_list?.list.map((item) => (
@@ -597,119 +1104,518 @@ export const ReleasePONew: React.FC = () => {
                             </div>
 
                             {
-                                orderData?.status === "Generated" && (
-                                    <Card className="border-green-500">
-                                        <CardHeader>
-                                            <CardTitle>Ready for Dispatch</CardTitle>
-                                            <CardContent>
-                                                <CardDescription >
-                                                    <div className='flex flex-col gap-2 w-full'>
-                                                        <p>Please enter the delivery person Name and Contact Number:</p>
-                                                        <div className='ml-20 flex items-center gap-32 w-full'>
-                                                            <div className='w-[50%] flex flex-col gap-2'>
-                                                                <Input type='text' value={contactPerson.name} placeholder='Person Name...' onChange={(e) => setContactPerson((prev) => ({
-                                                                    ...prev,
-                                                                    name: e.target.value
-                                                                }))} />
-                                                                <Input type='number' value={contactPerson.number} placeholder='and Number' onChange={(e) => setContactPerson((prev) => ({
-                                                                    ...prev,
-                                                                    number: e.target.value
-                                                                }))} />
+                                orderData?.status === "PO Approved" && (
+                                    <Card className="border-yellow-500 shadow-lg overflow-hidden">
+                                        <CardHeader className="bg-yellow-50">
+                                            <CardTitle className="text-2xl text-yellow-800">Send this PO to <span className='font-bold text-yellow-600'>{orderData?.vendor_name}</span></CardTitle>
+                                        </CardHeader>
+                                        <CardContent className='p-6'>
+                                            <div className="space-y-6">
+                                                <div className="bg-yellow-100 p-4 rounded-lg">
+                                                    <h3 className="font-semibold text-yellow-800 mb-2 flex items-center">
+                                                        <AlertTriangle className="w-5 h-5 mr-2" />
+                                                        Important Notes
+                                                    </h3>
+                                                    <ul className="list-disc list-inside space-y-1 text-sm text-yellow-700">
+                                                        <li>You can add <span className="font-bold">charges, notes & payment terms</span> above.</li>
+                                                        <li>You can also <span className='font-bold'>merge POs</span> with same vendor and project. Look out for <span className="font-bold">Heads Up</span> box above.</li>
+                                                        <li>You can download the prepared PO to notify vendor: <span className="font-medium">{orderData?.vendor_name}</span> through <span > Contact Options</span> section below</li>
+                                                    </ul>
+                                                </div>
+                                                <Separator />
+                                                <div className="space-y-4">
+                                                    <h3 className="font-semibold text-lg">Contact Options</h3>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <div>
+                                                            <Label htmlFor="phone" className="text-sm font-medium">Phone Number</Label>
+                                                            <div className="flex flex-col mt-1">
+                                                                <div className="flex">
+                                                                    <Input
+                                                                        id="phone"
+                                                                        type="tel"
+                                                                        placeholder="Enter 10-digit number"
+                                                                        value={phoneNumber}
+                                                                        onChange={handlePhoneChange}
+                                                                        className="rounded-r-none"
+                                                                    />
+                                                                    <Dialog>
+                                                                        <DialogTrigger asChild>
+                                                                            <ShadButton
+                                                                                className="rounded-l-none bg-green-600 hover:bg-green-700"
+                                                                                disabled={phoneNumber.length !== 10}
+                                                                            >
+                                                                                <Phone className="w-4 h-4 mr-2" />
+                                                                                WhatsApp
+                                                                            </ShadButton>
+                                                                        </DialogTrigger>
+                                                                        <DialogContent>
+                                                                            <DialogHeader>
+                                                                                <DialogTitle className='text-center'>Send PO via WhatsApp</DialogTitle>
+                                                                                <DialogDescription className='text-center'>
+                                                                                    Download the PO and send it via WhatsApp to {phoneNumber}
+                                                                                </DialogDescription>
+                                                                            </DialogHeader>
+                                                                            <div className="flex justify-center space-x-4">
+                                                                                <ShadButton disabled={advance > 100 || advance < 0} onClick={() => {
+                                                                                    onSubmit(control._formValues)
+                                                                                    handlePrint()
+                                                                                }} variant="outline">
+                                                                                    <Download className="h-4 w-4 mr-2" />
+                                                                                    Download PO
+                                                                                </ShadButton>
+                                                                                <ShadButton onClick={() => window.open(`https://wa.me/${phoneNumber}`)} className="bg-green-600 hover:bg-green-700">
+                                                                                    <CheckCheck className="h-4 w-4 mr-2" />
+                                                                                    Open WhatsApp
+                                                                                </ShadButton>
+                                                                            </div>
+                                                                        </DialogContent>
+                                                                    </Dialog>
+
+                                                                </div>
+                                                                {phoneError && <p className="text-red-500 text-xs mt-1">{phoneError}</p>}
                                                             </div>
-                                                            {
-                                                                (Object.values(contactPerson).some((val) => !val) || contactPerson.number.length !== 10) ? (
-                                                                    <HoverCard>
-                                                                        <HoverCardTrigger>
-                                                                            <button disabled className='border-green-500 h-9 px-4 py-2 inline-flex items-center 
-                                                        justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors 
-                                                        focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border 
-                                                        bg-background shadow-sm hover:bg-accent hover:text-accent-foreground flex gap-1 items-center'>
-                                                                                <ListChecks className="h-4 w-4" />
-                                                                                Submit</button>
-                                                                        </HoverCardTrigger>
-                                                                        <HoverCardContent className='flex flex-col gap-2 w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg'>
-                                                                            <p className='font-semibold'>Please fulfill the following conditions to enable the Update button</p>
-                                                                            <ul className='list-disc text-xs ml-6'>
-                                                                                <li>Person Name must not be empty</li>
-                                                                                <li>Contact Number must be of 10 digits</li>
-                                                                            </ul>
-                                                                        </HoverCardContent>
-                                                                    </HoverCard>
-                                                                ) : (
-                                                                    <AlertDialog>
-                                                                        <AlertDialogTrigger>
-                                                                            <button className='border-green-500 h-9 px-4 py-2 inline-flex items-center 
-                                                        justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors 
-                                                        focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border 
-                                                        bg-background shadow-sm hover:bg-accent hover:text-accent-foreground flex gap-1 items-center'>
-                                                                                <ListChecks className="h-4 w-4" />
-                                                                                Submit</button>
-                                                                        </AlertDialogTrigger>
-                                                                        < AlertDialogContent >
-                                                                            <AlertDialogHeader>
-                                                                                <AlertDialogTitle>
-                                                                                    <h1 className="justify-center" > Is this order dispatched ? </h1>
-                                                                                </AlertDialogTitle>
+                                                        </div>
+                                                        <div>
+                                                            <Label htmlFor="email" className="text-sm font-medium">Email</Label>
+                                                            <div className="flex flex-col mt-1">
+                                                                <div className="flex">
+                                                                    <Input
+                                                                        id="email"
+                                                                        type="email"
+                                                                        placeholder="Enter email address"
+                                                                        value={email}
+                                                                        onChange={handleEmailChange}
+                                                                        className="rounded-r-none"
+                                                                    />
+                                                                    <Dialog>
+                                                                        <DialogTrigger asChild>
+                                                                            <ShadButton
+                                                                                className="rounded-l-none bg-blue-600 hover:bg-blue-700"
+                                                                                disabled={!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
+                                                                            >
+                                                                                <Mail className="w-4 h-4 mr-2" />
+                                                                                Email
+                                                                            </ShadButton>
+                                                                        </DialogTrigger>
+                                                                        <DialogContent className="max-w-3xl">
+                                                                            <DialogHeader>
+                                                                                <DialogTitle>Send PO via Email</DialogTitle>
+                                                                                <DialogDescription>
+                                                                                    Customize your email and send the PO to {email}
+                                                                                </DialogDescription>
+                                                                            </DialogHeader>
+                                                                            <div className="space-y-4">
+                                                                                <div>
+                                                                                    <Label htmlFor="emailSubject">Subject</Label>
+                                                                                    <Input
+                                                                                        id="emailSubject"
+                                                                                        value={emailSubject}
+                                                                                        onChange={(e) => setEmailSubject(e.target.value)}
+                                                                                        placeholder="Enter email subject"
+                                                                                    />
+                                                                                </div>
+                                                                                <div>
+                                                                                    <Label htmlFor="emailBody">Body</Label>
+                                                                                    <TextArea
+                                                                                        id="emailBody"
+                                                                                        value={emailBody}
+                                                                                        onChange={(e) => setEmailBody(e.target.value)}
+                                                                                        placeholder="Enter email body"
+                                                                                        rows={5}
+                                                                                    />
+                                                                                </div>
+                                                                                <div className="bg-gray-100 p-4 rounded-md">
+                                                                                    <h4 className="font-medium mb-2">Email Preview</h4>
+                                                                                    <p><strong>To:</strong> {email}</p>
+                                                                                    <p><strong>Subject:</strong> {emailSubject}</p>
+                                                                                    <p><strong>Body:</strong> {emailBody}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <DialogFooter>
+                                                                                <ShadButton disabled={advance > 100 || advance < 0} onClick={() => {
+                                                                                    onSubmit(control._formValues)
+                                                                                    handlePrint()
+                                                                                }} variant="outline">
+                                                                                    <Download className="h-4 w-4 mr-2" />
+                                                                                    Download PO
+                                                                                </ShadButton>
+                                                                                <ShadButton onClick={() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`)} className="bg-blue-600 hover:bg-blue-700">
+                                                                                    <CheckCheck className="h-4 w-4 mr-2" />
+                                                                                    Send Email
+                                                                                </ShadButton>
+                                                                            </DialogFooter>
+                                                                        </DialogContent>
+                                                                    </Dialog>
 
-                                                                                < AlertDialogDescription className="items-center justify-center" >
-                                                                                    This action will create a delivery note for the project manager on site.Are you sure you want to continue?
-                                                                                    <div className='flex mt-2 gap-2 items-center justify-center' >
-                                                                                        <AlertDialogCancel className="flex items-center gap-1" >
-                                                                                            <Undo2 className="h-4 w-4" />
-                                                                                            Cancel </AlertDialogCancel>
-                                                                                        < AlertDialogAction onClick={handleDispatchPO} >
-                                                                                            <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' >
-                                                                                                <CheckCheck className="h-4 w-4" />
-                                                                                                Confirm </button>
-                                                                                        </AlertDialogAction>
-                                                                                    </div>
-                                                                                </AlertDialogDescription>
-
-                                                                            </AlertDialogHeader>
-                                                                        </AlertDialogContent>
-                                                                    </AlertDialog>
-                                                                )
-                                                            }
+                                                                </div>
+                                                                {emailError && <p className="text-red-500 text-xs mt-1">{emailError}</p>}
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </CardDescription>
 
-                                            </CardContent>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                        <CardFooter className="bg-gray-50 flex justify-between p-4">
+                                            <p className="text-sm text-gray-600 italic">Check all details before sending this PO.</p>
+                                            <div className="space-x-2">
+                                                <ShadButton variant="outline" onClick={() => { onSubmit(control._formValues); handlePrint(); }}>
+                                                    <Printer className='h-4 w-4 mr-2' />
+                                                    Print
+                                                </ShadButton>
+                                                <Dialog>
+                                                    <DialogTrigger asChild>
+                                                        <ShadButton variant="default" className="bg-yellow-500 hover:bg-yellow-600">
+                                                            <Send className='h-4 w-4 mr-2' />
+                                                            Mark PO Sent
+                                                        </ShadButton>
+                                                    </DialogTrigger>
+                                                    <DialogContent>
+                                                        <DialogHeader>
+                                                            <DialogTitle>Confirm PO Sending</DialogTitle>
+                                                            <DialogDescription>
+                                                                This action will set the status of this PO to "PO Sent". Are you sure you want to proceed?
+                                                            </DialogDescription>
+                                                        </DialogHeader>
+                                                        <DialogFooter>
+                                                            <ShadButton variant="outline">
+                                                                <Undo2 className="h-4 w-4 mr-2" />
+                                                                Cancel
+                                                            </ShadButton>
+                                                            <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600">
+                                                                <CheckCheck className="h-4 w-4 mr-2" />
+                                                                Confirm
+                                                            </ShadButton>
+                                                        </DialogFooter>
+                                                    </DialogContent>
+                                                </Dialog>
+                                            </div>
+                                        </CardFooter>
+
+                                    </Card>
+                                )}
+                            {
+                                orderData?.status === "PO Sent" && (
+                                    <Card className="border-green-500 shadow-lg overflow-hidden">
+                                        <CardHeader className="bg-green-50 border-b border-green-200">
+                                            <CardTitle className="text-2xl text-green-800 flex items-center">
+                                                <Truck className="w-6 h-6 mr-2" />
+                                                Ready for Dispatch?
+                                            </CardTitle>
                                         </CardHeader>
+                                        <CardContent className='p-6'>
+                                            <CardDescription >
+                                                <div className='space-y-6'>
+                                                    <div className="bg-green-100 p-4 rounded-lg border border-green-200">
+                                                        <h3 className="font-semibold text-green-800 mb-2 flex items-center">
+                                                            <AlertTriangle className="w-5 h-5 mr-2" />
+                                                            Important Notes
+                                                        </h3>
+                                                        <ul className="list-disc list-inside space-y-1 text-sm text-green-700">
+                                                            <li>Ensure all items are properly packed and labeled.</li>
+                                                            <li>Verify the delivery address and contact information.</li>
+                                                            <li>Attach any necessary documentation to the package.</li>
+                                                        </ul>
+                                                    </div>
+                                                    <div>
+                                                        <h3 className="text-lg font-semibold text-gray-700 mb-2">Delivery Person Details</h3>
+                                                        <p className="text-base text-gray-600 mb-4">Please enter the delivery person's Name and Contact Number:</p>
+                                                        <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                                                            <div>
+                                                                <Label htmlFor="personName" className="text-sm font-medium">
+                                                                    Person Name <span className="text-gray-400">(optional)</span>
+                                                                </Label>
+                                                                <Input
+                                                                    id="personName"
+                                                                    type='text'
+                                                                    value={contactPerson.name}
+                                                                    placeholder='Enter person name'
+                                                                    onChange={(e) => setContactPerson((prev) => ({
+                                                                        ...prev,
+                                                                        name: e.target.value
+                                                                    }))}
+                                                                    className="mt-1"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <Label htmlFor="contactNumber" className="text-sm font-medium">
+                                                                    Contact Number <span className="text-gray-400">(optional)</span>
+                                                                </Label>
+                                                                <Input
+                                                                    id="contactNumber"
+                                                                    type='tel'
+                                                                    value={contactPerson.number}
+                                                                    placeholder='Enter 10-digit number'
+                                                                    onChange={(e) => setContactPerson((prev) => ({
+                                                                        ...prev,
+                                                                        number: e.target.value.slice(0, 10)
+                                                                    }))}
+                                                                    className="mt-1"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className='flex justify-end mt-4'>
+                                                        <AlertDialog>
+                                                            <AlertDialogTrigger asChild>
+                                                                <ShadButton className='bg-green-500 text-white hover:bg-green-600'>
+                                                                    <ListChecks className="h-4 w-4 mr-2" />
+                                                                    Mark Dispatched
+                                                                </ShadButton>
+                                                            </AlertDialogTrigger>
+                                                            <AlertDialogContent>
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle>Is this order dispatched?</AlertDialogTitle>
+                                                                    <AlertDialogDescription>
+                                                                        This action will create a delivery note for the project manager on site. Are you sure you want to continue?
+                                                                    </AlertDialogDescription>
+                                                                </AlertDialogHeader>
+                                                                <AlertDialogFooter>
+                                                                    <AlertDialogCancel className="flex items-center">
+                                                                        <Undo2 className="h-4 w-4 mr-2" />
+                                                                        Cancel
+                                                                    </AlertDialogCancel>
+                                                                    <ShadButton onClick={handleDispatchPO} className='bg-green-500 text-white hover:bg-green-600'>
+                                                                        <CheckCheck className="h-4 w-4 mr-2" />
+                                                                        Confirm
+                                                                    </ShadButton>
+                                                                </AlertDialogFooter>
+                                                            </AlertDialogContent>
+                                                        </AlertDialog>
+                                                    </div>
+                                                </div>
+
+                                            </CardDescription>
+
+                                        </CardContent>
                                     </Card>
                                 )
                             }
-                            <Card className="border-primary">
-                                <CardHeader>
-                                    <CardTitle>Cancel PO</CardTitle>
-                                    <CardContent>
-                                        <CardDescription className="flex justify-between items-center">
-                                            <p className="w-[70%]">on clicking the cancel button will create a "Sent Back Request"</p>
-                                            {orderData?.status === "Generated" ? (
-                                                <button
-                                                    onClick={() => document.getElementById("alertTrigger")?.click()}
-                                                    className="border-primary h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground"
-                                                >
-                                                    Cancel PO
-                                                </button>
-                                            ) : (
-                                                <HoverCard>
-                                                    <HoverCardTrigger>
-                                                        <button disabled className="border-primary cursor-not-allowed h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground">Cancel PO</button>
-                                                    </HoverCardTrigger>
-                                                    <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                                        <div>
-                                                            <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note or status has already been updated!
-                                                        </div>
-                                                    </HoverCardContent>
-                                                </HoverCard>
-                                            )}
-                                            <AlertDialog>
-                                                <AlertDialogTrigger>
-                                                    <button className="hidden" id="alertTrigger">trigger</button>
-                                                </AlertDialogTrigger>
-                                                <AlertDialogContent>
-                                                    <AlertDialogHeader>
+                            <Card className="border-primary shadow-lg overflow-hidden">
+                                <CardHeader className="bg-primary/10 border-b border-primary/20">
+                                    <CardTitle className="text-2xl text-primary flex items-center">
+                                        <ListTodo className="w-6 h-6 mr-2" />
+                                        Amend PO
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className='p-6'>
+                                    <CardDescription>
+                                        <div className="space-y-6">
+                                            <div className="bg-primary/10 p-4 rounded-lg border border-primary/20">
+                                                <h3 className="font-semibold text-primary mb-2 flex items-center">
+                                                    <AlertTriangle className="w-5 h-5 mr-2" />
+                                                    Important Notes
+                                                </h3>
+                                                <ul className="list-disc list-inside space-y-1 text-sm text-primary/80">
+                                                    <li>If you want to change quantities or remove items from this PO, choose this option.</li>
+                                                    <li>This action will create an <span className="text-red-700 font-semibold">Approve Amendment</span> for this PO and send it to Project Lead for verification.</li>
+                                                </ul>
+                                            </div>
+
+                                            <div className="flex justify-end">
+                                                {orderData?.status === "PO Approved" ? (
+                                                    <button
+                                                        onClick={() => document.getElementById("amendAlertTrigger")?.click()}
+                                                        className="border-primary h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground"
+                                                    >
+                                                        <ListTodo className="h-4 w-4 mr-1" />
+                                                        Amend PO
+                                                    </button>
+                                                ) : (
+                                                    <HoverCard>
+                                                        <HoverCardTrigger>
+                                                            <button disabled className="border-primary cursor-not-allowed h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground">
+                                                                <ListTodo className="h-4 w-4 mr-1" />
+                                                                Amend PO
+                                                            </button>
+                                                        </HoverCardTrigger>
+                                                        <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                            <div>
+                                                                <span className="text-primary underline">Amendment</span> not allowed for this PO as its delivery note or status has already been updated!
+                                                            </div>
+                                                        </HoverCardContent>
+                                                    </HoverCard>
+                                                )}
+
+                                                <Sheet>
+                                                    <SheetTrigger>
+                                                        <button className="hidden" id="amendAlertTrigger">trigger</button>
+                                                    </SheetTrigger>
+                                                    <SheetContent>
+                                                        <>
+                                                            <div className='pb-4 text-lg font-bold'>Amend: <span className='text-red-700'>{orderId}</span></div>
+                                                            {/* PENDING CARD */}
+                                                            <Card className="p-4">
+                                                                <div className="flex justify-between pb-2 gap-2">
+                                                                    <div className="text-red-700 text-sm font-light">Order List</div>
+                                                                    {stack.length !== 0 && (
+                                                                        <div className="flex items-center space-x-2">
+                                                                            <HoverCard>
+                                                                                <HoverCardTrigger>
+                                                                                    <button
+                                                                                        onClick={() => UndoDeleteOperation()}
+                                                                                        className="flex items-center max-md:text-sm max-md:px-2 max-md:py-1  px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-600 transition duration-200 ease-in-out"
+                                                                                    >
+                                                                                        <Undo className="mr-2 max-md:w-4 max-md:h-4" /> {/* Undo Icon */}
+                                                                                        Undo
+                                                                                    </button>
+                                                                                </HoverCardTrigger>
+                                                                                <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
+                                                                                    Click to undo the last operation
+                                                                                </HoverCardContent>
+                                                                            </HoverCard>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+
+                                                                <table className="table-auto md:w-full">
+                                                                    <thead>
+                                                                        <tr className="bg-gray-200">
+                                                                            <th className="w-[60%] text-left px-4 py-1 text-xs">Item Name</th>
+                                                                            <th className="w-[20%] px-4 py-1 text-xs text-center">Unit</th>
+                                                                            <th className="w-[10%] px-4 py-1 text-xs text-center">Quantity</th>
+                                                                            <th className="w-[10%] px-4 py-1 text-xs text-center">Edit</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        {orderData?.order_list.list.map((item) => {
+                                                                            return <tr key={item.item}>
+                                                                                <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
+                                                                                    {item.item}
+                                                                                </td>
+                                                                                <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
+                                                                                <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
+                                                                                <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
+                                                                                    <AlertDialog>
+                                                                                        <AlertDialogTrigger onClick={() => setQuantity(parseInt(item.quantity))}><Pencil className="w-4 h-4" /></AlertDialogTrigger>
+                                                                                        <AlertDialogContent>
+                                                                                            <AlertDialogHeader>
+                                                                                                <AlertDialogTitle className="flex justify-between">Edit Item
+                                                                                                    <AlertDialogCancel onClick={() => setQuantity('')} className="border-none shadow-none p-0">X</AlertDialogCancel>
+                                                                                                </AlertDialogTitle>
+                                                                                                <AlertDialogDescription className="flex flex-col gap-2">
+                                                                                                    <div className="flex space-x-2">
+                                                                                                        <div className="w-1/2 md:w-2/3">
+                                                                                                            <h5 className="text-base text-gray-400 text-left mb-1">Item Name</h5>
+                                                                                                            <div className="w-full  p-1 text-left">
+                                                                                                                {item.item}
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                        <div className="w-[30%]">
+                                                                                                            <h5 className="text-base text-gray-400 text-left mb-1">UOM</h5>
+                                                                                                            <div className=" w-full  p-2 text-center justify-left flex">
+                                                                                                                {item.unit}
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                        <div className="w-[25%]">
+                                                                                                            <h5 className="text-base text-gray-400 text-left mb-1">Qty</h5>
+                                                                                                            <input type="number" defaultValue={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value !== "" ? parseInt(e.target.value) : null)} />
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                </AlertDialogDescription>
+                                                                                                <AlertDialogDescription className="flex justify-end">
+                                                                                                    <div className="flex gap-2">
+                                                                                                        {orderData.order_list.list.length === 1 ?
+                                                                                                            <Button disabled>
+                                                                                                                <Trash2 className="h-4 w-4" />
+                                                                                                                Delete
+                                                                                                            </Button>
+                                                                                                            :
+                                                                                                            <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex gap-1 items-center" onClick={() => handleDelete(item.item)}>
+                                                                                                                <Button>
+                                                                                                                    <Trash2 className="h-4 w-4" />
+                                                                                                                    Delete
+                                                                                                                </Button>
+                                                                                                            </AlertDialogAction>
+                                                                                                        }
+
+
+                                                                                                        <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)} className="flex gap-1 items-center">
+                                                                                                            <Button>
+                                                                                                                <ListChecks className="h-4 w-4" />
+                                                                                                                Save
+                                                                                                            </Button>
+                                                                                                        </AlertDialogAction>
+                                                                                                    </div>
+                                                                                                </AlertDialogDescription>
+                                                                                            </AlertDialogHeader>
+                                                                                        </AlertDialogContent>
+                                                                                    </AlertDialog>
+                                                                                </td>
+                                                                            </tr>
+
+                                                                        })}
+                                                                    </tbody>
+
+                                                                </table>
+                                                            </Card>
+
+                                                            <div className='flex p-2 gap-2 align-right'>
+                                                                <SheetClose>
+                                                                    <button
+
+                                                                        className="border-primary h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground"
+                                                                    >
+                                                                        <Undo2 className="h-4 w-4" />
+                                                                        Cancel
+                                                                    </button>
+                                                                </SheetClose>
+                                                                {stack.length === 0 ?
+                                                                    <HoverCard>
+                                                                        <HoverCardTrigger>
+                                                                            <button disabled className="border-primary cursor-not-allowed h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground">
+                                                                                <CheckCheck className="h-4 w-4" />
+                                                                                Confirm
+                                                                            </button>
+                                                                        </HoverCardTrigger>
+                                                                        <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                                            <div>
+                                                                                <span className="text-primary underline">No Amend operations are performed in this PO</span>
+                                                                            </div>
+                                                                        </HoverCardContent>
+                                                                    </HoverCard>
+                                                                    :
+                                                                    <AlertDialog>
+                                                                        <AlertDialogTrigger>
+                                                                            <button
+                                                                                className="border-primary h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground"
+                                                                            >
+                                                                                <CheckCheck className="h-4 w-4" />
+                                                                                Confirm
+                                                                            </button>
+                                                                        </AlertDialogTrigger>
+                                                                        <AlertDialogContent>
+                                                                            <AlertDialogHeader>
+                                                                                <AlertDialogTitle>
+                                                                                    <h1 className="justify-center text-center">Are you sure you want to amend this PO?</h1>
+                                                                                </AlertDialogTitle>
+
+                                                                                <AlertDialogDescription className="flex flex-col text-center gap-1">
+                                                                                    Amending this PO will send this to Project Lead for approval. Continue?
+                                                                                    <div className='flex flex-col gap-2 mt-2'>
+                                                                                        <TextArea placeholder='input the reason for amending this PO...' value={comment} onChange={(e) => setComment(e.target.value)} />
+                                                                                    </div>
+                                                                                    <div className='flex gap-2 items-center justify-center pt-2'>
+                                                                                        <AlertDialogCancel className="flex items-center gap-1">
+                                                                                            <Undo2 className="h-4 w-4" />
+                                                                                            Cancel</AlertDialogCancel>
+                                                                                        <AlertDialogAction onClick={handleAmendPo}>
+                                                                                            <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex items-center gap-1'>
+                                                                                                <CheckCheck className="h-4 w-4" />
+                                                                                                Confirm</button>
+                                                                                        </AlertDialogAction>
+                                                                                    </div>
+                                                                                </AlertDialogDescription>
+                                                                            </AlertDialogHeader>
+                                                                        </AlertDialogContent>
+                                                                    </AlertDialog>
+                                                                }
+
+
+                                                            </div>
+
+                                                        </>
+                                                        {/* <AlertDialogHeader>
                                                         <AlertDialogTitle>
                                                             <h1 className="justify-center">Are you sure!</h1>
                                                         </AlertDialogTitle>
@@ -730,18 +1636,98 @@ export const ReleasePONew: React.FC = () => {
                                                                 </AlertDialogAction>
                                                             </div>
                                                         </AlertDialogDescription>
-                                                    </AlertDialogHeader>
-                                                </AlertDialogContent>
-                                            </AlertDialog>
-                                        </CardDescription>
+                                                    </AlertDialogHeader> */}
+                                                    </SheetContent>
+                                                </Sheet>
+                                            </div>
+                                        </div>
+                                    </CardDescription>
 
-                                    </CardContent>
+                                </CardContent>
+                            </Card>
+                            <Card className="border-primary shadow-lg overflow-hidden">
+                                <CardHeader className="bg-primary/10 border-b border-primary/20">
+                                    <CardTitle className="text-2xl text-primary flex items-center">
+                                        <ListX className="w-6 h-6 mr-2" />
+                                        Cancel PO
+                                    </CardTitle>
                                 </CardHeader>
+                                <CardContent className="p-6">
+                                    <CardDescription>
+                                        <div className="space-y-6">
+                                            <div className="bg-primary/10 p-4 rounded-lg border border-primary/20">
+                                                <h3 className="font-semibold text-primary mb-2 flex items-center">
+                                                    <AlertTriangle className="w-5 h-5 mr-2" />
+                                                    Important Notes
+                                                </h3>
+                                                <ul className="list-disc list-inside space-y-1 text-sm text-primary/80">
+                                                    <li>If you want to add/change vendor quotes, choose this option.</li>
+                                                    <li>This action will create a <Badge variant="destructive">Cancelled</Badge> Sent Back Request within <span className="text-red-700 font-semibold">New Sent Back</span> side option.</li>
+                                                </ul>
+                                            </div>
+
+                                            <div className="flex justify-end">
+                                                {orderData?.status === "PO Approved" ? (
+                                                    <button
+                                                        onClick={() => document.getElementById("alertTrigger")?.click()}
+                                                        className="border-primary h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground"
+                                                    >
+                                                        <ListX className="h-4 w-4 mr-1" />
+                                                        Cancel PO
+                                                    </button>
+                                                ) : (
+                                                    <HoverCard>
+                                                        <HoverCardTrigger>
+                                                            <button disabled className="border-primary cursor-not-allowed h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground">
+                                                                <ListX className="h-4 w-4 mr-1" />
+                                                                Cancel PO
+                                                            </button>
+                                                        </HoverCardTrigger>
+                                                        <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                            <div>
+                                                                <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note or status has already been updated!
+                                                            </div>
+                                                        </HoverCardContent>
+                                                    </HoverCard>
+                                                )}
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger>
+                                                        <button className="hidden" id="alertTrigger">trigger</button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>
+                                                                <h1 className="justify-center">Are you sure!</h1>
+                                                            </AlertDialogTitle>
+
+                                                            <AlertDialogDescription className="flex flex-col text-center gap-1">
+                                                                Cancelling this PO will create a new cancelled Sent Back. Continue?
+                                                                <div className='flex flex-col gap-2 mt-2'>
+                                                                    <TextArea placeholder='input the reason for cancelling...' value={comment} onChange={(e) => setComment(e.target.value)} />
+                                                                </div>
+                                                                <div className='flex gap-2 items-center justify-center pt-2'>
+                                                                    <AlertDialogCancel className="flex items-center gap-1">
+                                                                        <Undo2 className="h-4 w-4" />
+                                                                        Cancel</AlertDialogCancel>
+                                                                    <AlertDialogAction onClick={handleCancelPo}>
+                                                                        <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex items-center gap-1'>
+                                                                            <CheckCheck className="h-4 w-4" />
+                                                                            Confirm</button>
+                                                                    </AlertDialogAction>
+                                                                </div>
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                            </div>
+                                        </div>
+                                    </CardDescription>
+                                </CardContent>
                             </Card>
                         </Content>
                     </div>
                 </Layout>
             </Layout>
-        </div>
+        </div >
     );
 };

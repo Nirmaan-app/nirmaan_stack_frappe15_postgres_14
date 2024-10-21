@@ -1,7 +1,7 @@
 // import { useState } from 'react'
-import { FrappeProvider } from 'frappe-react-sdk'
+import { FrappeConfig, FrappeContext, FrappeProvider, useFrappePutCall } from 'frappe-react-sdk'
 // import { Button } from './components/ui/button'
-import {  Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
+import { Route, RouterProvider, createBrowserRouter, createRoutesFromElements, useFetcher } from 'react-router-dom'
 import Dashboard from './pages/dashboard'
 import Login from './pages/auth/old-login'
 import Projects from './pages/projects/projects'
@@ -24,7 +24,7 @@ import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
 import { PDF } from './pages/pdf'
 //import { useStickyState } from './hooks/useStickyState'
 import { ThemeProvider } from './components/ui/theme-provider'
-import {  ProtectedRoute } from './utils/auth/ProtectedRoute'
+import { LeadRoute, ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
 
 //import AuthenticationPage from './pages/auth/login-shadcn'
@@ -41,7 +41,7 @@ import Vendors from './pages/vendors/vendors'
 
 import ListPR from './components/procurement-request/list-pr'
 import { EditVendor } from './pages/vendors/edit-vendor'
-import { FC } from 'react'
+import { FC, useContext, useEffect } from 'react'
 import { MainLayout } from './components/layout/main-layout'
 import { ProjectManager } from './components/dashboard-pm'
 
@@ -56,6 +56,11 @@ import DeliveryNotes from './pages/DeliveryNotes/deliverynotes'
 import DeliveryNote from './pages/DeliveryNotes/deliverynote'
 import { ProjectForm } from './pages/projects/project-form'
 import { ReleasePONew } from './components/updates/ReleasePONew'
+import { ApprovedQuotationsTable } from './pages/ApprovedQuotationsFlow/ApprovedQuotationsTable'
+import EditUserForm from './pages/users/EditUserForm'
+import { messaging, VAPIDKEY } from './firebase/firebaseConfig'
+import { onMessage } from 'firebase/messaging'
+import { ApproveSelectAmendPO } from './pages/approve-select-amend-po'
 // import { NewMilestone } from './components/new-milestone'
 
 
@@ -78,15 +83,18 @@ const router = createBrowserRouter(
 					{/* <Route path="/new-pr/:id" element={<NewPR />} /> */}
 					{/* <Route path="/pr-summary/:id" element={<PRSummary />} /> */}
 					{/* <Route path="/milestone/:id" element={<NewMilestone/>} /> */}
-
-
+					{/* <Route path='/prs&milestones' element={<LeadRoute />}> */}
 					<Route path='/prs&milestones' element={<ProjectManager />} />
+					{/* </Route> */}
+
 					<Route path='/milestone-update' element={<NewMilestones />} />
 
 					<Route path="approve-order" element={<ApprovePR />} />
-					<Route path="/approve-order/:id" lazy={() => import('@/pages/approve-order')} />
+					<Route path="approve-order/:id" lazy={() => import('@/pages/approve-order')} />
 					<Route path="approve-vendor" element={<ApproveSelectVendor />} />
 					<Route path="approve-vendor/:orderId" lazy={() => import('@/pages/approve-vendor')} />
+					<Route path="approve-amended-po" element={<ApproveSelectAmendPO />} />
+					<Route path="approve-amended-po/:po" lazy={() => import('@/pages/approve-amend-po')} />
 					<Route path="approve-sent-back" element={<ApproveSelectSentBack />} />
 					<Route path="approve-sent-back/:id" lazy={() => import('@/pages/approve-sent-back')} />
 					<Route path="delayed-pr" element={<DelayedPRSelect />} />
@@ -101,9 +109,14 @@ const router = createBrowserRouter(
 					<Route path="/procure-request/:orderId" element={<ProcurementOrder />} />
 					<Route path="/procure-request/quote-update/:orderId" element={<UpdateQuote />} />
 					<Route path="/procure-request/quote-update/select-vendors/:orderId" element={<SelectVendors />} />
-					<Route path="release-po" element={<ReleasePOSelect />} />
+					<Route path="release-po" element={<ReleasePOSelect not={false} status="PO Approved" />} />
 					{/* <Route path="/release-po/:id" element={<ReleasePO />} /> */}
 					<Route path="/release-po/:id" element={<ReleasePONew />} />
+
+					<Route path="released-po" element={<ReleasePOSelect not={true} status="PO Approved" />} />
+					{/* <Route path="/release-po/:id" element={<ReleasePO />} /> */}
+					<Route path="/released-po/:id" element={<ReleasePONew />} />
+
 					<Route path="delivery-notes" element={<DeliveryNotes />} />
 					<Route path="/delivery-notes/:id" element={<DeliveryNote />} />
 
@@ -112,19 +125,17 @@ const router = createBrowserRouter(
 						<Route path="new" element={<ProjectForm />} />
 						<Route
 							path=":projectId"
-							// loader={(({ params }) => {
-							// 	console.log(params.projectId)
-							// })}
-							// action={(({ params }) => {})}
 							lazy={() => import('@/pages/projects/project')}
 						/>
 						<Route path=":projectId/edit" element={<EditProjectForm />} />
+						<Route path=":projectId/:id" lazy={() => import('@/components/pr-summary')} />
 					</Route>
 
 					<Route path="users">
 						<Route index element={<Users />} />
 						<Route path="new" element={<UserForm />} />
 						<Route path=":id" element={<Profile />} />
+						<Route path=':id/edit' element={<EditUserForm />} />
 					</Route>
 
 					<Route path="wp" element={<WorkPackages />} />
@@ -159,7 +170,8 @@ const router = createBrowserRouter(
 					</Route>
 
 					<Route path="debug">
-						<Route index element={<Debug />} />
+						{/* <Route index element={<Debug />} /> */}
+						<Route index element={<ApprovedQuotationsTable />} />
 					</Route>
 				</Route>
 
@@ -171,11 +183,28 @@ const router = createBrowserRouter(
 }
 )
 
-
-
-
 const App: FC = () => {
-	// Sitename support for frappe v15
+
+	useEffect(() => {
+		// Firebase onMessage handler for foreground notifications
+		onMessage(messaging, (payload) => {
+			console.log('Message received in the foreground: ', payload);
+
+			const notificationTitle = payload?.notification?.title || "";
+  			const notificationOptions = {
+  			  body: payload?.notification?.body,
+  			  icon: payload?.notification?.icon || '../src/assets/red-logo.png',
+  			  data: { click_action_url: payload?.data?.click_action_url }
+  			};
+
+			const notification = new Notification(notificationTitle, notificationOptions);
+
+			notification.onclick = () => {
+				window.open(notificationOptions.data.click_action_url || "/", '_blank');
+			  };
+		});
+	}, []);
+
 	const getSiteName = () => {
 		// @ts-ignore
 		if (window.frappe?.boot?.versions?.frappe && (window.frappe.boot.versions.frappe.startsWith('15') || window.frappe.boot.versions.frappe.startsWith('16'))) {

@@ -1,0 +1,103 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-10-09 13:59:31.755595",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "permission_details_section",
+  "user",
+  "allow",
+  "for_value"
+ ],
+ "fields": [
+  {
+   "fieldname": "permission_details_section",
+   "fieldtype": "Section Break",
+   "label": "Permission Details"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "allow",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Allow",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "for_value",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "For Value",
+   "options": "allow",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-10-09 23:06:27.606437",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Nirmaan User Permissions",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
