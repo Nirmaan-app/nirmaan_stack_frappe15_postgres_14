@@ -39,11 +39,11 @@ export const ProjectManager = () => {
             limit: 1000
         });
 
-    useFrappeDocTypeEventListener("Procurement Requests", () => {
-        procurement_request_list_mutate()
+    useFrappeDocTypeEventListener("Procurement Requests",async () => {
+        await procurement_request_list_mutate()
     })
-    useFrappeDocTypeEventListener("Projects", () => {
-        project_list_mutate()
+    useFrappeDocTypeEventListener("Projects",async () => {
+        await project_list_mutate()
     })
 
     const [orderData, setOrderData] = useState({
@@ -90,12 +90,12 @@ export const ProjectManager = () => {
                             onClick={() => navigate("/procurement-request")}
                             className="bg-red-600"
                         />
-                        <DashboardCard
+                        {/* <DashboardCard
                             title="Update Milestones"
                             icon={<Milestone className="h-8 w-8 text-white" />}
                             onClick={() => navigate("/milestone-update")}
                             className="bg-red-600"
-                        />
+                        /> */}
                         <DashboardCard
                             title="Update Delivery Notes"
                             icon={<Truck className="h-8 w-8 text-white" />}

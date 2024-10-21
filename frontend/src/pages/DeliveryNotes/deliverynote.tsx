@@ -751,6 +751,7 @@ export default function DeliveryNote() {
                                                 <div className="text-sm font-medium text-gray-900 max-w-[280px] truncate text-left">{data?.vendor_name}</div>
                                                 <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{vendorAddress}</div>
                                                 <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {data?.vendor_gst}</div>
+                                                
                                             </div>
                                             <div>
                                                 <div>
@@ -760,6 +761,7 @@ export default function DeliveryNote() {
                                                 <div className="pt-2">
                                                     <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{data?.creation?.split(" ")[0]}</i></div>
                                                     <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{data?.project_name}</i></div>
+                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Against PO:</span>&nbsp;&nbsp;&nbsp;<i>{data?.name}</i></div>
                                                 </div>
                                             </div>
                                         </div>
@@ -789,8 +791,8 @@ export default function DeliveryNote() {
                                 </tr>
                                 <tr className="end-of-page page-break-inside-avoid" >
                                     <td colSpan={6}>
-                                        <div className="text-gray-400 text-sm py-2">Note</div>
-                                        <div className="text-sm text-gray-900">PlaceHolder</div>
+                                        {/* <div className="text-gray-400 text-sm py-2">Note</div>
+                                        <div className="text-sm text-gray-900">PlaceHolder</div> */}
                                         {/* 
                                              <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                              <div className="text-sm text-gray-900">

@@ -1,6 +1,6 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -10,6 +10,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useNotificationStore } from "@/hooks/useNotificationStore";
 
 
 type PRTable = {
@@ -21,7 +22,7 @@ type PRTable = {
 }
 
 export const ApproveSelectVendor = () => {
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: pr_list_mutate } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
             filters: [
@@ -44,7 +45,22 @@ export const ApproveSelectVendor = () => {
             const price = item.quote;
             total += (price ? parseFloat(price) : 0) * item.quantity;
         })
-        return total;
+        return total ;
+    }
+
+    useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
+        await pr_list_mutate()
+    })
+
+    const {notifications, mark_seen_notification} = useNotificationStore()
+
+    // console.log("procurement request", procurement_request_list)
+
+    const {db} = useContext(FrappeContext) as FrappeConfig
+    const handleNewPRSeen = (notification) => {
+        if(notification) {
+            mark_seen_notification(db, notification)
+        }
     }
 
     const columns: ColumnDef<PRTable>[] = useMemo(
@@ -57,10 +73,20 @@ export const ApproveSelectVendor = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const prId = row.getValue("name")
+                    const isNew = notifications.find(
+                        (item) => item.docname === prId && item.seen === "false" && item.event_id === "pr:vendorSelected"
+                    )
                     return (
-                        <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/approve-vendor/${row.getValue("name")}`}>
-                                {row.getValue("name")?.slice(-4)}
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                            {isNew && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                            )}
+                            <Link
+                                className="underline hover:underline-offset-2"
+                                to={`/approve-vendor/${prId}`}
+                            >
+                                {prId?.slice(-4)}
                             </Link>
                         </div>
                     )
@@ -154,7 +180,7 @@ export const ApproveSelectVendor = () => {
             }
 
         ],
-        [project_values, procurement_request_list]
+        [procurement_request_list, notifications, project_values]
     )
 
     let filteredList;

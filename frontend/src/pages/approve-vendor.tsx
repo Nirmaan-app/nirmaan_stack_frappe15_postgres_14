@@ -134,19 +134,58 @@ const ApproveVendor = () => {
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
     const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
 
+    const {data: usersList, isLoading: usersListLoading, error: usersListError} = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["name", "full_name"],
+        limit: 1000
+    })
+
     useEffect(() => {
-        if (pr && !pr_loading) {
+        if (pr) {
             setProject(pr?.project)
             setOwner(pr?.modified_by)
         }
-        else {
-            return
-        }
-    }, [pr, pr_loading, project, owner])
+    }, [pr])
 
-    console.log("within 1st component", owner_data)
+    const navigate = useNavigate()
+
+    const getUserName = (id) => {
+        if(usersList) {
+            return usersList.find((user) => user?.name === id)?.full_name
+        }
+    }
+
+    // console.log("within 1st component", owner_data)
     if (pr_loading || project_loading || owner_loading) return <h1>Loading...</h1>
     if (pr_error || project_error || owner_error) return <h1>Error</h1>
+
+    if(!["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state) && !pr?.procurement_list?.list?.some((i) => i?.status === "Pending")) return (
+        <div className="flex items-center justify-center h-full">
+            <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                <h2 className="text-2xl font-semibold text-gray-800">
+                    Heads Up!
+                </h2>
+                <p className="text-gray-600 text-lg">
+                    Hey there, the PR:{" "}
+                    <span className="font-medium text-gray-900">{pr?.name}</span>{" "}
+                    is no longer available for{" "}
+                    <span className="italic">Reviewing</span>. The current state is{" "}
+                    <span className="font-semibold text-blue-600">
+                        {pr?.workflow_state}
+                    </span>{" "}
+                    And the last modification was done by <span className="font-medium text-gray-900">
+                        {pr?.modified_by === "Administrator" ? pr?.modified_by : getUserName(pr?.modified_by)}
+                    </span>
+                    !
+                </p>
+                <button
+                    className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                    onClick={() => navigate("/approve-vendor")}
+                >
+                    Go Back
+                </button>
+            </div>
+        </div>
+    );
     return (
         <ApproveVendorPage pr_data={pr} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} procurement_list_mutate={pr_mutate} />
     )
@@ -1047,46 +1086,46 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
             </div>
             <div className="overflow-x-auto">
-                <div className="min-w-full inline-block align-middle">
-                    {JSON.parse(pr_data?.procurement_list).list.map(item => {
-                        if (item.status === "Delayed") {
-                            return <div className="p-5">
-                                <ReactTable>
-                                    <TableHeader>
-                                        <TableRow className="bg-red-100">
-                                            <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{item.category}</span></TableHead>
-                                            <TableHead className="w-[25%]">UOM</TableHead>
-                                            <TableHead className="w-[15%]">Qty</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {/* {orderData.procurement_list?.list.map((item) => {
-                                        if (item.category === cat.name) {
-                                            if(!selectedVendors[item.name]){return (
-                                                <TableRow key={item.item}>
-                                                    <TableCell>{item.item}</TableCell>
-                                                    <TableCell>{item.unit}</TableCell>
-                                                    <TableCell>{item.quantity}</TableCell>
-                                                </TableRow>
-                                            )}
-                                        }
-                                    })} */}
-                                        <TableRow key={item.item}>
-                                            <TableCell>{item.item}</TableCell>
-                                            <TableCell>{item.unit}</TableCell>
-                                            <TableCell>{item.quantity}</TableCell>
-                                        </TableRow>
+    <div className="min-w-full inline-block align-middle">
+        {/* Group items by category */}
+        {(() => {
+            const delayedItems = JSON.parse(pr_data?.procurement_list)?.list.filter(item => item.status === "Delayed");
+            const groupedByCategory = delayedItems.reduce((acc, item) => {
+                if (!acc[item.category]) {
+                    acc[item.category] = [];
+                }
+                acc[item.category].push(item);
+                return acc;
+            }, {});
 
-                                    </TableBody>
-                                </ReactTable>
-                            </div>
-                        }
-                        // else {
-                        //     return <div className='flex justify-center text-gray-400 tracking-tight my-4'>No delayed items</div>
-                        // }
-                    })}
+            // Render each category group
+            return Object.keys(groupedByCategory).map(category => (
+                <div key={category} className="p-5">
+                    <ReactTable>
+                        <TableHeader>
+                            <TableRow className="bg-red-100">
+                                <TableHead className="w-[60%]">
+                                    <span className="text-red-700 pr-1 font-extrabold">{category}</span>
+                                </TableHead>
+                                <TableHead className="w-[25%]">UOM</TableHead>
+                                <TableHead className="w-[15%]">Qty</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {groupedByCategory[category].map(item => (
+                                <TableRow key={item.item}>
+                                    <TableCell>{item.item}</TableCell>
+                                    <TableCell>{item.unit}</TableCell>
+                                    <TableCell>{item.quantity}</TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </ReactTable>
                 </div>
-            </div>
+            ));
+        })()}
+    </div>
+</div>
         </>
     )
 }

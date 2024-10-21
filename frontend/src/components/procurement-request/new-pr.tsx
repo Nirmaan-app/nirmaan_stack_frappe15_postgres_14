@@ -85,7 +85,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     };
 
     const [orderData, setOrderData] = useState({
-        project: project.name,
+        project: project?.name,
         work_package: '',
         procurement_list: {
             list: []
@@ -663,7 +663,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                                         <div className="flex gap-1 items-center pt-1">
                                                                             <MessageCircleMore className="h-8 w-8" />
                                                                             <textarea
-                                                                                disabled={userData?.role === "Nirmaan Project Manager Profile"}
+                                                                                // disabled={userData?.role === "Nirmaan Project Manager Profile"}
                                                                                 className="block p-2 border-gray-300 border rounded-md w-full"
                                                                                 placeholder="Add comment..."
                                                                                 onChange={(e) => handleItemCommentChange(item, e)}

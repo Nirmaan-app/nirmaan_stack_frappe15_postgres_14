@@ -164,6 +164,15 @@ doc_events = {
     },
     "Procurement Orders": {
         "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update"
+    },
+    "Sent Back Category": {
+        "on_update": "nirmaan_stack.integrations.controllers.sent_back_category.on_update"
+    },
+    "Version": {
+        "after_insert": [
+            "nirmaan_stack.integrations.controllers.nirmaan_versions.generate_amend_version",
+            "nirmaan_stack.integrations.controllers.nirmaan_versions.remove_amend_version"
+            ]
     }
 }
 

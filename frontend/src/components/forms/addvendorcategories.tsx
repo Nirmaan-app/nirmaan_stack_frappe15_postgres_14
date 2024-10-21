@@ -25,8 +25,8 @@ export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= f
             filters: [["vendor_name", "=", vendor_name]]
     });
 
-    useFrappeDocTypeEventListener("Vendor Category", () => {
-        vendor_category_mutate()
+    useFrappeDocTypeEventListener("Vendor Category", async () => {
+        await vendor_category_mutate()
     })
 
     const [id, setId] = useState(null)

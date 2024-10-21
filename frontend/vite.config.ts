@@ -7,6 +7,9 @@ import { VitePWA } from 'vite-plugin-pwa';
 // https://vitejs.dev/config/
 export default defineConfig({
 	plugins: [react(), VitePWA({registerType: 'autoUpdate'})],
+	optimizeDeps: {
+		include: ['@radix-ui/react-radio-group']
+	},
 	server: {
 		port: 8080,
 		proxy: proxyOptions,

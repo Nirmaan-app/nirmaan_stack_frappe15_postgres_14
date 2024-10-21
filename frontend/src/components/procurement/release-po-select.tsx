@@ -10,14 +10,8 @@ import { TableSkeleton } from "../ui/skeleton";
 import { Badge } from "../ui/badge";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 
-
-type PRTable = {
-    name: string
-    project_name: string
-    creation: string
-    category: string
-}
 
 interface ReleasePOSelectProps {
     status: string
@@ -30,7 +24,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
-            filters: [["status", not ? "!=" : "=", status]],
+            filters: [["status", not ? "not in" : "in", not ? [status, "PO Amendment"] : [status]]],
             limit: 1000
         },
     );
@@ -60,7 +54,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
         return total;
     }
 
-    const columns: ColumnDef<PRTable>[] = useMemo(
+    const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
         () => [
             {
                 accessorKey: "name",
@@ -73,7 +67,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                     return (
                         // onClick={() => handleSet(row.getValue("name"))}
                         <div className="font-medium underline cursor-pointer">
-                            <Link className="underline hover:underline-offset-2" to={`/release-po/${row.getValue("name").replaceAll("/", "&=")}`}>
+                            <Link className="underline hover:underline-offset-2" to={`${row.getValue("name").replaceAll("/", "&=")}`}>
                                 {(row.getValue("name"))?.toUpperCase()}
                             </Link>
                         </div>
@@ -182,7 +176,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                 }
             }
         ],
-        [project_values]
+        [project_values, procurement_order_list]
     )
 
     const { toast } = useToast()

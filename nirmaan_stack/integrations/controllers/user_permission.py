@@ -39,11 +39,11 @@ def on_trash(doc, method):
                                  'allow': doc.allow,
                                  'for_value': doc.for_value
                              })
-    up = frappe.db.get_all("User Permission", 
+    up = frappe.db.get_all("Nirmaan User Permissions", 
             filters={
                 'user':doc.user
             })
-    if(len(up)==1):
+    if(len(up)==0):
        nuser = frappe.get_doc("Nirmaan Users", doc.user)
        nuser.has_project = "false"
        nuser.save(ignore_permissions=True)

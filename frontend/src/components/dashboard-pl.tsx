@@ -28,11 +28,11 @@ export const ProjectLead = () => {
         if (item.workflow_state === "Vendor Selected") vendor_selected_procurement_request.push(item.name)
     })
 
-    useFrappeDocTypeEventListener("Procurement Requests", () => {
-        procurement_request_list_mutate()
+    useFrappeDocTypeEventListener("Procurement Requests",async () => {
+        await procurement_request_list_mutate()
     })
-    useFrappeDocTypeEventListener("Sent Back Category", () => {
-        sent_back_list_mutate()
+    useFrappeDocTypeEventListener("Sent Back Category",async () => {
+        await sent_back_list_mutate()
     })
 
     return (

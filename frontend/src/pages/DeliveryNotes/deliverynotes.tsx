@@ -117,7 +117,7 @@ const DeliveryNotes = () => {
     // )
 
     const handleChange = (selectedItem: any) => {
-        console.log(selectedItem)
+        // console.log(selectedItem)
         setProject(selectedItem ? selectedItem.value : null);
         sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
     };

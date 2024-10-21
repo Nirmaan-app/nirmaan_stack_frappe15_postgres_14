@@ -9,7 +9,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {  OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { ColumnDef } from "@tanstack/react-table"
-import { Menu, MenuProps } from "antd"
+import { ConfigProvider, Menu, MenuProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, FilePenLine } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
@@ -356,7 +356,19 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">{data?.vendor_name}</h2>}
                 <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
             </div>
-            <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
+            <ConfigProvider
+                theme={{
+                  components: {
+                    Menu: {
+                      horizontalItemSelectedColor: "#D03B45",
+                      itemSelectedBg: "#FFD3CC",
+                      itemSelectedColor: "#D03B45"
+                    }
+                  }
+                }}
+                >
+                    <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
+            </ConfigProvider>
             {/* Overview Section */}
             {current === "overview" && (
                 (isLoading || vendorAddressLoading ? <OverviewSkeleton2 /> : (

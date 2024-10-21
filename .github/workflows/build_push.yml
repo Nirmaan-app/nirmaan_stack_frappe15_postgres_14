@@ -13,7 +13,7 @@ jobs:
     - name: Check out my other private repo
       uses: actions/checkout@v4
       with:
-        repository: frappe/frappe_docker
+        repository: Nirmaan-app/frappe_docker
         # token: ${{ secrets.NIRMAAN_ADMIN_PAT }}
     - name: Set env
       run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
@@ -34,6 +34,7 @@ jobs:
           }
         ]'
         echo "APPS_JSON_BASE64=$(echo ${APPS_JSON} | base64 -w 0)" >> $GITHUB_ENV
+        echo "FCM SECRET: ${{ secrets.FCM_ACCESS }}"
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
       
@@ -46,13 +47,15 @@ jobs:
         username: _json_key
         password: ${{ secrets.GAR_JSON_KEY }}
     - name: Build and push
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: images/custom/Containerfile
         platforms: linux/amd64
         push: true
         tags: asia-south1-docker.pkg.dev/nirmaan-stack/nirmaan-project-stack/nirmaan-project-stack:${{ env.RELEASE_VERSION }}
+        secrets: |
+          "FCM_ACCESS=${{ secrets.FCM_ACCESS }}"
         build-args: |
           FRAPPE_PATH=https://github.com/frappe/frappe
           FRAPPE_BRANCH=version-15
