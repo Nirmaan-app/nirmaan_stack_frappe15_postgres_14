@@ -47,6 +47,11 @@ export const NavBar = () => {
 
     const permissionsList = projectPermissions?.map((i) => i?.for_value)
 
+
+    const { data: poAmendCount, mutate: poAmendMutate } = useFrappeGetDocCount("Procurement Orders",
+        [['status', '=', 'PO Amendment']]
+    )
+
     const { data: prData, mutate: prDataMutate } = useFrappeGetDocList("Procurement Requests", {
         fields: ["workflow_state", "procurement_list"],
         filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved"]], ["project", "in", permissionsList || []]],
@@ -96,7 +101,7 @@ export const NavBar = () => {
 
     useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
         if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-            await adminSBMutate()
+            await adminPRDataMutate()
         } else {
             await prDataMutate()
         }
@@ -104,10 +109,14 @@ export const NavBar = () => {
 
     useFrappeDocTypeEventListener("Sent Back Category", async (data) => {
         if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-            await adminPRDataMutate()
+            await adminSBMutate()
         } else {
             await sbDataMutate()
         }
+    })
+
+    useFrappeDocTypeEventListener("Procurement Orders", async (data) => {
+        await poAmendMutate()
     })
 
     const requestNotificationPermission = async () => {
@@ -278,7 +287,19 @@ export const NavBar = () => {
                             ),
 
                         },
-                        { key: '/approve-amended-po', label: 'Approve Amended PO' },
+                        {
+                            key: '/approve-amended-po', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Approve Amended PO
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                            {poAmendCount}
+                                        </span>
+                                    </div>
+                                </div>
+
+                            ),
+                        },
                         {
                             key: '/approve-sent-back', label: (
                                 <div className="flex justify-between items-center relative">

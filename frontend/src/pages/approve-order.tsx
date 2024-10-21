@@ -36,11 +36,11 @@ const ApprovePRList = () => {
     const { id } = useParams<{ id: string }>()
     const [project, setProject] = useState()
     const [owner, setOwner] = useState(null)
-    const { data: pr, isLoading: pr_loading, error: pr_error } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id, `Procurement Requests ${id}`);
+    const { data: pr, isLoading: pr_loading, error: pr_error } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id);
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
     const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
 
-    const {data: usersList, isLoading: usersListLoading, error: usersListError} = useFrappeGetDocList("Nirmaan Users", {
+    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["name", "full_name"],
         limit: 1000
     })
@@ -55,7 +55,7 @@ const ApprovePRList = () => {
     const navigate = useNavigate()
 
     const getUserName = (id) => {
-        if(usersList) {
+        if (usersList) {
             return usersList.find((user) => user?.name === id)?.full_name
         }
     }
@@ -93,7 +93,7 @@ const ApprovePRList = () => {
             </div>
         );
     }
-    
+
     return (
         <ApprovePRListPage pr_data={pr} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} />
     )
