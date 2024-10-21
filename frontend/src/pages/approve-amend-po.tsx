@@ -85,26 +85,37 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
 
     console.log("amendmentComment", amendmentComment)
 
-    const [previousOrderList, setPrevousOrderList] = useState(null)
+    const [previousOrderList, setPreviousOrderList] = useState<any[]>([])
+    const [amendedOrderList, setAmendedOrderList] = useState<any[]>([])
+
+    const extractOrderListFromVersions = () => {
+
+    }
 
     useEffect(() => {
         if (versionsData) {
-            // Filter the version with changes that include 'order_list'
-            const version = versionsData?.filter((v) =>
-                v?.data?.changed?.some((item) => item?.includes('order_list'))
-            );
+            const orderChange = versionsData[0];
 
-            if (version.length > 0) {
-                const data = version[0]?.data;  // No need to parse, already an object
+            if (orderChange) {
+                // Parse the 'data' field from the orderChange object
+                const parsedData = JSON.parse(orderChange.data);
+                const { changed } = parsedData;
 
-                // Extract the 'order_list' changes
-                const orderList = ((data?.changed?.find((item) => item?.includes('order_list')))[1])?.list;
+                // Find the change related to 'order_list'
+                const orderListChange = changed.find((item) => item[0] === 'order_list');
 
-                // Set the previous order list state
-                setPrevousOrderList(orderList);
+                if (orderListChange) {
+                    // Access the original and amended lists
+                    const originalOrderList = orderListChange?.[1]?.list || [];
+                    const amendedOrderList = orderListChange?.[2]?.list || [];
+
+                    // Set the state for previous and amended lists
+                    setPreviousOrderList(originalOrderList);
+                    setAmendedOrderList(amendedOrderList);
+                }
             }
         }
-    }, [versionsData])
+    }, [versionsData]);
 
     // console.log("previousOrderList", previousOrderList)
 
@@ -112,7 +123,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [actionType, setActionType] = useState<'approve' | 'revert'>('approve');
 
-    console.log("comment", comment)
+    // console.log("comment", comment)
 
     const { updateDoc } = useFrappeUpdateDoc()
     const { createDoc } = useFrappeCreateDoc()
@@ -212,7 +223,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                     </TableHeader>
                     <TableBody>
                         {previousOrderList?.map((item, index) => {
-                            const amendedItem = JSON.parse(po_data?.order_list)?.list?.find(i => i.name === item.name);
+                            const amendedItem = amendedOrderList?.find(i => i.name === item.name);
                             return (
                                 <TableRow key={index}>
                                     {/* Item Name */}
