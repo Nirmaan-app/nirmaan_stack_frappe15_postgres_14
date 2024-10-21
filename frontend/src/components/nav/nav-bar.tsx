@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { MainNav } from "./main-nav";
 import { ModeToggle } from "./mode-toggle";
 import { Notifications } from "./notifications";
@@ -15,12 +15,13 @@ import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
 import { Link, useLocation } from 'react-router-dom';
 import { Sheet, SheetContent } from "../ui/sheet";
-import { useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocCount, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import {  FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import Cookies from "js-cookie";
 import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
 import ScrollToTop from "@/hooks/ScrollToTop";
 import { getToken } from "firebase/messaging";
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
+import { useNotificationStore } from "@/hooks/useNotificationStore";
 
 export const NavBar = () => {
     const [collapsed, setCollapsed] = useState(false);
@@ -28,12 +29,47 @@ export const NavBar = () => {
     const [isSmallScreen, setIsSmallScreen] = useState(false);
     const location = useLocation();
     const [role, setRole] = useState(null)
+    const {mutate} = useSWRConfig()
 
     const user_id = Cookies.get('user_id') ?? ''
 
-    const { data, isLoading, error } = useFrappeGetDoc("Nirmaan Users", user_id, user_id === "Administrator" ? null : undefined)
+    const { data } = useFrappeGetDoc("Nirmaan Users", user_id, user_id === "Administrator" ? null : undefined)
 
-    // console.log("data", data)
+    const { notifications, add_new_notification, delete_notification } = useNotificationStore();
+    const {db} = useContext(FrappeContext) as FrappeConfig
+
+    // Fetch all notifications that are unseen for the current user
+    const { data: notificationsData } = useFrappeGetDocList("Nirmaan Notifications", {
+        fields: ["*"],
+        filters: [["recipient", "=", user_id]],
+        limit: 1000,
+        orderBy: {field: "creation", order: "asc"}
+    });
+
+    // On initial render, segregate notifications and store in Zustand
+    useEffect(() => {
+        if (notificationsData) {
+            notificationsData.forEach((notification: any) => {
+                add_new_notification({
+                    name: notification.name,
+                    creation: notification.creation,
+                    description: notification.description,
+                    docname: notification.docname,
+                    document: notification.document,
+                    event_id: notification.event_id,
+                    project: notification.project,
+                    recipient: notification.recipient,
+                    recipient_role: notification.recipient_role,
+                    seen: notification.seen,
+                    sender: notification?.sender,
+                    title: notification.title,
+                    type: notification.type,
+                    work_package: notification.work_package,
+                    action_url: notification?.action_url
+                });
+            });
+        }
+    }, [notificationsData, user_id]);
 
     const { updateDoc } = useFrappeUpdateDoc()
 
@@ -47,10 +83,24 @@ export const NavBar = () => {
 
     const permissionsList = projectPermissions?.map((i) => i?.for_value)
 
-
-    const { data: poAmendCount, mutate: poAmendMutate } = useFrappeGetDocCount("Procurement Orders",
-        [['status', '=', 'PO Amendment']]
+    const { data: poData, mutate: poDataMutate } = useFrappeGetDocList("Procurement Orders", {
+        fields: ["status"],
+        filters: [["status", "=", "PO Amendment"], ["project", "in", permissionsList || []]],
+        limit: 1000
+    },
+        (user_id === "Administrator" || !permissionsList) ? null : undefined
     )
+
+    const { data: adminPOData, mutate: adminPODataMutate } = useFrappeGetDocList("Procurement Orders", {
+        fields: ["status"],
+        filters: [["status", "=", "PO Amendment"]],
+        limit: 1000
+    },
+
+        user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
+    )
+
+    // console.log("POData", poData, poData?.length)
 
     const { data: prData, mutate: prDataMutate } = useFrappeGetDocList("Procurement Requests", {
         fields: ["workflow_state", "procurement_list"],
@@ -77,7 +127,7 @@ export const NavBar = () => {
         (user_id === "Administrator" || !permissionsList) ? null : undefined
     )
 
-    const { data: adminSBData, mutate: adminSBMutate } = useFrappeGetDocList("Sent Back Category", {
+    const { data: adminSBData, mutate: adminSBDataMutate } = useFrappeGetDocList("Sent Back Category", {
         fields: ["workflow_state", "item_list"],
         filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
         limit: 1000
@@ -86,8 +136,8 @@ export const NavBar = () => {
         user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
     )
 
-    const [pendingPRCount, setPendingPRCount] = useState(null)
-    const [approvePRCount, setApprovePRCount] = useState(null)
+    const [pendingPRCount, setPendingPRCount] = useState<number | null>(null)
+    const [approvePRCount, setApprovePRCount] = useState<number | null>(null)
 
     useEffect(() => {
         if (prData) {
@@ -99,42 +149,189 @@ export const NavBar = () => {
     }, [prData])
     // const {data : prDocCount, mutate: pr_length_mutate} = useFrappeGetDocCount("Procurement Requests", [["workflow_state", "=", "Pending"], ["project", "in", permissionsList || []]], false, false, (user_id === "Administrator" || !permissionsList) ? null : undefined)
 
-    useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
-        if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+    // Event listener for new notifications (e.g., "pr:new")
+    useFrappeEventListener("pr:new", async (event) => {
+        if (event?.notificationId) {
+            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
+
+            if (newNotificationData) {
+                // Add new notification to Zustand store
+                add_new_notification({
+                    name: newNotificationData.name,
+                    creation: newNotificationData.creation,
+                    description: newNotificationData.description,
+                    docname: newNotificationData.docname,
+                    document: newNotificationData.document,
+                    event_id: newNotificationData.event_id,
+                    project: newNotificationData.project,
+                    recipient: newNotificationData.recipient,
+                    recipient_role: newNotificationData.recipient_role,
+                    seen: newNotificationData.seen,
+                    sender: newNotificationData?.sender,
+                    title: newNotificationData.title,
+                    type: newNotificationData.type,
+                    work_package: newNotificationData.work_package,
+                    action_url: newNotificationData?.action_url
+                });
+                if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+                    await adminPRDataMutate()
+                } else {
+                    console.log("running mutate for user")
+                    await prDataMutate()
+                }
+                console.log("Updated notifications state with new data", newNotificationData);
+            }
+        }
+    });
+
+    useFrappeEventListener("pr:delete", (event) => {
+        if(event?.notificationId) {
+            delete_notification(event?.notificationId)
+        }
+    })
+
+    useFrappeEventListener("pr:vendorSelected", async (event) => {
+        if(event?.notificationId) {
+            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
+            if (newNotificationData) {
+                // Add new notification to Zustand store
+                add_new_notification({
+                    name: newNotificationData.name,
+                    creation: newNotificationData.creation,
+                    description: newNotificationData.description,
+                    docname: newNotificationData.docname,
+                    document: newNotificationData.document,
+                    event_id: newNotificationData.event_id,
+                    project: newNotificationData.project,
+                    recipient: newNotificationData.recipient,
+                    recipient_role: newNotificationData.recipient_role,
+                    seen: newNotificationData.seen,
+                    sender: newNotificationData?.sender,
+                    title: newNotificationData.title,
+                    type: newNotificationData.type,
+                    work_package: newNotificationData.work_package,
+                    action_url: newNotificationData?.action_url
+                });
+                if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+                    await adminPRDataMutate()
+                } else {
+                    await prDataMutate()
+                }
+                console.log("Updated notifications state with new data", newNotificationData);
+            }
+        }
+    })
+
+    useFrappeEventListener("pr:resolved", async (event) => {
+        if(event?.notificationId) {
+            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
+            if (newNotificationData) {
+                // Add new notification to Zustand store
+                add_new_notification({
+                    name: newNotificationData.name,
+                    creation: newNotificationData.creation,
+                    description: newNotificationData.description,
+                    docname: newNotificationData.docname,
+                    document: newNotificationData.document,
+                    event_id: newNotificationData.event_id,
+                    project: newNotificationData.project,
+                    recipient: newNotificationData.recipient,
+                    recipient_role: newNotificationData.recipient_role,
+                    seen: newNotificationData.seen,
+                    sender: newNotificationData?.sender,
+                    title: newNotificationData.title,
+                    type: newNotificationData.type,
+                    work_package: newNotificationData.work_package,
+                    action_url: newNotificationData?.action_url
+                });
+                if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+                    await adminPRDataMutate()
+                } else {
+                    await prDataMutate()
+                }
+                console.log("Updated notifications state with new data", newNotificationData);
+            }
+        }
+    })
+
+    useFrappeEventListener("sb:vendorSelected", async (event) => {
+        if(event?.notificationId) {
+            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
+            if (newNotificationData) {
+                // Add new notification to Zustand store
+                add_new_notification({
+                    name: newNotificationData.name,
+                    creation: newNotificationData.creation,
+                    description: newNotificationData.description,
+                    docname: newNotificationData.docname,
+                    document: newNotificationData.document,
+                    event_id: newNotificationData.event_id,
+                    project: newNotificationData.project,
+                    recipient: newNotificationData.recipient,
+                    recipient_role: newNotificationData.recipient_role,
+                    seen: newNotificationData.seen,
+                    sender: newNotificationData?.sender,
+                    title: newNotificationData.title,
+                    type: newNotificationData.type,
+                    work_package: newNotificationData.work_package,
+                    action_url: newNotificationData?.action_url
+                });
+                if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+                    await adminSBDataMutate()
+                } else {
+                    await sbDataMutate()
+                }
+                console.log("Updated notifications state with new data", newNotificationData);
+            }
+        }
+    })
+
+    useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
+        if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+            await adminPRDataMutate()
+            await mutate("Pending Procurement Requests")
+        } else {
+            await prDataMutate()
+            await mutate("Pending Procurement Requests")
+        }
+    })
+
+    useFrappeDocTypeEventListener("Sent Back Category", async (event) => {
+        if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+            await adminSBDataMutate()
+        } else {
+            await sbDataMutate()
+        }
+    })
+
+    useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
+        if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+            await adminPODataMutate()
+        } else {
+            await poDataMutate()
+        }
+    })
+
+    useFrappeEventListener("pr:statusChanged", async (event) => {
+        if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
             await adminPRDataMutate()
         } else {
             await prDataMutate()
         }
     })
 
-    useFrappeDocTypeEventListener("Sent Back Category", async (data) => {
-        if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-            await adminSBMutate()
-        } else {
-            await sbDataMutate()
-        }
-    })
-
-    useFrappeDocTypeEventListener("Procurement Orders", async (data) => {
-        await poAmendMutate()
-    })
+    console.log("new Notifications", notifications)
 
     const requestNotificationPermission = async () => {
         if (user_id && data) {
             try {
                 const permission = await Notification.requestPermission();
-                console.log("permision", permission)
                 if (permission == 'granted') {
                     const registration = await navigator.serviceWorker.ready;
-                    console.log("registration", registration)
-
                     const token = await getToken(messaging, {
                         vapidKey: VAPIDKEY,
                         serviceWorkerRegistration: registration
                     });
-
-                    console.log("token", token)
-
                     if (data?.fcm_token !== token) {
                         console.log("running fcm token updating")
                         // Update token if it's different from the stored one
@@ -259,7 +456,7 @@ export const NavBar = () => {
                             label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve PR
-                                    {((pendingPRCount && pendingPRCount !== 0) || adminPrData?.filter((item) => item?.workflow_state === "Pending")?.length !== 0) && (
+                                    {((pendingPRCount && pendingPRCount !== 0) || ((role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminPrData?.filter((item) => item?.workflow_state === "Pending")?.length !== 0)) && (
                                         // <div className="relative flex items-center justify-center">
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
@@ -275,11 +472,10 @@ export const NavBar = () => {
                             key: '/approve-vendor', label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve PO
-                                    {((approvePRCount && approvePRCount !== 0) || adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0) && (
+                                    {((approvePRCount && approvePRCount !== 0) || ((role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0)) && (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
                                                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length : approvePRCount}
-
                                             </span>
                                         </div>
                                     )}
@@ -291,11 +487,13 @@ export const NavBar = () => {
                             key: '/approve-amended-po', label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve Amended PO
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                            {poAmendCount}
-                                        </span>
-                                    </div>
+                                    {((poData && poData?.length !== 0) || ((role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminPOData && adminPOData?.length !== 0)) && (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPOData?.length : poData?.length}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
 
                             ),
@@ -304,11 +502,10 @@ export const NavBar = () => {
                             key: '/approve-sent-back', label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve Sent Back PO
-                                    {(sbData?.filter((sb) => ["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0 || adminSBData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0) && (
+                                    {(sbData?.filter((sb) => sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0 || ((role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminSBData?.filter((item) => item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0)) && (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminSBData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length : sbData?.filter((sb) => ["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length}
-
+                                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminSBData?.filter((item) => item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length : sbData?.filter((sb) => sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length}
                                             </span>
                                         </div>
                                     )}

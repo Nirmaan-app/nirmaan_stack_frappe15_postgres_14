@@ -24,14 +24,24 @@ const messaging = firebase.messaging();
 //   );
 // });
 
+self.addEventListener('notificationclick', function(event) {
+  const url = event.notification.data?.click_action_url;
+  event.notification.close();
+  event.waitUntil(
+    clients.openWindow(url || '/')
+  );
+});
+
 // Background message handler
 messaging.onBackgroundMessage((payload) => {
   console.log('Received background message: ', payload);
   const notificationTitle = payload.notification.title;
   const notificationOptions = {
     body: payload.notification.body,
-    icon: '../src/assets/red-logo.png',
+    icon: payload?.notification?.icon || '../src/assets/red-logo.png',
+    data: {click_action_url : payload?.data?.click_action_url}
   };
+
 
   return self.registration.showNotification(notificationTitle, notificationOptions);
 });

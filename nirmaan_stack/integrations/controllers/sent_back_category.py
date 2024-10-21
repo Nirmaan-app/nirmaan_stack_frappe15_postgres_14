@@ -14,11 +14,12 @@ def on_update(doc, method):
                             f"Hi {user['full_name']}, Vendors have been selected for the {doc.type} items of PR: {doc.procurement_request}. "
                             "Please review the selection and proceed with approval or rejection."
                         )
-                    PrNotification(user, notification_title, notification_body)
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/approve-sent-back"
+                    PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
                     print(f"push notifications were not enabled for user: {user['full_name']}")
                 message = {
-                    "title": _("Sent Back Status Updated"),
+                    "title": _("SB Status Updated"),
                     "description": _(f"Vendors have been selected for the SB: {doc.name}!"),
                     "project": doc.project,
                     "procurement_request": doc.procurement_request,
