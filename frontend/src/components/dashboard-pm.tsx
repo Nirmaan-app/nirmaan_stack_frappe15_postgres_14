@@ -90,12 +90,12 @@ export const ProjectManager = () => {
                             onClick={() => navigate("/procurement-request")}
                             className="bg-red-600"
                         />
-                        <DashboardCard
+                        {/* <DashboardCard
                             title="Update Milestones"
                             icon={<Milestone className="h-8 w-8 text-white" />}
                             onClick={() => navigate("/milestone-update")}
                             className="bg-red-600"
-                        />
+                        /> */}
                         <DashboardCard
                             title="Update Delivery Notes"
                             icon={<Truck className="h-8 w-8 text-white" />}
