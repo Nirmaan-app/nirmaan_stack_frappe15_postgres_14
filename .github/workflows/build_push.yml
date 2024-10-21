@@ -57,7 +57,7 @@ jobs:
         secrets: |
           "FCM_ACCESS=${{ secrets.FCM_ACCESS }}"
         build-args: |
-          FRAPPE_PATH=https://github.com/frappe/frappe
+          FRAPPE_PATH=https://github.com/Nirmaan-app/frappe
           FRAPPE_BRANCH=version-15
           PYTHON_VERSION=3.11.6
           NODE_VERSION=18.17.0
