@@ -21,7 +21,7 @@ const registerServiceWorker = () => {
 }
 
 if (import.meta.env.DEV) {
-  fetch('http://localhost:8000/api/method/nirmaan_stack.www.nirmaan_stack.get_context_for_dev', {
+  fetch('api/method/nirmaan_stack.www.nirmaan_stack.get_context_for_dev', {
     method: 'POST',
   })
     .then(response => response.json())
