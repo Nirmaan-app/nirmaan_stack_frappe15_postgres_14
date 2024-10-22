@@ -1,8 +1,8 @@
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { formatDate } from "@/utils/FormatDate";
 import { ColumnDef } from "@tanstack/react-table";
-import { useFrappeGetDocList } from "frappe-react-sdk";
-import { useMemo } from "react";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
@@ -10,13 +10,14 @@ import { useToast } from "@/components/ui/use-toast";
 import { DataTable } from "@/components/data-table/data-table";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 
 export const ApproveSelectAmendPO = () => {
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
             filters: [["status", "=", "PO Amendment"]],
-            limit: 1000
+            limit: 1000,
         },
     );
 
@@ -32,6 +33,10 @@ export const ApproveSelectAmendPO = () => {
         "Vendors"
     )
 
+    useFrappeDocTypeEventListener("Procurement Orders", async (data) => {
+        await mutate()
+    })
+
     const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
@@ -45,6 +50,16 @@ export const ApproveSelectAmendPO = () => {
         return total;
     }
 
+    const {notifications, mark_seen_notification} = useNotificationStore()
+
+
+    const {db} = useContext(FrappeContext) as FrappeConfig
+    const handleNewPRSeen = (notification) => {
+        if(notification) {
+            mark_seen_notification(db, notification)
+        }
+    }
+
     const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
         () => [
             {
@@ -55,11 +70,20 @@ export const ApproveSelectAmendPO = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const poId = row.getValue("name")
+                    const isNew = notifications.find(
+                        (item) => item.docname === poId && item.seen === "false" && item.event_id === "po:amended"
+                    )
                     return (
-                        // onClick={() => handleSet(row.getValue("name"))}
-                        <div className="font-medium underline cursor-pointer">
-                            <Link className="underline hover:underline-offset-2" to={`${row.getValue("name").replaceAll("/", "&=")}`}>
-                                {(row.getValue("name"))?.toUpperCase()}
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                            {isNew && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                            )}
+                            <Link
+                                className="underline hover:underline-offset-2"
+                                to={`${poId?.replaceAll("/", "&=")}`}
+                            >
+                                {poId?.toUpperCase()}
                             </Link>
                         </div>
                     )

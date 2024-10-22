@@ -50,3 +50,7 @@ export const handlePRVendorSelectedEvent = async (db, event, add_new_notificatio
 export const handleSBVendorSelectedEvent = async (db, event, add_new_notification) => {
     await handleNotification(db, event, add_new_notification);
 };
+
+export const handlePOAmendedEvent = async (db, event, add_new_notification) => {
+    await handleNotification(db, event, add_new_notification)
+}

@@ -23,7 +23,7 @@ import { getToken } from "firebase/messaging";
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { handlePRDeleteEvent, handlePRNewEvent, handlePRVendorSelectedEvent, handleSBVendorSelectedEvent } from "@/zustand/eventListeners";
+import { handlePRDeleteEvent, handlePRNewEvent, handlePRVendorSelectedEvent, handleSBVendorSelectedEvent, handlePOAmendedEvent } from "@/zustand/eventListeners";
 
 export const NavBar = () => {
     const [collapsed, setCollapsed] = useState(false);
@@ -173,6 +173,10 @@ export const NavBar = () => {
 
     useFrappeEventListener("sb:vendorSelected", async (event) => {
         await handleSBVendorSelectedEvent(db, event, add_new_notification);
+    });
+
+    useFrappeEventListener("po:amended", async (event) => {
+        await handlePOAmendedEvent(db, event, add_new_notification);
     });
 
     useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
