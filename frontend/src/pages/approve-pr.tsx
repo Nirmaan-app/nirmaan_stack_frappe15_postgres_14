@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useNotificationStore } from "@/hooks/useNotificationStore";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 
 type PRTable = {
     name: string
@@ -29,7 +29,6 @@ export const ApprovePR = () => {
             limit: 1000,
             orderBy: { field: "modified", order: "desc" }
         },
-        "Pending Procurement Requests"
     );
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects",
         {
@@ -42,10 +41,9 @@ export const ApprovePR = () => {
             limit: 10000
         });
 
-    // useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
-    //     console.log("running approve-pr mutating")
-    //     await pr_list_mutate()
-    // })
+    useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
+        await pr_list_mutate()
+    })
 
     const { toast } = useToast()
 

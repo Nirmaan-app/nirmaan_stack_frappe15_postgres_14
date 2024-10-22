@@ -1,6 +1,6 @@
 import { Bell } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from "../ui/dropdown-menu";
-import { useNotificationStore } from "@/hooks/useNotificationStore";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { useContext, useState } from "react";
 import { FrappeConfig, FrappeContext } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";

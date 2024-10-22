@@ -207,50 +207,6 @@ def on_update(doc, method):
                 )
         else:
             print("No project leads or admins found with push notifications enabled.")
-        
-    elif doc.workflow_state in ["Vendor Approved", "RFQ Generated", "Rejected", "Approved"]:
-        lead_admin_users = get_allowed_users(doc)
-        if lead_admin_users:
-            for user in lead_admin_users:
-                print(f'running realtime event for {user["name"]}')
-                message= {
-                    "title" : _("PR Status Updated"),
-                    "description": _("Event for updating the sidebar count")
-                }
-                # message = {
-                #     "title": _("PR Status Updated"),
-                #     "description": _(f"Rejected PR: {doc.name} has been resolved."),
-                #     "project": doc.project,
-                #     "work_package": doc.work_package,
-                #     "sender": frappe.session.user,
-                #     "docname": doc.name
-                # }
-                # new_notification_doc = frappe.new_doc('Nirmaan Notifications')
-                # new_notification_doc.recipient = user['name']
-                # new_notification_doc.recipient_role = user['role_profile']
-                # if frappe.session.user != 'Administrator':
-                #     new_notification_doc.sender = frappe.session.user
-                # new_notification_doc.title = message["title"]
-                # new_notification_doc.description = message["description"]
-                # new_notification_doc.document = 'Procurement Requests'
-                # new_notification_doc.docname = doc.name
-                # new_notification_doc.project = doc.project
-                # new_notification_doc.work_package = doc.work_package
-                # new_notification_doc.seen = "false"
-                # new_notification_doc.type = "info"
-                # new_notification_doc.event_id = "pr:resolved"
-                # new_notification_doc.action_url = f"approve-order/{doc.name}"
-                # new_notification_doc.insert()
-                # frappe.db.commit()
-    
-                # message["notificationId"] = new_notification_doc.name
-                # print(f"running publish realtime for: {user}")
-    
-                frappe.publish_realtime(
-                    event="pr:statusChanged",  # Custom event name
-                    message=message,
-                    user=user['name']  # Notify only specific users
-                )
     # elif doc.workflow_state == "Pending":
         # lead_admin_users = get_allowed_users(doc)
         # if lead_admin_users:
@@ -313,8 +269,6 @@ def get_user_name(id):
         'Nirmaan Users',
         fields=['name', 'full_name']
     )
-
-    # Loop through the list and find the matching 'user' with the given 'id'
     for item in nirmaan_users:
         if item['name'] == id:
             return item['full_name']
@@ -348,3 +302,6 @@ def on_trash(doc, method):
     frappe.db.delete("Nirmaan Notifications", {
         "docname": ("=", doc.name)
     })
+
+def after_delete(doc, method):
+    pass
