@@ -1,14 +1,42 @@
+import { useFrappeGetDocList } from 'frappe-react-sdk';
 import { NavBar } from '../nav/nav-bar';
+import { useEffect } from 'react';
+import { useFrappeDataStore } from '@/zustand/useFrappeDataStore';
 
 export const MainLayout = () => {
 
-    // useFrappeDocTypeEventListener("Procurement Requests", (data) => {
-    //     console.log("doctype event data: procurement requests", data)
-    // })
+    const {setProcurementRequestError, setProcurementRequestList, setProcurementRequestLoading, setProjects, setProjectsError, setProjectsLoading} = useFrappeDataStore()
 
-    // useFrappeDocTypeEventListener("Nirmaan Comments", (data) => {
-    //     console.log("docData", data)
-    // })
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+        {
+            fields: ["*"],
+            limit: 1000,
+        },
+        "All Procurement Requests"
+    );
+    const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList("Projects",
+        {
+            fields: ["*"],
+            limit: 1000
+        },
+        "All Projects"
+    )
+
+    useEffect(() => {
+        if(procurement_request_list) {
+            setProcurementRequestList(procurement_request_list)
+        }
+        setProcurementRequestError(procurement_request_list_error)
+        setProcurementRequestLoading(procurement_request_list_loading)
+    }, [procurement_request_list, procurement_request_list_loading, procurement_request_list_error])
+
+    useEffect(() => {
+        if(projects) {
+            setProjects(projects)
+        }
+        setProjectsError(projects_error)
+        setProjectsLoading(projects_loading)
+    }, [projects, projects_loading, projects_error])
 
     return (
         <>

@@ -22,7 +22,7 @@ import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/
 import { useToast } from "@/components/ui/use-toast"
 import { ConfigProvider, Menu, MenuProps, TableProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
-import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, Download, FilePenLine } from "lucide-react"
+import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, Download, FilePenLine, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
@@ -536,6 +536,8 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     `User Permission, filters(for_value),=,${projectId}`
   )
 
+  // console.log("projectAssignes", projectAssignees)
+
   const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList("Nirmaan Users", {
     fields: ["*"],
     limit: 1000
@@ -598,10 +600,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
   };
 
 
-  console.log("po_data", po_data)
-
-
-
+  // console.log("po_data", po_data)
   // Grouping functionality
   const groupedAssignees = useMemo(() => {
     if (!projectAssignees || !usersList) return {};
@@ -952,6 +951,11 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     },
     documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${formatDate(new Date())}`
   });
+
+  const options = usersList?.map(user => ({
+    label: `${user?.full_name}-${user?.role_profile?.slice(1, 3)}`,
+    value: user.name
+  })) || [];
 
   // if (isLoading) return <OverviewSkeleton />
 

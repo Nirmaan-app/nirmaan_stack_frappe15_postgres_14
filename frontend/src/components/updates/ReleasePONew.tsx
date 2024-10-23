@@ -50,6 +50,7 @@ export const ReleasePONew: React.FC = () => {
     const [emailBody, setEmailBody] = useState("")
     const [phoneError, setPhoneError] = useState("")
     const [emailError, setEmailError] = useState("")
+    const [sheetOpen, setSheetOpen] = useState(false)
 
 
     const { id } = useParams<{ id: string }>()
@@ -81,8 +82,8 @@ export const ReleasePONew: React.FC = () => {
             const doc2 = address_list?.find(item => item.name == orderData?.vendor_address);
             const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
             setVendorAddress(address2)
-            setPhoneNumber(doc2.phone || "")
-            setEmail(doc2.email_id || "")
+            setPhoneNumber(doc2?.phone || "")
+            setEmail(doc2?.email_id || "")
         }
 
     }, [orderData, address_list]);
@@ -132,6 +133,25 @@ export const ReleasePONew: React.FC = () => {
             setMergedItems((prev) => prev.filter((mergedPo) => mergedPo !== po.name));
         }
     };
+
+    // console.log("mergedPOs", mergedItems)
+    const handleUnmergeAll = () => {
+        if(mergedItems.length) {
+            const updatedList = orderData.order_list.list.filter((item) => !mergedItems.includes(item.po));
+
+            setOrderData((prev) => ({
+                ...prev,
+                order_list: { ...prev.order_list, list: updatedList },
+            }));
+            setMergedItems([])
+        }
+    }
+
+    useEffect(() => {
+        if(!sheetOpen) {
+            handleUnmergeAll()
+        }
+    }, [sheetOpen])
 
     const componentRef = useRef<HTMLDivElement>(null);
 
@@ -386,6 +406,7 @@ export const ReleasePONew: React.FC = () => {
                 description: `Successfully merged PO(s)`,
                 variant: "success",
             });
+            setMergeablePOs([])
             await mutate();
         } catch (error) {
             console.log("Error while updating the PO's order list", error);
@@ -504,6 +525,12 @@ export const ReleasePONew: React.FC = () => {
         // Update the stack after popping the last operation
         setStack([...stack]);
     };
+
+    const handleSheetChange = () => {
+        setSheetOpen((prev) => !prev)
+    }
+
+    console.log("sheetOpen", sheetOpen)
 
     // console.log("advance", control.)
     // console.log("values", contactPerson)
@@ -682,7 +709,7 @@ export const ReleasePONew: React.FC = () => {
                                         <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
                                         <AlertDescription className="text-xs flex justify-between items-center">
                                             PO Merging Feature is available for this PO.
-                                            <Sheet>
+                                            <Sheet open={sheetOpen} onOpenChange={handleSheetChange}>
                                                 <SheetTrigger>
                                                     <Button className='flex items-center gap-1' color="primary">
                                                         <Merge className="w-4 h-4" />

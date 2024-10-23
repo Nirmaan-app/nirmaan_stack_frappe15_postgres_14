@@ -175,8 +175,11 @@ export default function Profile() {
                 variant: "destructive"
             });
         })
-
     }
+
+    console.log('user', data?.role_profile)
+
+    console.log("userData.role", userData.role)
 
     if (isLoading || permission_list_loading || project_list_loading || addressDataLoading) return <UserProfileSkeleton />;
     if (error) {
