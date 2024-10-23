@@ -191,27 +191,27 @@ const App: FC = () => {
 			console.log('Message received in the foreground: ', payload);
 
 			const notificationTitle = payload?.notification?.title || "";
-  			const notificationOptions = {
-  			  body: payload?.notification?.body,
-  			  icon: payload?.notification?.icon || '../src/assets/red-logo.png',
-  			  data: { click_action_url: payload?.data?.click_action_url }
-  			};
+			const notificationOptions = {
+				body: payload?.notification?.body,
+				icon: payload?.notification?.icon || '../src/assets/red-logo.png',
+				data: { click_action_url: payload?.data?.click_action_url }
+			};
 
 			const notification = new Notification(notificationTitle, notificationOptions);
 
 			notification.onclick = () => {
 				window.open(notificationOptions.data.click_action_url || "/", '_blank');
-			  };
+			};
 		});
 	}, []);
 
 	const getSiteName = () => {
 		// @ts-ignore
-		if (window.frappe?.boot?.versions?.frappe && (window.frappe.boot.versions.frappe.startsWith('15') || window.frappe.boot.versions.frappe.startsWith('16'))) {
-			// @ts-ignore
-			return window.frappe?.boot?.sitename ?? import.meta.env.VITE_SITE_NAME
-		}
-		return import.meta.env.VITE_SITE_NAME
+		// if (window.frappe?.boot?.versions?.frappe && (window.frappe.boot.versions.frappe.startsWith('15') || window.frappe.boot.versions.frappe.startsWith('16'))) {
+		// 	// @ts-ignore
+		// 	return window.frappe?.boot?.sitename ?? import.meta.env.VITE_SITE_NAME
+		// }
+		return window.frappe?.boot?.sitename !== undefined ? window.frappe?.boot?.sitename : import.meta.env.VITE_SITE_NAME
 	}
 
 	// const queryClient = new QueryClient()
