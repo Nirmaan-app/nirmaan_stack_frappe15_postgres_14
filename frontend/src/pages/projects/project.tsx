@@ -19,10 +19,10 @@ import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
-import { useToast } from "@/components/ui/use-toast"
+import { toast, useToast } from "@/components/ui/use-toast"
 import { ConfigProvider, Menu, MenuProps, TableProps } from "antd"
-import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
-import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, Download, FilePenLine, UserCheckIcon } from "lucide-react"
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, Download, FilePenLine, ListChecks, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
@@ -31,6 +31,8 @@ import { useReactToPrint } from "react-to-print"
 import { formatDate } from "@/utils/FormatDate"
 import formatToIndianRupee from "@/utils/FormatPrice"
 import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // interface WPN {
 //     name: string
@@ -484,6 +486,7 @@ import { Badge } from "@/components/ui/badge"
 
 
 const Project = () => {
+
   const { projectId } = useParams<{ projectId: string }>()
 
   const { data, isLoading } = useFrappeGetDoc("Projects", projectId, `Projects ${projectId}`, {
@@ -516,6 +519,11 @@ export const Component = Project
 
 const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => {
 
+
+  const [selectedUser, setSelectedUser] = useState(null)
+  const [userOptions, setUserOptions] = useState([])
+  const {createDoc, loading: createDocLoading} = useFrappeCreateDoc()
+
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList("Project Work Milestones", {
     fields: ["*"],
     filters: [["project", "=", `${projectId}`]],
@@ -528,7 +536,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     }
   )
 
-  const { data: projectAssignees, isLoading: projectAssigneesLoading } = useFrappeGetDocList("Nirmaan User Permissions", {
+  const { data: projectAssignees, isLoading: projectAssigneesLoading, mutate: projectAssigneesMutate } = useFrappeGetDocList("Nirmaan User Permissions", {
     fields: ["*"],
     limit: 1000,
     filters: [["for_value", "=", `${projectId}`], ["allow", "=", "Projects"]]
@@ -538,7 +546,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
 
   // console.log("projectAssignes", projectAssignees)
 
-  const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList("Nirmaan Users", {
+  const { data: usersList, isLoading: usersListLoading, mutate : usersListMutate } = useFrappeGetDocList("Nirmaan Users", {
     fields: ["*"],
     limit: 1000
   },
@@ -577,17 +585,24 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     `Procurement Orders ${projectId}`
   )
 
+
+  useEffect(() => {
+    if(usersList && projectAssignees) {
+      const options = usersList?.filter(user => !projectAssignees?.some((i) => i?.user === user?.name) && user?.role_profile !== "Nirmaan Admin Profile")?.map((op) => ({
+        label: `${op?.full_name}-${op?.role_profile?.split(" ").slice(1, 3).join(" ")}`,
+        value: op?.name
+      })) || [];
+      setUserOptions(options)
+    }
+  }, [usersList, projectAssignees])
+
   const totalPosRaised = () => {
     if (po_data && po_data.length > 0) {
-      // Loop through each procurement order and sum up the total value
       const total = po_data.reduce((acc, po) => {
-        // Check if the procurement order has an order_list with items
         if (po.order_list && po.order_list.list && po.order_list.list.length > 0) {
-          // Sum the quote * quantity for each item in the order_list
           const poTotal = po.order_list.list.reduce((itemAcc, item) => {
             return itemAcc + (item.quote * item.quantity);
           }, 0);
-          // Add the poTotal to the overall accumulator
           return acc + poTotal;
         }
         return acc;
@@ -599,8 +614,6 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     return 0; // Return 0 if po_data is not available or empty
   };
 
-
-  // console.log("po_data", po_data)
   // Grouping functionality
   const groupedAssignees = useMemo(() => {
     if (!projectAssignees || !usersList) return {};
@@ -645,18 +658,8 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     }));
   };
 
-  // console.log("users", usersList)
-
-  // console.log("project assignees", projectAssignees)
-
-  //   console.log("customerData", projectCustomer)
-  // console.log("mile_data", mile_data)
-
-  // console.log("data", data)
 
   const navigate = useNavigate();
-
-  // const { toast } = useToast()
 
   type ScopesMilestones = {
     work_package: string;
@@ -910,12 +913,9 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
   ]
 
 
-  // console.log("pr_data", pr_data)
-
   const [current, setCurrent] = useState('overview')
 
   const onClick: MenuProps['onClick'] = (e) => {
-    //  console.log('click ', e);
     setCurrent(e.key);
   };
 
@@ -946,23 +946,47 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
   const componentRef3 = React.useRef<HTMLDivElement>(null);
   const handlePrint3 = useReactToPrint({
     content: () => {
-      // console.log("Print Schedule button Clicked");
       return componentRef3.current || null
     },
     documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${formatDate(new Date())}`
   });
 
-  const options = usersList?.map(user => ({
-    label: `${user?.full_name}-${user?.role_profile?.slice(1, 3)}`,
-    value: user.name
-  })) || [];
+  console.log("options", userOptions)
 
-  // if (isLoading) return <OverviewSkeleton />
+  console.log("selectedUser", selectedUser)
+
+  const handleAssignUserSubmit = async () => {
+    try {
+      await createDoc('User Permission', {
+        user: selectedUser,
+        allow: "Projects",
+        for_value: projectId
+        }
+      )
+      await projectAssigneesMutate()
+      await usersListMutate()
+      document.getElementById("assignUserDialogClose")?.click()
+      toast({
+          title: "Success!",
+          description: `Successfully assigned ${getUserFullName(selectedUser)}`,
+          variant: "success"
+      })
+    } catch (error) {
+      console.log("error", error)
+      toast({
+        title: "Failed!",
+        description: `Failed to assign ${getUserFullName(selectedUser)}`,
+        variant: "destructive"
+    })
+    } finally {
+      setSelectedUser(null)
+    }
+  }
 
   return (
     <div className="flex-1 md:space-y-4">
       <div className="flex items-center">
-        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
+        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate(-1)} />
         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
       </div>
@@ -1017,7 +1041,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
                 <div className="space-y-4">
                   <CardDescription className="space-y-2">
                     <span>Customer</span>
-                    <p className="font-bold text-black">{projectCustomer?.company_name}</p>
+                    <p className="font-bold text-black">{projectCustomer?.company_name || "--"}</p>
                   </CardDescription>
                   <CardDescription className="space-y-2">
                     <span>Location</span>
@@ -1058,7 +1082,57 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Assignees</CardTitle>
+              <CardTitle className="flex items-center justify-between">Assignees
+                        <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button asChild>
+                                        <div className="cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign User</div>
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                        <DialogTitle className="text-xl font-semibold mb-4">Assign User:</DialogTitle>
+                                    </DialogHeader>
+                                    <div className="grid gap-4">
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <label htmlFor="project" className="text-right font-light">
+                                                Assign:
+                                            </label>
+                                            <Select
+                                                defaultValue={selectedUser ? selectedUser : undefined}
+                                                onValueChange={(item) => setSelectedUser(item)}
+                                              >
+                                                <SelectTrigger className="col-span-3">
+                                                    <SelectValue placeholder="Select User" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {userOptions.length ? (
+                                                      userOptions?.map(option => (
+                                                        <SelectItem value={option?.value}>
+                                                            {option?.label}
+                                                        </SelectItem>
+                                                      ))
+                                                    ) : (
+                                                      "No more users available for assigning!"
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+
+                                        </div>
+                                        <div className="grid grid-cols-4 items-center gap-4">
+                                            <span className="text-right font-light">To:</span>
+                                            <span className="col-span-3 font-semibold">{projectId}</span>
+                                        </div>
+                                    </div>
+                                        <Button disabled={!selectedUser} onClick={handleAssignUserSubmit} className="w-full">
+                                            <ListChecks className="mr-2 h-4 w-4" />
+                                            {createDocLoading ? "Submitting..." : "Submit"}</Button>
+                                      <DialogClose className="hidden" id="assignUserDialogClose">
+                                          close
+                                      </DialogClose>
+                                </DialogContent>
+                            </Dialog>
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <CardDescription className="space-y-2">

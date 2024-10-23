@@ -11,9 +11,8 @@ import {
 } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogClose, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useContext, useState } from "react";
-import { DialogClose } from "@radix-ui/react-dialog";
 import { ArrowLeft, CirclePlus, Edit2, Edit2Icon, Edit3Icon, FolderArchiveIcon, FoldHorizontalIcon, FoldVertical, KeyRound, ListChecks, LucidePencil, LucideSettings, LucideSettings2, Mail, MapPin, PencilIcon, PencilLineIcon, PercentCircleIcon, Phone, Plus, Settings, Settings2, Settings2Icon, SettingsIcon, Trash2, Undo2 } from "lucide-react";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
@@ -309,7 +308,7 @@ export default function Profile() {
                                     <DialogHeader>
                                         <DialogTitle className="text-xl font-semibold mb-4">Assign New Project:</DialogTitle>
                                     </DialogHeader>
-                                    <div className="grid gap-4 py-4">
+                                    <div className="grid gap-4">
                                         <div className="grid grid-cols-4 items-center gap-4">
                                             <label htmlFor="project" className="text-right font-light">
                                                 Assign:
