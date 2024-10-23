@@ -41,7 +41,7 @@ def get_context(context):
 	# )
 	context.update({
         "build_version": frappe.utils.get_build_version(),
-        "boot": boot_json,
+        "boot": json.loads(boot_json),
     })
 
 	# app_name = frappe.get_website_settings("app_name") or frappe.get_system_settings("app_name")
