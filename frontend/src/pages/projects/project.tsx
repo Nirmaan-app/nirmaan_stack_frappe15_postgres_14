@@ -690,6 +690,10 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       label: 'Procurement Summary',
       key: 'procurementSummary',
     },
+    {
+      label: 'PO Summary',
+      key: 'POSummary',
+    },
   ];
 
   const [areaNames, setAreaNames] = useState(null)
@@ -808,16 +812,34 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     }
   }
 
+  const getItemStatus = (item: any, filteredPOs: any[]) => {
+    return filteredPOs.some(po => 
+        po.order_list?.list.some(poItem => poItem.name === item.name)
+    );
+};
+
+const statusRender = (status: string, prId: string) => {
+    const procurementRequest = pr_data?.find((pr) => pr?.name === prId);
+
+    const itemList = procurementRequest?.procurement_list?.list || [];
+
+    if (["Pending", "Approved", "Rejected"].includes(status)) {
+        return "New PR";
+    }
+
+    const filteredPOs = po_data?.filter(po => po.procurement_request === prId) || [];
+    const allItemsApproved = itemList.every(item => getItemStatus(item, filteredPOs));
+
+    return allItemsApproved ? "Approved PO" : "Open PR";
+};
+
+
   const statusOptions = [
     { label: "New PR", value: "New PR" },
     { label: "Open PR", value: "Open PR" },
     { label: "Approved PO", value: "Approved PO" },
-    { label: "Rejected", value: "Rejected" }
   ]
 
-  const statusRender = (status, prId) => {
-    return ["RFQ Generated", "Quote Updated", "Vendor Selected", "Approved"].includes(status) ? "Open PR" : status === "Pending" ? "New PR" : ["Vendor Approved", "Partially Approved"].includes(status) ? "Approved PO" : status === "Rejected" ? "Rejected" : checkPrToSB(prId)
-  }
   const procurementSummaryColumns = [
     {
       accessorKey: "name",
@@ -1212,6 +1234,10 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
             <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} totalPOsRaised={formatToIndianRupee(totalPosRaised())} />
         )
       }
+
+      {current === "POSummary" && (
+        <div>Pending...</div>
+      )}
 
       <div className="hidden">
         <div ref={componentRef} className="px-4 pb-1">

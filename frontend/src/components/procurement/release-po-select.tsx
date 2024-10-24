@@ -116,7 +116,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                 accessorKey: "procurement_request",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="PR Number" />
+                        <DataTableColumnHeader column={column} title="PR No" />
                     )
                 },
                 cell: ({ row }) => {
@@ -202,7 +202,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                 id: "totalWithoutGST",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Amount(exc. GST)" />
+                        <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
                     )
                 },
                 cell: ({ row }) => {
@@ -217,7 +217,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                 id: "totalWithGST",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Amount(inc. GST)" />
+                        <DataTableColumnHeader column={column} title="Amt (inc. GST)" />
                     )
                 },
                 cell: ({ row }) => {
