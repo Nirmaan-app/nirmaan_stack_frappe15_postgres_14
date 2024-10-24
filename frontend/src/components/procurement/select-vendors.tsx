@@ -506,7 +506,7 @@ export const SelectVendors = () => {
                         description: `You just delayed all the items, you can see them in "New Sent Back" tab!`,
                         variant: "default",
                     });
-                    navigate("/");
+                    navigate("/select-vendor-list");
                 } catch (error) {
                     console.log("update_submit_error", error);
                 }
@@ -522,7 +522,7 @@ export const SelectVendors = () => {
                         description: `Items Sent for Approval`,
                         variant: "success",
                     });
-                    navigate("/");
+                    navigate("/select-vendor-list");
                 } catch (error) {
                     console.log("update_submit_error", error);
                 }
@@ -629,7 +629,7 @@ export const SelectVendors = () => {
         })
             .then(() => {
                 console.log("orderId", orderId)
-                navigate(`/procure-request/quote-update/${orderId}`)
+                navigate(`/update-quote/${orderId}`)
             }).catch(() => {
                 console.log(submit_error)
             })
@@ -651,7 +651,7 @@ export const SelectVendors = () => {
                 <div className="flex-1 space-y-2 md:space-y-4">
                     <div className="flex items-center pt-1  pb-4">
                         <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
-                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendor/Item Quotes</h2>
+                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Choose Vendor/Item Quotes</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />
                     {orderData?.category_list?.list.map((cat) => {

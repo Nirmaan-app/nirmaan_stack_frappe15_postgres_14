@@ -89,7 +89,7 @@ export function Notifications() {
                                             <div className="text-xs text-gray-500 mt-1">
                                                 <p>Project: {notification.project}</p>
                                                 <p>Work Package: {notification.work_package}</p>
-                                                <p>Created By: {notification?.sender ? getName(notification?.sender) : "Administrator"}</p>
+                                                <p>Action By: {notification?.sender ? getName(notification?.sender) : "Administrator"}</p>
                                             </div>
                                         </div>
                                         <div className="flex justify-end py-1 pr-2">

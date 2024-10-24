@@ -89,7 +89,7 @@ export default function Projects() {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {row.getValue("project_type")}
+                            {row.getValue("project_type") || <p className="flex items-center justify-center">--</p>}
                         </div>
                     )
                 },

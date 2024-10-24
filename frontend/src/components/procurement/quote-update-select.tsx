@@ -1,4 +1,4 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
@@ -22,11 +22,12 @@ type PRTable = {
 
 
 export const QuoteUpdateSelect = () => {
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: prListMutate } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation', 'modified'],
             filters: [["workflow_state", "=", "RFQ Generated"]],
-            limit: 1000
+            limit: 1000,
+            orderBy: {field: "modified", order: "desc"}
         });
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
@@ -38,6 +39,9 @@ export const QuoteUpdateSelect = () => {
             limit: 2000
         });
 
+    useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
+        await prListMutate()
+    })
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
@@ -68,7 +72,7 @@ export const QuoteUpdateSelect = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/procure-request/quote-update/${row.getValue("name")}`}>
+                            <Link className="underline hover:underline-offset-2" to={`${row.getValue("name")}`}>
                                 {row.getValue("name")?.slice(-4)}
                             </Link>
                         </div>
@@ -154,9 +158,10 @@ export const QuoteUpdateSelect = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const id = row.getValue("name")
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")))}
+                            {getTotal(id) === 0 ? "N/A" : formatToIndianRupee(getTotal(id))}
                         </div>
                     )
                 }

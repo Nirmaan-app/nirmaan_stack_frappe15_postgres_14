@@ -18,6 +18,7 @@ export const ApproveSelectAmendPO = () => {
             fields: ["*"],
             filters: [["status", "=", "PO Amendment"]],
             limit: 1000,
+            orderBy: {field : "modified", order: "desc"}
         },
     );
 

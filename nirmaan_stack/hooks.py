@@ -164,9 +164,12 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.procurement_requests.after_delete"
     },
     "Procurement Orders": {
-        "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update"
+        "after_insert": "nirmaan_stack.integrations.controllers.procurement_orders.after_insert",
+        "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.procurement_orders.on_trash"
     },
     "Sent Back Category": {
+        "after_insert": "nirmaan_stack.integrations.controllers.sent_back_category.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.sent_back_category.on_update"
     },
     "Version": {

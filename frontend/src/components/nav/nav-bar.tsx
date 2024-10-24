@@ -10,6 +10,7 @@ import {
     List,
     SendToBack,
     Shapes,
+    ShoppingCart,
 } from "lucide-react";
 import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
@@ -23,7 +24,7 @@ import { getToken } from "firebase/messaging";
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { handlePRDeleteEvent, handlePRNewEvent, handlePRVendorSelectedEvent, handleSBVendorSelectedEvent, handlePOAmendedEvent } from "@/zustand/eventListeners";
+import { handlePRDeleteEvent, handlePRNewEvent, handlePRVendorSelectedEvent, handleSBVendorSelectedEvent, handlePOAmendedEvent, handlePRApproveNewEvent, handlePONewEvent, handleSBNewEvent } from "@/zustand/eventListeners";
 
 export const NavBar = () => {
     const [collapsed, setCollapsed] = useState(false);
@@ -36,7 +37,10 @@ export const NavBar = () => {
 
     const { data } = useFrappeGetDoc("Nirmaan Users", user_id, user_id === "Administrator" ? null : undefined)
 
-    const {pendingPRCount, approvePRCount, adminApprovePRCount, adminPendingPRCount, updatePRCounts, updateSBCounts, newSBCount, adminNewSBCount, amendPOCount, adminAmendPOCount, updatePOCounts} = useDocCountStore()
+    const {
+        pendingPRCount, approvePRCount, adminApprovePRCount, adminPendingPRCount, updatePRCounts, updateSBCounts, newSBApproveCount, 
+        adminNewApproveSBCount, amendPOCount, adminAmendPOCount, updatePOCounts, adminApprovedPRCount, approvedPRCount, newPOCount, 
+        adminNewPOCount, adminNewSBCounts, newSBCounts} = useDocCountStore()
     const { notifications, add_new_notification, delete_notification } = useNotificationStore();
     const { db } = useContext(FrappeContext) as FrappeConfig
 
@@ -87,7 +91,7 @@ export const NavBar = () => {
 
     const { data: poData, mutate: poDataMutate } = useFrappeGetDocList("Procurement Orders", {
         fields: ["status"],
-        filters: [["status", "=", "PO Amendment"], ["project", "in", permissionsList || []]],
+        filters: [["project", "in", permissionsList || []]],
         limit: 1000
     },
         (user_id === "Administrator" || !permissionsList) ? null : undefined
@@ -95,7 +99,6 @@ export const NavBar = () => {
 
     const { data: adminPOData, mutate: adminPODataMutate } = useFrappeGetDocList("Procurement Orders", {
         fields: ["status"],
-        filters: [["status", "=", "PO Amendment"]],
         limit: 1000
     },
         user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
@@ -103,7 +106,7 @@ export const NavBar = () => {
 
     const { data: prData, mutate: prDataMutate } = useFrappeGetDocList("Procurement Requests", {
         fields: ["workflow_state", "procurement_list"],
-        filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved"]], ["project", "in", permissionsList || []]],
+        filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved", "Approved", "RFQ Generated", "Quote Updated"]], ["project", "in", permissionsList || []]],
         limit: 1000
     },
         (user_id === "Administrator" || !permissionsList) ? null : "prDataMutate"
@@ -111,7 +114,7 @@ export const NavBar = () => {
 
     const { data: adminPrData, mutate: adminPRDataMutate } = useFrappeGetDocList("Procurement Requests", {
         fields: ["workflow_state", "procurement_list"],
-        filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved"]]],
+        filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved", "Approved", "RFQ Generated", "Quote Updated"]]],
         limit: 1000
     },
 
@@ -119,16 +122,16 @@ export const NavBar = () => {
     )
 
     const { data: sbData, mutate: sbDataMutate } = useFrappeGetDocList("Sent Back Category", {
-        fields: ["workflow_state", "item_list"],
-        filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]], ["project", "in", permissionsList || []]],
+        fields: ["workflow_state", "item_list", "type"],
+        filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved", "Pending"]], ["project", "in", permissionsList || []]],
         limit: 1000
     },
         (user_id === "Administrator" || !permissionsList) ? null : undefined
     )
 
     const { data: adminSBData, mutate: adminSBDataMutate } = useFrappeGetDocList("Sent Back Category", {
-        fields: ["workflow_state", "item_list"],
-        filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
+        fields: ["workflow_state", "item_list", "type"],
+        filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved", "Pending"]]],
         limit: 1000
     },
 
@@ -159,6 +162,8 @@ export const NavBar = () => {
         }
     }, [prData, adminPrData])
 
+
+    //  ***** PR Events *****
     useFrappeEventListener("pr:new", async (event) => {
         await handlePRNewEvent(db, event, add_new_notification)
     });
@@ -171,12 +176,12 @@ export const NavBar = () => {
         await handlePRVendorSelectedEvent(db, event, add_new_notification);
     });
 
-    useFrappeEventListener("sb:vendorSelected", async (event) => {
-        await handleSBVendorSelectedEvent(db, event, add_new_notification);
+    useFrappeEventListener("pr:approved", async (event) => {
+        await handlePRApproveNewEvent(db, event, add_new_notification)
     });
 
-    useFrappeEventListener("po:amended", async (event) => {
-        await handlePOAmendedEvent(db, event, add_new_notification);
+    useFrappeEventListener("pr:rejected", async (event) => {
+        await handlePRNewEvent(db, event, add_new_notification)
     });
 
     useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
@@ -187,6 +192,24 @@ export const NavBar = () => {
         }
     })
 
+
+    //  ***** SB Events *****
+    useFrappeEventListener("sb:vendorSelected", async (event) => {
+        await handleSBVendorSelectedEvent(db, event, add_new_notification);
+    });
+
+    useFrappeEventListener("Rejected-sb:new", async (event) => {
+        await handleSBNewEvent(db, event, add_new_notification)
+    });
+
+    useFrappeEventListener("Delayed-sb:new", async (event) => {
+        await handleSBNewEvent(db, event, add_new_notification)
+    });
+
+    useFrappeEventListener("Cancelled-sb:new", async (event) => {
+        await handleSBNewEvent(db, event, add_new_notification)
+    });
+
     useFrappeDocTypeEventListener("Sent Back Category", async (event) => {
         if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
             await adminSBDataMutate()
@@ -194,6 +217,20 @@ export const NavBar = () => {
             await sbDataMutate()
         }
     })
+
+
+    //  ***** PO Events *****
+    useFrappeEventListener("po:amended", async (event) => {
+        await handlePOAmendedEvent(db, event, add_new_notification);
+    });
+
+    useFrappeEventListener("po:new", async (event) => {
+        await handlePONewEvent(db, event, add_new_notification)
+    });
+
+    useFrappeEventListener("po:delete", (event) => {
+        handlePRDeleteEvent(event, delete_notification);
+    });
 
     useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
         if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
@@ -211,7 +248,7 @@ export const NavBar = () => {
     //     await handlePRResolvedEvent(db, event, role, user_id, add_new_notification, mutate);
     // });
 
-    console.log("new Notifications", notifications)
+    // console.log("new Notifications", notifications)
 
     const requestNotificationPermission = async () => {
         if (user_id && data) {
@@ -415,17 +452,17 @@ export const NavBar = () => {
                             key: '/approve-sent-back', label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve Sent Back PO
-                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCount && adminNewSBCount !== 0 ? (
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewApproveSBCount && adminNewApproveSBCount !== 0 ? (
                                     <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                         <span className="text-white text-xs font-bold">
-                                            {adminNewSBCount}
+                                            {adminNewApproveSBCount}
                                         </span>
                                     </div>
                                     ) : (
-                                        (newSBCount && newSBCount !== 0) ? (
+                                        (newSBApproveCount && newSBApproveCount !== 0) ? (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                            {newSBCount}
+                                            {newSBApproveCount}
                                         </span>
                                     </div>
                                         ) : ""
@@ -443,20 +480,138 @@ export const NavBar = () => {
                 {
                     key: 'pe-actions',
                     icon: <List className="h-4 w-4" />,
-                    label: 'Procurements',
+                    label: 'Procurement Requests',
                     children: [
-                        { key: '/procure-request', label: 'New PR Request' },
+                        { key: '/procure-request', label: (
+                            <div className="flex justify-between items-center relative">
+                                New PR Request
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminApprovedPRCount}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (approvedPRCount && approvedPRCount !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {approvedPRCount}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+
+                        )},
                         { key: '/update-quote', label: 'Update Quote' },
-                        { key: '/select-vendor-list', label: 'Select Vendor' },
-                        { key: '/release-po', label: 'Approved PO' },
-                        { key: '/released-po', label: 'Released PO' }
+                        { key: '/select-vendor-list', label: 'Choose Vendor' }
                     ],
+                },
+                {
+                    key : 'pe-po-actions',
+                    icon : <ShoppingCart className="h-4 w-4" />,
+                    label: 'Purchase Orders',
+                    children : [
+                        { key: '/release-po', label: (
+                            <div className="flex justify-between items-center relative">
+                                Approved PO
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminNewPOCount}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (newPOCount && newPOCount !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {newPOCount}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+
+                        ),
+                            
+                         },
+                        { key: '/released-po', label: 'Released PO' }
+                    ]
                 }
             ]
             : []),
         ...(role == 'Nirmaan Procurement Executive Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
             ? [
-                { key: '/sent-back-request', label: 'New Sent Back', icon: <SendToBack className="h-4 w-4" /> }
+                { 
+                    key: 'sent-back-actions', 
+                    icon: <SendToBack className="h-4 w-4" />,
+                    label: 'Sent Back Requests', 
+                    children: [
+                        { key: '/rejected-sb', label: (
+                            <div className="flex justify-between items-center relative">
+                                Rejected Sent Back
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.rejected && adminNewSBCounts.rejected !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminNewSBCounts.rejected}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (newSBCounts.rejected && newSBCounts.rejected !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {newSBCounts.rejected}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+
+                        )},
+                        { key: '/delayed-sb', label: (
+                            <div className="flex justify-between items-center relative">
+                                Delayed Sent Back
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.delayed && adminNewSBCounts.delayed !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminNewSBCounts.delayed}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (newSBCounts.delayed && newSBCounts.delayed !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {newSBCounts.delayed}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+
+                        )},
+                        { key: '/cancelled-sb', label: (
+                            <div className="flex justify-between items-center relative">
+                                Cancelled Sent Back
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.cancelled && adminNewSBCounts.cancelled !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminNewSBCounts.cancelled}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (newSBCounts.cancelled && newSBCounts.cancelled !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {newSBCounts.cancelled}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+
+                        )}
+                    ]
+                }
             ] : []
         ),
     ];
@@ -464,16 +619,15 @@ export const NavBar = () => {
     const allKeys = [
         "projects", "users", "items", "vendors", "customers",
         "prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "procure-request", "update-quote",
-        "select-vendor-list", "release-po", "sent-back-request",
-        "released-po", "approve-amended-po"
+        "approve-sent-back", "approve-amended-po", "procure-request", "update-quote",
+        "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
     const openKey = ["prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back"].includes(selectedKeys) ? "pl-actions" : ["procure-request", "update-quote",
-            "select-vendor-list", "release-po"].includes(selectedKeys) ? "pe-actions" : ""
+        "approve-sent-back", "approve-amended-po"].includes(selectedKeys) ? "pl-actions" : ["procure-request", "update-quote",
+            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ""
 
     if (user_id !== "Administrator" && !role) {
         return (<div>loading...</div>)
@@ -508,7 +662,7 @@ export const NavBar = () => {
                         <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70, dropdownWidth: 220 } } }}>
                             <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                 ...item,
-                                label: ["pe-actions", "pl-actions", "admin-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                 children: item.children?.map((child) => ({
                                     ...child,
                                     label: <Link to={child.key}>{child.label}</Link>
@@ -527,7 +681,7 @@ export const NavBar = () => {
                                     <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                         ...item,
                                         onClick: () => setIsMobileSidebarOpen(false),
-                                        label: ["pe-actions", "pl-actions", "admin-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                         children: item.children?.map((child) => ({
                                             ...child,
                                             label: <Link to={child.key}>{child.label}</Link>

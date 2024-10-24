@@ -96,6 +96,8 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
         return usersList?.find((user) => user.name === id)?.full_name
     }
 
+    const {role} = useUserData()
+
     const checkPoToPr = (prId: string) => {
         return po_data?.some((po) => po.procurement_request === prId)
     }
@@ -133,7 +135,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                 description: `PR: ${pr_data?.name} deleted successfully!`,
                 variant: "success"
             })
-            navigate("/procurement-request")
+            navigate("/prs&milestones/procurement-request")
         } catch (error) {
             console.log("error while deleting PR", error)
             toast({
@@ -174,7 +176,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                             </div>
                             <div className="flex gap-4 items-center">
                                 {
-                                    ["Rejected", "Pending", "Approved"].includes(pr_data.workflow_state) && (
+                                    ["Rejected", "Pending", role === "Nirmaan Project Lead Profile" ? "Approved" : ""].includes(pr_data?.workflow_state) && (
                                         <AlertDialog>
                                             <AlertDialogTrigger>
                                                 <Button className="flex items-center gap-1">

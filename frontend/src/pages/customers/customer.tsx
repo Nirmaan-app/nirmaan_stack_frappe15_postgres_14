@@ -2,9 +2,9 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 // import { fetchDoc } from "@/reactQuery/customFunctions";
 // import { useQuery } from "@tanstack/react-query";
-import { useFrappeGetDoc } from "frappe-react-sdk";
-import { ArrowLeft, FilePenLine } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { ArrowLeft, FilePenLine, MapPin } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 const Customer = () => {
   const { customerId } = useParams<{ customerId: string }>();
@@ -26,6 +26,14 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
   const { data, isLoading, error } = useFrappeGetDoc("Customers", customerId, `Customers ${customerId}`, {
     revalidateIfStale: false
   })
+
+  const {data: associatedProjects} = useFrappeGetDocList("Projects", {
+    fields: ["*"],
+    filters: [["customer", "=", customerId]],
+    limit: 1000
+  })
+
+  console.log("asociated Projects", associatedProjects)
 
   const customerAddressID = data?.company_address;
 
@@ -109,6 +117,34 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
             </CardContent>
 
           </Card>
+        <div className="mt-4">
+          <h2 className="text-2xl max-md:text-xl font-semibold font-bold pb-2">Associated Projects</h2>
+        {associatedProjects?.length ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {
+              associatedProjects?.map((project) => (
+            <Link key={project.name} to={`/projects/${project?.name}`}>
+            <Card className="flex flex-col">
+                  <CardHeader>
+                      <CardTitle className="flex justify-between items-start">
+                          <span className="text-lg">{project?.project_name}</span>
+                      </CardTitle>
+                      <CardDescription className="text-xs">{project?.name}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex-grow">
+                      <div className="flex items-center gap-2 mb-2">
+                          <MapPin className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm">{project?.project_city}, {project?.project_state}</span>
+                      </div>
+                  </CardContent>
+              </Card>
+              </Link>
+          ))}
+          </div>
+        ) : (
+          <p className="text-center bg-gray-50 py-2">Not Available</p>
+        )}
+        </div>
         </div>
       )}
     </div>

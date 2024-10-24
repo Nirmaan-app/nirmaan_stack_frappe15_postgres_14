@@ -9,7 +9,7 @@ import {
 import { ArrowBigRightDash, ArrowLeft, CirclePlus, Download, Handshake, ListChecks, PencilLine } from 'lucide-react';
 import SentBackQuotationForm from "./sent-back-quotation-form"
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { useNavigate } from "react-router-dom";
 import { Button } from "../ui/button";
@@ -58,7 +58,6 @@ export const SentBackUpdateQuote = () => {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['*'],
-            filters: [["workflow_state", "=", "Pending"]],
             limit: 1000
         });
 
@@ -139,12 +138,17 @@ export const SentBackUpdateQuote = () => {
         }
     }, [quotation_request_list, orderData, vendor_list]);
 
-    // console.log("orderData", orderData)
 
-    // console.log("uniquevendors", uniqueVendors)
+    const location = useLocation()
 
     const handleUpdateQuote = () => {
-        navigate(`/sent-back-request/select-vendor/${id}`);
+        if(location.pathname.includes("cancelled-sb")) {
+            navigate(`/cancelled-sb/select-vendor/${id}`);
+        } else if(location.pathname.includes("rejected-sb")) {
+            navigate(`/rejected-sb/select-vendor/${id}`);
+        } else {
+            navigate(`/delayed/select-vendor/${id}`);
+        }
     }
 
     const isButtonDisabled = useCallback((vencat) => {
@@ -305,11 +309,42 @@ export const SentBackUpdateQuote = () => {
         [orderData, isButtonDisabled, vendor_list]
     )
 
-    console.log("universalComments", universalComments)
+    // console.log("universalComments", universalComments)
 
     // console.log("orderData", orderData)
 
     const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
+
+    if (orderData?.workflow_state !== "Pending") {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                    <h2 className="text-2xl font-semibold text-gray-800">
+                        Heads Up!
+                    </h2>
+                    <p className="text-gray-600 text-lg">
+                        Hey there, the SB:{" "}
+                        <span className="font-medium text-gray-900">{orderData?.name}</span>{" "}
+                        is no longer available in the{" "}
+                        <span className="italic">Pending</span> state. The current state is{" "}
+                        <span className="font-semibold text-blue-600">
+                            {orderData?.workflow_state}
+                        </span>{" "}
+                        And the last modification was done by <span className="font-medium text-gray-900">
+                            {orderData?.modified_by === "Administrator" ? orderData?.modified_by : getFullName(orderData?.modified_by)}
+                        </span>
+                        !
+                    </p>
+                    <button
+                        className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                        onClick={() => navigate(-1)}
+                    >
+                        Go Back
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <>
@@ -317,7 +352,7 @@ export const SentBackUpdateQuote = () => {
                     <div className="flex-1 space-y-2 md:space-y-4">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center pt-1 pb-4">
-                                <ArrowLeft className="cursor-pointer" onClick={() => navigate('/sent-back-request')} />
+                                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                                 <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
                             </div>
                             <Badge variant={orderData?.type === "Rejected" ? "destructive" : orderData?.type === "Delayed" ? "orange" : "gray"}>{orderData?.type}</Badge>

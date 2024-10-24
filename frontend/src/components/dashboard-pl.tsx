@@ -3,7 +3,7 @@ import { Card } from "./ui/card";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 
 export const ProjectLead = () => {
-    const {approvePRCount, pendingPRCount, amendPOCount, newSBCount} = useDocCountStore()
+    const {approvePRCount, pendingPRCount, amendPOCount, newSBApproveCount} = useDocCountStore()
 
     return (
         <div className="flex-1 space-y-4">
@@ -22,7 +22,7 @@ export const ProjectLead = () => {
                         <Link to="/approve-order">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PR</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
-                                {pendingPRCount && pendingPRCount}
+                                {pendingPRCount || 0}
                             </p>
                         </Link>
                     </Card>
@@ -30,7 +30,7 @@ export const ProjectLead = () => {
                         <Link to="/approve-vendor">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PO</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
-                                {approvePRCount && approvePRCount}
+                                {approvePRCount || 0}
                             </p>
                         </Link>
                     </Card>
@@ -38,19 +38,19 @@ export const ProjectLead = () => {
                         <Link to="/approve-amended-po">
                             <p className="text-center py-6 font-bold text-gray-500">Approve Amended PO</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
-                                {amendPOCount && amendPOCount}
+                                {amendPOCount || 0}
                             </p>
                         </Link>
                     </Card>
 
                 </div>
-                <h2 className="text-base font-bold tracking-tight pt-4">Delayed/Rejected Sent Back Actions</h2>
+                <h2 className="text-base font-bold tracking-tight pt-4">Rejected/Delayed/Cancelled Sent Back Actions</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                         <Link to="/approve-sent-back">
                             <p className="text-center py-6 font-bold text-gray-500">Approve Sent Back</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
-                                {newSBCount && newSBCount}
+                                {newSBApproveCount || 0}
                             </p>
                         </Link>
                     </Card>
