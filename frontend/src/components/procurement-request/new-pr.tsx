@@ -35,7 +35,13 @@ const NewPR = () => {
     )
 };
 
-export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, setSection }) => {
+interface NewPRPageProps {
+    project?: ProjectsType | undefined
+    rejected_pr_data?: any
+    setSection?: any
+}
+
+export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, setSection }: NewPRPageProps) => {
 
     const navigate = useNavigate();
     const userData = useUserData()
