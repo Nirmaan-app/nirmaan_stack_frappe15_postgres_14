@@ -46,7 +46,7 @@ interface DataTableProps<TData, TValue> {
 export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions=undefined, roleTypeOptions=undefined, statusOptions=undefined, totalPOsRaised=undefined }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([
         {
-            id: "creation",
+            id: "modified",
             desc: true
         }
     ]);
@@ -63,7 +63,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
         enableRowSelection: true,
         getCoreRowModel: getCoreRowModel(),
         getPaginationRowModel: getPaginationRowModel(),
-        onSortingChange: setSorting,
+        // onSortingChange: setSorting,
         getSortedRowModel: getSortedRowModel(),
         onColumnFiltersChange: setColumnFilters,
         getFilteredRowModel: getFilteredRowModel(), // client-side faceting
@@ -74,7 +74,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
         onGlobalFilterChange: setGlobalFilter,
         globalFilterFn: fuzzyFilter,
         state: {
-            sorting,
+            // sorting,
             columnFilters,
             columnVisibility,
             rowSelection,

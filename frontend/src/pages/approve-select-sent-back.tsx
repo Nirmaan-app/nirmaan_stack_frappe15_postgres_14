@@ -25,11 +25,12 @@ export const ApproveSelectSentBack = () => {
             fields: ["*"],
             filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
             limit: 1000,
+            orderBy: {field: "creation", order : "desc"}
         },
         "Sent Back Category(filters,in,Vendor Selected,Partially Approved)"
     );
 
-    console.log("sbdata", sent_back_list)
+    // console.log("sbdata", sent_back_list)
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],

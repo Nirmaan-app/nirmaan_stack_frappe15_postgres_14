@@ -610,7 +610,7 @@ export default function DeliveryNote() {
         <div className="container mx-auto px-0 max-w-3xl">
             <div className='flex items-center justify-between'>
                 <div className="flex items-center mb-4 gap-1">
-                    <Button onClick={() => navigate("/delivery-notes")} variant="ghost" className="p-0">
+                    <Button onClick={() => navigate(-1)} variant="ghost" className="p-0">
                         <ArrowLeft />
                         <span className="sr-only">Back</span>
                     </Button>

@@ -1,6 +1,6 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -8,8 +8,8 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
-import { Badge } from "../ui/badge";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 
 
 type PRTable = {
@@ -19,12 +19,13 @@ type PRTable = {
     category: string
 }
 
-export const SentBackRequest = () => {
+export const SentBackRequest = ({type}) => {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
-            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation', 'type'],
-            filters: [["workflow_state", "=", "Pending"]],
-            limit: 1000
+            fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation', 'type', 'modified'],
+            filters: [["workflow_state", "=", "Pending"], ["type", "=", type]],
+            limit: 1000,
+            orderBy: {field: "modified", order: "desc"}
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
@@ -44,6 +45,15 @@ export const SentBackRequest = () => {
         return total;
     }
 
+    const {mark_seen_notification, notifications} = useNotificationStore()
+
+    const {db} = useContext(FrappeContext) as FrappeConfig
+    const handleNewPRSeen = (notification) => {
+        if(notification) {
+            mark_seen_notification(db, notification)
+        }
+    }
+
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
             {
@@ -54,10 +64,20 @@ export const SentBackRequest = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const sbId = row.getValue("name")
+                    const isNew = notifications.find(
+                        (item) => item.docname === sbId && item.seen === "false" && item.event_id === `${type}-sb:new`
+                    )
                     return (
-                        <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/sent-back-request/${row.getValue("name")}`}>
-                                {row.getValue<String>("name").slice(-4)}
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                            {isNew && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                            )}
+                            <Link
+                                className="underline hover:underline-offset-2"
+                                to={`${sbId}`}
+                            >
+                                {sbId?.slice(-4)}
                             </Link>
                         </div>
                     )
@@ -78,22 +98,22 @@ export const SentBackRequest = () => {
                     )
                 }
             },
-            {
-                accessorKey: "type",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Type" />
-                    )
-                },
-                cell: ({ row }) => {
-                    const type = row.getValue("type")
-                    return (
-                        <div className="font-medium">
-                            <Badge variant={type === "Rejected" ? "destructive" : type === "Delayed" ? "orange" : "gray"}>{type ? type : "Rejected"}</Badge>
-                        </div>
-                    )
-                }
-            },
+            // {
+            //     accessorKey: "type",
+            //     header: ({ column }) => {
+            //         return (
+            //             <DataTableColumnHeader column={column} title="Type" />
+            //         )
+            //     },
+            //     cell: ({ row }) => {
+            //         const type = row.getValue("type")
+            //         return (
+            //             <div className="font-medium">
+            //                 <Badge variant={type === "Rejected" ? "destructive" : type === "Delayed" ? "orange" : "gray"}>{type ? type : "Rejected"}</Badge>
+            //             </div>
+            //         )
+            //     }
+            // },
             {
                 accessorKey: "creation",
                 header: ({ column }) => {
@@ -143,9 +163,10 @@ export const SentBackRequest = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const id = row.getValue("name")
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")))}
+                            {getTotal(id) === 0 ? "N/A" : formatToIndianRupee(getTotal(id))}
                         </div>
                     )
                 }
@@ -168,7 +189,7 @@ export const SentBackRequest = () => {
     return (
             <div className="flex-1 md:space-y-4">
                 <div className="flex items-center justify-between pl-2 space-y-2">
-                    <h2 className="text-lg font-bold tracking-tight">Sent Back PR</h2>
+                    <h2 className="text-lg font-bold tracking-tight">{type} Sent Back PR</h2>
                 </div>
                 {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
                 {(sent_back_list_loading || projects_loading) ? (<TableSkeleton />) : (

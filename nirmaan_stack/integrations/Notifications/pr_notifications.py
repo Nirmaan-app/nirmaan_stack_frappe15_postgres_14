@@ -57,6 +57,61 @@ def get_allowed_users(doc):
         lead_admin_users = lead_users + admin_users
         return lead_admin_users
 
+def get_allowed_procurement_users(doc):
+        allowed_users = frappe.db.get_list(
+            'Nirmaan User Permissions',
+            filters={'for_value': doc.project},
+            fields=['user']
+        )
+        proc_user_ids = [pe['user'] for pe in allowed_users]
+
+        proc_users = frappe.db.get_list(
+            'Nirmaan Users',
+            filters={
+                'name': ['in', proc_user_ids],
+                'role_profile': 'Nirmaan Procurement Executive Profile',
+            },
+            fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
+        )
+        admin_users = frappe.db.get_list(
+            'Nirmaan Users',
+            filters={
+                'role_profile': 'Nirmaan Admin Profile',
+            },
+            fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
+        )
+
+        proc_admin_users = proc_users + admin_users
+        return proc_admin_users
+
+def get_allowed_manager_users(doc):
+        allowed_users = frappe.db.get_list(
+            'Nirmaan User Permissions',
+            filters={'for_value': doc.project},
+            fields=['user']
+        )
+        manager_user_ids = [pm['user'] for pm in allowed_users]
+
+        manager_users = frappe.db.get_list(
+            'Nirmaan Users',
+            filters={
+                'name': ['in', manager_user_ids],
+                'role_profile': 'Nirmaan Project Manager Profile',
+            },
+            fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
+        )
+        admin_users = frappe.db.get_list(
+            'Nirmaan Users',
+            filters={
+                'role_profile': 'Nirmaan Admin Profile',
+            },
+            fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
+        )
+
+        manager_admin_users = manager_users + admin_users
+        return manager_admin_users
+
+
 def send_firebase_notification(fcm_token, title, body, click_action_url):
     """Sends a push notification using Firebase Admin SDK."""
     message = messaging.Message(

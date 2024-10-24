@@ -1,14 +1,15 @@
 import { ArrowLeft, CirclePlus } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom";
 import ProjectSelect from "@/components/custom-select/project-select";
-import { useState } from "react";
-import {  useFrappeGetDocList } from "frappe-react-sdk";
+import { useContext, useState } from "react";
+import {  FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { ProcurementRequests } from "@/types/NirmaanStack/ProcurementRequests";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useUserData } from "@/hooks/useUserData";
 import { Badge } from "../ui/badge";
 import { ProcurementRequestsSkeleton } from "../ui/skeleton";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 
 export default function ListPR() {
 
@@ -20,14 +21,20 @@ export default function ListPR() {
         return savedProject ? JSON.parse(savedProject) : null;
     });
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList<ProcurementRequests>("Procurement Requests",
+    const {notifications, mark_seen_notification} = useNotificationStore()
+
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate : prListMutate } = useFrappeGetDocList<ProcurementRequests>("Procurement Requests",
         {
             fields: ["*"],
-            orderBy: { field: "creation", order: "desc" },
+            orderBy: { field: "modified", order: "desc" },
             limit: 1000
         },
         "Procurement Requests,orderBy(creation-desc)"
     );
+
+    useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
+        await prListMutate()
+    })
 
     const {data : procurementOrdersList} = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
@@ -46,20 +53,25 @@ export default function ListPR() {
         sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
     };
 
+    const {db} = useContext(FrappeContext) as FrappeConfig
+    const handleRejectPRSeen = (notification) => {
+        console.log("running", notification)
+        if(notification) {
+            mark_seen_notification(db, notification)
+        }
+    }
+
     if (procurement_request_list_loading ) return <ProcurementRequestsSkeleton />
     if (procurement_request_list_error) return <h1>ERROR</h1>;
 
     return (
             <div className="flex-1 space-y-4">
                 <div className="flex items-center gap-1">
-                    <ArrowLeft className="cursor-pointer" onClick={() => {
-                        userData.role === "Nirmaan Procurement Executive Profile" ? navigate("/") : 
-                        navigate('/prs&milestones')
-                        }} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                     <h2 className="text-xl  font-bold tracking-tight">Procurement Requests</h2>
                 </div>
-                <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
 
+                <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
                     <ProjectSelect onChange={handleChange} />
                     {project && <div className="mx-0 px-0 pt-4">
                         <h2 className="text-lg pl-2 font-semibold tracking-normal py-2">Created By {userData?.full_name}</h2>
@@ -74,8 +86,18 @@ export default function ListPR() {
                             <TableBody>
                                 {procurement_request_list?.map((item) => {
                                     if (item.project === project && item.owner === userData.user_id) {
+                                        const isNew = notifications.find(
+                                            (i) =>  i.docname === item?.name && i.seen === "false" && i.event_id === "pr:rejected"
+                                        )
                                         return <TableRow key={item.name}>
-                                            <TableCell className="text-sm text-center"><Link to={`${item.name}`} className="text-blue-500 underline-offset-1">{item.name.slice(-4)}</Link></TableCell>
+                                            <TableCell className="text-sm text-center">
+                                                    <Link to={`${item.name}`} className="text-blue-500 underline-offset-1 relative">
+                                                    {item.workflow_state === "Rejected" && isNew && (
+                                                        <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 sm:-left-10  animate-pulse" />
+                                                    )}
+                                                    <span onClick={() => handleRejectPRSeen(isNew)}>{item.name.slice(-4)}</span>
+                                                </Link>
+                                            </TableCell>
                                             <TableCell className="text-sm text-center">{item.work_package}</TableCell>
                                             <TableCell className="text-sm text-center">
                                                 <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(item.workflow_state) && checkPoToPr(item.name)) ? "green" : (["Delayed", "Sent Back"].includes(item.workflow_state) && !checkPoToPr(item.name)) ? "orange" : item.workflow_state === "Rejected" ? "red" : "yellow"}`}>
@@ -102,8 +124,17 @@ export default function ListPR() {
                             <TableBody>
                                 {procurement_request_list?.map((item) => {
                                     if (item.project === project && item.owner !== userData.user_id) {
+                                        const isNew = notifications.find(
+                                            (i) =>  i.docname === item?.name && i.seen === "false" && i.event_id === "pr:rejected"
+                                        )
                                         return <TableRow key={item.name}>
-                                            <TableCell className="text-sm text-center"><Link to={`${item.name}`} className="text-blue-500 underline-offset-1">{item.name.slice(-4)}</Link></TableCell>
+                                            <TableCell className="text-sm text-center">
+                                                <Link to={`${item.name}`} className="text-blue-500 underline-offset-1">
+                                                {item.workflow_state === "Rejected" && isNew && (
+                                                        <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 sm:-left-10  animate-pulse" />
+                                                )}
+                                                <span onClick={() => handleRejectPRSeen(isNew)}>{item.name.slice(-4)}</span>
+                                                </Link></TableCell>
                                             <TableCell className="text-sm text-center">{item.work_package}</TableCell>
                                             <TableCell className="text-sm text-center">
                                                 <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(item.workflow_state) && checkPoToPr(item.name)) ? "green" : (["Delayed", "Sent Back"].includes(item.workflow_state) && !checkPoToPr(item.name)) ? "orange" : item.workflow_state === "Rejected" ? "red" : "yellow"}`}>

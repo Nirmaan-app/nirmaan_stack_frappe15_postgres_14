@@ -314,7 +314,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     variant: "success",
                 });
 
-                navigate("/procurement-request");
+                navigate(-1);
             } catch (error) {
                 console.log("submit_error", error);
 
@@ -355,7 +355,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 description: `PR: ${orderData?.name} Resolved successfully and Sent for Approval!`,
                 variant: "success"
             })
-            navigate("/procurement-request")
+            setSection("pr-summary")
         } catch (error) {
             console.log("Error while resolving Rejected PR", error, update_error)
             toast({
@@ -454,7 +454,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         <>
             {(page == 'wplist' && !rejected_pr_data) && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/procurement-request")} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                     <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">

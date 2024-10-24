@@ -31,7 +31,7 @@ import { ProcurementOrders as ProcurementOrdersType } from '@/types/NirmaanStack
 
 const { Sider, Content } = Layout;
 
-export const ReleasePONew: React.FC = () => {
+export const ReleasePONew = ({not}) => {
 
     const [collapsed, setCollapsed] = useState(true);
     const [comment, setComment] = useState('')
@@ -65,6 +65,11 @@ export const ReleasePONew: React.FC = () => {
         },
         "Procurement Orders"
     );
+
+    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["name", "full_name"],
+        limit: 1000
+    })
 
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
@@ -295,7 +300,7 @@ export const ReleasePONew: React.FC = () => {
                 description: `Cancelled Po & New Sent Back: ${newSentBack.name} created successfully!`,
                 variant: "success"
             })
-            navigate("/release-po")
+            navigate(-1)
         } catch (error) {
             console.log("Error while cancelling po", error)
             toast({
@@ -328,7 +333,7 @@ export const ReleasePONew: React.FC = () => {
                 description: `${orderId} amended and sent to Project Lead!`,
                 variant: "success"
             })
-            navigate("/release-po")
+            navigate(-1)
         } catch (error) {
             console.log("Error while cancelling po", error)
             toast({
@@ -352,7 +357,6 @@ export const ReleasePONew: React.FC = () => {
                     status: "Dispatched",
                 })
             }
-
             await mutate()
             toast({
                 title: "Success!",
@@ -429,6 +433,7 @@ export const ReleasePONew: React.FC = () => {
                 description: `PO: ${orderId} status updated to 'PO Sent' successfully!`,
                 variant: "success"
             })
+            navigate(-1)
         } catch (error) {
             console.log("error while updating the status of the PO to PO Sent", error)
             toast({
@@ -530,7 +535,11 @@ export const ReleasePONew: React.FC = () => {
         setSheetOpen((prev) => !prev)
     }
 
-    console.log("sheetOpen", sheetOpen)
+    const getUserName = (id) => {
+        if (usersList) {
+            return usersList.find((user) => user?.name === id)?.full_name
+        }
+    }
 
     // console.log("advance", control.)
     // console.log("values", contactPerson)
@@ -540,6 +549,34 @@ export const ReleasePONew: React.FC = () => {
 
     if (procurement_order_list_loading || address_list_loading) return <div>Loading</div>
     if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
+    if(!not && orderData?.status !== "PO Approved") return (
+        <div className="flex items-center justify-center h-full">
+            <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                <h2 className="text-2xl font-semibold text-gray-800">
+                    Heads Up!
+                </h2>
+                <p className="text-gray-600 text-lg">
+                    Hey there, the Purchase Order:{" "}
+                    <span className="font-medium text-gray-900">{orderData?.name}</span>{" "}
+                    is no longer available in{" "}
+                    <span className="italic">PO Approved</span> state. The current state is{" "}
+                    <span className="font-semibold text-blue-600">
+                        {orderData?.status}
+                    </span>{" "}
+                    And the last modification was done by <span className="font-medium text-gray-900">
+                        {orderData?.modified_by === "Administrator" ? orderData?.modified_by : getUserName(orderData?.modified_by)}
+                    </span>
+                    !
+                </p>
+                <button
+                    className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                    onClick={() => navigate("/release-po")}
+                >
+                    Go Back
+                </button>
+            </div>
+        </div>
+    );
 
 
     return (

@@ -634,7 +634,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 <div className="flex-1 md:space-y-4">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center pt-1  pb-4 ">
-                            <ArrowLeft className="cursor-pointer" onClick={() => navigate("/approve-order")} />
+                            <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                             <h2 className="text-lg pl-2 font-bold tracking-tight">Approve/Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
 

@@ -1,6 +1,6 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -11,6 +11,7 @@ import { Badge } from "../ui/badge";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 
 
 interface ReleasePOSelectProps {
@@ -18,16 +19,20 @@ interface ReleasePOSelectProps {
     not: boolean
 }
 
-
 export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
             filters: [["status", not ? "not in" : "in", not ? [status, "PO Amendment"] : [status]]],
-            limit: 1000
+            limit: 1000,
+            orderBy: {field : "modified", order : "desc"}
         },
     );
+
+    useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
+        await mutate()
+    })
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
@@ -46,12 +51,35 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
 
     const getTotal = (order_id: string) => {
         let total: number = 0;
+        let totalWithGST: number = 0;
+        
         const orderData = procurement_order_list?.find(item => item.name === order_id)?.order_list;
+        
         orderData?.list.map((item) => {
-            const price = item.quote;
-            total += (price ? parseFloat(price) : 0) * (item.quantity ? parseFloat(item.quantity) : 1);
-        })
-        return total;
+            const price = parseFloat(item?.quote) || 0;
+            const quantity = parseFloat(item?.quantity) || 1;
+            const gst = parseFloat(item?.tax) || 0;
+            
+            total += price * quantity;
+            
+            const gstAmount = (price * gst) / 100;
+            totalWithGST += (price + gstAmount) * quantity;
+        });
+        
+        return {
+            totalWithoutGST: total,
+            totalWithGST: totalWithGST
+        };
+    };
+    
+
+    const {notifications, mark_seen_notification} = useNotificationStore()
+
+    const {db} = useContext(FrappeContext) as FrappeConfig
+    const handleNewPRSeen = (notification) => {
+        if(notification) {
+            mark_seen_notification(db, notification)
+        }
     }
 
     const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
@@ -64,11 +92,21 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                     )
                 },
                 cell: ({ row }) => {
+                    const id = row.getValue("name")
+                    const poId = id?.replaceAll("/", "&=")
+                    const isNew = notifications.find(
+                        (item) => item.docname === id && item.seen === "false" && item.event_id === "po:new" && !not
+                    )
                     return (
-                        // onClick={() => handleSet(row.getValue("name"))}
-                        <div className="font-medium underline cursor-pointer">
-                            <Link className="underline hover:underline-offset-2" to={`${row.getValue("name").replaceAll("/", "&=")}`}>
-                                {(row.getValue("name"))?.toUpperCase()}
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                            {isNew && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                            )}
+                            <Link
+                                className="underline hover:underline-offset-2"
+                                to={`${poId}`}
+                            >
+                                {id?.toUpperCase()}
                             </Link>
                         </div>
                     )
@@ -161,16 +199,31 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                 }
             },
             {
-                accessorKey: "total",
+                id: "totalWithoutGST",
                 header: ({ column }) => {
                     return (
-                        <DataTableColumnHeader column={column} title="Amount" />
+                        <DataTableColumnHeader column={column} title="Amount(exc. GST)" />
                     )
                 },
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")))}
+                            {formatToIndianRupee(getTotal(row.getValue("name")).totalWithoutGST)}
+                        </div>
+                    )
+                }
+            },
+            {
+                id: "totalWithGST",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Amount(inc. GST)" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            {formatToIndianRupee(getTotal(row.getValue("name")).totalWithGST)}
                         </div>
                     )
                 }
