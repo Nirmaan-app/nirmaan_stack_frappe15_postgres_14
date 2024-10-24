@@ -1,5 +1,5 @@
 import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { PRSummarySkeleton } from "./ui/skeleton";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NewPRPage } from "./procurement-request/new-pr";
 import { Timeline } from "antd";
 import { formatDate } from "@/utils/FormatDate";
@@ -17,12 +17,16 @@ import { toast } from "./ui/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+import { useUserData } from "@/hooks/useUserData";
 
 const PRSummary = () => {
 
     const { id } = useParams<{ id: string }>();
 
     const project_id = id?.split('-')[1];
+
+    const [project, setProject] = useState()
+    // const [projectAddress, setProjectAddress] = useState()
 
     const { data: pr_data, error: pr_error, isLoading: prLoading } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id, `Procurement Requests ${id}`);
 
@@ -38,31 +42,32 @@ const PRSummary = () => {
         orderBy: { field: "creation", order: "desc" }
     })
 
-    const { data: project, error: project_error, isLoading: projectLoading } = useFrappeGetDocList<ProjectsType>("Projects", {
-        fields: ['name', 'project_name', 'project_address'],
-        filters: [['name', 'like', `%${project_id}`]]
-    });
-    console.log("data", project)
-
-    const project_address = project && project[0]?.project_address
+    const { data: project_data, error: project_data_error, isLoading: project_data_loading } = useFrappeGetDoc<ProjectsType>("Projects", project);
 
     // const { data: address, error: address_error, isLoading: addressLoading } = useFrappeGetDoc("Address", project_address);
     const { data: procurementOrdersList, error: procurementOrdersError, isLoading: procurementOrdersLoading } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
         fields: ["*"],
+        filters: [['procurement_request', '=', id]],
         limit: 1000
     },
         "Procurement Orders"
     )
 
 
+    useEffect(() => {
+        if (pr_data) {
+            setProject(pr_data?.project)
+        }
+    }, [pr_data])
+
     return (
         <>
             {pr_error && <h1>{pr_error.message}</h1>}
-            {project_error && <h1>{project_error.message}</h1>}
+            {project_data_error && <h1>{project_data_error.message}</h1>}
             {/* {address_error && <h1>{address_error.message}</h1>} */}
             {procurementOrdersError && <h1>{procurementOrdersError.message}</h1>}
             {userError && <h1>{userError.message}</h1>}
-            {(prLoading || projectLoading || procurementOrdersLoading || userLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} project={project[0]} po_data={procurementOrdersList} universalComments={universalComments || []} usersList={usersList} />}
+            {(prLoading || project_data_loading || procurementOrdersLoading || userLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} project={project_data} po_data={procurementOrdersList} universalComments={universalComments || []} usersList={usersList} />}
         </>
     )
 };
@@ -78,9 +83,10 @@ interface PRSummaryPageProps {
 
 const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList }: PRSummaryPageProps) => {
     const navigate = useNavigate();
-    const pr_no = pr_data.name.split("-").slice(-1)
+    const pr_no = pr_data?.name.split("-").slice(-1)
+    const userData = useUserData()
 
-    const orderData = { name: pr_data.name, work_package: pr_data.work_package, comment: pr_data.comment, project: pr_data.project, category_list: JSON.parse(pr_data.category_list), procurement_list: JSON.parse(pr_data.procurement_list) }
+    const orderData = { name: pr_data?.name, work_package: pr_data?.work_package, comment: pr_data?.comment, project: pr_data?.project, category_list: JSON.parse(pr_data?.category_list), procurement_list: JSON.parse(pr_data?.procurement_list) }
 
     const [section, setSection] = useState("pr-summary")
     const { deleteDoc } = useFrappeDeleteDoc()
@@ -94,7 +100,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
         return po_data?.some((po) => po.procurement_request === prId)
     }
 
-    const itemsTimelineList = universalComments?.map((cmt) => ({
+    const itemsTimelineList = universalComments?.map((cmt: any) => ({
         label: (
             <span className="max-sm:text-wrap text-xs m-0 p-0">{formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}</span>
         ), children: (
@@ -120,11 +126,11 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
 
     const handleDeletePr = async () => {
         try {
-            await deleteDoc("Procurement Requests", pr_data.name)
+            await deleteDoc("Procurement Requests", pr_data?.name)
             await mutate("Procurement Requests,orderBy(creation-desc)")
             toast({
                 title: "Success!",
-                description: `PR: ${pr_data.name} deleted successfully!`,
+                description: `PR: ${pr_data?.name} deleted successfully!`,
                 variant: "success"
             })
             navigate("/procurement-request")
@@ -141,6 +147,19 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
     // console.log("itemsTimeLineList", itemsTimelineList)
 
     // console.log("universalComments", universalComments)
+
+    const getItemStatus = (itemJson: any) => {
+        // console.log(po_data)
+        for (let i = 0; i < po_data?.length; i++) {
+            // console.log(i, ":", po_data[i])
+            for (let j = 0; j < po_data[i].order_list.list.length; j++) {
+                // console.log(j, ": ", po_data[i].order_list.list[j])
+                if (po_data[i].order_list.list[j].name === itemJson.name)
+                    return "Ordered"
+            }
+        }
+        return "In Progress"
+    }
 
     return (
         <>
@@ -198,8 +217,8 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 <CardHeader>
                                     <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                                         PR Details
-                                        <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(pr_data.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && checkPoToPr(pr_data.name)) ? "green" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "orange" : pr_data.workflow_state === "Rejected" ? "red" : "yellow"}`}>
-                                            {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(pr_data.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && checkPoToPr(pr_data.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "In Progress" : pr_data.workflow_state === "Pending" ? "Approval Pending" : pr_data.workflow_state}
+                                        <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "green" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "orange" : pr_data.workflow_state === "Rejected" ? "red" : "yellow"}`}>
+                                            {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "In Progress" : pr_data.workflow_state === "Pending" ? "Approval Pending" : pr_data.workflow_state}
                                         </Badge>
                                     </CardTitle>
                                 </CardHeader>
@@ -207,15 +226,15 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                                         <div className="space-y-1">
                                             <Label className="text-slim text-red-300">Project:</Label>
-                                            <p className="font-semibold">{project.project_name}</p>
+                                            <p className="font-semibold">{project?.project_name}</p>
                                         </div>
                                         <div className="space-y-1">
                                             <Label className="text-slim text-red-300">Package:</Label>
-                                            <p className="font-semibold">{pr_data.work_package}</p>
+                                            <p className="font-semibold">{pr_data?.work_package}</p>
                                         </div>
                                         <div className="space-y-1">
                                             <Label className="text-slim text-red-300">Date Created:</Label>
-                                            <p className="font-semibold">{new Date(pr_data.creation).toDateString()}</p>
+                                            <p className="font-semibold">{new Date(pr_data?.creation).toDateString()}</p>
                                         </div>
                                     </div>
 
@@ -237,19 +256,21 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 <div className="overflow-x-auto">
 
                                     <div className="min-w-full inline-block align-middle">
-                                        {JSON.parse(pr_data.category_list).list.map((cat: any) => {
+                                        {JSON.parse(pr_data?.category_list).list.map((cat: any) => {
                                             return <div className="p-5">
                                                 {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
                                                 <Table>
                                                     <TableHeader>
                                                         <TableRow className="bg-red-100">
-                                                            <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
-                                                            <TableHead className="w-[25%]">UOM</TableHead>
+                                                            <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
+                                                            <TableHead className="w-[15%]">UOM</TableHead>
                                                             <TableHead className="w-[15%]">Qty</TableHead>
+                                                            <TableHead className="w-[20%]">Status</TableHead>
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
-                                                        {JSON.parse(pr_data.procurement_list).list.map((item: any) => {
+                                                        {JSON.parse(pr_data?.procurement_list).list.map((item: any) => {
+                                                            // console.log(item)
                                                             if (item.category === cat.name) {
                                                                 return (
                                                                     <TableRow key={item.item}>
@@ -261,6 +282,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                                                         </TableCell>
                                                                         <TableCell>{item.unit}</TableCell>
                                                                         <TableCell>{item.quantity}</TableCell>
+                                                                        <TableCell>{item.status === "Pending" ? "Pending" : getItemStatus(item)}</TableCell>
                                                                     </TableRow>
                                                                 )
                                                             }
@@ -271,6 +293,43 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                         })}
                                     </div>
                                 </div>
+                            </Card>
+                            <Card className="w-full">
+                                <CardHeader>
+                                    <CardTitle className="text-xl text-red-600">Associated {userData.role === "Nirmaan Admin Profile" ? "POs" : "Delivery Notes"}</CardTitle>
+                                    <div className="overflow-x-auto">
+                                        <div className="min-w-full inline-block align-middle">
+                                        </div>
+                                        {po_data?.length === 0 ? <p>No POs generated as of now</p>
+                                            :
+
+
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow className="bg-red-100">
+                                                        <TableHead className="w-[40%]">PO Number</TableHead>
+                                                        <TableHead className="w-[30%]">Date Created</TableHead>
+                                                        <TableHead className="w-[30%]">Status</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {po_data?.map((po) => {
+                                                        return (
+                                                            <TableRow key={po.name}>
+                                                                <TableCell>
+                                                                    {userData.role === "Nirmaan Admin Profile" ? <Link to="/" className="text-blue-500 underline">{po.name}</Link> : po.name}
+                                                                </TableCell>
+                                                                <TableCell>{formatDate(po.creation)}</TableCell>
+                                                                <TableCell>{po.status}</TableCell>
+                                                            </TableRow>
+                                                        )
+                                                    })}
+                                                </TableBody>
+                                            </Table>
+
+                                        }
+                                    </div>
+                                </CardHeader>
                             </Card>
                         </div>
                     </>
