@@ -19,7 +19,8 @@ export default function Vendors() {
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList("Vendors", {
         fields: ["*"],
-        limit: 1000
+        limit: 1000,
+        orderBy: { field: "creation", order: "desc" }
     },
         "vendors"
 
@@ -179,9 +180,9 @@ export default function Vendors() {
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
                 </div>
 
-                    <Button asChild>
-                        <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
-                    </Button>
+                <Button asChild>
+                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
+                </Button>
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
                 <Card className="hover:animate-shadow-drop-center" onClick={() => {

@@ -1,17 +1,23 @@
 # Copyright (c) 2024, Abhishek and contributors
 # For license information, please see license.txt
 
-#import frappe
+import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.model.naming import getseries
 
+class VendorGSTExistError(frappe.ValidationError):
+	pass
+
 
 class Vendors(Document):
-	def before_save(self):
-		#self.project_duration = (datetime.strptime(self.project_end_date, '%Y-%m-%d %H:%M:%S') - datetime.strptime(self.project_start_date, '%Y-%m-%d %H:%M:%S')).days or 0
-		# self.vendor_city = self.get_project_address()["city"] or ""
-		# self.vendor_state = self.get_project_address()["state"] or ""
-		pass
+	def validate(self):
+		vendor_gsts = frappe.db.get_list("Vendors")
+		for vendor_gst in vendor_gsts:
+			vendor = frappe.get_doc("Vendors", vendor_gst)
+			if self.vendor_gst == vendor.vendor_gst:
+				frappe.throw(_("Vendor with this GST already exist."), exc=VendorGSTExistError)
+
 	def autoname(self):
 		vendor_type = self.vendor_type
 		

@@ -311,7 +311,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         } catch (error) {
             toast({
                 title: "Failed!",
-                description: `${error?.message}`,
+                description: `${error?.exception}`,
                 variant: "destructive"
             });
             console.error("Submit Error", error);

@@ -21,7 +21,7 @@ import { SelectVendorList } from './components/procurement/select-vendor-list'
 import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
 import { PDF } from './pages/pdf'
 import { ThemeProvider } from './components/ui/theme-provider'
-import {  ProtectedRoute } from './utils/auth/ProtectedRoute'
+import { ProtectedRoute } from './utils/auth/ProtectedRoute'
 import { UserProvider } from './utils/auth/UserProvider'
 import Users from './pages/users/users'
 import Roles from './pages/roles'
@@ -186,7 +186,10 @@ const router = createBrowserRouter(
 					<Route path="vendors">
 						<Route index element={<Vendors />} />
 						<Route path="new" element={<NewVendor />} />
-						<Route path=":vendorId" lazy={() => import('@/pages/vendors/vendor')} />
+						<Route path=":vendorId" >
+							<Route index lazy={() => import('@/pages/vendors/vendor')} />
+							<Route path=":id" element={<POSummary />} />
+						</Route>
 						<Route path=":id/edit" element={<EditVendor />} />
 					</Route>
 
