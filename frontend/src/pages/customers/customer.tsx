@@ -27,7 +27,7 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
     revalidateIfStale: false
   })
 
-  const {data: associatedProjects} = useFrappeGetDocList("Projects", {
+  const { data: associatedProjects } = useFrappeGetDocList("Projects", {
     fields: ["*"],
     filters: [["customer", "=", customerId]],
     limit: 1000
@@ -54,12 +54,7 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
       {(isLoading || customerAddressLoading) ? <OverviewSkeleton /> : (
         <div>
           <Card>
-            <CardHeader>
-              <CardTitle>
-                {data?.company_name}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex max-lg:flex-col max-lg:gap-10">
+            <CardContent className="flex max-lg:flex-col max-lg:gap-10 mt-6">
               {/* <Card className="bg-[#F9FAFB]">
                   <CardHeader>
                     <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
@@ -117,34 +112,34 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
             </CardContent>
 
           </Card>
-        <div className="mt-4">
-          <h2 className="text-2xl max-md:text-xl font-semibold font-bold pb-2">Associated Projects</h2>
-        {associatedProjects?.length ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {
-              associatedProjects?.map((project) => (
-            <Link key={project.name} to={`/projects/${project?.name}`}>
-            <Card className="flex flex-col">
-                  <CardHeader>
-                      <CardTitle className="flex justify-between items-start">
-                          <span className="text-lg">{project?.project_name}</span>
-                      </CardTitle>
-                      <CardDescription className="text-xs">{project?.name}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex-grow">
-                      <div className="flex items-center gap-2 mb-2">
-                          <MapPin className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm">{project?.project_city}, {project?.project_state}</span>
-                      </div>
-                  </CardContent>
-              </Card>
-              </Link>
-          ))}
+          <div className="mt-4">
+            <h2 className="text-2xl max-md:text-xl font-semibold font-bold pb-2">Associated Projects</h2>
+            {associatedProjects?.length ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {
+                  associatedProjects?.map((project) => (
+                    <Link key={project.name} to={`/projects/${project?.name}`}>
+                      <Card className="flex flex-col">
+                        <CardHeader>
+                          <CardTitle className="flex justify-between items-start">
+                            <span className="text-lg">{project?.project_name}</span>
+                          </CardTitle>
+                          <CardDescription className="text-xs">{project?.name}</CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex-grow">
+                          <div className="flex items-center gap-2 mb-2">
+                            <MapPin className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">{project?.project_city}, {project?.project_state}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  ))}
+              </div>
+            ) : (
+              <p className="text-center bg-gray-50 py-2">Not Available</p>
+            )}
           </div>
-        ) : (
-          <p className="text-center bg-gray-50 py-2">Not Available</p>
-        )}
-        </div>
         </div>
       )}
     </div>

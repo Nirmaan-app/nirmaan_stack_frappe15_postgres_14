@@ -173,7 +173,8 @@ export default function Customers() {
     const { data, isLoading, error } = useFrappeGetDocList("Customers",
         {
             fields: ["*"],
-            limit: 1000
+            limit: 1000,
+            orderBy: { field: "creation", order: "desc" }
         }
     )
 
@@ -186,12 +187,12 @@ export default function Customers() {
                     </Link>
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Customers Dashboard</h2>
                 </div>
-                    <Button asChild>
-                        <Link to="new">
-                            <CirclePlus className="w-5 h-5 pr-1 " />
-                            Add <span className="hidden md:flex pl-1"> New Customer</span>
-                        </Link>
-                    </Button>
+                <Button asChild>
+                    <Link to="new">
+                        <CirclePlus className="w-5 h-5 pr-1 " />
+                        Add <span className="hidden md:flex pl-1"> New Customer</span>
+                    </Link>
+                </Button>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
