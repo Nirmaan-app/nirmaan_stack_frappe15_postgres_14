@@ -48,7 +48,7 @@ export const NavBar = () => {
     const { data: notificationsData } = useFrappeGetDocList("Nirmaan Notifications", {
         fields: ["*"],
         filters: [["recipient", "=", user_id]],
-        limit: 1000,
+        limit: 100,
         orderBy: { field: "creation", order: "asc" }
     });
 

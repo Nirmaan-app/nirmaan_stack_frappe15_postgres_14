@@ -50,6 +50,7 @@ import EditUserForm from './pages/users/EditUserForm'
 import { messaging } from './firebase/firebaseConfig'
 import { onMessage } from 'firebase/messaging'
 import { ApproveSelectAmendPO } from './pages/approve-select-amend-po'
+import { POSummary } from './components/POSummary'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -69,7 +70,10 @@ const router = createBrowserRouter(
 						<Route path="procurement-request">
 							<Route index element={<ListPR />} />
 							<Route path=":id/new" lazy={() => import('@/components/procurement-request/new-pr')} />
-							<Route path=":id" lazy={() => import('@/components/pr-summary')} />
+							<Route path=":id">
+								<Route index lazy={() => import('@/components/pr-summary')} />
+								<Route path=":id" element={<POSummary />} />
+							</Route>
 						</Route>
 
 						{/* Delivery Notes Paths */}
