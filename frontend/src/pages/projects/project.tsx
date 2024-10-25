@@ -21,7 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { toast, useToast } from "@/components/ui/use-toast"
 import { ConfigProvider, Menu, MenuProps, TableProps } from "antd"
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall } from "frappe-react-sdk"
 import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, Download, FilePenLine, ListChecks, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
@@ -495,10 +495,13 @@ const Project = () => {
 
   const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
 
+  const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall('nirmaan_stack.api.procurement_orders.generate_po_summary', { project_id: projectId })
+  console.log("Resposne from get call", po_item_data)
+
   return (
     <div>
-      {(isLoading || projectCustomerLoading) && <Skeleton className="w-[30%] h-10" />}
-      {data && <ProjectView projectId={projectId} data={data} projectCustomer={projectCustomer} />}
+      {(isLoading || projectCustomerLoading || po_item_loading) && <Skeleton className="w-[30%] h-10" />}
+      {data && <ProjectView projectId={projectId} data={data} projectCustomer={projectCustomer} po_item_data={po_item_data} />}
     </div>
   )
 }
@@ -513,6 +516,7 @@ interface ProjectViewProps {
   //usersList?: any
   //pr_data?: any
   //po_data?: any
+  po_item_data: any
 }
 
 export const Component = Project
@@ -522,7 +526,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
 
   const [selectedUser, setSelectedUser] = useState(null)
   const [userOptions, setUserOptions] = useState([])
-  const {createDoc, loading: createDocLoading} = useFrappeCreateDoc()
+  const { createDoc, loading: createDocLoading } = useFrappeCreateDoc()
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList("Project Work Milestones", {
     fields: ["*"],
@@ -546,7 +550,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
 
   // console.log("projectAssignes", projectAssignees)
 
-  const { data: usersList, isLoading: usersListLoading, mutate : usersListMutate } = useFrappeGetDocList("Nirmaan Users", {
+  const { data: usersList, isLoading: usersListLoading, mutate: usersListMutate } = useFrappeGetDocList("Nirmaan Users", {
     fields: ["*"],
     limit: 1000
   },
@@ -587,7 +591,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
 
 
   useEffect(() => {
-    if(usersList && projectAssignees) {
+    if (usersList && projectAssignees) {
       const options = usersList?.filter(user => !projectAssignees?.some((i) => i?.user === user?.name) && user?.role_profile !== "Nirmaan Admin Profile")?.map((op) => ({
         label: `${op?.full_name}-${op?.role_profile?.split(" ").slice(1, 3).join(" ")}`,
         value: op?.name
@@ -813,25 +817,25 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
   }
 
   const getItemStatus = (item: any, filteredPOs: any[]) => {
-    return filteredPOs.some(po => 
-        po.order_list?.list.some(poItem => poItem.name === item.name)
+    return filteredPOs.some(po =>
+      po.order_list?.list.some(poItem => poItem.name === item.name)
     );
-};
+  };
 
-const statusRender = (status: string, prId: string) => {
+  const statusRender = (status: string, prId: string) => {
     const procurementRequest = pr_data?.find((pr) => pr?.name === prId);
 
     const itemList = procurementRequest?.procurement_list?.list || [];
 
     if (["Pending", "Approved", "Rejected"].includes(status)) {
-        return "New PR";
+      return "New PR";
     }
 
     const filteredPOs = po_data?.filter(po => po.procurement_request === prId) || [];
     const allItemsApproved = itemList.every(item => getItemStatus(item, filteredPOs));
 
     return allItemsApproved ? "Approved PO" : "Open PR";
-};
+  };
 
 
   const statusOptions = [
@@ -983,15 +987,15 @@ const statusRender = (status: string, prId: string) => {
         user: selectedUser,
         allow: "Projects",
         for_value: projectId
-        }
+      }
       )
       await projectAssigneesMutate()
       await usersListMutate()
       document.getElementById("assignUserDialogClose")?.click()
       toast({
-          title: "Success!",
-          description: `Successfully assigned ${getUserFullName(selectedUser)}`,
-          variant: "success"
+        title: "Success!",
+        description: `Successfully assigned ${getUserFullName(selectedUser)}`,
+        variant: "success"
       })
     } catch (error) {
       console.log("error", error)
@@ -999,7 +1003,7 @@ const statusRender = (status: string, prId: string) => {
         title: "Failed!",
         description: `Failed to assign ${getUserFullName(selectedUser)}`,
         variant: "destructive"
-    })
+      })
     } finally {
       setSelectedUser(null)
     }
@@ -1105,55 +1109,55 @@ const statusRender = (status: string, prId: string) => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">Assignees
-                        <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button asChild>
-                                        <div className="cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign User</div>
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent className="sm:max-w-[425px]">
-                                    <DialogHeader>
-                                        <DialogTitle className="text-xl font-semibold mb-4">Assign User:</DialogTitle>
-                                    </DialogHeader>
-                                    <div className="grid gap-4">
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <label htmlFor="project" className="text-right font-light">
-                                                Assign:
-                                            </label>
-                                            <Select
-                                                defaultValue={selectedUser ? selectedUser : undefined}
-                                                onValueChange={(item) => setSelectedUser(item)}
-                                              >
-                                                <SelectTrigger className="col-span-3">
-                                                    <SelectValue placeholder="Select User" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {userOptions.length ? (
-                                                      userOptions?.map(option => (
-                                                        <SelectItem value={option?.value}>
-                                                            {option?.label}
-                                                        </SelectItem>
-                                                      ))
-                                                    ) : (
-                                                      "No more users available for assigning!"
-                                                    )}
-                                                </SelectContent>
-                                            </Select>
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button asChild>
+                      <div className="cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign User</div>
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle className="text-xl font-semibold mb-4">Assign User:</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4">
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <label htmlFor="project" className="text-right font-light">
+                          Assign:
+                        </label>
+                        <Select
+                          defaultValue={selectedUser ? selectedUser : undefined}
+                          onValueChange={(item) => setSelectedUser(item)}
+                        >
+                          <SelectTrigger className="col-span-3">
+                            <SelectValue placeholder="Select User" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {userOptions.length ? (
+                              userOptions?.map(option => (
+                                <SelectItem value={option?.value}>
+                                  {option?.label}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              "No more users available for assigning!"
+                            )}
+                          </SelectContent>
+                        </Select>
 
-                                        </div>
-                                        <div className="grid grid-cols-4 items-center gap-4">
-                                            <span className="text-right font-light">To:</span>
-                                            <span className="col-span-3 font-semibold">{projectId}</span>
-                                        </div>
-                                    </div>
-                                        <Button disabled={!selectedUser} onClick={handleAssignUserSubmit} className="w-full">
-                                            <ListChecks className="mr-2 h-4 w-4" />
-                                            {createDocLoading ? "Submitting..." : "Submit"}</Button>
-                                      <DialogClose className="hidden" id="assignUserDialogClose">
-                                          close
-                                      </DialogClose>
-                                </DialogContent>
-                            </Dialog>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <span className="text-right font-light">To:</span>
+                        <span className="col-span-3 font-semibold">{projectId}</span>
+                      </div>
+                    </div>
+                    <Button disabled={!selectedUser} onClick={handleAssignUserSubmit} className="w-full">
+                      <ListChecks className="mr-2 h-4 w-4" />
+                      {createDocLoading ? "Submitting..." : "Submit"}</Button>
+                    <DialogClose className="hidden" id="assignUserDialogClose">
+                      close
+                    </DialogClose>
+                  </DialogContent>
+                </Dialog>
               </CardTitle>
             </CardHeader>
             <CardContent>
