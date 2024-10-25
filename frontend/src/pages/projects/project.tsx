@@ -584,7 +584,8 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
     fields: ["*"],
     filters: [["project", "=", projectId], ["status", "in", ["PO Sent", "Dispatched", "Delivered", "Partially Delivered"]]],
-    limit: 1000
+    limit: 1000,
+    orderBy: { field: "creation", order: "desc" }
   },
     `Procurement Orders ${projectId}`
   )
@@ -593,7 +594,12 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
   useEffect(() => {
     if (usersList && projectAssignees) {
       const options = usersList?.filter(user => !projectAssignees?.some((i) => i?.user === user?.name) && user?.role_profile !== "Nirmaan Admin Profile")?.map((op) => ({
-        label: `${op?.full_name}-${op?.role_profile?.split(" ").slice(1, 3).join(" ")}`,
+        label: (<div>
+          {op?.full_name}
+          <span className="text-red-700 font-light">
+            ({op?.role_profile?.split(" ").slice(1, 3).join(" ")})
+          </span>
+        </div>),
         value: op?.name
       })) || [];
       setUserOptions(options)
@@ -1147,7 +1153,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
                       </div>
                       <div className="grid grid-cols-4 items-center gap-4">
                         <span className="text-right font-light">To:</span>
-                        <span className="col-span-3 font-semibold">{projectId}</span>
+                        <span className="col-span-3 font-semibold">{data?.project_name}</span>
                       </div>
                     </div>
                     <Button disabled={!selectedUser} onClick={handleAssignUserSubmit} className="w-full">

@@ -112,7 +112,8 @@ export default function Projects() {
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<ProjectsType>("Projects", {
         fields: ["name", "project_name", "project_type", "project_city", "project_state", "creation"],
-        limit: 1000
+        limit: 1000,
+        orderBy: { field: 'creation', order: 'desc' }
     })
 
     return (
