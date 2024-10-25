@@ -19,8 +19,8 @@ import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
-import { toast, useToast } from "@/components/ui/use-toast"
-import { ConfigProvider, Menu, MenuProps, TableProps } from "antd"
+import { toast } from "@/components/ui/use-toast"
+import { ConfigProvider, Menu, MenuProps } from "antd"
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall } from "frappe-react-sdk"
 import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, Download, FilePenLine, ListChecks, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
@@ -33,6 +33,15 @@ import formatToIndianRupee from "@/utils/FormatPrice"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import { Pie, PieChart, Label, BarChart, CartesianGrid, XAxis, YAxis, Legend, Bar, Tooltip } from "recharts";
 
 // interface WPN {
 //     name: string
@@ -496,12 +505,11 @@ const Project = () => {
   const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
 
   const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall('nirmaan_stack.api.procurement_orders.generate_po_summary', { project_id: projectId })
-  console.log("Resposne from get call", po_item_data)
 
   return (
     <div>
       {(isLoading || projectCustomerLoading || po_item_loading) && <Skeleton className="w-[30%] h-10" />}
-      {data && <ProjectView projectId={projectId} data={data} projectCustomer={projectCustomer} po_item_data={po_item_data} />}
+      {data && <ProjectView projectId={projectId} data={data} projectCustomer={projectCustomer} po_item_data={po_item_data?.message?.po_items} />}
     </div>
   )
 }
@@ -521,8 +529,25 @@ interface ProjectViewProps {
 
 export const Component = Project
 
-const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => {
+const chartConfig = {
+  visitors: {
+    label: "Visitors",
+  },
+  category1: {
+    label: "Category 1",
+    color: "hsl(var(--chart-1))",
+  },
+  category2: {
+    label: "Category 2",
+    color: "hsl(var(--chart-2))",
+  },
+  category3: {
+    label: "Category 3",
+    color: "hsl(var(--chart-3))",
+  },
+} satisfies ChartConfig;
 
+const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: ProjectViewProps) => {
 
   const [selectedUser, setSelectedUser] = useState(null)
   const [userOptions, setUserOptions] = useState([])
@@ -539,6 +564,8 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       revalidateIfStale: false
     }
   )
+
+  console.log("item data", po_item_data)
 
   const { data: projectAssignees, isLoading: projectAssigneesLoading, mutate: projectAssigneesMutate } = useFrappeGetDocList("Nirmaan User Permissions", {
     fields: ["*"],
@@ -572,14 +599,6 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       return usersList.find((user) => user.name === id)?.full_name
     }
   }
-
-  const { data: sent_back_data, isLoading: sent_back_loading } = useFrappeGetDocList("Sent Back Category", {
-    fields: ["*"],
-    filters: [["project", "=", projectId]],
-    limit: 1000
-  },
-    `Sent Back Category ${projectId}`
-  )
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
     fields: ["*"],
@@ -806,16 +825,6 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     return total || "N/A";
   }
 
-  const checkPrToSB = (prId) => {
-    if (sent_back_data) {
-      const sentBacks = sent_back_data.filter((sb) => sb.procurement_request === prId)
-      if (sentBacks.every((sb) => sb.workflow_state === "Pending")) return "New PR"
-      else if (sentBacks.some((sb) => ["Approved", "Partially Approved"].includes(sb.workflow_state))) return "Approved PO"
-      else if (sentBacks.every((sb) => sb.workflow_state === "Vendor Selected")) return "Open PR"
-      else return "Rejected"
-    }
-  }
-
   const getItemStatus = (item: any, filteredPOs: any[]) => {
     return filteredPOs.some(po =>
       po.order_list?.list.some(poItem => poItem.name === item.name)
@@ -977,10 +986,6 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${formatDate(new Date())}`
   });
 
-  console.log("options", userOptions)
-
-  console.log("selectedUser", selectedUser)
-
   const handleAssignUserSubmit = async () => {
     try {
       await createDoc('User Permission', {
@@ -1009,8 +1014,108 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     }
   }
 
+  const groupItemsByCategory = (items) => {
+    return items?.reduce((acc, item) => {
+        // Initialize the category array if it doesn't exist
+        if (!acc[item.category]) {
+            acc[item.category] = [];
+        }
+
+        // Find an existing item that matches all conditions within the category
+        const existingItem = acc[item.category].find(
+            (i) =>
+                i.item_name === item.item_name &&
+                i.po_number === item.po_number &&
+                i.quote === item.quote &&
+                i.vendor_id === item.vendor_id
+        );
+
+        // If an identical item exists, combine the quantities
+        if (existingItem) {
+            existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
+        } else {
+            // Check for items with the same name and PO number but differing quotes or vendor IDs
+            // const similarItem = acc[item.category].find(
+            //     (i) =>
+            //         i.item_name === item.item_name &&
+            //         i.po_number === item.po_number &&
+            //         (i.quote !== item.quote || i.vendor_id !== item.vendor_id)
+            // );
+
+            // if (similarItem) {
+            //     // Add the new item as a separate entry in the category list
+            //     acc[item.category].push({ ...item });
+            // } else {
+            //     // Add as a unique item in the category list if no match is found
+            //     acc[item.category].push({ ...item });
+            // }
+            acc[item.category].push({ ...item });
+        }
+
+        return acc;
+    }, {});
+};
+
+const categorizedData = groupItemsByCategory(po_item_data);
+
+
+const categoryTotals = po_item_data?.reduce((acc, item) => {
+  const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
+
+  const itemTotal = parseFloat(item.quantity) * parseFloat(item.quote);
+  const itemTotalWithGst = itemTotal * (1 + parseFloat(item.tax) / 100);
+
+  category.withoutGst += itemTotal;
+  category.withGst += itemTotalWithGst;
+
+  acc[item.category] = category;
+  return acc;
+}, {});
+
+
+const overallTotal = Object.values(categoryTotals || [])?.reduce(
+  (acc, totals) => ({
+    withoutGst: acc.withoutGst + totals.withoutGst,
+    withGst: acc.withGst + totals.withGst,
+  }),
+  { withoutGst: 0, withGst: 0 }
+);
+
+
+const pieChartData = Object.keys(categoryTotals || []).map((category) => ({
+  name: category,
+  value: categoryTotals[category].withGst,
+  fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
+}));
+
+const getChartData = (po_item_data) => {
+  const aggregatedData = {};
+
+  po_item_data?.forEach((item) => {
+    const date = formatDate(item.creation.split(" ")[0]); // Extract date only
+    const baseTotal = parseFloat(item.quote) * parseFloat(item.quantity);
+    const totalWithGST = baseTotal * (1 + parseFloat(item.tax) / 100);
+
+    if (!aggregatedData[date]) {
+      aggregatedData[date] = { withGST: 0, withoutGST: 0 };
+    }
+    aggregatedData[date].withoutGST += baseTotal;
+    aggregatedData[date].withGST += totalWithGST;
+  });
+
+  return Object.keys(aggregatedData || []).map((date) => ({
+    date,
+    withoutGST: aggregatedData[date].withoutGST,
+    withGST: aggregatedData[date].withGST,
+  }));
+};
+
+const chartData = getChartData(po_item_data); // Now ready for use in Recharts
+
+console.log("chartData", chartData)
+
   return (
-    <div className="flex-1 md:space-y-4">
+    <div className="flex-1 space-y-4">
       <div className="flex items-center">
         <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate(-1)} />
         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
@@ -1033,7 +1138,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       {/* Overview Section */}
 
       {(usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" && (
-        <div className="flex flex-col gap-4 max-md:pt-4">
+        <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
               <CardTitle>
@@ -1203,7 +1308,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       )}
 
       {current === "projectTracking" && (
-        <div className="pr-2 py-4">
+        <div className="pr-2">
           <div className="grid grid-cols-3 gap-2 max-sm:grid-cols-2">
             <Button variant="outline" className=" cursor-pointer flex items-center gap-1"
               onClick={() => handlePrint()}
@@ -1240,7 +1345,144 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       }
 
       {current === "POSummary" && (
-        <div>Pending...</div>
+        po_item_data?.length ? (
+          <div className="flex flex-col gap-4">
+         <Accordion type="multiple" className="space-y-4">
+    {Object.entries(categorizedData).map(([category, items]) => {
+        const totalQuantity = items.reduce((sum, item) => sum + parseFloat(item.quantity), 0);
+        const totalQuote = items.reduce((sum, item) => sum + (parseFloat(item.quote) * parseFloat(item.quantity) * (1 + parseFloat(item.tax) / 100)), 0);
+
+        // Group items by item_id and item_name for rendering purposes
+        const groupedItems = items.reduce((acc, item) => {
+            const key = `${item.item_id}-${item.item_name}`;
+            if (!acc[key]) {
+                acc[key] = [];
+            }
+            acc[key].push(item);
+            return acc;
+        }, {});
+
+        return (
+            <AccordionItem key={category} value={category} className="border-b rounded-lg shadow">
+                <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
+                    <div className="flex space-x-4 text-sm text-gray-600">
+                        <span className="font-semibold">{category}:</span>
+                        <span>Total Quote: ₹{totalQuote.toLocaleString()}</span>
+                    </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                    <Table className="min-w-full text-left text-sm">
+                        <TableHeader>
+                            <TableRow className="bg-gray-100 text-gray-700">
+                                <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
+                                <TableHead className="px-4 py-2 font-semibold">Item Name</TableHead>
+                                <TableHead className="px-4 py-2 font-semibold">PO No.</TableHead>
+                                <TableHead className="px-4 py-2 font-semibold">Vendor Name</TableHead>
+                                <TableHead className="px-4 py-2 font-semibold">Qty</TableHead>
+                                <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
+                                <TableHead className="px-4 py-2 font-semibold">Quote</TableHead>
+                                <TableHead className="px-4 py-2 font-semibold">Tax (%)</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {Object.values(groupedItems).map((group, index) => (
+                                group.map((item, idx) => (
+                                    <TableRow key={`${item.item_id}-${idx}`} className={`border-b last:border-0 ${idx > 0 ? 'border-t-0' : ''}`}>
+                                        {/* Render Item ID and Item Name only for the first item in the group */}
+                                        <TableCell className="px-4 py-2">
+                                            {idx === 0 ? item.item_id.slice(5) : ""}
+                                        </TableCell>
+                                        <TableCell className="px-4 py-2">
+                                            {idx === 0 ? item.item_name : ""}
+                                        </TableCell>
+                                        <TableCell className="px-4 py-2">{item.po_number.slice(3, 6)}</TableCell>
+                                        <TableCell className="px-4 py-2">{item.vendor_name}</TableCell>
+                                        <TableCell className="px-4 py-2">{item.quantity}</TableCell>
+                                        <TableCell className="px-4 py-2">{item.unit}</TableCell>
+                                        <TableCell className="px-4 py-2">₹{parseFloat(item.quote).toLocaleString()}</TableCell>
+                                        <TableCell className="px-4 py-2">{item.tax}%</TableCell>
+                                    </TableRow>
+                                ))
+                            ))}
+                        </TableBody>
+                    </Table>
+                </AccordionContent>
+            </AccordionItem>
+        );
+    })}
+</Accordion>
+
+    <Card className="flex flex-col">
+                <CardHeader className="items-center pb-0">
+                  <CardTitle>Totals Visualization</CardTitle>
+                  {/* <CardDescription>PO-{po_data.name}</CardDescription> */}
+                </CardHeader>
+                <CardContent className="flex justify-between max-md:flex-col items-center">
+                  <ChartContainer
+                    config={chartConfig}
+                    className="mx-auto w-full min-h-[250px] max-h-[300px] flex-1 flex justify-center"
+                  >
+                    <PieChart>
+                      <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                      <Pie data={pieChartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
+                        <Label
+                          content={({ viewBox }) => {
+                            if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                              return (
+                                <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+                                  <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
+                                    {overallTotal?.withGst?.toLocaleString()}
+                                  </tspan>
+                                  <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
+                                    Total
+                                  </tspan>
+                                </text>
+                              );
+                            }
+                          }}
+                        />
+                      </Pie>
+                    </PieChart>
+                  </ChartContainer>
+                  <ul className="flex-1 text-left list-disc">
+                    <li className="font-bold text-lg max-md:text-base text-gray-700">
+                      Overall Total (without GST): <span className="font-medium">{formatToIndianRupee(overallTotal?.withoutGst)}</span>
+                    </li>
+                    <li className="font-bold text-lg max-md:text-base text-gray-700">
+                      Overall Total (with GST): <span className="font-medium">{formatToIndianRupee(overallTotal?.withGst)}</span>
+                    </li>
+                  </ul>
+                </CardContent>
+            </Card>
+
+            <Card>
+      <CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
+        <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
+          <CardTitle>Expense Bar Chart</CardTitle>
+          <CardDescription>Displays expenses with and without GST by date</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="px-2 sm:p-6">
+        <ChartContainer
+        config={chartConfig}
+        className="max-h-[500px] w-full"
+        >
+          <BarChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+            <Legend />
+            <Bar dataKey="withoutGST" fill="#8884d8" name="Without GST" />
+            <Bar dataKey="withGST" fill="#82ca9d" name="With GST" />
+          </BarChart>
+        </ChartContainer>
+      </CardContent>
+    </Card>
+    </div>
+        ) : (
+          <div className="h-[60vh] flex items-center justify-center">No Results.</div>
+        )
       )}
 
       <div className="hidden">
@@ -1536,4 +1778,3 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
   )
 
 }
-

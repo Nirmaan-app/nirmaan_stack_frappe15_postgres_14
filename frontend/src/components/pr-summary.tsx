@@ -49,9 +49,7 @@ const PRSummary = () => {
         fields: ["*"],
         filters: [['procurement_request', '=', id]],
         limit: 1000
-    },
-        "Procurement Orders"
-    )
+    })
 
 
     useEffect(() => {
@@ -304,8 +302,6 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                         </div>
                                         {po_data?.length === 0 ? <p>No POs generated as of now</p>
                                             :
-
-
                                             <Table>
                                                 <TableHeader>
                                                     <TableRow className="bg-red-100">
@@ -327,9 +323,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                                         )
                                                     })}
                                                 </TableBody>
-                                            </Table>
-
-                                        }
+                                            </Table>}
                                     </div>
                                 </CardHeader>
                             </Card>

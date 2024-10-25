@@ -19,7 +19,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time'],
+            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
             limit: 1000
         });
@@ -93,11 +93,11 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         }
         return item_unit
     }
-    const getQuantity = (item: string) => {
-        const procurement_list = procurement_request_list?.find(value => value.name === pr_id)?.procurement_list;
-        const quantity = procurement_list?.list.find(value => value.name === item)?.quantity
-        return quantity
-    }
+    // const getQuantity = (item: string) => {
+    //     const procurement_list = procurement_request_list?.find(value => value.name === pr_id)?.procurement_list;
+    //     const quantity = procurement_list?.list.find(value => value.name === item)?.quantity
+    //     return quantity
+    // }
 
     const getComment = (item) => {
         const procurement_list = procurement_request_list?.find(value => value.name === pr_id)?.procurement_list.list
@@ -409,8 +409,8 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                   </div>
                   <div className="w-[70%] max-md:w-full flex gap-2">
                     <Input value={getUnit(q.item)} disabled />
-                    <Input className="w-[24%]" value={getQuantity(q.item)} disabled />
-                    <Input type="number" placeholder="Enter Price" defaultValue={q.quote} onChange={(e) => handlePriceChange(q.item, Number(e.target.value))} />
+                    <Input className="w-[24%]" value={q?.quantity} disabled />
+                    <Input type="number" placeholder="Enter Price" defaultValue={q?.quote} onChange={(e) => handlePriceChange(q.item, Number(e.target.value))} />
                   </div>
                 </div>
               )
