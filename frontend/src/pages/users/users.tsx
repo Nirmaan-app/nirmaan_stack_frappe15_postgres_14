@@ -19,19 +19,20 @@ export default function Users() {
 
     const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
         fields: ["*"],
-        limit: 1000
+        limit: 1000,
+        orderBy: { field: "creation", order: "desc" }
     },
         "Nirmaan Users"
     )
 
     // console.log("data", data)
 
-    const roleTypeOptions = [{label: "Project Manager", value : "Nirmaan Project Manager Profile"}, 
-                             {label: "Project Lead", value : "Nirmaan Project Lead Profile"}, 
-                             {label: "Procurement Executive", value : "Nirmaan Procurement Executive Profile"}, 
-                             {label: "Admin Profile", value : "Nirmaan Admin Profile"},
-                             {label: "Design Executive", value : "Nirmaan Design Executive Profile"}
-                            ]
+    const roleTypeOptions = [{ label: "Project Manager", value: "Nirmaan Project Manager Profile" },
+    { label: "Project Lead", value: "Nirmaan Project Lead Profile" },
+    { label: "Procurement Executive", value: "Nirmaan Procurement Executive Profile" },
+    { label: "Admin Profile", value: "Nirmaan Admin Profile" },
+    { label: "Design Executive", value: "Nirmaan Design Executive Profile" }
+    ]
 
 
 
@@ -188,9 +189,9 @@ export default function Users() {
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">User List</h2>
                 </div>
 
-                    <Button asChild>
-                        <Link to="new"> <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
-                    </Button>
+                <Button asChild>
+                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
+                </Button>
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
                 <Card className="hover:animate-shadow-drop-center" >
