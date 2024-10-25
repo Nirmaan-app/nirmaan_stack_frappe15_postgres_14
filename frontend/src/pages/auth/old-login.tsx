@@ -39,13 +39,15 @@ export default function Login() {
     console.log(error)
 
     return (
-      <div className="w-full max-sm:w-[90%] max-sm:mx-auto h-auto mt-[20%]">
+      <div className="flex h-screen w-full items-center justify-center px-4">
         {isLoading ? (<div className='w-full h-screen flex items-center justify-center'>
                     <TailSpin visible={true} height="100" width="100" color="#D03B45" ariaLabel="tail-spin-loading" />
                 </div>) :
 
           <Card className="mx-auto max-w-sm">
-            <img src={logo} alt="Nirmaan" className="h-[50px] w-[300px] pl-[40px] md:pl-[80px] pt-2" />
+            <div className="flex items-center justify-center">
+              <img src={logo} alt="Nirmaan" className="h-14 w-64 pt-2" />
+            </div>
             <CardHeader className="space-y-1">
               <CardTitle className="text-2xl font-bold">Login</CardTitle>
               <CardDescription>Enter your email and password to login to your account</CardDescription>

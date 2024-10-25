@@ -54,7 +54,7 @@ export const UpdateQuote = () => {
         `Quotations Requests,Procurement_task=${orderId}`
     );
 
-    console.log("quotations requests", quotation_request_list)
+    // console.log("quotations requests", quotation_request_list)
 
     const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["*"],
@@ -193,6 +193,13 @@ export const UpdateQuote = () => {
 
     // console.log("orderData", orderData)
 
+    const getVendorAddr = (name) => {
+        if(vendor_list) {
+            const vendor = vendor_list?.find((ven) => ven?.vendor_name === name)
+            return {city : vendor?.vendor_city, state : vendor?.vendor_state}
+        }
+    }
+
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
             {
@@ -302,6 +309,20 @@ export const UpdateQuote = () => {
                     return filterValue.every((filter) => categories.includes(filter));
                 },
             },
+            {
+                id: "vendor_address",
+                header: ({column}) => <DataTableColumnHeader column={column} title="Address" />,
+                cell: ({row}) => {
+                    const id = row.getValue("vendor_name")
+                    const address = getVendorAddr(id)
+                    return (
+                        <div>
+                            <span>{address?.city}, </span>
+                            <span>{address?.state}</span>
+                        </div>
+                    )
+                }
+            }
         ],
         [orderData, isButtonDisabled, vendor_list]
     )

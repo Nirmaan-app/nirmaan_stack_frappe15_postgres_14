@@ -40,7 +40,7 @@ export function DataTableFacetedFilter<TData, TValue>({
     return (
         <Popover>
             <PopoverTrigger asChild>
-                <div className="p-2 cursor-pointer hover:bg-gray-100 rounded-md">
+                <div className="cursor-pointer hover:bg-gray-100 rounded-md">
                     <Filter  className="text-primary h-4 w-4" />
                     {/* Filter by {title} */}
                     {/* {selectedValues?.size > 0 && (

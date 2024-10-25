@@ -319,7 +319,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                                         return (
                                                             <TableRow key={po.name}>
                                                                 <TableCell>
-                                                                    {userData.role === "Nirmaan Admin Profile" ? <Link to="/" className="text-blue-500 underline">{po.name}</Link> : po.name}
+                                                                    {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(userData?.role) ? <Link to={po?.name.replaceAll("/", "&=")} className="text-blue-500 underline">{po?.name}</Link> : po.name}
                                                                 </TableCell>
                                                                 <TableCell>{formatDate(po.creation)}</TableCell>
                                                                 <TableCell>{po.status}</TableCell>
