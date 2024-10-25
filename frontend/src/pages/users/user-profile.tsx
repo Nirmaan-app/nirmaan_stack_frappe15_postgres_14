@@ -28,6 +28,7 @@ interface SelectOption {
 export default function Profile() {
 
     const [curProj, setCurProj] = useState('')
+    const [loadingState, setLoadingState] = useState(false)
 
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
@@ -159,6 +160,7 @@ export default function Profile() {
     }
 
     const handlePasswordReset = () => {
+        setLoadingState(true);
         call.post('frappe.core.doctype.user.user.reset_password', {
             user: id
         }).then(() => {
@@ -173,6 +175,8 @@ export default function Profile() {
                 description: err.exception,
                 variant: "destructive"
             });
+        }).finally(() => {
+            setLoadingState(false);
         })
     }
 
@@ -212,7 +216,7 @@ export default function Profile() {
                         <div className="flex flex-wrap max-sm:flex-col gap-2">
                             <Dialog>
                                 <DialogTrigger asChild>
-                                    <Button className="flex gap-1 items-center" >
+                                    <Button className="flex gap-1 items-center" disabled={loadingState}>
                                         <KeyRound className="w-5 h-5" />
                                         <span className="max-md:hidden">Reset Password</span>
                                     </Button>
@@ -227,11 +231,19 @@ export default function Profile() {
                                             <Button variant="secondary" className="flex items-center gap-1">
                                                 <Undo2 className="h-4 w-4" />
                                                 Cancel</Button>
-                                            <Button onClick={() => handlePasswordReset()} className="flex items-center gap-1">
-                                                <KeyRound className="w-5 h-5" />
-                                                <span className="max-md:hidden">Reset</span>
+
+                                            <Button onClick={() => handlePasswordReset()} className="flex items-center gap-1" disabled={loadingState}>
+                                                {loading ?
+                                                    <span>Please Wait...</span>
+                                                    :
+                                                    <>
+                                                        <KeyRound className="w-5 h-5" />
+                                                        <span className="max-md:hidden">Reset</span>
+                                                    </>
+                                                }
                                             </Button>
                                         </DialogClose>
+
                                     </div>
                                 </DialogContent>
                             </Dialog>
