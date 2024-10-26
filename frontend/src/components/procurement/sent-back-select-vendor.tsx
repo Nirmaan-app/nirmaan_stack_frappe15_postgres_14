@@ -127,7 +127,8 @@ export const SentBackSelectVendor = () => {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'lead_time', 'item', 'vendor', 'category', 'procurement_task', 'quote'],
-            limit: 2000
+            limit: 10000,
+            orderBy: { field: "creation", order: "desc" }
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
