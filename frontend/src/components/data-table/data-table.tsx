@@ -41,6 +41,12 @@ interface DataTableProps<TData, TValue> {
     category_options?: ProjectOptions[]
     loading?: boolean
     error?: any
+    vendorOptions?: any
+    projectTypeOptions?: any
+    roleTypeOptions?: any
+    statusOptions?: any
+    totalPOsRaised?: any
+
 }
 
 export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined }: DataTableProps<TData, TValue>) {
