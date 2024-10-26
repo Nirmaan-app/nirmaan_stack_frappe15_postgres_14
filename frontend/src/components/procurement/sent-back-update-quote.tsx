@@ -30,6 +30,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { PrintRFQ } from "./rfq-pdf";
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { TailSpin } from "react-loader-spinner";
 
 export const SentBackUpdateQuote = () => {
     const { id } = useParams<{ id: string }>()
@@ -333,6 +334,8 @@ export const SentBackUpdateQuote = () => {
     // console.log("orderData", orderData)
 
     const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
+
+    if(quotation_request_list_loading || sent_back_list_loading || category_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
 
     if (orderData?.workflow_state !== "Pending") {
         return (

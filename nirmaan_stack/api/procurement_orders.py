@@ -17,25 +17,31 @@ def generate_po_summary(project_id: str):
     arguments = {'project_id': project_id}
 
     po_items = frappe.db.sql("""
-            SELECT
-                po.name AS po_number,
-                po.vendor AS vendor_id,
-                po.vendor_name,
-                po.creation,
-                item->>'name' AS item_id,
-                item->>'quote' AS quote,
-                item->>'quantity' AS quantity,
-                item->>'category' AS category,
-                item->>'tax' AS tax,
-                item->>'unit' AS unit,
-                item->>'item' AS item_name    
-            FROM
-                "tabProcurement Orders" po,
-                 jsonb_array_elements(po.order_list::jsonb->'list') AS item 
-            WHERE 
-                project=%(project_id)s
-                AND status!='PO Approved';                     
-        """, values=arguments, as_dict=1)
+        SELECT
+            po.name AS po_number,
+            po.vendor AS vendor_id,
+            po.vendor_name,
+            po.creation,
+            item->>'name' AS item_id,
+            item->>'quote' AS quote,
+            item->>'quantity' AS quantity,
+            item->>'category' AS category,
+            item->>'tax' AS tax,
+            item->>'unit' AS unit,
+            item->>'item' AS item_name,
+            pr.work_package AS work_package
+        FROM
+        "tabProcurement Orders" po
+        LEFT JOIN
+            "tabProcurement Requests" pr
+        ON
+            po.procurement_request = pr.name,
+        jsonb_array_elements(po.order_list::jsonb->'list') AS item
+        WHERE
+            po.project = %(project_id)s
+            AND po.status != 'PO Approved';
+    """, values=arguments, as_dict=1)
+
 
     return {
             "po_items": po_items

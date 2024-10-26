@@ -43,457 +43,6 @@ import {
 } from "@/components/ui/chart";
 import { Pie, PieChart, Label, BarChart, CartesianGrid, XAxis, YAxis, Legend, Bar, Tooltip } from "recharts";
 
-// interface WPN {
-//     name: string
-// }
-
-// type ScopesMilestones = {
-//     work_package: string
-//     scope_of_work: string
-//     milestone: string
-// }
-
-// const Project = () => {
-//     const { projectId } = useParams<{ projectId: string }>()
-
-//     return (
-//         <div>
-//             {projectId && <ProjectView projectId={projectId} />}
-//         </div>
-//     )
-// }
-
-// export const Component = Project
-
-// const ProjectView = ({ projectId }: { projectId: string }) => {
-
-//     const navigate = useNavigate();
-
-//     const { toast } = useToast()
-
-//     const columns: ColumnDef<ScopesMilestones>[] = useMemo(
-//         () => [
-//             {
-//                 accessorKey: "work_package",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Work Package" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {row.getValue("work_package")}
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "scope_of_work",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Scope of work" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {row.getValue("scope_of_work")}
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "milestone",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Milestone" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {row.getValue("milestone")}
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "start_date",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Start Date" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {row.getValue("start_date")}
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "end_date",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="End Date" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {row.getValue("end_date")}
-//                         </div>
-//                     )
-//                 }
-//             }
-
-//         ],
-//         []
-//     )
-
-//     const { data, error, isValidating } = useFrappeGetDoc<Projects>(
-//         'Projects',
-//         `${projectId}`
-//     );
-
-//     const today = new Date();
-//     const formattedDate = today.toLocaleDateString('en-US', {
-//         year: 'numeric',
-//         month: 'long',
-//         day: 'numeric'
-//     });
-//     const componentRef = React.useRef<HTMLDivElement>(null);
-//     const handlePrint = useReactToPrint({
-//         content: () => {
-//             // console.log("Print Report button Clicked");
-//             return componentRef.current || null
-//         },
-//         documentTitle: `${formattedDate}_${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
-//     });
-//     const componentRef2 = React.useRef<HTMLDivElement>(null);
-//     const handlePrint2 = useReactToPrint({
-//         content: () => {
-//             // console.log("Print Schedule button Clicked");
-//             return componentRef.current || null
-//         },
-//         documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
-//     });
-
-
-//     const { data: mile_data, isLoading: mile_isloading, error: mile_error } = useFrappeGetDocList("Project Work Milestones", {
-//         fields: ["work_package", "scope_of_work", "milestone", "start_date", "end_date"],
-//         filters: [["project", "=", `${data?.name}`]],
-//         limit: 1000
-//     })
-
-
-//     if (isValidating) return <ProjectSkeleton />
-//     if (error || mile_error) {
-//         console.log("Error in project.tsx", error?.message, mile_error?.message)
-//         toast({
-//             title: "Error!",
-//             description: `Error ${error?.message || mile_error?.message}`,
-//             variant: "destructive"
-//         })
-//     }
-
-//     // console.log("data", data)
-//     return (
-//         <div className="flex-1 space-y-4 p-8 pt-4">
-//             {/* <div className="flex items-center justify-between space-y-2">
-//                     <Breadcrumb>
-//                         <BreadcrumbItem>
-//                             <Link to="/" className="md:text-base text-sm">Dashboard</Link>
-//                         </BreadcrumbItem>
-//                         <BreadcrumbItem>
-//                             <Link to="/projects" className="md:text-base text-sm">Projects</Link>
-//                         </BreadcrumbItem>
-//                         <BreadcrumbItem isCurrentPage>
-//                             <Link to="/projects/edit" className="text-gray-400 md:text-base text-sm">
-//                                 {projectId}
-//                             </Link>
-//                         </BreadcrumbItem>
-//                     </Breadcrumb>
-//                 </div> */}
-//             {data ? (
-//                 <>
-//                     <div className="flex items-center justify-between space-y-2">
-//                         <div className="flex">
-//                             <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-//                             <h2 className="pl-1 text-2xl font-bold tracking-tight">{data.project_name}</h2>
-//                         </div>
-//                         <div className="flex space-x-2">
-//                             <Button className="cursor-pointer" onClick={() => handlePrint()}>
-//                                 Report
-//                             </Button>
-//                             <Button className="cursor-pointer" onClick={() => handlePrint2()}>
-//                                 Schedule
-//                             </Button>
-//                             <Button asChild>
-//                                 <Link to={`/projects/${projectId}/edit`}> Edit Project</Link>
-//                             </Button>
-//                         </div>
-//                     </div>
-//                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-//                         <Card>
-//                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//                                 <CardTitle className="text-2xl font-bold">
-//                                     Project Details
-//                                 </CardTitle>
-//                                 <HardHat className="h-4 w-4 text-muted-foreground" />
-//                             </CardHeader>
-//                             <CardContent>
-//                                 <Card>
-//                                     <CardContent>
-//                                         <br />
-//                                         <div className="flex flex-row">
-//                                             <div className="basis-1/2 flex flex-col">
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>Name</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">{data.project_name}</p>
-//                                                 </div>
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>Start Date & End Date</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">{data.project_start_date + " to " + data.project_end_date}</p>
-//                                                 </div>
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>Estimated Completion Date</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">{data.project_end_date}</p>
-//                                                 </div>
-//                                             </div>
-//                                             <div className="basis-1/2 flex flex-col">
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>Location</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">{data.project_city + ", " + data.project_state}</p>
-//                                                 </div>
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>Area</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">PLACEHOLDER</p>
-//                                                 </div>
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>No. of Sections in Layout</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">{data.subdivisions}</p>
-//                                                 </div>
-//                                             </div>
-
-
-//                                         </div>
-//                                     </CardContent>
-//                                 </Card>
-
-//                             </CardContent>
-//                         </Card>
-//                         <div className="grid gap-4 md:grid-rows-3 lg:grid-rows-3">
-//                             <Card>
-//                                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//                                     <CardTitle className="text-2xl font-bold">
-//                                         Work Package
-//                                     </CardTitle>
-//                                     <HardHat className="h-4 w-4 text-muted-foreground" />
-//                                 </CardHeader>
-//                                 <CardContent>
-//                                     {JSON.parse(data.project_work_milestones).work_packages.map((wp: WPN) => (
-//                                         <Badge variant="outline">{wp.work_package_name}</Badge>
-//                                     )) || ""}
-//                                 </CardContent>
-//                             </Card>
-//                             <Card>
-//                                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//                                     <CardTitle className="text-2xl font-bold">
-//                                         Status
-//                                     </CardTitle>
-//                                     <HardHat className="h-4 w-4 text-muted-foreground" />
-//                                 </CardHeader>
-//                                 <CardContent>
-//                                     <div className="text-sm font-medium">
-//                                         <p>PLACEHOLDER</p>
-//                                     </div>
-//                                     <p className="text-xs text-muted-foreground">METRIC</p>
-//                                 </CardContent>
-//                             </Card>
-//                             <Card>
-//                                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//                                     <CardTitle className="text-2xl font-bold">
-//                                         Health Score
-//                                     </CardTitle>
-//                                     <HardHat className="h-4 w-4 text-muted-foreground" />
-//                                 </CardHeader>
-//                                 <CardContent>
-//                                     <div className="text-sm font-medium">
-//                                         <p>PLACEHOLDER</p>
-//                                     </div>
-//                                     <p className="text-xs text-muted-foreground">METRIC</p>
-//                                 </CardContent>
-//                             </Card>
-//                         </div>
-//                     </div>
-//                 </>
-//             ) : <div>No data</div>
-//             }
-//             <div className="hidden">
-//                 <div ref={componentRef} className="px-4 pb-1">
-//                     <div className="overflow-x-auto">
-//                         <table className="w-full my-4">
-//                             <thead className="w-full">
-//                                 <tr>
-//                                     <th colSpan="6" className="p-0">
-//                                         <div className="mt-1 flex justify-between">
-//                                             <div>
-//                                                 <img className="w-44" src={redlogo} alt="Nirmaan" />
-//                                                 <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th colSpan="6" className="p-0">
-//                                         <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
-//                                             <div className="flex justify-between">
-//                                                 <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
-//                                                 <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th colSpan="6" className="p-0">
-//                                         <div className="grid grid-cols-6 gap-4 justify-between border border-gray-100 rounded-lg px-3 py-1 mb-1">
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Name and address</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_name}</p>
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Date : {formattedDate}</p>
-//                                             </div>
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_start_date} to {data?.project_end_date}</p>
-//                                             </div>
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th scope="col" className="px-6 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Work Package</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Scope of Work</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Milestone</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Start Date</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">End Date</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Status - Common Area</th>
-//                                 </tr>
-//                             </thead>
-//                             <tbody className="bg-white divide-y divide-gray-200">
-//                                 {mile_data?.map((item) => {
-//                                     return <tr className="">
-//                                         <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
-//                                             {item.scope_of_work}
-//                                         </td>
-//                                         <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.start_date}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.end_date}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">Pending</td>
-//                                     </tr>
-//                                 })}
-//                             </tbody>
-//                         </table>
-//                     </div>
-//                 </div>
-//                 <div ref={componentRef2} className="px-4 pb-1">
-//                     <div className="overflow-x-auto">
-//                         <table className="w-full">
-//                             <thead className="w-full">
-//                                 <tr>
-//                                     <th colSpan="5" className="p-0">
-//                                         <div className="mt-1 flex justify-between">
-//                                             <div>
-//                                                 <img className="w-44" src={redlogo} alt="Nirmaan" />
-//                                                 <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th colSpan="5" className="p-0">
-//                                         <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
-//                                             <div className="flex justify-between">
-//                                                 <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
-//                                                 <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th colSpan="5" className="p-0">
-//                                         <div className="grid grid-cols-6 gap-4 justify-between border border-gray-100 rounded-lg px-3 py-1 mb-1">
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Name and address</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_name}</p>
-//                                             </div>
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_start_date} to {data?.project_end_date}</p>
-//                                             </div>
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th scope="col" className="px-6 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Work Package</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Scope of Work</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Milestone</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Start Date</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">End Date</th>
-//                                 </tr>
-//                             </thead>
-//                             <tbody className="bg-white divide-y divide-gray-200">
-//                                 {mile_data?.map((item) => {
-//                                     return <tr className="">
-//                                         <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
-//                                             {item.scope_of_work}
-//                                         </td>
-//                                         <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.start_date}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.end_date}</td>
-//                                     </tr>
-//                                 })}
-//                             </tbody>
-//                         </table>
-//                     </div>
-//                 </div>
-//             </div>
-//             <div className="pl-0 pr-2">
-//                 {mile_isloading ? (
-//                     <TableSkeleton />
-//                 ) : (
-//                     <DataTable columns={columns} data={mile_data || []} />
-//                 )}
-//             </div>
-//         </div >
-//     )
-// }
-
-
-
 const Project = () => {
 
   const { projectId } = useParams<{ projectId: string }>()
@@ -565,7 +114,9 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
     }
   )
 
-  console.log("item data", po_item_data)
+  const [selectedPackage, setSelectedPackage] = useState("");
+
+  // console.log("po_item data", po_item_data)
 
   const { data: projectAssignees, isLoading: projectAssigneesLoading, mutate: projectAssigneesMutate } = useFrappeGetDocList("Nirmaan User Permissions", {
     fields: ["*"],
@@ -619,12 +170,16 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
     }
   }, [usersList, projectAssignees])
 
+  console.log("poData", po_data)
+
   const totalPosRaised = () => {
     if (po_data && po_data.length > 0) {
       const total = po_data.reduce((acc, po) => {
         if (po.order_list && po.order_list.list && po.order_list.list.length > 0) {
           const poTotal = po.order_list.list.reduce((itemAcc, item) => {
-            return itemAcc + (item.quote * item.quantity);
+            const baseAmount = item.quote * item.quantity
+            const taxAmount = baseAmount * (item.tax / 100)
+            return itemAcc + (baseAmount + taxAmount);
           }, 0);
           return acc + poTotal;
         }
@@ -634,7 +189,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
       return total;
     }
 
-    return 0; // Return 0 if po_data is not available or empty
+    return 0;
   };
 
   // Grouping functionality
@@ -846,7 +401,6 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
     return allItemsApproved ? "Approved PO" : "Open PR";
   };
 
-
   const statusOptions = [
     { label: "New PR", value: "New PR" },
     { label: "Open PR", value: "Open PR" },
@@ -947,7 +501,6 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
     }
   ]
 
-
   const [current, setCurrent] = useState('overview')
 
   const onClick: MenuProps['onClick'] = (e) => {
@@ -1014,113 +567,105 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
     }
   }
 
-  const groupItemsByCategory = (items) => {
+  const groupItemsByWorkPackageAndCategory = (items) => {
     return items?.reduce((acc, item) => {
-        // Initialize the category array if it doesn't exist
-        if (!acc[item.category]) {
-            acc[item.category] = [];
+        const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
+        const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
+        const amountWithTax = baseAmount + taxAmount;
+
+        if (!acc[item.work_package]) {
+            acc[item.work_package] = {};
         }
 
-        // Find an existing item that matches all conditions within the category
-        const existingItem = acc[item.category].find(
-            (i) =>
-                i.item_name === item.item_name &&
-                i.po_number === item.po_number &&
-                i.quote === item.quote &&
-                i.vendor_id === item.vendor_id
+        if (!acc[item.work_package][item.category]) {
+            acc[item.work_package][item.category] = [];
+        }
+
+        const existingItem = acc[item.work_package][item.category].find(
+            (i) => i.item_id === item.item_id
         );
 
-        // If an identical item exists, combine the quantities
         if (existingItem) {
             existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
+            existingItem.amount += amountWithTax;
         } else {
-            // Check for items with the same name and PO number but differing quotes or vendor IDs
-            // const similarItem = acc[item.category].find(
-            //     (i) =>
-            //         i.item_name === item.item_name &&
-            //         i.po_number === item.po_number &&
-            //         (i.quote !== item.quote || i.vendor_id !== item.vendor_id)
-            // );
-
-            // if (similarItem) {
-            //     // Add the new item as a separate entry in the category list
-            //     acc[item.category].push({ ...item });
-            // } else {
-            //     // Add as a unique item in the category list if no match is found
-            //     acc[item.category].push({ ...item });
-            // }
-            acc[item.category].push({ ...item });
+            acc[item.work_package][item.category].push({
+                ...item,
+                amount: amountWithTax
+            });
         }
 
         return acc;
     }, {});
 };
 
-const categorizedData = groupItemsByCategory(po_item_data);
+// Usage
+const categorizedData = groupItemsByWorkPackageAndCategory(po_item_data);
+
+// const categoryTotals = po_item_data?.reduce((acc, item) => {
+//   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
+
+//   const itemTotal = parseFloat(item.quantity) * parseFloat(item.quote);
+//   const itemTotalWithGst = itemTotal * (1 + parseFloat(item.tax) / 100);
+
+//   category.withoutGst += itemTotal;
+//   category.withGst += itemTotalWithGst;
+
+//   acc[item.category] = category;
+//   return acc;
+// }, {});
 
 
-const categoryTotals = po_item_data?.reduce((acc, item) => {
-  const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
-
-  const itemTotal = parseFloat(item.quantity) * parseFloat(item.quote);
-  const itemTotalWithGst = itemTotal * (1 + parseFloat(item.tax) / 100);
-
-  category.withoutGst += itemTotal;
-  category.withGst += itemTotalWithGst;
-
-  acc[item.category] = category;
-  return acc;
-}, {});
+// const overallTotal = Object.values(categoryTotals || [])?.reduce(
+//   (acc, totals) => ({
+//     withoutGst: acc.withoutGst + totals.withoutGst,
+//     withGst: acc.withGst + totals.withGst,
+//   }),
+//   { withoutGst: 0, withGst: 0 }
+// );
 
 
-const overallTotal = Object.values(categoryTotals || [])?.reduce(
-  (acc, totals) => ({
-    withoutGst: acc.withoutGst + totals.withoutGst,
-    withGst: acc.withGst + totals.withGst,
-  }),
-  { withoutGst: 0, withGst: 0 }
-);
+// const pieChartData = Object.keys(categoryTotals || []).map((category) => ({
+//   name: category,
+//   value: categoryTotals[category].withGst,
+//   fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
+// }));
 
+// const getChartData = (po_item_data) => {
+//   const aggregatedData = {};
 
-const pieChartData = Object.keys(categoryTotals || []).map((category) => ({
-  name: category,
-  value: categoryTotals[category].withGst,
-  fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
-}));
+//   po_item_data?.forEach((item) => {
+//     const date = formatDate(item.creation.split(" ")[0]); // Extract date only
+//     const baseTotal = parseFloat(item.quote) * parseFloat(item.quantity);
+//     const totalWithGST = baseTotal * (1 + parseFloat(item.tax) / 100);
 
-const getChartData = (po_item_data) => {
-  const aggregatedData = {};
+//     if (!aggregatedData[date]) {
+//       aggregatedData[date] = { withGST: 0, withoutGST: 0 };
+//     }
+//     aggregatedData[date].withoutGST += baseTotal;
+//     aggregatedData[date].withGST += totalWithGST;
+//   });
 
-  po_item_data?.forEach((item) => {
-    const date = formatDate(item.creation.split(" ")[0]); // Extract date only
-    const baseTotal = parseFloat(item.quote) * parseFloat(item.quantity);
-    const totalWithGST = baseTotal * (1 + parseFloat(item.tax) / 100);
+//   return Object.keys(aggregatedData || []).map((date) => ({
+//     date,
+//     withoutGST: aggregatedData[date].withoutGST,
+//     withGST: aggregatedData[date].withGST,
+//   }));
+// };
 
-    if (!aggregatedData[date]) {
-      aggregatedData[date] = { withGST: 0, withoutGST: 0 };
-    }
-    aggregatedData[date].withoutGST += baseTotal;
-    aggregatedData[date].withGST += totalWithGST;
-  });
+// const chartData = getChartData(po_item_data); // Now ready for use in Recharts
 
-  return Object.keys(aggregatedData || []).map((date) => ({
-    date,
-    withoutGST: aggregatedData[date].withoutGST,
-    withGST: aggregatedData[date].withGST,
-  }));
-};
-
-const chartData = getChartData(po_item_data); // Now ready for use in Recharts
-
-console.log("chartData", chartData)
+const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
 
   return (
     <div className="flex-1 space-y-4">
       <div className="flex items-center">
-        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate(-1)} />
+        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
       </div>
+      <div className="flex justify-between items-center">
+      <div className="w-full">
       <ConfigProvider
         theme={{
           components: {
@@ -1134,6 +679,16 @@ console.log("chartData", chartData)
       >
         <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
       </ConfigProvider>
+      </div>
+
+      {/* {totalPosRaised && ( */}
+            <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
+                <span className=" whitespace-nowrap">Total PO's raised</span>
+                <span>: </span>
+                <span className="max-sm:text-end max-sm:w-full text-primary">{formatToIndianRupee(totalPosRaised())}</span>
+             </div>
+            {/* )} */}
+      </div>
 
       {/* Overview Section */}
 
@@ -1340,150 +895,35 @@ console.log("chartData", chartData)
       {
         current === "procurementSummary" && (
           prData_loading ? (<TableSkeleton />) :
-            <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} totalPOsRaised={formatToIndianRupee(totalPosRaised())} />
+            <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} />
         )
       }
 
       {current === "POSummary" && (
-        po_item_data?.length ? (
-          <div className="flex flex-col gap-4">
-         <Accordion type="multiple" className="space-y-4">
-    {Object.entries(categorizedData).map(([category, items]) => {
-        const totalQuantity = items.reduce((sum, item) => sum + parseFloat(item.quantity), 0);
-        const totalQuote = items.reduce((sum, item) => sum + (parseFloat(item.quote) * parseFloat(item.quantity) * (1 + parseFloat(item.tax) / 100)), 0);
-
-        // Group items by item_id and item_name for rendering purposes
-        const groupedItems = items.reduce((acc, item) => {
-            const key = `${item.item_id}-${item.item_name}`;
-            if (!acc[key]) {
-                acc[key] = [];
-            }
-            acc[key].push(item);
-            return acc;
-        }, {});
-
-        return (
-            <AccordionItem key={category} value={category} className="border-b rounded-lg shadow">
-                <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
-                    <div className="flex space-x-4 text-sm text-gray-600">
-                        <span className="font-semibold">{category}:</span>
-                        <span>Total Quote: ₹{totalQuote.toLocaleString()}</span>
-                    </div>
-                </AccordionTrigger>
-                <AccordionContent>
-                    <Table className="min-w-full text-left text-sm">
-                        <TableHeader>
-                            <TableRow className="bg-gray-100 text-gray-700">
-                                <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
-                                <TableHead className="px-4 py-2 font-semibold">Item Name</TableHead>
-                                <TableHead className="px-4 py-2 font-semibold">PO No.</TableHead>
-                                <TableHead className="px-4 py-2 font-semibold">Vendor Name</TableHead>
-                                <TableHead className="px-4 py-2 font-semibold">Qty</TableHead>
-                                <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
-                                <TableHead className="px-4 py-2 font-semibold">Quote</TableHead>
-                                <TableHead className="px-4 py-2 font-semibold">Tax (%)</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {Object.values(groupedItems).map((group, index) => (
-                                group.map((item, idx) => (
-                                    <TableRow key={`${item.item_id}-${idx}`} className={`border-b last:border-0 ${idx > 0 ? 'border-t-0' : ''}`}>
-                                        {/* Render Item ID and Item Name only for the first item in the group */}
-                                        <TableCell className="px-4 py-2">
-                                            {idx === 0 ? item.item_id.slice(5) : ""}
-                                        </TableCell>
-                                        <TableCell className="px-4 py-2">
-                                            {idx === 0 ? item.item_name : ""}
-                                        </TableCell>
-                                        <TableCell className="px-4 py-2">{item.po_number.slice(3, 6)}</TableCell>
-                                        <TableCell className="px-4 py-2">{item.vendor_name}</TableCell>
-                                        <TableCell className="px-4 py-2">{item.quantity}</TableCell>
-                                        <TableCell className="px-4 py-2">{item.unit}</TableCell>
-                                        <TableCell className="px-4 py-2">₹{parseFloat(item.quote).toLocaleString()}</TableCell>
-                                        <TableCell className="px-4 py-2">{item.tax}%</TableCell>
-                                    </TableRow>
-                                ))
-                            ))}
-                        </TableBody>
-                    </Table>
-                </AccordionContent>
-            </AccordionItem>
-        );
-    })}
-</Accordion>
-
-    <Card className="flex flex-col">
-                <CardHeader className="items-center pb-0">
-                  <CardTitle>Totals Visualization</CardTitle>
-                  {/* <CardDescription>PO-{po_data.name}</CardDescription> */}
-                </CardHeader>
-                <CardContent className="flex justify-between max-md:flex-col items-center">
-                  <ChartContainer
-                    config={chartConfig}
-                    className="mx-auto w-full min-h-[250px] max-h-[300px] flex-1 flex justify-center"
-                  >
-                    <PieChart>
-                      <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                      <Pie data={pieChartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
-                        <Label
-                          content={({ viewBox }) => {
-                            if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                              return (
-                                <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
-                                  <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
-                                    {overallTotal?.withGst?.toLocaleString()}
-                                  </tspan>
-                                  <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
-                                    Total
-                                  </tspan>
-                                </text>
-                              );
-                            }
-                          }}
-                        />
-                      </Pie>
-                    </PieChart>
-                  </ChartContainer>
-                  <ul className="flex-1 text-left list-disc">
-                    <li className="font-bold text-lg max-md:text-base text-gray-700">
-                      Overall Total (without GST): <span className="font-medium">{formatToIndianRupee(overallTotal?.withoutGst)}</span>
-                    </li>
-                    <li className="font-bold text-lg max-md:text-base text-gray-700">
-                      Overall Total (with GST): <span className="font-medium">{formatToIndianRupee(overallTotal?.withGst)}</span>
-                    </li>
-                  </ul>
-                </CardContent>
-            </Card>
-
-            <Card>
-      <CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
-        <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
-          <CardTitle>Expense Bar Chart</CardTitle>
-          <CardDescription>Displays expenses with and without GST by date</CardDescription>
-        </div>
-      </CardHeader>
-      <CardContent className="px-2 sm:p-6">
-        <ChartContainer
-        config={chartConfig}
-        className="max-h-[500px] w-full"
+        <>
+        <div className="w-full">
+        <Select
+          value={selectedPackage}
+          onValueChange={(value) => setSelectedPackage(value)}
         >
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" />
-            <YAxis />
-            <Tooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-            <Legend />
-            <Bar dataKey="withoutGST" fill="#8884d8" name="Without GST" />
-            <Bar dataKey="withGST" fill="#82ca9d" name="With GST" />
-          </BarChart>
-        </ChartContainer>
-      </CardContent>
-    </Card>
-    </div>
-        ) : (
-          <div className="h-[60vh] flex items-center justify-center">No Results.</div>
-        )
-      )}
+          <SelectTrigger id="work-package-dropdown" className="w-full">
+            <SelectValue placeholder="Choose a work package" />
+          </SelectTrigger>
+          
+          <SelectContent>
+            {workPackages.map((packageItem, index) => (
+              <SelectItem key={index} value={packageItem.work_package_name}>
+                {packageItem.work_package_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+        {selectedPackage ? (
+          <CategoryAccordion categorizedData={categorizedData} selectedPackage={selectedPackage}  />
+        ) : <div className="h-[40vh] flex items-center justify-center"> Please select a Work Package</div>}
+        </>
+)}
 
       <div className="hidden">
         <div ref={componentRef} className="px-4 pb-1">
@@ -1776,5 +1216,66 @@ console.log("chartData", chartData)
 
     </div>
   )
-
 }
+
+
+const CategoryAccordion = ({ categorizedData, selectedPackage }) => {
+
+  const selectedData = categorizedData[selectedPackage] || null;
+
+  return (
+    <div className="w-full">
+      {selectedData ? (
+        <div className="flex flex-col gap-4">
+          <Accordion type="multiple" className="space-y-4">
+            {Object.entries(selectedData).map(([category, items]) => {
+              const totalAmount = items.reduce((sum, item) => 
+                sum + parseFloat(item.quote) * parseFloat(item.quantity) * (1 + parseFloat(item.tax) / 100), 
+                0
+              );
+              return (
+                <AccordionItem key={category} value={category} className="border-b rounded-lg shadow">
+                  <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
+                    <div className="flex space-x-4 text-sm text-gray-600">
+                      <span className="font-semibold">{category}:</span>
+                      <span>Total Amount: ₹{totalAmount.toLocaleString()}</span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <Table className="min-w-full text-left text-sm">
+                      <TableHeader>
+                        <TableRow className="bg-gray-100 text-gray-700">
+                          <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Qty</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {items?.map((item) => (
+                            <TableRow key={item.item_id}>
+                              <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
+                              <TableCell className="px-4 py-2">{item.item_name}</TableCell>
+                              <TableCell className="px-4 py-2">{item.quantity}</TableCell>
+                              <TableCell className="px-4 py-2">{item.unit}</TableCell>
+                              <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
+                            </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
+        </div>
+      ) : (
+        <div className="h-[60vh] flex items-center justify-center">No Results.</div>
+      )}
+    </div>
+  );
+};
+
+
+

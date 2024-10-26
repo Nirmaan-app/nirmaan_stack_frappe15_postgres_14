@@ -28,6 +28,7 @@ import { useToast } from "../ui/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
+import { TailSpin } from "react-loader-spinner";
 
 export const UpdateQuote = () => {
     const { orderId } = useParams<{ orderId: string }>()
@@ -41,7 +42,7 @@ export const UpdateQuote = () => {
         "Vendors"
     );
 
-    const {data: procurement_request_list} = useFrappeGetDocList("Procurement Requests", {
+    const {data: procurement_request_list, isLoading : procurement_request_list_loading} = useFrappeGetDocList("Procurement Requests", {
         fields: ["*"],
         limit: 1000
     })
@@ -340,6 +341,8 @@ export const UpdateQuote = () => {
     }
 
     const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
+
+    if(procurement_request_list_loading || category_loading || quotation_request_list_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
 
     return (
         <>

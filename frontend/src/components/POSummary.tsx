@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { Pie, PieChart, Label } from "recharts";
+import { Pie, PieChart } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import {
@@ -12,6 +12,7 @@ import { useFrappeGetDoc } from "frappe-react-sdk";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Badge } from "./ui/badge";
 import { ArrowLeft } from "lucide-react";
+import { Label } from "./ui/label";
 
 const chartConfig = {
   visitors: {
@@ -85,6 +86,8 @@ const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
     fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
   }));
 
+  console.log("po_data", itemsOrderList)
+
   return (
     <div className="flex flex-col gap-4">
             {/* Header with Back Button */}
@@ -144,10 +147,9 @@ const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
                                 <TableHeader>
                                     <TableRow className="bg-red-100">
                                         <TableHead className="w-[30%] text-red-700 font-extrabold">{category.category}</TableHead>
-                                        <TableHead className="w-[15%]">UOM</TableHead>
                                         <TableHead className="w-[15%]">Qty</TableHead>
-                                        <TableHead className="w-[15%]">Quote</TableHead>
-                                        <TableHead className="w-[15%]">Tax (%)</TableHead>
+                                        <TableHead className="w-[15%]">UOM</TableHead>
+                                        <TableHead className="w-[15%]">Amount</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -156,10 +158,9 @@ const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
                                         .map((item: any) => (
                                             <TableRow key={item.item}>
                                                 <TableCell>{item.item}</TableCell>
-                                                <TableCell>{item.unit}</TableCell>
                                                 <TableCell>{item.quantity}</TableCell>
-                                                <TableCell>{formatToIndianRupee(item.quote)}</TableCell>
-                                                <TableCell>{item.tax}%</TableCell>
+                                                <TableCell>{item.unit}</TableCell>
+                                                <TableCell>{formatToIndianRupee((item?.quantity * item?.quote) + (item?.quantity * item?.quote * (item?.tax / 100)))}</TableCell>
                                             </TableRow>
                                         ))}
                                 </TableBody>
@@ -168,7 +169,7 @@ const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
                     ))}
                 </CardContent>
             </Card>
-            <Card className="flex flex-col">
+            {/* <Card className="flex flex-col">
                 <CardHeader className="items-center pb-0">
                   <CardTitle>Category-Wise Totals Visualization</CardTitle>
                   <CardDescription>PO-{po_data.name}</CardDescription>
@@ -209,7 +210,7 @@ const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
                     </li>
                   </ul>
                 </CardContent>
-            </Card>
+            </Card> */}
 
     </div>
   );
