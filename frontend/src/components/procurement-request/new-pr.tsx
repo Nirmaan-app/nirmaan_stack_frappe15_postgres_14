@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { ArrowLeft } from 'lucide-react';
 import ReactSelect from 'react-select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "../ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose, DialogFooter } from "../ui/dialog"
 import { Button } from "../ui/button"
 import { CirclePlus } from 'lucide-react';
 import { Pencil } from 'lucide-react';
@@ -20,6 +20,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 import { formatDate } from "@/utils/FormatDate";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { TailSpin } from "react-loader-spinner";
 
 const NewPR = () => {
 
@@ -135,7 +136,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
             limit: 10000
         });
 
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { createDoc: createDoc, loading: createLoading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc, error: update_error } = useFrappeUpdateDoc()
 
     useEffect(() => {
@@ -310,10 +311,11 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         subject: "creating pr"
                     })
                 }
-                console.log("newPR", res);
+                // console.log("newPR", res);
                 await mutate("Procurement Requests,orderBy(creation-desc)");
                 await mutate("Procurement Orders");
 
+                document.getElementById("dialogCloseforNewPR")?.click()
                 toast({
                     title: "Success!",
                     description: `New PR: ${res?.name} created successfully!`,
@@ -352,10 +354,12 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     subject: "resolving pr"
                 })
             }
-            console.log("newPR", res)
+            // console.log("newPR", res)
             await mutate("Procurement Requests,orderBy(creation-desc)")
             await mutate("Procurement Orders")
             await mutate(`Procurement Requests ${orderData.name}`)
+
+            document.getElementById("dialogCloseforNewPR")?.click()
             toast({
                 title: "Success!",
                 description: `PR: ${orderData?.name} Resolved successfully and Sent for Approval!`,
@@ -758,17 +762,21 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                 {!rejected_pr_data ? "If there is any pending PR created by you with the same Project & Package, then the older PRs will be merged with this PR. Are you sure you want to continue?" : "Click on Confirm to resolve and send the PR for Approval"}
                             </DialogDescription>
                         </DialogHeader>
-                        <DialogClose className="flex justify-center">
+                        <DialogDescription className="flex justify-center">
                             {!rejected_pr_data ? (
+                                createLoading ? <TailSpin width={60} color={"red"}  /> : 
                                 <Button onClick={handleSubmit} className="flex items-center gap-1">
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm</Button>
                             ) : (
+                                createLoading ? <TailSpin width={60} color={"red"}  /> :
                                 <Button onClick={handleResolvePR} className="flex items-center gap-1">
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm</Button>
                             )}
-                        </DialogClose>
+                        </DialogDescription>
+
+                        <DialogClose className="hidden" id="dialogCloseforNewPR">Close</DialogClose>
                     </DialogContent>
                 </Dialog>
             </div>}

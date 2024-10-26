@@ -19,8 +19,8 @@ import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
-import { toast, useToast } from "@/components/ui/use-toast"
-import { ConfigProvider, Menu, MenuProps, TableProps } from "antd"
+import { toast } from "@/components/ui/use-toast"
+import { ConfigProvider, Menu, MenuProps } from "antd"
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall } from "frappe-react-sdk"
 import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, Download, FilePenLine, ListChecks, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
@@ -33,457 +33,15 @@ import formatToIndianRupee from "@/utils/FormatPrice"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-
-// interface WPN {
-//     name: string
-// }
-
-// type ScopesMilestones = {
-//     work_package: string
-//     scope_of_work: string
-//     milestone: string
-// }
-
-// const Project = () => {
-//     const { projectId } = useParams<{ projectId: string }>()
-
-//     return (
-//         <div>
-//             {projectId && <ProjectView projectId={projectId} />}
-//         </div>
-//     )
-// }
-
-// export const Component = Project
-
-// const ProjectView = ({ projectId }: { projectId: string }) => {
-
-//     const navigate = useNavigate();
-
-//     const { toast } = useToast()
-
-//     const columns: ColumnDef<ScopesMilestones>[] = useMemo(
-//         () => [
-//             {
-//                 accessorKey: "work_package",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Work Package" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {row.getValue("work_package")}
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "scope_of_work",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Scope of work" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {row.getValue("scope_of_work")}
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "milestone",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Milestone" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {row.getValue("milestone")}
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "start_date",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="Start Date" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {row.getValue("start_date")}
-//                         </div>
-//                     )
-//                 }
-//             },
-//             {
-//                 accessorKey: "end_date",
-//                 header: ({ column }) => {
-//                     return (
-//                         <DataTableColumnHeader column={column} title="End Date" />
-//                     )
-//                 },
-//                 cell: ({ row }) => {
-//                     return (
-//                         <div className="font-medium">
-//                             {row.getValue("end_date")}
-//                         </div>
-//                     )
-//                 }
-//             }
-
-//         ],
-//         []
-//     )
-
-//     const { data, error, isValidating } = useFrappeGetDoc<Projects>(
-//         'Projects',
-//         `${projectId}`
-//     );
-
-//     const today = new Date();
-//     const formattedDate = today.toLocaleDateString('en-US', {
-//         year: 'numeric',
-//         month: 'long',
-//         day: 'numeric'
-//     });
-//     const componentRef = React.useRef<HTMLDivElement>(null);
-//     const handlePrint = useReactToPrint({
-//         content: () => {
-//             // console.log("Print Report button Clicked");
-//             return componentRef.current || null
-//         },
-//         documentTitle: `${formattedDate}_${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
-//     });
-//     const componentRef2 = React.useRef<HTMLDivElement>(null);
-//     const handlePrint2 = useReactToPrint({
-//         content: () => {
-//             // console.log("Print Schedule button Clicked");
-//             return componentRef.current || null
-//         },
-//         documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`
-//     });
-
-
-//     const { data: mile_data, isLoading: mile_isloading, error: mile_error } = useFrappeGetDocList("Project Work Milestones", {
-//         fields: ["work_package", "scope_of_work", "milestone", "start_date", "end_date"],
-//         filters: [["project", "=", `${data?.name}`]],
-//         limit: 1000
-//     })
-
-
-//     if (isValidating) return <ProjectSkeleton />
-//     if (error || mile_error) {
-//         console.log("Error in project.tsx", error?.message, mile_error?.message)
-//         toast({
-//             title: "Error!",
-//             description: `Error ${error?.message || mile_error?.message}`,
-//             variant: "destructive"
-//         })
-//     }
-
-//     // console.log("data", data)
-//     return (
-//         <div className="flex-1 space-y-4 p-8 pt-4">
-//             {/* <div className="flex items-center justify-between space-y-2">
-//                     <Breadcrumb>
-//                         <BreadcrumbItem>
-//                             <Link to="/" className="md:text-base text-sm">Dashboard</Link>
-//                         </BreadcrumbItem>
-//                         <BreadcrumbItem>
-//                             <Link to="/projects" className="md:text-base text-sm">Projects</Link>
-//                         </BreadcrumbItem>
-//                         <BreadcrumbItem isCurrentPage>
-//                             <Link to="/projects/edit" className="text-gray-400 md:text-base text-sm">
-//                                 {projectId}
-//                             </Link>
-//                         </BreadcrumbItem>
-//                     </Breadcrumb>
-//                 </div> */}
-//             {data ? (
-//                 <>
-//                     <div className="flex items-center justify-between space-y-2">
-//                         <div className="flex">
-//                             <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-//                             <h2 className="pl-1 text-2xl font-bold tracking-tight">{data.project_name}</h2>
-//                         </div>
-//                         <div className="flex space-x-2">
-//                             <Button className="cursor-pointer" onClick={() => handlePrint()}>
-//                                 Report
-//                             </Button>
-//                             <Button className="cursor-pointer" onClick={() => handlePrint2()}>
-//                                 Schedule
-//                             </Button>
-//                             <Button asChild>
-//                                 <Link to={`/projects/${projectId}/edit`}> Edit Project</Link>
-//                             </Button>
-//                         </div>
-//                     </div>
-//                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-//                         <Card>
-//                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//                                 <CardTitle className="text-2xl font-bold">
-//                                     Project Details
-//                                 </CardTitle>
-//                                 <HardHat className="h-4 w-4 text-muted-foreground" />
-//                             </CardHeader>
-//                             <CardContent>
-//                                 <Card>
-//                                     <CardContent>
-//                                         <br />
-//                                         <div className="flex flex-row">
-//                                             <div className="basis-1/2 flex flex-col">
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>Name</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">{data.project_name}</p>
-//                                                 </div>
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>Start Date & End Date</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">{data.project_start_date + " to " + data.project_end_date}</p>
-//                                                 </div>
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>Estimated Completion Date</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">{data.project_end_date}</p>
-//                                                 </div>
-//                                             </div>
-//                                             <div className="basis-1/2 flex flex-col">
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>Location</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">{data.project_city + ", " + data.project_state}</p>
-//                                                 </div>
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>Area</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">PLACEHOLDER</p>
-//                                                 </div>
-//                                                 <div className="pt-2 pb-2">
-//                                                     <div className="text-l text-muted-foreground">
-//                                                         <p>No. of Sections in Layout</p>
-//                                                     </div>
-//                                                     <p className="text-xl font-medium">{data.subdivisions}</p>
-//                                                 </div>
-//                                             </div>
-
-
-//                                         </div>
-//                                     </CardContent>
-//                                 </Card>
-
-//                             </CardContent>
-//                         </Card>
-//                         <div className="grid gap-4 md:grid-rows-3 lg:grid-rows-3">
-//                             <Card>
-//                                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//                                     <CardTitle className="text-2xl font-bold">
-//                                         Work Package
-//                                     </CardTitle>
-//                                     <HardHat className="h-4 w-4 text-muted-foreground" />
-//                                 </CardHeader>
-//                                 <CardContent>
-//                                     {JSON.parse(data.project_work_milestones).work_packages.map((wp: WPN) => (
-//                                         <Badge variant="outline">{wp.work_package_name}</Badge>
-//                                     )) || ""}
-//                                 </CardContent>
-//                             </Card>
-//                             <Card>
-//                                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//                                     <CardTitle className="text-2xl font-bold">
-//                                         Status
-//                                     </CardTitle>
-//                                     <HardHat className="h-4 w-4 text-muted-foreground" />
-//                                 </CardHeader>
-//                                 <CardContent>
-//                                     <div className="text-sm font-medium">
-//                                         <p>PLACEHOLDER</p>
-//                                     </div>
-//                                     <p className="text-xs text-muted-foreground">METRIC</p>
-//                                 </CardContent>
-//                             </Card>
-//                             <Card>
-//                                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//                                     <CardTitle className="text-2xl font-bold">
-//                                         Health Score
-//                                     </CardTitle>
-//                                     <HardHat className="h-4 w-4 text-muted-foreground" />
-//                                 </CardHeader>
-//                                 <CardContent>
-//                                     <div className="text-sm font-medium">
-//                                         <p>PLACEHOLDER</p>
-//                                     </div>
-//                                     <p className="text-xs text-muted-foreground">METRIC</p>
-//                                 </CardContent>
-//                             </Card>
-//                         </div>
-//                     </div>
-//                 </>
-//             ) : <div>No data</div>
-//             }
-//             <div className="hidden">
-//                 <div ref={componentRef} className="px-4 pb-1">
-//                     <div className="overflow-x-auto">
-//                         <table className="w-full my-4">
-//                             <thead className="w-full">
-//                                 <tr>
-//                                     <th colSpan="6" className="p-0">
-//                                         <div className="mt-1 flex justify-between">
-//                                             <div>
-//                                                 <img className="w-44" src={redlogo} alt="Nirmaan" />
-//                                                 <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th colSpan="6" className="p-0">
-//                                         <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
-//                                             <div className="flex justify-between">
-//                                                 <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
-//                                                 <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th colSpan="6" className="p-0">
-//                                         <div className="grid grid-cols-6 gap-4 justify-between border border-gray-100 rounded-lg px-3 py-1 mb-1">
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Name and address</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_name}</p>
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Date : {formattedDate}</p>
-//                                             </div>
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_start_date} to {data?.project_end_date}</p>
-//                                             </div>
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th scope="col" className="px-6 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Work Package</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Scope of Work</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Milestone</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Start Date</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">End Date</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Status - Common Area</th>
-//                                 </tr>
-//                             </thead>
-//                             <tbody className="bg-white divide-y divide-gray-200">
-//                                 {mile_data?.map((item) => {
-//                                     return <tr className="">
-//                                         <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
-//                                             {item.scope_of_work}
-//                                         </td>
-//                                         <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.start_date}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.end_date}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">Pending</td>
-//                                     </tr>
-//                                 })}
-//                             </tbody>
-//                         </table>
-//                     </div>
-//                 </div>
-//                 <div ref={componentRef2} className="px-4 pb-1">
-//                     <div className="overflow-x-auto">
-//                         <table className="w-full">
-//                             <thead className="w-full">
-//                                 <tr>
-//                                     <th colSpan="5" className="p-0">
-//                                         <div className="mt-1 flex justify-between">
-//                                             <div>
-//                                                 <img className="w-44" src={redlogo} alt="Nirmaan" />
-//                                                 <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th colSpan="5" className="p-0">
-//                                         <div className="py-1 border-b-2 border-gray-600 pb-2 mb-1">
-//                                             <div className="flex justify-between">
-//                                                 <div className="text-xs text-gray-500 font-normal">Obeya Verve, 5th Main, Sector 6, HSR Layout, Bangalore, India - 560102</div>
-//                                                 <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th colSpan="5" className="p-0">
-//                                         <div className="grid grid-cols-6 gap-4 justify-between border border-gray-100 rounded-lg px-3 py-1 mb-1">
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Name and address</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_name}</p>
-//                                             </div>
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Start Date & End Date</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{data?.project_start_date} to {data?.project_end_date}</p>
-//                                             </div>
-//                                             <div className="border-0 flex flex-col col-span-2">
-//                                                 <p className="text-left py-1 font-medium text-xs text-gray-500">Work Package</p>
-//                                                 <p className="text-left font-bold font-semibold text-sm text-black">{JSON.parse(data?.project_work_milestones!).work_packages.map((item) => item.work_package_name).join(", ")}</p>
-//                                             </div>
-//                                         </div>
-//                                     </th>
-//                                 </tr>
-//                                 <tr>
-//                                     <th scope="col" className="px-6 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Work Package</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Scope of Work</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Milestone</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">Start Date</th>
-//                                     <th scope="col" className="px-2 py-1 text-left text-[0.7rem] font-bold text-gray-800 tracking-wider border border-gray-100 bg-slate-50">End Date</th>
-//                                 </tr>
-//                             </thead>
-//                             <tbody className="bg-white divide-y divide-gray-200">
-//                                 {mile_data?.map((item) => {
-//                                     return <tr className="">
-//                                         <td className="px-6 py-2 text-sm whitespace-normal border border-gray-100">{item.work_package}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">
-//                                             {item.scope_of_work}
-//                                         </td>
-//                                         <td className="px-2 py-2 text-sm whitespace-normal border border-gray-100">{item.milestone}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.start_date}</td>
-//                                         <td className="px-2 py-2 text-sm whitespace-nowrap border border-gray-100">{item.end_date}</td>
-//                                     </tr>
-//                                 })}
-//                             </tbody>
-//                         </table>
-//                     </div>
-//                 </div>
-//             </div>
-//             <div className="pl-0 pr-2">
-//                 {mile_isloading ? (
-//                     <TableSkeleton />
-//                 ) : (
-//                     <DataTable columns={columns} data={mile_data || []} />
-//                 )}
-//             </div>
-//         </div >
-//     )
-// }
-
-
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import { Pie, PieChart, Label, BarChart, CartesianGrid, XAxis, YAxis, Legend, Bar, Tooltip } from "recharts";
 
 const Project = () => {
 
@@ -496,12 +54,11 @@ const Project = () => {
   const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
 
   const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall('nirmaan_stack.api.procurement_orders.generate_po_summary', { project_id: projectId })
-  console.log("Resposne from get call", po_item_data)
 
   return (
     <div>
       {(isLoading || projectCustomerLoading || po_item_loading) && <Skeleton className="w-[30%] h-10" />}
-      {data && <ProjectView projectId={projectId} data={data} projectCustomer={projectCustomer} po_item_data={po_item_data} />}
+      {data && <ProjectView projectId={projectId} data={data} projectCustomer={projectCustomer} po_item_data={po_item_data?.message?.po_items} />}
     </div>
   )
 }
@@ -521,8 +78,25 @@ interface ProjectViewProps {
 
 export const Component = Project
 
-const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => {
+const chartConfig = {
+  visitors: {
+    label: "Visitors",
+  },
+  category1: {
+    label: "Category 1",
+    color: "hsl(var(--chart-1))",
+  },
+  category2: {
+    label: "Category 2",
+    color: "hsl(var(--chart-2))",
+  },
+  category3: {
+    label: "Category 3",
+    color: "hsl(var(--chart-3))",
+  },
+} satisfies ChartConfig;
 
+const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: ProjectViewProps) => {
 
   const [selectedUser, setSelectedUser] = useState(null)
   const [userOptions, setUserOptions] = useState([])
@@ -539,6 +113,10 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       revalidateIfStale: false
     }
   )
+
+  const [selectedPackage, setSelectedPackage] = useState("");
+
+  // console.log("po_item data", po_item_data)
 
   const { data: projectAssignees, isLoading: projectAssigneesLoading, mutate: projectAssigneesMutate } = useFrappeGetDocList("Nirmaan User Permissions", {
     fields: ["*"],
@@ -573,14 +151,6 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     }
   }
 
-  const { data: sent_back_data, isLoading: sent_back_loading } = useFrappeGetDocList("Sent Back Category", {
-    fields: ["*"],
-    filters: [["project", "=", projectId]],
-    limit: 1000
-  },
-    `Sent Back Category ${projectId}`
-  )
-
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
     fields: ["*"],
     filters: [["project", "=", projectId], ["status", "in", ["PO Sent", "Dispatched", "Delivered", "Partially Delivered"]]],
@@ -606,12 +176,16 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     }
   }, [usersList, projectAssignees])
 
+  console.log("poData", po_data)
+
   const totalPosRaised = () => {
     if (po_data && po_data.length > 0) {
       const total = po_data.reduce((acc, po) => {
         if (po.order_list && po.order_list.list && po.order_list.list.length > 0) {
           const poTotal = po.order_list.list.reduce((itemAcc, item) => {
-            return itemAcc + (item.quote * item.quantity);
+            const baseAmount = item.quote * item.quantity
+            const taxAmount = baseAmount * (item.tax / 100)
+            return itemAcc + (baseAmount + taxAmount);
           }, 0);
           return acc + poTotal;
         }
@@ -621,7 +195,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       return total;
     }
 
-    return 0; // Return 0 if po_data is not available or empty
+    return 0;
   };
 
   // Grouping functionality
@@ -812,16 +386,6 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     return total || "N/A";
   }
 
-  const checkPrToSB = (prId) => {
-    if (sent_back_data) {
-      const sentBacks = sent_back_data.filter((sb) => sb.procurement_request === prId)
-      if (sentBacks.every((sb) => sb.workflow_state === "Pending")) return "New PR"
-      else if (sentBacks.some((sb) => ["Approved", "Partially Approved"].includes(sb.workflow_state))) return "Approved PO"
-      else if (sentBacks.every((sb) => sb.workflow_state === "Vendor Selected")) return "Open PR"
-      else return "Rejected"
-    }
-  }
-
   const getItemStatus = (item: any, filteredPOs: any[]) => {
     return filteredPOs.some(po =>
       po.order_list?.list.some(poItem => poItem.name === item.name)
@@ -842,7 +406,6 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
 
     return allItemsApproved ? "Approved PO" : "Open PR";
   };
-
 
   const statusOptions = [
     { label: "New PR", value: "New PR" },
@@ -944,7 +507,6 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     }
   ]
 
-
   const [current, setCurrent] = useState('overview')
 
   const onClick: MenuProps['onClick'] = (e) => {
@@ -983,10 +545,6 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${formatDate(new Date())}`
   });
 
-  console.log("options", userOptions)
-
-  console.log("selectedUser", selectedUser)
-
   const handleAssignUserSubmit = async () => {
     try {
       await createDoc('User Permission', {
@@ -1015,13 +573,105 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
     }
   }
 
+  const groupItemsByWorkPackageAndCategory = (items) => {
+    return items?.reduce((acc, item) => {
+        const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
+        const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
+        const amountWithTax = baseAmount + taxAmount;
+
+        if (!acc[item.work_package]) {
+            acc[item.work_package] = {};
+        }
+
+        if (!acc[item.work_package][item.category]) {
+            acc[item.work_package][item.category] = [];
+        }
+
+        const existingItem = acc[item.work_package][item.category].find(
+            (i) => i.item_id === item.item_id
+        );
+
+        if (existingItem) {
+            existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
+            existingItem.amount += amountWithTax;
+        } else {
+            acc[item.work_package][item.category].push({
+                ...item,
+                amount: amountWithTax
+            });
+        }
+
+        return acc;
+    }, {});
+};
+
+// Usage
+const categorizedData = groupItemsByWorkPackageAndCategory(po_item_data);
+
+// const categoryTotals = po_item_data?.reduce((acc, item) => {
+//   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
+
+//   const itemTotal = parseFloat(item.quantity) * parseFloat(item.quote);
+//   const itemTotalWithGst = itemTotal * (1 + parseFloat(item.tax) / 100);
+
+//   category.withoutGst += itemTotal;
+//   category.withGst += itemTotalWithGst;
+
+//   acc[item.category] = category;
+//   return acc;
+// }, {});
+
+
+// const overallTotal = Object.values(categoryTotals || [])?.reduce(
+//   (acc, totals) => ({
+//     withoutGst: acc.withoutGst + totals.withoutGst,
+//     withGst: acc.withGst + totals.withGst,
+//   }),
+//   { withoutGst: 0, withGst: 0 }
+// );
+
+
+// const pieChartData = Object.keys(categoryTotals || []).map((category) => ({
+//   name: category,
+//   value: categoryTotals[category].withGst,
+//   fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
+// }));
+
+// const getChartData = (po_item_data) => {
+//   const aggregatedData = {};
+
+//   po_item_data?.forEach((item) => {
+//     const date = formatDate(item.creation.split(" ")[0]); // Extract date only
+//     const baseTotal = parseFloat(item.quote) * parseFloat(item.quantity);
+//     const totalWithGST = baseTotal * (1 + parseFloat(item.tax) / 100);
+
+//     if (!aggregatedData[date]) {
+//       aggregatedData[date] = { withGST: 0, withoutGST: 0 };
+//     }
+//     aggregatedData[date].withoutGST += baseTotal;
+//     aggregatedData[date].withGST += totalWithGST;
+//   });
+
+//   return Object.keys(aggregatedData || []).map((date) => ({
+//     date,
+//     withoutGST: aggregatedData[date].withoutGST,
+//     withGST: aggregatedData[date].withGST,
+//   }));
+// };
+
+// const chartData = getChartData(po_item_data); // Now ready for use in Recharts
+
+const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
+
   return (
-    <div className="flex-1 md:space-y-4">
+    <div className="flex-1 space-y-4">
       <div className="flex items-center">
-        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate(-1)} />
+        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
       </div>
+      <div className="flex justify-between items-center">
+      <div className="w-full">
       <ConfigProvider
         theme={{
           components: {
@@ -1035,11 +685,21 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       >
         <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
       </ConfigProvider>
+      </div>
+
+      {/* {totalPosRaised && ( */}
+            <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
+                <span className=" whitespace-nowrap">Total PO's raised</span>
+                <span>: </span>
+                <span className="max-sm:text-end max-sm:w-full text-primary">{formatToIndianRupee(totalPosRaised())}</span>
+             </div>
+            {/* )} */}
+      </div>
 
       {/* Overview Section */}
 
       {(usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" && (
-        <div className="flex flex-col gap-4 max-md:pt-4">
+        <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
               <CardTitle>
@@ -1209,7 +869,7 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       )}
 
       {current === "projectTracking" && (
-        <div className="pr-2 py-4">
+        <div className="pr-2">
           <div className="grid grid-cols-3 gap-2 max-sm:grid-cols-2">
             <Button variant="outline" className=" cursor-pointer flex items-center gap-1"
               onClick={() => handlePrint()}
@@ -1241,13 +901,35 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
       {
         current === "procurementSummary" && (
           prData_loading ? (<TableSkeleton />) :
-            <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} totalPOsRaised={formatToIndianRupee(totalPosRaised())} />
+            <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} />
         )
       }
 
       {current === "POSummary" && (
-        <div>Pending...</div>
-      )}
+        <>
+        <div className="w-full">
+        <Select
+          value={selectedPackage}
+          onValueChange={(value) => setSelectedPackage(value)}
+        >
+          <SelectTrigger id="work-package-dropdown" className="w-full">
+            <SelectValue placeholder="Choose a work package" />
+          </SelectTrigger>
+          
+          <SelectContent>
+            {workPackages.map((packageItem, index) => (
+              <SelectItem key={index} value={packageItem.work_package_name}>
+                {packageItem.work_package_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+        {selectedPackage ? (
+          <CategoryAccordion categorizedData={categorizedData} selectedPackage={selectedPackage}  />
+        ) : <div className="h-[40vh] flex items-center justify-center"> Please select a Work Package</div>}
+        </>
+)}
 
       <div className="hidden">
         <div ref={componentRef} className="px-4 pb-1">
@@ -1540,6 +1222,66 @@ const ProjectView = ({ projectId, data, projectCustomer }: ProjectViewProps) => 
 
     </div>
   )
-
 }
+
+
+const CategoryAccordion = ({ categorizedData, selectedPackage }) => {
+
+  const selectedData = categorizedData[selectedPackage] || null;
+
+  return (
+    <div className="w-full">
+      {selectedData ? (
+        <div className="flex flex-col gap-4">
+          <Accordion type="multiple" className="space-y-4">
+            {Object.entries(selectedData).map(([category, items]) => {
+              const totalAmount = items.reduce((sum, item) => 
+                sum + parseFloat(item.quote) * parseFloat(item.quantity) * (1 + parseFloat(item.tax) / 100), 
+                0
+              );
+              return (
+                <AccordionItem key={category} value={category} className="border-b rounded-lg shadow">
+                  <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
+                    <div className="flex space-x-4 text-sm text-gray-600">
+                      <span className="font-semibold">{category}:</span>
+                      <span>Total Amount: ₹{totalAmount.toLocaleString()}</span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <Table className="min-w-full text-left text-sm">
+                      <TableHeader>
+                        <TableRow className="bg-gray-100 text-gray-700">
+                          <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Qty</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {items?.map((item) => (
+                            <TableRow key={item.item_id}>
+                              <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
+                              <TableCell className="px-4 py-2">{item.item_name}</TableCell>
+                              <TableCell className="px-4 py-2">{item.quantity}</TableCell>
+                              <TableCell className="px-4 py-2">{item.unit}</TableCell>
+                              <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
+                            </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
+        </div>
+      ) : (
+        <div className="h-[60vh] flex items-center justify-center">No Results.</div>
+      )}
+    </div>
+  );
+};
+
+
 

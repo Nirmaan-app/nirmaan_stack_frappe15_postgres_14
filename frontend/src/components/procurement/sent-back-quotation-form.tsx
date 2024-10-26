@@ -36,7 +36,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
     }
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'quote', 'item', 'category', 'vendor', 'procurement_task'],
+            fields: ['name', 'lead_time', 'quote', 'item', 'category', 'vendor', 'procurement_task', 'quantity'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
             limit: 2000
         });
@@ -105,11 +105,11 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         const item_unit = item_list?.find(value => value.name === item).unit_name;
         return item_unit
     }
-    const getQuantity = (item: string) => {
-        const procurement_list = procurement_request_list?.find(value => value.name === pr_id).procurement_list;
-        const quantity = procurement_list?.list.find(value => value.name === item).quantity
-        return quantity
-    }
+    // const getQuantity = (item: string) => {
+    //     const procurement_list = procurement_request_list?.find(value => value.name === pr_id).procurement_list;
+    //     const quantity = procurement_list?.list.find(value => value.name === item).quantity
+    //     return quantity
+    // }
 
     const getComment = (item) => {
         const procurement_list = procurement_request_list?.find(value => value.name === pr_id)?.procurement_list.list
@@ -318,7 +318,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
                   </div>
                   <div className="w-[70%] max-md:w-full flex gap-2">
                     <Input value={getUnit(q.item)} disabled />
-                    <Input className="w-[24%]" value={getQuantity(q.item)} disabled />
+                    <Input className="w-[24%]" value={q?.quantity} disabled />
                     <Input type="number" placeholder="Enter Price" defaultValue={q.quote} onChange={(e) => handlePriceChange(q.item, Number(e.target.value))} />
                   </div>
                 </div>
@@ -327,7 +327,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
           </CardContent>
         </Card>
       ))}
-<div className="flex justify-end">
+    <div className="flex justify-end">
         {(upload_loading || create_loading || update_loading) ? (
           <TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" />
         ) : (

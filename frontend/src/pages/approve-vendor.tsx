@@ -17,6 +17,7 @@ import { formatDate } from '@/utils/FormatDate';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
+import { TailSpin } from 'react-loader-spinner';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -155,7 +156,7 @@ const ApproveVendor = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (pr_loading || project_loading || owner_loading) return <h1>Loading...</h1>
+    if (pr_loading || project_loading || owner_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
     if (pr_error || project_error || owner_error) return <h1>Error</h1>
 
     if(!["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state) && !pr?.procurement_list?.list?.some((i) => i?.status === "Pending")) return (

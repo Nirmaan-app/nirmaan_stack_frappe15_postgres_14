@@ -21,6 +21,7 @@ import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/Nir
 import TextArea from "antd/es/input/TextArea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useUserData } from "@/hooks/useUserData";
+import { TailSpin } from "react-loader-spinner";
 
 const ApproveAmendPO = () => {
 
@@ -61,7 +62,7 @@ const ApproveAmendPO = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (po_loading || project_loading || owner_loading || versionsLoading) return <h1>Loading...</h1>
+    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
     if (po_error || project_error || owner_error || versionsError) return <h1>Error</h1>
     if(po_data?.status !== "PO Amendment") return (
         <div className="flex items-center justify-center h-full">

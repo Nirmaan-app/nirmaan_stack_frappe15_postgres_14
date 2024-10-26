@@ -28,6 +28,7 @@ import { RadioGroup, RadioGroupItem } from '../ui/radiogroup';
 import { Button as ShadButton } from "@/components/ui/button";
 import { Separator } from '../ui/separator';
 import { ProcurementOrders as ProcurementOrdersType } from '@/types/NirmaanStack/ProcurementOrders';
+import { TailSpin } from 'react-loader-spinner';
 
 const { Sider, Content } = Layout;
 
@@ -547,7 +548,7 @@ export const ReleasePONew = ({not}) => {
     // console.log("orderData", orderData?.order_list?.list)
     // console.log("mergedItems", mergedItems)
 
-    if (procurement_order_list_loading || address_list_loading) return <div>Loading</div>
+    if (procurement_order_list_loading || address_list_loading || usersListLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
     if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
     if(!not && orderData?.status !== "PO Approved") return (
         <div className="flex items-center justify-center h-full">

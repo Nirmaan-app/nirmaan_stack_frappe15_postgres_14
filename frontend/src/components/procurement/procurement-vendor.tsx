@@ -28,6 +28,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card"
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { TailSpin } from "react-loader-spinner";
 
 export const ProcurementOrder = () => {
 
@@ -356,7 +357,9 @@ export const ProcurementOrder = () => {
         }
     };
 
-    console.log("orderdata", orderData)
+    // console.log("orderdata", orderData)
+
+    if(vendor_category_list_loading || vendor_list_loading || procurement_request_list_loading || category_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
 
     if (orderData?.workflow_state !== "Approved") {
         return (

@@ -22,6 +22,7 @@ import formatToIndianRupee from '@/utils/FormatPrice';
 import TextArea from 'antd/es/input/TextArea';
 import { useUserData } from '@/hooks/useUserData';
 import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
+import { TailSpin } from 'react-loader-spinner';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -644,6 +645,8 @@ export const SelectVendors = () => {
 
     //     return percentDiff.toFixed(2);
     // }
+
+    if(procurement_request_list_loading || quotation_request_list_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
 
     return (
         <>

@@ -46,7 +46,7 @@ export const PRList = () => {
     const getTotal = (order_id: string) => {
         let total: number = 0;
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
-        console.log("orderData", orderData)
+        // console.log("orderData", orderData)
         orderData?.list.map((item) => {
             const quotesForItem = quote_data
                 ?.filter(value => value.item_id === item.name && value.quote != null)

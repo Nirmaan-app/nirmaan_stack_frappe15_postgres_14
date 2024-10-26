@@ -1,12 +1,36 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Pie, PieChart } from "recharts";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import {
+  ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import { useFrappeGetDoc } from "frappe-react-sdk";
+import formatToIndianRupee from "@/utils/FormatPrice";
 import { Badge } from "./ui/badge";
 import { ArrowLeft } from "lucide-react";
 import { Label } from "./ui/label";
-import { PieChart, Pie, Tooltip, Label as RechartLabel } from "recharts";
-import { useFrappeGetDoc } from "frappe-react-sdk";
-import formatToIndianRupee from "@/utils/FormatPrice";
+
+const chartConfig = {
+  visitors: {
+    label: "Visitors",
+  },
+  category1: {
+    label: "Category 1",
+    color: "hsl(var(--chart-1))",
+  },
+  category2: {
+    label: "Category 2",
+    color: "hsl(var(--chart-2))",
+  },
+  category3: {
+    label: "Category 3",
+    color: "hsl(var(--chart-3))",
+  },
+} satisfies ChartConfig;
 
 export const POSummary = () => {
     const { id } = useParams();
@@ -19,51 +43,53 @@ export const POSummary = () => {
 };
 
 interface PODataType {
-    name: string;
-    creation: string;
-    modified: string;
-    project_name: string;
-    project_address: string;
-    vendor_name: string;
-    vendor_address: string;
-    vendor_gst: string;
-    status: string;
-    order_list: string;
+  name: string;
+  creation: string;
+  modified: string;
+  project_name: string;
+  project_address: string;
+  vendor_name: string;
+  vendor_address: string;
+  vendor_gst: string;
+  status: string;
+  order_list: string;
 }
 
 const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
-    const itemsOrderList = JSON.parse(po_data?.order_list)?.list;
-    const { data: vendorAddress } = useFrappeGetDoc("Address", po_data?.vendor_address);
-    const navigate = useNavigate();
 
-    const categoryTotals = itemsOrderList.reduce((acc, item) => {
-        const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
-        const itemTotal = item.quantity * item.quote;
-        const itemTotalWithGst = itemTotal * (1 + item.tax / 100);
+  const itemsOrderList = JSON.parse(po_data?.order_list)?.list;
+  const navigate = useNavigate();
 
-        category.withoutGst += itemTotal;
-        category.withGst += itemTotalWithGst;
+  const { data: vendorAddress } = useFrappeGetDoc("Address", po_data?.vendor_address);
 
-        acc[item.category] = category;
-        return acc;
-    }, {});
+  const categoryTotals = itemsOrderList.reduce((acc, item) => {
+    const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
+    const itemTotal = item.quantity * item.quote;
+    const itemTotalWithGst = itemTotal * (1 + item.tax / 100);
+    category.withoutGst += itemTotal;
+    category.withGst += itemTotalWithGst;
+    acc[item.category] = category;
+    return acc;
+  }, {});
 
-    const overallTotal = Object.values(categoryTotals).reduce(
-        (acc, totals) => ({
-            withoutGst: acc.withoutGst + totals.withoutGst,
-            withGst: acc.withGst + totals.withGst,
-        }),
-        { withoutGst: 0, withGst: 0 }
-    );
+  const overallTotal = Object.values(categoryTotals).reduce(
+    (acc, totals) => ({
+      withoutGst: acc.withoutGst + totals.withoutGst,
+      withGst: acc.withGst + totals.withGst,
+    }),
+    { withoutGst: 0, withGst: 0 }
+  );
 
-    const pieChartData = Object.keys(categoryTotals).map(category => ({
-        name: category,
-        value: categoryTotals[category].withGst,
-        fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
-    }));
+  const pieChartData = Object.keys(categoryTotals).map((category) => ({
+    name: category,
+    value: categoryTotals[category].withGst,
+    fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
+  }));
 
-    return (
-        <div className="flex flex-col gap-4">
+  console.log("po_data", itemsOrderList)
+
+  return (
+    <div className="flex flex-col gap-4">
             {/* Header with Back Button */}
             <div className="flex items-center gap-1 flex-wrap">
                 <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
@@ -121,10 +147,9 @@ const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
                                 <TableHeader>
                                     <TableRow className="bg-red-100">
                                         <TableHead className="w-[30%] text-red-700 font-extrabold">{category.category}</TableHead>
-                                        <TableHead className="w-[15%]">UOM</TableHead>
                                         <TableHead className="w-[15%]">Qty</TableHead>
-                                        <TableHead className="w-[15%]">Quote</TableHead>
-                                        <TableHead className="w-[15%]">Tax (%)</TableHead>
+                                        <TableHead className="w-[15%]">UOM</TableHead>
+                                        <TableHead className="w-[15%]">Amount</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -133,10 +158,9 @@ const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
                                         .map((item: any) => (
                                             <TableRow key={item.item}>
                                                 <TableCell>{item.item}</TableCell>
-                                                <TableCell>{item.unit}</TableCell>
                                                 <TableCell>{item.quantity}</TableCell>
-                                                <TableCell>{formatToIndianRupee(item.quote)}</TableCell>
-                                                <TableCell>{item.tax}%</TableCell>
+                                                <TableCell>{item.unit}</TableCell>
+                                                <TableCell>{formatToIndianRupee((item?.quantity * item?.quote) + (item?.quantity * item?.quote * (item?.tax / 100)))}</TableCell>
                                             </TableRow>
                                         ))}
                                 </TableBody>
@@ -145,74 +169,49 @@ const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
                     ))}
                 </CardContent>
             </Card>
-
-            {/* Pie Chart for Category-wise Totals */}
-            <Card className="w-full">
-                <CardHeader>
-                    <CardTitle className="text-xl text-red-600">Category-wise Totals Visualization</CardTitle>
+            {/* <Card className="flex flex-col">
+                <CardHeader className="items-center pb-0">
+                  <CardTitle>Category-Wise Totals Visualization</CardTitle>
+                  <CardDescription>PO-{po_data.name}</CardDescription>
                 </CardHeader>
-                <CardContent className="flex justify-between items-center">
-                    {/* Pie Chart */}
-                    <div className="flex-1 flex justify-center">
-                        <PieChart width={400} height={300}>
-                            <Pie
-                                data={pieChartData}
-                                dataKey="value"
-                                nameKey="name"
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={80}
-                                outerRadius={120}
-                                paddingAngle={5}
-                                isAnimationActive={true}
-                            >
-                                <RechartLabel
-                                    position="center"
-                                    content={({ viewBox }) => (
-                                        viewBox && (
-                                            <text
-                                                x={viewBox.cx}
-                                                y={viewBox.cy}
-                                                textAnchor="middle"
-                                                dominantBaseline="middle"
-                                            >
-                                                <tspan
-                                                    x={viewBox.cx}
-                                                    y={viewBox.cy}
-                                                    className="fill-foreground text-3xl font-bold"
-                                                >
-                                                    {overallTotal.withGst.toLocaleString()}
-                                                </tspan>
-                                                <tspan
-                                                    x={viewBox.cx}
-                                                    y={(viewBox.cy || 0) + 24}
-                                                    className="fill-muted-foreground"
-                                                >
-                                                    Total GST
-                                                </tspan>
-                                            </text>
-                                        )
-                                    )}
-                                />
-                            </Pie>
-                            <Tooltip formatter={(value) => `${formatToIndianRupee(value as number)}`} />
-                        </PieChart>
-                    </div>
-                                
-                    {/* Overall Totals */}
-                    <ul className="flex-1 text-left ml-8 list-disc">
-                        <li className="font-bold text-lg text-gray-700">
-                            Overall Total (without GST): <span className="font-medium">{formatToIndianRupee(overallTotal.withoutGst)}</span>
-                        </li>
-                        <li className="font-bold text-lg text-gray-700">
-                            Overall Total (with GST): <span className="font-medium">{formatToIndianRupee(overallTotal.withGst)}</span>
-                        </li>
-                    </ul>
+                <CardContent className="flex justify-between max-md:flex-col items-center">
+                  <ChartContainer
+                    config={chartConfig}
+                    className="mx-auto w-full min-h-[250px] max-h-[300px] flex-1 flex justify-center"
+                  >
+                    <PieChart>
+                      <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                      <Pie data={pieChartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
+                        <Label
+                          content={({ viewBox }) => {
+                            if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                              return (
+                                <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+                                  <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
+                                    {overallTotal?.withGst?.toLocaleString()}
+                                  </tspan>
+                                  <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
+                                    Total
+                                  </tspan>
+                                </text>
+                              );
+                            }
+                          }}
+                        />
+                      </Pie>
+                    </PieChart>
+                  </ChartContainer>
+                  <ul className="flex-1 text-left list-disc">
+                    <li className="font-bold text-lg text-gray-700">
+                      Overall Total (without GST): <span className="font-medium">{formatToIndianRupee(overallTotal?.withoutGst)}</span>
+                    </li>
+                    <li className="font-bold text-lg text-gray-700">
+                      Overall Total (with GST): <span className="font-medium">{formatToIndianRupee(overallTotal?.withGst)}</span>
+                    </li>
+                  </ul>
                 </CardContent>
-            </Card>
+            </Card> */}
 
-        </div>
-    );
+    </div>
+  );
 };
-
-export default POSummaryPage;

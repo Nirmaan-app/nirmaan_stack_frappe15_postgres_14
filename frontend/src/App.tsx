@@ -165,7 +165,10 @@ const router = createBrowserRouter(
 							lazy={() => import('@/pages/projects/project')}
 						/>
 						<Route path=":projectId/edit" element={<EditProjectForm />} />
-						<Route path=":projectId/:id" lazy={() => import('@/components/pr-summary')} />
+						<Route path=":projectId/:id">
+							<Route index  lazy={() => import('@/components/pr-summary')} />
+							<Route path=":id" element={<POSummary />} />
+						</Route>
 					</Route>
 
 					{/* User Paths */}
