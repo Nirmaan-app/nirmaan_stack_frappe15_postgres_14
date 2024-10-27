@@ -143,12 +143,12 @@ export const SentBackUpdateQuote = () => {
     const location = useLocation()
 
     const handleUpdateQuote = () => {
-        if(location.pathname.includes("cancelled-sb")) {
+        if (location.pathname.includes("cancelled-sb")) {
             navigate(`/cancelled-sb/select-vendor/${id}`);
-        } else if(location.pathname.includes("rejected-sb")) {
+        } else if (location.pathname.includes("rejected-sb")) {
             navigate(`/rejected-sb/select-vendor/${id}`);
         } else {
-            navigate(`/delayed/select-vendor/${id}`);
+            navigate(`/delayed-sb/select-vendor/${id}`);
         }
     }
 
@@ -200,9 +200,9 @@ export const SentBackUpdateQuote = () => {
     }
 
     const getVendorAddr = (name) => {
-        if(vendor_list) {
+        if (vendor_list) {
             const vendor = vendor_list?.find((ven) => ven?.vendor_name === name)
-            return {city : vendor?.vendor_city, state : vendor?.vendor_state}
+            return { city: vendor?.vendor_city, state: vendor?.vendor_state }
         }
     }
     // console.log("orderData", orderData)
@@ -313,8 +313,8 @@ export const SentBackUpdateQuote = () => {
             },
             {
                 id: "vendor_address",
-                header: ({column}) => <DataTableColumnHeader column={column} title="Address" />,
-                cell: ({row}) => {
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Address" />,
+                cell: ({ row }) => {
                     const id = row.getValue("vendor_name")
                     const address = getVendorAddr(id)
                     return (
@@ -335,7 +335,7 @@ export const SentBackUpdateQuote = () => {
 
     const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
 
-    if(quotation_request_list_loading || sent_back_list_loading || category_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+    if (quotation_request_list_loading || sent_back_list_loading || category_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
 
     if (orderData?.workflow_state !== "Pending") {
         return (
@@ -371,127 +371,127 @@ export const SentBackUpdateQuote = () => {
     return (
         <>
             {page == 'summary' &&
-                    <div className="flex-1 space-y-2 md:space-y-4">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center pt-1 pb-4">
-                                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-                                <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
-                            </div>
-                            <Badge variant={orderData?.type === "Rejected" ? "destructive" : orderData?.type === "Delayed" ? "orange" : "gray"}>{orderData?.type}</Badge>
+                <div className="flex-1 space-y-2 md:space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center pt-1 pb-4">
+                            <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
                         </div>
-                        <ProcurementHeaderCard orderData={orderData} sentBack />
-                        <div className="pt-5 text-red-700 font-light text-base underline">{orderData?.type} Items</div>
-                        <div className="overflow-x-auto">
-                            <Table className="min-w-full divide-gray-200">
-                                <TableHeader className="bg-red-100">
-                                    <TableRow>
-                                        <TableHead className="w-[60%]">Items</TableHead>
-                                        <TableHead className="w-[10%]">UOM</TableHead>
-                                        <TableHead className="w-[10%]">Quantity</TableHead>
-                                        {/* <TableHead className="w-[10%]">Rate</TableHead>
+                        <Badge variant={orderData?.type === "Rejected" ? "destructive" : orderData?.type === "Delayed" ? "orange" : "gray"}>{orderData?.type}</Badge>
+                    </div>
+                    <ProcurementHeaderCard orderData={orderData} sentBack />
+                    <div className="pt-5 text-red-700 font-light text-base underline">{orderData?.type} Items</div>
+                    <div className="overflow-x-auto">
+                        <Table className="min-w-full divide-gray-200">
+                            <TableHeader className="bg-red-100">
+                                <TableRow>
+                                    <TableHead className="w-[60%]">Items</TableHead>
+                                    <TableHead className="w-[10%]">UOM</TableHead>
+                                    <TableHead className="w-[10%]">Quantity</TableHead>
+                                    {/* <TableHead className="w-[10%]">Rate</TableHead>
                                         <TableHead className="w-[10%]">Amount</TableHead> */}
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody className="bg-white divide-y divide-gray-200">
-                                    {orderData.item_list?.list.map(item => (
-                                        <TableRow key={item.name}>
-                                            <TableCell>{item.item}</TableCell>
-                                            <TableCell>{item.unit}</TableCell>
-                                            <TableCell>{item.quantity}</TableCell>
-                                            {/* <TableCell>{item.quote}</TableCell>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody className="bg-white divide-y divide-gray-200">
+                                {orderData.item_list?.list.map(item => (
+                                    <TableRow key={item.name}>
+                                        <TableCell>{item.item}</TableCell>
+                                        <TableCell>{item.unit}</TableCell>
+                                        <TableCell>{item.quantity}</TableCell>
+                                        {/* <TableCell>{item.quote}</TableCell>
                                             <TableCell>{item.quote * item.quantity}</TableCell> */}
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </div>
-                        <div className="flex items-center space-y-2 pt-8">
-                            <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Sent Back Comments</h2>
-                        </div>
-                        <div className="border border-gray-200 rounded-lg p-4">
-                            {/* {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")} */}
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                    <div className="flex items-center space-y-2 pt-8">
+                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Sent Back Comments</h2>
+                    </div>
+                    <div className="border border-gray-200 rounded-lg p-4">
+                        {/* {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")} */}
                         {
                             universalComments?.length ? (
                                 <div className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
-                                       <Avatar>
-                                         <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${universalComments[0]?.comment_by}`} />
-                                         <AvatarFallback>{universalComments[0]?.comment_by[0]}</AvatarFallback>
-                                       </Avatar>
-                                       <div className="flex-1">
-                                         <p className="font-medium text-sm text-gray-900">{universalComments[0]?.content}</p>
-                                         <div className="flex justify-between items-center mt-2">
-                                           <p className="text-sm text-gray-500">
-                                             {universalComments[0]?.comment_by === "Administrator" ? "Administrator" : getFullName(universalComments[0]?.comment_by)}
-                                           </p>
-                                           <p className="text-xs text-gray-400">
-                                           {formatDate(universalComments[0]?.creation.split(" ")[0])} {universalComments[0]?.creation.split(" ")[1].substring(0, 5)}
-                                           </p>
-                                         </div>
-                                       </div>
-                                     </div>
+                                    <Avatar>
+                                        <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${universalComments[0]?.comment_by}`} />
+                                        <AvatarFallback>{universalComments[0]?.comment_by[0]}</AvatarFallback>
+                                    </Avatar>
+                                    <div className="flex-1">
+                                        <p className="font-medium text-sm text-gray-900">{universalComments[0]?.content}</p>
+                                        <div className="flex justify-between items-center mt-2">
+                                            <p className="text-sm text-gray-500">
+                                                {universalComments[0]?.comment_by === "Administrator" ? "Administrator" : getFullName(universalComments[0]?.comment_by)}
+                                            </p>
+                                            <p className="text-xs text-gray-400">
+                                                {formatDate(universalComments[0]?.creation.split(" ")[0])} {universalComments[0]?.creation.split(" ")[1].substring(0, 5)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
                             ) : (
                                 <span className="font-semibold text-xs">No Comments Found</span>
                             )
                         }
-                        </div>
-                        <div className="flex flex-col justify-end items-end">
-                            <Button onClick={() => setPage('quotation')} className="flex items-center gap-1">
-                                Next
-                                <ArrowBigRightDash className="max-md:w-4 max-md:h-4" />
-                            </Button>
-                        </div>
-                    </div>}
+                    </div>
+                    <div className="flex flex-col justify-end items-end">
+                        <Button onClick={() => setPage('quotation')} className="flex items-center gap-1">
+                            Next
+                            <ArrowBigRightDash className="max-md:w-4 max-md:h-4" />
+                        </Button>
+                    </div>
+                </div>}
             {
                 page == 'quotation' &&
-                    <div className="flex-1 md:space-y-4">
-                        <div className="flex items-center pt-1  pb-4">
-                            <ArrowLeft className="cursor-pointer" onClick={() => setPage('summary')} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
-                        </div>
-                        <ProcurementHeaderCard orderData={orderData} sentBack />
-                        <div className="flex justify-between">
-                            <div className="p-2 sm:pl-7 font-light underline text-red-700">Selected Vendor List</div>
-                            <div className="p-2 sm:pl-7 font-light underline text-red-700 pr-10 sm:pr-32">Options</div>
-                        </div>
-                        {uniqueVendors.list.map((item) => {
-                            return <div className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
-                                <div className="sm:pl-4 pl-2 py-4 font-semibold">{getVendorName(item)}</div>
-                                <div className="flex space-x-2 max-sm:flex-col items-center justify-center max-sm:gap-2">
-                                    <Sheet>
-                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
-                                        <SheetContent className="overflow-auto">
-                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-                                            <SheetHeader>
-                                                <SheetTitle className="text-center">Print PDF</SheetTitle>
-                                                <SheetDescription>
-                                                    <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []} />
-                                                </SheetDescription>
-                                            </SheetHeader>
-                                            {/* </ScrollArea> */}
-                                        </SheetContent>
-                                    </Sheet>
-                                    <Sheet>
-                                        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price(s)</SheetTrigger>
-                                        <SheetContent className="overflow-auto">
-                                            {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-                                            <SheetHeader className="text-start">
-                                                    <div className="flex items-center gap-1">
-                                                        <SheetTitle className="text-xl">Enter Price(s)</SheetTitle>
-                                                        <PencilLine className="w-5 h-5 text-primary" />
-                                                    </div>
-                                                <SheetDescription className="py-2">
+                <div className="flex-1 md:space-y-4">
+                    <div className="flex items-center pt-1  pb-4">
+                        <ArrowLeft className="cursor-pointer" onClick={() => setPage('summary')} />
+                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
+                    </div>
+                    <ProcurementHeaderCard orderData={orderData} sentBack />
+                    <div className="flex justify-between">
+                        <div className="p-2 sm:pl-7 font-light underline text-red-700">Selected Vendor List</div>
+                        <div className="p-2 sm:pl-7 font-light underline text-red-700 pr-10 sm:pr-32">Options</div>
+                    </div>
+                    {uniqueVendors.list.map((item) => {
+                        return <div className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
+                            <div className="sm:pl-4 pl-2 py-4 font-semibold">{getVendorName(item)}</div>
+                            <div className="flex space-x-2 max-sm:flex-col items-center justify-center max-sm:gap-2">
+                                <Sheet>
+                                    <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg"><div className="flex"><Download className="h-5 w-5 mt-0.5 mr-1" />RFQ PDF</div></SheetTrigger>
+                                    <SheetContent className="overflow-auto">
+                                        {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
+                                        <SheetHeader>
+                                            <SheetTitle className="text-center">Print PDF</SheetTitle>
+                                            <SheetDescription>
+                                                <PrintRFQ vendor_id={item} pr_id={orderData?.procurement_request} itemList={orderData?.item_list || []} />
+                                            </SheetDescription>
+                                        </SheetHeader>
+                                        {/* </ScrollArea> */}
+                                    </SheetContent>
+                                </Sheet>
+                                <Sheet>
+                                    <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">Enter Price(s)</SheetTrigger>
+                                    <SheetContent className="overflow-auto">
+                                        {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
+                                        <SheetHeader className="text-start">
+                                            <div className="flex items-center gap-1">
+                                                <SheetTitle className="text-xl">Enter Price(s)</SheetTitle>
+                                                <PencilLine className="w-5 h-5 text-primary" />
+                                            </div>
+                                            <SheetDescription className="py-2">
                                                 {/* <Card className="p-5"> */}
-                                                    <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
+                                                <SentBackQuotationForm vendor_id={item} pr_id={orderData.procurement_request} sb_id={id} />
                                                 {/* </Card> */}
-                                                </SheetDescription>
-                                            </SheetHeader>
-                                            {/* </ScrollArea> */}
-                                        </SheetContent>
-                                    </Sheet>
-                                </div>
+                                            </SheetDescription>
+                                        </SheetHeader>
+                                        {/* </ScrollArea> */}
+                                    </SheetContent>
+                                </Sheet>
                             </div>
-                        })}
-                        <div className="flex items-center justify-between mt-6">
+                        </div>
+                    })}
+                    <div className="flex items-center justify-between mt-6">
                         <Sheet>
                             <SheetTrigger className="text-blue-500"><div className="flex items-center gap-1 ml-4"><CirclePlus className="w-4 h-4" />Add New Vendor</div></SheetTrigger>
                             <SheetContent className="overflow-auto">
@@ -509,36 +509,36 @@ export const SentBackUpdateQuote = () => {
                                 </SheetHeader>
                             </SheetContent>
                         </Sheet>
-                            <Button className="flex items-center gap-1" onClick={handleUpdateQuote}>
-                                <ListChecks className="h-4 w-4" />
-                                Update Quote
-                            </Button>
-                        </div>
-                        <Accordion type="multiple" >
-                            <AccordionItem value="Vendors">
-                                <AccordionTrigger>
-                                    <Button variant="ghost" size="lg" className="md:mb-2 text-base md:text-lg px-2  w-full justify-start">
-                                        <span className=" text-base mb-0.5 md:text-lg font-slim">Add Existing Vendors</span>
-                                    </Button>
-                                </AccordionTrigger>
-                                <AccordionContent>
-                                        <Card className="max-md:p-0">
-                                            <CardHeader className="max-md:p-0">
-                                            <div className="pl-6 flex gap-1 items-center pt-10 max-md:pt-6 flex-wrap">
-                                                <span className="font-light max-md:text-sm">Sent Back Categories: </span>
-                                                {orderData?.category_list?.list.map((cat) => (
-                                                    <Badge>{cat.name}</Badge>
-                                                ))}
-                                            </div>
-                                                <CardContent>
-                                                    <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
-                                                </CardContent>
-                                            </CardHeader>
-                                        </Card>
-                                </AccordionContent>
-                            </AccordionItem>
-                        </Accordion>
+                        <Button className="flex items-center gap-1" onClick={handleUpdateQuote}>
+                            <ListChecks className="h-4 w-4" />
+                            Update Quote
+                        </Button>
                     </div>
+                    <Accordion type="multiple" >
+                        <AccordionItem value="Vendors">
+                            <AccordionTrigger>
+                                <Button variant="ghost" size="lg" className="md:mb-2 text-base md:text-lg px-2  w-full justify-start">
+                                    <span className=" text-base mb-0.5 md:text-lg font-slim">Add Existing Vendors</span>
+                                </Button>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                                <Card className="max-md:p-0">
+                                    <CardHeader className="max-md:p-0">
+                                        <div className="pl-6 flex gap-1 items-center pt-10 max-md:pt-6 flex-wrap">
+                                            <span className="font-light max-md:text-sm">Sent Back Categories: </span>
+                                            {orderData?.category_list?.list.map((cat) => (
+                                                <Badge>{cat.name}</Badge>
+                                            ))}
+                                        </div>
+                                        <CardContent>
+                                            <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
+                                        </CardContent>
+                                    </CardHeader>
+                                </Card>
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
+                </div>
             }
         </>
     )
