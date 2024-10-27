@@ -9,7 +9,7 @@ class CustomerGSTExistError(frappe.ValidationError):
 	pass
 
 class Customers(Document):
-	def validate(self):
+	def before_insert(self):
 		customer_gsts = frappe.db.get_list("Customers")
 		for customer_gst in customer_gsts:
 			customer = frappe.get_doc("Customers", customer_gst)

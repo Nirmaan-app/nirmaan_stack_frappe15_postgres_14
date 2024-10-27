@@ -11,7 +11,7 @@ class VendorGSTExistError(frappe.ValidationError):
 
 
 class Vendors(Document):
-	def validate(self):
+	def before_insert(self):
 		vendor_gsts = frappe.db.get_list("Vendors")
 		for vendor_gst in vendor_gsts:
 			vendor = frappe.get_doc("Vendors", vendor_gst)
