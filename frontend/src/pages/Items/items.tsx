@@ -28,7 +28,8 @@ export default function Items() {
     const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList("Items", {
 
         fields: ["name", "item_name", "unit_name", "make_name", "category", "creation"],
-        limit: 10000
+        limit: 10000,
+        orderBy: { field: "creation", order: "desc" }
     })
     const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
 
@@ -273,8 +274,8 @@ export default function Items() {
                             </div>
                         </DialogHeader>
                         <Button onClick={() => handleAddItem()} className="flex items-center gap-1">
-                        <ListChecks className="h-4 w-4" />
-                        Submit</Button>
+                            <ListChecks className="h-4 w-4" />
+                            Submit</Button>
                         <DialogClose className="hidden" id="dialogCloseItem">
                             close
                         </DialogClose>
@@ -299,7 +300,7 @@ export default function Items() {
                 </Card>
             </div>
             <div className="pl-0 pr-2">
-                {isLoading || category_loading? (
+                {isLoading || category_loading ? (
                     <TableSkeleton />
                 ) : (
                     <DataTable columns={columns} data={data || []} category_options={categoryOptions} />

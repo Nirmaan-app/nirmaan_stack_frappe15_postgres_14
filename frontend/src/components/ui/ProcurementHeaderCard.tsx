@@ -9,7 +9,7 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false 
   const [userName, setUserName] = useState(null)
 
   const { data: projectData } = useFrappeGetDoc("Projects", projectName, projectName ? `Projects ${projectName}` : null)
-  const { data: userData } = useFrappeGetDoc("Nirmaan Users", userName, (userName || userName !== "Administrator") ? `Nirmaan Users ${userName}` : null)
+  const { data: userData } = useFrappeGetDoc("Nirmaan Users", userName, (userName !== "Administrator") ? `Nirmaan Users ${userName}` : null)
 
   function capitalizeFirstLetter(string) {
     return string?.charAt(0).toUpperCase() + string?.slice(1).toLowerCase();

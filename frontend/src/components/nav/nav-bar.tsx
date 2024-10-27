@@ -10,6 +10,7 @@ import {
     List,
     SendToBack,
     Shapes,
+    ShoppingCart,
 } from "lucide-react";
 import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
@@ -21,7 +22,9 @@ import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
 import ScrollToTop from "@/hooks/ScrollToTop";
 import { getToken } from "firebase/messaging";
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
-import { useNotificationStore } from "@/hooks/useNotificationStore";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { handlePRDeleteEvent, handlePRNewEvent, handlePRVendorSelectedEvent, handleSBVendorSelectedEvent, handlePOAmendedEvent, handlePRApproveNewEvent, handlePONewEvent, handleSBNewEvent } from "@/zustand/eventListeners";
 
 export const NavBar = () => {
     const [collapsed, setCollapsed] = useState(false);
@@ -29,12 +32,15 @@ export const NavBar = () => {
     const [isSmallScreen, setIsSmallScreen] = useState(false);
     const location = useLocation();
     const [role, setRole] = useState(null)
-    const { mutate } = useSWRConfig()
 
     const user_id = Cookies.get('user_id') ?? ''
 
     const { data } = useFrappeGetDoc("Nirmaan Users", user_id, user_id === "Administrator" ? null : undefined)
 
+    const {
+        pendingPRCount, approvePRCount, adminApprovePRCount, adminPendingPRCount, updatePRCounts, updateSBCounts, newSBApproveCount, 
+        adminNewApproveSBCount, amendPOCount, adminAmendPOCount, updatePOCounts, adminApprovedPRCount, approvedPRCount, newPOCount, 
+        adminNewPOCount, adminNewSBCounts, newSBCounts} = useDocCountStore()
     const { notifications, add_new_notification, delete_notification } = useNotificationStore();
     const { db } = useContext(FrappeContext) as FrappeConfig
 
@@ -42,7 +48,7 @@ export const NavBar = () => {
     const { data: notificationsData } = useFrappeGetDocList("Nirmaan Notifications", {
         fields: ["*"],
         filters: [["recipient", "=", user_id]],
-        limit: 1000,
+        limit: 100,
         orderBy: { field: "creation", order: "asc" }
     });
 
@@ -85,7 +91,7 @@ export const NavBar = () => {
 
     const { data: poData, mutate: poDataMutate } = useFrappeGetDocList("Procurement Orders", {
         fields: ["status"],
-        filters: [["status", "=", "PO Amendment"], ["project", "in", permissionsList || []]],
+        filters: [["project", "in", permissionsList || []]],
         limit: 1000
     },
         (user_id === "Administrator" || !permissionsList) ? null : undefined
@@ -93,208 +99,116 @@ export const NavBar = () => {
 
     const { data: adminPOData, mutate: adminPODataMutate } = useFrappeGetDocList("Procurement Orders", {
         fields: ["status"],
-        filters: [["status", "=", "PO Amendment"]],
         limit: 1000
     },
-
         user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
     )
 
-    // console.log("POData", poData, poData?.length)
-
     const { data: prData, mutate: prDataMutate } = useFrappeGetDocList("Procurement Requests", {
         fields: ["workflow_state", "procurement_list"],
-        filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved"]], ["project", "in", permissionsList || []]],
+        filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved", "Approved", "RFQ Generated", "Quote Updated"]], ["project", "in", permissionsList || []]],
         limit: 1000
     },
-        (user_id === "Administrator" || !permissionsList) ? null : undefined
+        (user_id === "Administrator" || !permissionsList) ? null : "prDataMutate"
     )
 
     const { data: adminPrData, mutate: adminPRDataMutate } = useFrappeGetDocList("Procurement Requests", {
         fields: ["workflow_state", "procurement_list"],
-        filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved"]]],
+        filters: [["workflow_state", "in", ["Pending", "Vendor Selected", "Partially Approved", "Approved", "RFQ Generated", "Quote Updated"]]],
         limit: 1000
     },
 
-        user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
+        user_id === "Administrator" || role === "Nirmaan Admin Profile" ? "adminPRDataMutate" : null
     )
 
     const { data: sbData, mutate: sbDataMutate } = useFrappeGetDocList("Sent Back Category", {
-        fields: ["workflow_state", "item_list"],
-        filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]], ["project", "in", permissionsList || []]],
+        fields: ["workflow_state", "item_list", "type"],
+        filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved", "Pending"]], ["project", "in", permissionsList || []]],
         limit: 1000
     },
         (user_id === "Administrator" || !permissionsList) ? null : undefined
     )
 
     const { data: adminSBData, mutate: adminSBDataMutate } = useFrappeGetDocList("Sent Back Category", {
-        fields: ["workflow_state", "item_list"],
-        filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
+        fields: ["workflow_state", "item_list", "type"],
+        filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved", "Pending"]]],
         limit: 1000
     },
 
         user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
     )
 
-    const [pendingPRCount, setPendingPRCount] = useState<number | null>(null)
-    const [approvePRCount, setApprovePRCount] = useState<number | null>(null)
+    useEffect(() => {
+        if ((user_id === "Administrator" || role === "Nirmaan Admin Profile") && adminPOData) {
+            updatePOCounts(adminPOData, true)
+        } else if(poData) {
+            updatePOCounts(poData, false)
+        }
+    }, [poData, adminPOData])
 
     useEffect(() => {
-        if (prData) {
-            const count = prData.filter((pr) => pr?.workflow_state === "Pending")?.length
-            const count1 = prData.filter((pr) => ["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state) && pr?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length
-            setPendingPRCount(count)
-            setApprovePRCount(count1)
+        if ((user_id === "Administrator" || role === "Nirmaan Admin Profile") && adminSBData) {
+            updateSBCounts(adminSBData, true)
+        } else if(sbData) {
+            updateSBCounts(sbData, false)
         }
-    }, [prData])
-    // const {data : prDocCount, mutate: pr_length_mutate} = useFrappeGetDocCount("Procurement Requests", [["workflow_state", "=", "Pending"], ["project", "in", permissionsList || []]], false, false, (user_id === "Administrator" || !permissionsList) ? null : undefined)
+    }, [sbData, adminSBData])
 
-    // Event listener for new notifications (e.g., "pr:new")
+    useEffect(() => {
+        if ((user_id === "Administrator" || role === "Nirmaan Admin Profile") && adminPrData) {
+            updatePRCounts(adminPrData, true)
+        } else if(prData) {
+            updatePRCounts(prData, false)
+        }
+    }, [prData, adminPrData])
+
+
+    //  ***** PR Events *****
     useFrappeEventListener("pr:new", async (event) => {
-        if (event?.notificationId) {
-            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
-
-            if (newNotificationData) {
-                // Add new notification to Zustand store
-                add_new_notification({
-                    name: newNotificationData.name,
-                    creation: newNotificationData.creation,
-                    description: newNotificationData.description,
-                    docname: newNotificationData.docname,
-                    document: newNotificationData.document,
-                    event_id: newNotificationData.event_id,
-                    project: newNotificationData.project,
-                    recipient: newNotificationData.recipient,
-                    recipient_role: newNotificationData.recipient_role,
-                    seen: newNotificationData.seen,
-                    sender: newNotificationData?.sender,
-                    title: newNotificationData.title,
-                    type: newNotificationData.type,
-                    work_package: newNotificationData.work_package,
-                    action_url: newNotificationData?.action_url
-                });
-                if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-                    await adminPRDataMutate()
-                } else {
-                    console.log("running mutate for user")
-                    await prDataMutate()
-                }
-                console.log("Updated notifications state with new data", newNotificationData);
-            }
-        }
+        await handlePRNewEvent(db, event, add_new_notification)
     });
 
     useFrappeEventListener("pr:delete", (event) => {
-        if (event?.notificationId) {
-            delete_notification(event?.notificationId)
-        }
-    })
+        handlePRDeleteEvent(event, delete_notification);
+    });
 
     useFrappeEventListener("pr:vendorSelected", async (event) => {
-        if (event?.notificationId) {
-            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
-            if (newNotificationData) {
-                // Add new notification to Zustand store
-                add_new_notification({
-                    name: newNotificationData.name,
-                    creation: newNotificationData.creation,
-                    description: newNotificationData.description,
-                    docname: newNotificationData.docname,
-                    document: newNotificationData.document,
-                    event_id: newNotificationData.event_id,
-                    project: newNotificationData.project,
-                    recipient: newNotificationData.recipient,
-                    recipient_role: newNotificationData.recipient_role,
-                    seen: newNotificationData.seen,
-                    sender: newNotificationData?.sender,
-                    title: newNotificationData.title,
-                    type: newNotificationData.type,
-                    work_package: newNotificationData.work_package,
-                    action_url: newNotificationData?.action_url
-                });
-                if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-                    await adminPRDataMutate()
-                } else {
-                    await prDataMutate()
-                }
-                console.log("Updated notifications state with new data", newNotificationData);
-            }
-        }
-    })
+        await handlePRVendorSelectedEvent(db, event, add_new_notification);
+    });
 
-    useFrappeEventListener("pr:resolved", async (event) => {
-        if (event?.notificationId) {
-            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
-            if (newNotificationData) {
-                // Add new notification to Zustand store
-                add_new_notification({
-                    name: newNotificationData.name,
-                    creation: newNotificationData.creation,
-                    description: newNotificationData.description,
-                    docname: newNotificationData.docname,
-                    document: newNotificationData.document,
-                    event_id: newNotificationData.event_id,
-                    project: newNotificationData.project,
-                    recipient: newNotificationData.recipient,
-                    recipient_role: newNotificationData.recipient_role,
-                    seen: newNotificationData.seen,
-                    sender: newNotificationData?.sender,
-                    title: newNotificationData.title,
-                    type: newNotificationData.type,
-                    work_package: newNotificationData.work_package,
-                    action_url: newNotificationData?.action_url
-                });
-                if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-                    await adminPRDataMutate()
-                } else {
-                    await prDataMutate()
-                }
-                console.log("Updated notifications state with new data", newNotificationData);
-            }
-        }
-    })
+    useFrappeEventListener("pr:approved", async (event) => {
+        await handlePRApproveNewEvent(db, event, add_new_notification)
+    });
 
-    useFrappeEventListener("sb:vendorSelected", async (event) => {
-        if (event?.notificationId) {
-            const newNotificationData = await db.getDoc("Nirmaan Notifications", event.notificationId)
-            if (newNotificationData) {
-                // Add new notification to Zustand store
-                add_new_notification({
-                    name: newNotificationData.name,
-                    creation: newNotificationData.creation,
-                    description: newNotificationData.description,
-                    docname: newNotificationData.docname,
-                    document: newNotificationData.document,
-                    event_id: newNotificationData.event_id,
-                    project: newNotificationData.project,
-                    recipient: newNotificationData.recipient,
-                    recipient_role: newNotificationData.recipient_role,
-                    seen: newNotificationData.seen,
-                    sender: newNotificationData?.sender,
-                    title: newNotificationData.title,
-                    type: newNotificationData.type,
-                    work_package: newNotificationData.work_package,
-                    action_url: newNotificationData?.action_url
-                });
-                if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-                    await adminSBDataMutate()
-                } else {
-                    await sbDataMutate()
-                }
-                console.log("Updated notifications state with new data", newNotificationData);
-            }
-        }
-    })
+    useFrappeEventListener("pr:rejected", async (event) => {
+        await handlePRNewEvent(db, event, add_new_notification)
+    });
 
     useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
         if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
             await adminPRDataMutate()
-            await mutate("Pending Procurement Requests")
         } else {
             await prDataMutate()
-            await mutate("Pending Procurement Requests")
         }
     })
+
+
+    //  ***** SB Events *****
+    useFrappeEventListener("sb:vendorSelected", async (event) => {
+        await handleSBVendorSelectedEvent(db, event, add_new_notification);
+    });
+
+    useFrappeEventListener("Rejected-sb:new", async (event) => {
+        await handleSBNewEvent(db, event, add_new_notification)
+    });
+
+    useFrappeEventListener("Delayed-sb:new", async (event) => {
+        await handleSBNewEvent(db, event, add_new_notification)
+    });
+
+    useFrappeEventListener("Cancelled-sb:new", async (event) => {
+        await handleSBNewEvent(db, event, add_new_notification)
+    });
 
     useFrappeDocTypeEventListener("Sent Back Category", async (event) => {
         if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
@@ -304,6 +218,20 @@ export const NavBar = () => {
         }
     })
 
+
+    //  ***** PO Events *****
+    useFrappeEventListener("po:amended", async (event) => {
+        await handlePOAmendedEvent(db, event, add_new_notification);
+    });
+
+    useFrappeEventListener("po:new", async (event) => {
+        await handlePONewEvent(db, event, add_new_notification)
+    });
+
+    useFrappeEventListener("po:delete", (event) => {
+        handlePRDeleteEvent(event, delete_notification);
+    });
+
     useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
         if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
             await adminPODataMutate()
@@ -312,15 +240,15 @@ export const NavBar = () => {
         }
     })
 
-    useFrappeEventListener("pr:statusChanged", async (event) => {
-        if (role === "Nirmaan Admin Profile" || user_id === "Administrator") {
-            await adminPRDataMutate()
-        } else {
-            await prDataMutate()
-        }
-    })
+    // useFrappeEventListener("pr:statusChanged", async (event) => { // not working
+    //     await handlePRStatusChangedEvent(role, user_id);
+    // });
+    
+    // useFrappeEventListener("pr:resolved", async (event) => {
+    //     await handlePRResolvedEvent(db, event, role, user_id, add_new_notification, mutate);
+    // });
 
-    console.log("new Notifications", notifications)
+    // console.log("new Notifications", notifications)
 
     const requestNotificationPermission = async () => {
         if (user_id && data) {
@@ -456,14 +384,20 @@ export const NavBar = () => {
                             label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve PR
-                                    {((pendingPRCount && pendingPRCount !== 0) || ((role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminPrData?.filter((item) => item?.workflow_state === "Pending")?.length !== 0)) && (
-                                        // <div className="relative flex items-center justify-center">
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminPendingPRCount && adminPendingPRCount !== 0 ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                            {adminPendingPRCount}
+                                        </span>
+                                    </div>
+                                    ) : (
+                                        (pendingPRCount && pendingPRCount !== 0) ? (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrData?.filter((item) => item?.workflow_state === "Pending")?.length : pendingPRCount}
-                                            </span>
-                                        </div>
-                                        // </div>
+                                            {pendingPRCount}
+                                        </span>
+                                    </div>
+                                        ) : ""
                                     )}
                                 </div>
                             ),
@@ -472,12 +406,20 @@ export const NavBar = () => {
                             key: '/approve-vendor', label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve PO
-                                    {((approvePRCount && approvePRCount !== 0) || ((role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0)) && (
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovePRCount && adminApprovePRCount !== 0 ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                            {adminApprovePRCount}
+                                        </span>
+                                    </div>
+                                    ) : (
+                                        (approvePRCount && approvePRCount !== 0) ? (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPrData?.filter((item) => ["Vendor Selected", "Partially Approved"].includes(item?.workflow_state) && item?.procurement_list?.list?.some((i) => i?.status === "Pending"))?.length : approvePRCount}
-                                            </span>
-                                        </div>
+                                            {approvePRCount}
+                                        </span>
+                                    </div>
+                                        ) : ""
                                     )}
                                 </div>
                             ),
@@ -487,12 +429,20 @@ export const NavBar = () => {
                             key: '/approve-amended-po', label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve Amended PO
-                                    {((poData && poData?.length !== 0) || ((role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminPOData && adminPOData?.length !== 0)) && (
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminAmendPOCount && adminAmendPOCount !== 0 ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                            {adminAmendPOCount}
+                                        </span>
+                                    </div>
+                                    ) : (
+                                        (amendPOCount && amendPOCount !== 0) ? (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPOData?.length : poData?.length}
-                                            </span>
-                                        </div>
+                                            {amendPOCount}
+                                        </span>
+                                    </div>
+                                        ) : ""
                                     )}
                                 </div>
 
@@ -502,12 +452,20 @@ export const NavBar = () => {
                             key: '/approve-sent-back', label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve Sent Back PO
-                                    {(sbData?.filter((sb) => sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0 || ((role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminSBData?.filter((item) => item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length !== 0)) && (
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewApproveSBCount && adminNewApproveSBCount !== 0 ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                            {adminNewApproveSBCount}
+                                        </span>
+                                    </div>
+                                    ) : (
+                                        (newSBApproveCount && newSBApproveCount !== 0) ? (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminSBData?.filter((item) => item?.item_list?.list?.some((i) => i?.status === "Pending"))?.length : sbData?.filter((sb) => sb?.item_list?.list?.some((i) => i?.status === "Pending"))?.length}
-                                            </span>
-                                        </div>
+                                            {newSBApproveCount}
+                                        </span>
+                                    </div>
+                                        ) : ""
                                     )}
                                 </div>
                             ),
@@ -522,20 +480,138 @@ export const NavBar = () => {
                 {
                     key: 'pe-actions',
                     icon: <List className="h-4 w-4" />,
-                    label: 'Procurements',
+                    label: 'Procurement Requests',
                     children: [
-                        { key: '/procure-request', label: 'New PR Request' },
+                        { key: '/procure-request', label: (
+                            <div className="flex justify-between items-center relative">
+                                New PR Request
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminApprovedPRCount}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (approvedPRCount && approvedPRCount !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {approvedPRCount}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+
+                        )},
                         { key: '/update-quote', label: 'Update Quote' },
-                        { key: '/select-vendor-list', label: 'Select Vendor' },
-                        { key: '/release-po', label: 'Approved PO' },
-                        { key: '/released-po', label: 'Released PO' }
+                        { key: '/select-vendor-list', label: 'Choose Vendor' }
                     ],
+                },
+                {
+                    key : 'pe-po-actions',
+                    icon : <ShoppingCart className="h-4 w-4" />,
+                    label: 'Purchase Orders',
+                    children : [
+                        { key: '/release-po', label: (
+                            <div className="flex justify-between items-center relative">
+                                Approved PO
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminNewPOCount}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (newPOCount && newPOCount !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {newPOCount}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+
+                        ),
+                            
+                         },
+                        { key: '/released-po', label: 'Released PO' }
+                    ]
                 }
             ]
             : []),
         ...(role == 'Nirmaan Procurement Executive Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
             ? [
-                { key: '/sent-back-request', label: 'New Sent Back', icon: <SendToBack className="h-4 w-4" /> }
+                { 
+                    key: 'sent-back-actions', 
+                    icon: <SendToBack className="h-4 w-4" />,
+                    label: 'Sent Back Requests', 
+                    children: [
+                        { key: '/rejected-sb', label: (
+                            <div className="flex justify-between items-center relative">
+                                Rejected Sent Back
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.rejected && adminNewSBCounts.rejected !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminNewSBCounts.rejected}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (newSBCounts.rejected && newSBCounts.rejected !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {newSBCounts.rejected}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+
+                        )},
+                        { key: '/delayed-sb', label: (
+                            <div className="flex justify-between items-center relative">
+                                Delayed Sent Back
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.delayed && adminNewSBCounts.delayed !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminNewSBCounts.delayed}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (newSBCounts.delayed && newSBCounts.delayed !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {newSBCounts.delayed}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+
+                        )},
+                        { key: '/cancelled-sb', label: (
+                            <div className="flex justify-between items-center relative">
+                                Cancelled Sent Back
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.cancelled && adminNewSBCounts.cancelled !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminNewSBCounts.cancelled}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (newSBCounts.cancelled && newSBCounts.cancelled !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {newSBCounts.cancelled}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+
+                        )}
+                    ]
+                }
             ] : []
         ),
     ];
@@ -543,16 +619,15 @@ export const NavBar = () => {
     const allKeys = [
         "projects", "users", "items", "vendors", "customers",
         "prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "procure-request", "update-quote",
-        "select-vendor-list", "release-po", "sent-back-request",
-        "released-po", "approve-amended-po"
+        "approve-sent-back", "approve-amended-po", "procure-request", "update-quote",
+        "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
     const openKey = ["prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back"].includes(selectedKeys) ? "pl-actions" : ["procure-request", "update-quote",
-            "select-vendor-list", "release-po"].includes(selectedKeys) ? "pe-actions" : ""
+        "approve-sent-back", "approve-amended-po"].includes(selectedKeys) ? "pl-actions" : ["procure-request", "update-quote",
+            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ""
 
     if (user_id !== "Administrator" && !role) {
         return (<div>loading...</div>)
@@ -587,7 +662,7 @@ export const NavBar = () => {
                         <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70, dropdownWidth: 220 } } }}>
                             <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                 ...item,
-                                label: ["pe-actions", "pl-actions", "admin-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                 children: item.children?.map((child) => ({
                                     ...child,
                                     label: <Link to={child.key}>{child.label}</Link>
@@ -606,7 +681,7 @@ export const NavBar = () => {
                                     <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                         ...item,
                                         onClick: () => setIsMobileSidebarOpen(false),
-                                        label: ["pe-actions", "pl-actions", "admin-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                         children: item.children?.map((child) => ({
                                             ...child,
                                             label: <Link to={child.key}>{child.label}</Link>

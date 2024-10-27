@@ -10,7 +10,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useNotificationStore } from "@/hooks/useNotificationStore";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 
 
 type PRTable = {
@@ -24,11 +24,12 @@ type PRTable = {
 export const ApproveSelectVendor = () => {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: pr_list_mutate } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation'],
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'category_list', 'creation', "modified"],
             filters: [
                 ["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]
             ],
-            limit: 1000
+            limit: 1000,
+            orderBy: {field: "modified", order: "desc"}
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
@@ -36,25 +37,41 @@ export const ApproveSelectVendor = () => {
         limit: 1000
     })
 
-    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+    const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ['item', 'quote', 'procurement_task', 'status', 'creation'],
+            limit: 10000,
+            filters: [["status", "=", "Selected"]],
+            orderBy: {field: "creation", order : "desc"}
+        });
+    
+    let filteredList;
+    if (procurement_request_list) {
+        filteredList = procurement_request_list.filter((item) => item.procurement_list?.list?.some((i) => i.status === "Pending"))
+    }
 
     const getTotal = (order_id: string) => {
         let total: number = 0;
-        const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
-        orderData?.list.map((item) => {
-            const price = item.quote;
-            total += (price ? parseFloat(price) : 0) * item.quantity;
+        const allItems = filteredList?.find(item => item?.name === order_id)?.procurement_list;
+        const orderData = allItems?.list?.filter((item) => item.status === "Pending")
+        orderData?.map((item) => {
+            const quotesForItem = quote_data
+                ?.filter(value => value.item === item.name && value?.procurement_task === order_id && value.quote != null)
+                ?.map(value => value.quote);
+            let minQuote;
+            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+            total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
         })
-        return total ;
+        return total;
     }
+
+    const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
     useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
         await pr_list_mutate()
     })
 
     const {notifications, mark_seen_notification} = useNotificationStore()
-
-    // console.log("procurement request", procurement_request_list)
 
     const {db} = useContext(FrappeContext) as FrappeConfig
     const handleNewPRSeen = (notification) => {
@@ -170,10 +187,11 @@ export const ApproveSelectVendor = () => {
                         <DataTableColumnHeader column={column} title="Estimated Price" />
                     )
                 },
-                cell: (row) => {
+                cell: ({row}) => {
+                    const id = row.getValue("name")
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")))}
+                            {getTotal(id) === 0 ? "N/A" : formatToIndianRupee(getTotal(id))}
                         </div>
                     )
                 }
@@ -182,12 +200,6 @@ export const ApproveSelectVendor = () => {
         ],
         [procurement_request_list, notifications, project_values]
     )
-
-    let filteredList;
-
-    if (procurement_request_list) {
-        filteredList = procurement_request_list.filter((item) => item.procurement_list?.list?.some((i) => i.status === "Pending"))
-    }
 
     const { toast } = useToast()
 

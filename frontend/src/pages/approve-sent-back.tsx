@@ -14,6 +14,7 @@ import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
+import { TailSpin } from 'react-loader-spinner';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -126,7 +127,7 @@ const ApproveSentBack = () => {
         }
     }
 
-    if (sb_loading || project_loading || owner_loading) return <h1>Loading...</h1>
+    if (sb_loading || project_loading || owner_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
     if (sb_error || project_error || owner_error) return <h1>Error</h1>
     if(!["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && !sb?.item_list?.list?.some((i) => i?.status === "Pending")) return (
         <div className="flex items-center justify-center h-full">

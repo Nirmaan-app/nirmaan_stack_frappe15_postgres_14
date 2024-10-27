@@ -8,7 +8,8 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig({
 	plugins: [react(), VitePWA({registerType: 'autoUpdate'})],
 	optimizeDeps: {
-		include: ['@radix-ui/react-radio-group']
+		include: ['@radix-ui/react-radio-group'],
+		exclude: ['chunk-OZV37PLF.js?v=193dfd67']
 	},
 	server: {
 		port: 8080,

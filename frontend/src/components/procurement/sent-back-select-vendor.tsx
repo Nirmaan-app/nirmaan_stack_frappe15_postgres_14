@@ -127,7 +127,8 @@ export const SentBackSelectVendor = () => {
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
             fields: ['name', 'lead_time', 'item', 'vendor', 'category', 'procurement_task', 'quote'],
-            limit: 2000
+            limit: 10000,
+            orderBy: { field: "creation", order: "desc" }
         });
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
@@ -317,7 +318,7 @@ export const SentBackSelectVendor = () => {
                     description: `Sent Back: ${id} sent for Approval!`,
                     variant: "success"
                 })
-                navigate("/")
+                navigate(-2)
             }).catch((error) => {
                 toast({
                     title: "Failed!",
@@ -461,7 +462,7 @@ export const SentBackSelectVendor = () => {
             {page == 'updatequotation' &&
                 <div className="flex-1 space-y-2 md:space-y-4">
                     <div className="flex items-center pt-1 pb-4">
-                        <ArrowLeft onClick={() => navigate(`/sent-back-request/${id}`)} />
+                        <ArrowLeft onClick={() => navigate(-1)} />
                         <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Select Vendor Quotes</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} sentBack />
@@ -541,7 +542,7 @@ export const SentBackSelectVendor = () => {
                     })}
                     {/* <div className="pt-10"></div> */}
                     <div className='pt-6 flex justify-between'>
-                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" onClick={() => navigate(`/sent-back-request/${id}`)}>
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" onClick={() => navigate(-1)}>
                             <Pencil className='w-4 h-4' />
                             Edit Price
                         </Button>

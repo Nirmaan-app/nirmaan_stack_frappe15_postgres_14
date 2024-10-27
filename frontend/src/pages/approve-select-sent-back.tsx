@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { useNotificationStore } from "@/hooks/useNotificationStore";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 
 
 type PRTable = {
@@ -25,11 +25,12 @@ export const ApproveSelectSentBack = () => {
             fields: ["*"],
             filters: [["workflow_state", "in", ["Vendor Selected", "Partially Approved"]]],
             limit: 1000,
+            orderBy: {field: "creation", order : "desc"}
         },
         "Sent Back Category(filters,in,Vendor Selected,Partially Approved)"
     );
 
-    console.log("sbdata", sent_back_list)
+    // console.log("sbdata", sent_back_list)
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],

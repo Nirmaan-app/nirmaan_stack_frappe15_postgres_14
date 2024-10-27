@@ -28,10 +28,11 @@ import { RadioGroup, RadioGroupItem } from '../ui/radiogroup';
 import { Button as ShadButton } from "@/components/ui/button";
 import { Separator } from '../ui/separator';
 import { ProcurementOrders as ProcurementOrdersType } from '@/types/NirmaanStack/ProcurementOrders';
+import { TailSpin } from 'react-loader-spinner';
 
 const { Sider, Content } = Layout;
 
-export const ReleasePONew: React.FC = () => {
+export const ReleasePONew = ({not}) => {
 
     const [collapsed, setCollapsed] = useState(true);
     const [comment, setComment] = useState('')
@@ -50,6 +51,7 @@ export const ReleasePONew: React.FC = () => {
     const [emailBody, setEmailBody] = useState("")
     const [phoneError, setPhoneError] = useState("")
     const [emailError, setEmailError] = useState("")
+    const [sheetOpen, setSheetOpen] = useState(false)
 
 
     const { id } = useParams<{ id: string }>()
@@ -64,6 +66,11 @@ export const ReleasePONew: React.FC = () => {
         },
         "Procurement Orders"
     );
+
+    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["name", "full_name"],
+        limit: 1000
+    })
 
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
@@ -81,8 +88,8 @@ export const ReleasePONew: React.FC = () => {
             const doc2 = address_list?.find(item => item.name == orderData?.vendor_address);
             const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
             setVendorAddress(address2)
-            setPhoneNumber(doc2.phone || "")
-            setEmail(doc2.email_id || "")
+            setPhoneNumber(doc2?.phone || "")
+            setEmail(doc2?.email_id || "")
         }
 
     }, [orderData, address_list]);
@@ -132,6 +139,25 @@ export const ReleasePONew: React.FC = () => {
             setMergedItems((prev) => prev.filter((mergedPo) => mergedPo !== po.name));
         }
     };
+
+    // console.log("mergedPOs", mergedItems)
+    const handleUnmergeAll = () => {
+        if(mergedItems.length) {
+            const updatedList = orderData.order_list.list.filter((item) => !mergedItems.includes(item.po));
+
+            setOrderData((prev) => ({
+                ...prev,
+                order_list: { ...prev.order_list, list: updatedList },
+            }));
+            setMergedItems([])
+        }
+    }
+
+    useEffect(() => {
+        if(!sheetOpen) {
+            handleUnmergeAll()
+        }
+    }, [sheetOpen])
 
     const componentRef = useRef<HTMLDivElement>(null);
 
@@ -275,7 +301,7 @@ export const ReleasePONew: React.FC = () => {
                 description: `Cancelled Po & New Sent Back: ${newSentBack.name} created successfully!`,
                 variant: "success"
             })
-            navigate("/release-po")
+            navigate(-1)
         } catch (error) {
             console.log("Error while cancelling po", error)
             toast({
@@ -308,7 +334,7 @@ export const ReleasePONew: React.FC = () => {
                 description: `${orderId} amended and sent to Project Lead!`,
                 variant: "success"
             })
-            navigate("/release-po")
+            navigate(-1)
         } catch (error) {
             console.log("Error while cancelling po", error)
             toast({
@@ -332,7 +358,6 @@ export const ReleasePONew: React.FC = () => {
                     status: "Dispatched",
                 })
             }
-
             await mutate()
             toast({
                 title: "Success!",
@@ -386,6 +411,7 @@ export const ReleasePONew: React.FC = () => {
                 description: `Successfully merged PO(s)`,
                 variant: "success",
             });
+            setMergeablePOs([])
             await mutate();
         } catch (error) {
             console.log("Error while updating the PO's order list", error);
@@ -408,6 +434,7 @@ export const ReleasePONew: React.FC = () => {
                 description: `PO: ${orderId} status updated to 'PO Sent' successfully!`,
                 variant: "success"
             })
+            navigate(-1)
         } catch (error) {
             console.log("error while updating the status of the PO to PO Sent", error)
             toast({
@@ -505,14 +532,52 @@ export const ReleasePONew: React.FC = () => {
         setStack([...stack]);
     };
 
+    const handleSheetChange = () => {
+        setSheetOpen((prev) => !prev)
+    }
+
+    const getUserName = (id) => {
+        if (usersList) {
+            return usersList.find((user) => user?.name === id)?.full_name
+        }
+    }
+
     // console.log("advance", control.)
     // console.log("values", contactPerson)
 
     // console.log("orderData", orderData?.order_list?.list)
     // console.log("mergedItems", mergedItems)
 
-    if (procurement_order_list_loading || address_list_loading) return <div>Loading</div>
+    if (procurement_order_list_loading || address_list_loading || usersListLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
     if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
+    if(!not && orderData?.status !== "PO Approved") return (
+        <div className="flex items-center justify-center h-full">
+            <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                <h2 className="text-2xl font-semibold text-gray-800">
+                    Heads Up!
+                </h2>
+                <p className="text-gray-600 text-lg">
+                    Hey there, the Purchase Order:{" "}
+                    <span className="font-medium text-gray-900">{orderData?.name}</span>{" "}
+                    is no longer available in{" "}
+                    <span className="italic">PO Approved</span> state. The current state is{" "}
+                    <span className="font-semibold text-blue-600">
+                        {orderData?.status}
+                    </span>{" "}
+                    And the last modification was done by <span className="font-medium text-gray-900">
+                        {orderData?.modified_by === "Administrator" ? orderData?.modified_by : getUserName(orderData?.modified_by)}
+                    </span>
+                    !
+                </p>
+                <button
+                    className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                    onClick={() => navigate("/release-po")}
+                >
+                    Go Back
+                </button>
+            </div>
+        </div>
+    );
 
 
     return (
@@ -682,7 +747,7 @@ export const ReleasePONew: React.FC = () => {
                                         <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
                                         <AlertDescription className="text-xs flex justify-between items-center">
                                             PO Merging Feature is available for this PO.
-                                            <Sheet>
+                                            <Sheet open={sheetOpen} onOpenChange={handleSheetChange}>
                                                 <SheetTrigger>
                                                     <Button className='flex items-center gap-1' color="primary">
                                                         <Merge className="w-4 h-4" />

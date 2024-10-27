@@ -145,7 +145,7 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                 </div>
                                 <DialogClose className="flex justify-center">
                                     <Button className="flex items-center gap-1" onClick={() => handleEditItem()}>
-                                    <ListChecks className="h-4 w-4" />
+                                        <ListChecks className="h-4 w-4" />
                                         Submit</Button>
                                 </DialogClose>
                             </DialogDescription>
@@ -156,12 +156,12 @@ const ItemView = ({ itemId }: { itemId: string }) => {
             {isLoading ? <OverviewSkeleton /> : (
                 <div>
                     <Card>
-                        <CardHeader>
+                        {/* <CardHeader>
                             <CardTitle>
                                 {data?.item_name}
                             </CardTitle>
-                        </CardHeader>
-                        <CardContent className="flex items-start ">
+                        </CardHeader> */}
+                        <CardContent className="flex items-start mt-6">
                             <div className="space-y-4">
                                 <CardDescription className="space-y-2">
                                     <span>Item ID</span>

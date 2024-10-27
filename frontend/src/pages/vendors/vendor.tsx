@@ -7,13 +7,13 @@
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {  OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
+import { OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { ColumnDef } from "@tanstack/react-table"
 import { ConfigProvider, Menu, MenuProps } from "antd"
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, FilePenLine } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 
 
 
@@ -114,7 +114,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
         {
             fields: ["*"],
             filters: [['vendor', '=', vendorId]],
-            limit: 1000
+            limit: 10000
         },
         `Procurement Orders ${vendorId}`
     )
@@ -222,11 +222,11 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
 
     useEffect(() => {
         const initialExpandedState = Object.keys(groupedCategories).reduce((acc, work_package) => {
-          acc[work_package] = true;
-          return acc;
+            acc[work_package] = true;
+            return acc;
         }, {});
         setExpandedPackages(initialExpandedState);
-      }, [groupedCategories]);
+    }, [groupedCategories]);
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -240,7 +240,9 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                 cell: ({ row }) => {
                     return (
                         <div className="text-[#11050599]">
-                            {row.getValue("name")}
+                            <Link className="underline hover:underline-offset-2" to={`${row.getValue("name").replaceAll("/", "&=")}`}>
+                                {row.getValue("name").split("/")[1]}
+                            </Link>
                         </div>
                     )
                 }
@@ -358,16 +360,16 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
             </div>
             <ConfigProvider
                 theme={{
-                  components: {
-                    Menu: {
-                      horizontalItemSelectedColor: "#D03B45",
-                      itemSelectedBg: "#FFD3CC",
-                      itemSelectedColor: "#D03B45"
+                    components: {
+                        Menu: {
+                            horizontalItemSelectedColor: "#D03B45",
+                            itemSelectedBg: "#FFD3CC",
+                            itemSelectedColor: "#D03B45"
+                        }
                     }
-                  }
                 }}
-                >
-                    <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
+            >
+                <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
             </ConfigProvider>
             {/* Overview Section */}
             {current === "overview" && (
@@ -497,14 +499,16 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
 
             {current === "previousOrders" && (
                 (procurementOrdersLoading || procurementRequestsLoading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurementOrders} />
+                    <DataTable columns={columns} data={procurementOrders?.filter((po) => ["Dispatched", "Partially Delivered", "Delivered"].includes(po.status))} />
                 )
             )}
 
             {/* Open Orders Section  */}
 
             {current === "openOrders" && (
-                <div>Pending...</div>
+                (procurementOrdersLoading || procurementRequestsLoading) ? (<TableSkeleton />) : (
+                    <DataTable columns={columns} data={procurementOrders?.filter((po) => ["PO Approved", "PO Sent"].includes(po.status))} />
+                )
             )}
 
             {/* Transactions Section  */}

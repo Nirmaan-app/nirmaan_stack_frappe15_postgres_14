@@ -1,6 +1,6 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -10,6 +10,7 @@ import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 
 
 type PRTable = {
@@ -20,11 +21,12 @@ type PRTable = {
 }
 
 export const PRList = () => {
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: prListMutate } = useFrappeGetDocList("Procurement Requests",
         {
-            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', "category_list", 'creation'],
+            fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', "category_list", 'creation', 'modified'],
             filters: [["workflow_state", "=", "Approved"]],
-            limit: 1000
+            limit: 1000,
+            orderBy: {field: "modified", order: "desc"}
         });
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
@@ -37,10 +39,14 @@ export const PRList = () => {
             limit: 10000
         });
 
+    useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
+        await prListMutate()
+    })
+
     const getTotal = (order_id: string) => {
         let total: number = 0;
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
-        console.log("orderData", orderData)
+        // console.log("orderData", orderData)
         orderData?.list.map((item) => {
             const quotesForItem = quote_data
                 ?.filter(value => value.item_id === item.name && value.quote != null)
@@ -52,7 +58,16 @@ export const PRList = () => {
         return total;
     }
 
+    const {notifications, mark_seen_notification} = useNotificationStore()
+
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
+
+    const {db} = useContext(FrappeContext) as FrappeConfig
+    const handleNewPRSeen = (notification) => {
+        if(notification) {
+            mark_seen_notification(db, notification)
+        }
+    }
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -64,10 +79,20 @@ export const PRList = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const prId = row.getValue("name")
+                    const isNew = notifications.find(
+                        (item) => item.docname === prId && item.seen === "false" && item.event_id === "pr:approved"
+                    )
                     return (
-                        <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/procure-request/${row.getValue("name")}`}>
-                                {row.getValue("name")?.slice(-4)}
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                            {isNew && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                            )}
+                            <Link
+                                className="underline hover:underline-offset-2"
+                                to={`/procure-request/${prId}`}
+                            >
+                                {prId?.slice(-4)}
                             </Link>
                         </div>
                     )
@@ -152,9 +177,10 @@ export const PRList = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const id = row.getValue("name");
                     return (
                         <div className="font-medium">
-                            {formatToIndianRupee(getTotal(row.getValue("name")))}
+                            {getTotal(id) === 0 ? "N/A" : formatToIndianRupee(getTotal(id))}
                         </div>
                     )
                 }

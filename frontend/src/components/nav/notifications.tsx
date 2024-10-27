@@ -1,8 +1,8 @@
 import { Bell } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from "../ui/dropdown-menu";
-import { useNotificationStore } from "@/hooks/useNotificationStore";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { useContext, useState } from "react";
-import { FrappeConfig, FrappeContext } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
 import { format, isToday, isYesterday } from "date-fns";
 
@@ -12,6 +12,17 @@ export function Notifications() {
 
     const { notifications, notificationsCount, mark_seen_notification } = useNotificationStore();
     const [isDropdownOpen, setDropdownOpen] = useState(false);
+
+    const {data : usersList} = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["full_name", "name"],
+        limit: 1000
+    })
+
+    const getName = (name) => {
+        if(usersList) {
+            return usersList?.find((user) => user.name === name)?.full_name
+        }
+    }
 
     const handleNavigate = (url, notification) => {
         if (url) {
@@ -78,7 +89,7 @@ export function Notifications() {
                                             <div className="text-xs text-gray-500 mt-1">
                                                 <p>Project: {notification.project}</p>
                                                 <p>Work Package: {notification.work_package}</p>
-                                                <p>Created By: {notification?.sender || "Unknown"}</p>
+                                                <p>Action By: {notification?.sender ? getName(notification?.sender) : "Administrator"}</p>
                                             </div>
                                         </div>
                                         <div className="flex justify-end py-1 pr-2">

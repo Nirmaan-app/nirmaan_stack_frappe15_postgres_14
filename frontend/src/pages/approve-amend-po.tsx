@@ -21,6 +21,7 @@ import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/Nir
 import TextArea from "antd/es/input/TextArea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useUserData } from "@/hooks/useUserData";
+import { TailSpin } from "react-loader-spinner";
 
 const ApproveAmendPO = () => {
 
@@ -32,6 +33,11 @@ const ApproveAmendPO = () => {
     const { data: po_data, isLoading: po_loading, error: po_error } = useFrappeGetDoc<ProcurementOrdersType>("Procurement Orders", orderId, `Procurement Orders ${orderId}`);
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
     const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
+
+    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["name", "full_name"],
+        limit: 1000
+    })
 
     const { data: versions, isLoading: versionsLoading, error: versionsError } = useFrappeGetDocList("Nirmaan Versions", {
         fields: ["*"],
@@ -47,9 +53,45 @@ const ApproveAmendPO = () => {
         }
     }, [po_data])
 
+    const navigate = useNavigate()
+
+    const getUserName = (id) => {
+        if (usersList) {
+            return usersList.find((user) => user?.name === id)?.full_name
+        }
+    }
+
     // console.log("within 1st component", owner_data)
-    if (po_loading || project_loading || owner_loading || versionsLoading) return <h1>Loading...</h1>
+    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
     if (po_error || project_error || owner_error || versionsError) return <h1>Error</h1>
+    if(po_data?.status !== "PO Amendment") return (
+        <div className="flex items-center justify-center h-full">
+            <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                <h2 className="text-2xl font-semibold text-gray-800">
+                    Heads Up!
+                </h2>
+                <p className="text-gray-600 text-lg">
+                    Hey there, the Purchase Order:{" "}
+                    <span className="font-medium text-gray-900">{po_data?.name}</span>{" "}
+                    is no longer available for{" "}
+                    <span className="italic">Amending</span>. The current state is{" "}
+                    <span className="font-semibold text-blue-600">
+                        {po_data?.status}
+                    </span>{" "}
+                    And the last modification was done by <span className="font-medium text-gray-900">
+                        {po_data?.modified_by === "Administrator" ? po_data?.modified_by : getUserName(po_data?.modified_by)}
+                    </span>
+                    !
+                </p>
+                <button
+                    className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                    onClick={() => navigate("/approve-amended-po")}
+                >
+                    Go Back
+                </button>
+            </div>
+        </div>
+    );
     return (
         <ApproveAmendPOPage po_data={po_data} project_data={project_data} versionsData={versions} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} />
     )
@@ -270,7 +312,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
 
                 {amendmentComment && amendmentComment?.length !== 0 ? (
                     amendmentComment.map((cmt) => (
-                        <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                        <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg mb-2">
                             <Avatar>
                                 <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
                                 <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>

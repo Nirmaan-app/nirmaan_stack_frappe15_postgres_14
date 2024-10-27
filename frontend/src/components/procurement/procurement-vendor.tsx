@@ -28,6 +28,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card"
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { TailSpin } from "react-loader-spinner";
 
 export const ProcurementOrder = () => {
 
@@ -108,11 +109,11 @@ export const ProcurementOrder = () => {
     const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["*"],
         limit: 1000,
-        filters: [["role_profile", "=", "Nirmaan Project Lead Profile"]]
+        // filters: [["role_profile", "=", "Nirmaan Project Lead Profile"]]
     })
 
     const getFullName = (id) => {
-        return usersList?.find((user) => user.name == id)?.full_name
+        return usersList?.find((user) => user?.name == id)?.full_name
     }
 
     // console.log("universalcomments", universalComments)
@@ -155,6 +156,13 @@ export const ProcurementOrder = () => {
             setCategoryOptions(currOptions);
         }
     }, [category_data]);
+
+    const getVendorAddr = (name) => {
+        if(vendor_list) {
+            const vendor = vendor_list?.find((ven) => ven?.vendor_name === name)
+            return {city : vendor?.vendor_city, state : vendor?.vendor_state}
+        }
+    }
 
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
@@ -223,6 +231,20 @@ export const ProcurementOrder = () => {
                     return filterValue.every((filter) => categories.includes(filter));
                 },
             },
+            {
+                id: "vendor_address",
+                header: ({column}) => <DataTableColumnHeader column={column} title="Address" />,
+                cell: ({row}) => {
+                    const id = row.getValue("vendor_name")
+                    const address = getVendorAddr(id)
+                    return (
+                        <div>
+                            <span>{address?.city}, </span>
+                            <span>{address?.state}</span>
+                        </div>
+                    )
+                }
+            }
         ],
         []
     )
@@ -325,7 +347,7 @@ export const ProcurementOrder = () => {
             })
                 .then(() => {
                     console.log(orderId)
-                    navigate(`/procure-request/quote-update/${orderId}`);
+                    navigate(`/update-quote/${orderId}`);
                 }).catch(() => {
                     console.log("error", update_error)
                 })
@@ -335,14 +357,47 @@ export const ProcurementOrder = () => {
         }
     };
 
-    console.log("orderdata", orderData)
+    // console.log("orderdata", orderData)
+
+    if(vendor_category_list_loading || vendor_list_loading || procurement_request_list_loading || category_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+
+    if (orderData?.workflow_state !== "Approved") {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                    <h2 className="text-2xl font-semibold text-gray-800">
+                        Heads Up!
+                    </h2>
+                    <p className="text-gray-600 text-lg">
+                        Hey there, the PR:{" "}
+                        <span className="font-medium text-gray-900">{orderData?.name}</span>{" "}
+                        is no longer available in the{" "}
+                        <span className="italic">Approved</span> state. The current state is{" "}
+                        <span className="font-semibold text-blue-600">
+                            {orderData?.workflow_state}
+                        </span>{" "}
+                        And the last modification was done by <span className="font-medium text-gray-900">
+                            {orderData?.modified_by === "Administrator" ? orderData?.modified_by : getFullName(orderData?.modified_by)}
+                        </span>
+                        !
+                    </p>
+                    <button
+                        className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                        onClick={() => navigate("/procure-request")}
+                    >
+                        Go Back to PR List
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <>
             {page == 'approve' &&
                 <div className="flex-1 md:space-y-4">
                     <div className="flex items-center pt-1 pb-4">
-                        <ArrowLeft className='cursor-pointer' onClick={() => navigate("/procure-request")} />
+                        <ArrowLeft className='cursor-pointer' onClick={() => navigate(-1)} />
                         <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Summary </h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />

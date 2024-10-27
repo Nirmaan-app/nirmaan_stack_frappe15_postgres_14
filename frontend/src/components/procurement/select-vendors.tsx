@@ -22,6 +22,7 @@ import formatToIndianRupee from '@/utils/FormatPrice';
 import TextArea from 'antd/es/input/TextArea';
 import { useUserData } from '@/hooks/useUserData';
 import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
+import { TailSpin } from 'react-loader-spinner';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -506,7 +507,7 @@ export const SelectVendors = () => {
                         description: `You just delayed all the items, you can see them in "New Sent Back" tab!`,
                         variant: "default",
                     });
-                    navigate("/");
+                    navigate("/select-vendor-list");
                 } catch (error) {
                     console.log("update_submit_error", error);
                 }
@@ -522,7 +523,7 @@ export const SelectVendors = () => {
                         description: `Items Sent for Approval`,
                         variant: "success",
                     });
-                    navigate("/");
+                    navigate("/select-vendor-list");
                 } catch (error) {
                     console.log("update_submit_error", error);
                 }
@@ -629,7 +630,7 @@ export const SelectVendors = () => {
         })
             .then(() => {
                 console.log("orderId", orderId)
-                navigate(`/procure-request/quote-update/${orderId}`)
+                navigate(`/update-quote/${orderId}`)
             }).catch(() => {
                 console.log(submit_error)
             })
@@ -645,13 +646,15 @@ export const SelectVendors = () => {
     //     return percentDiff.toFixed(2);
     // }
 
+    if(procurement_request_list_loading || quotation_request_list_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+
     return (
         <>
             {page == 'updatequotation' &&
                 <div className="flex-1 space-y-2 md:space-y-4">
                     <div className="flex items-center pt-1  pb-4">
                         <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
-                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendor/Item Quotes</h2>
+                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Choose Vendor/Item Quotes</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />
                     {orderData?.category_list?.list.map((cat) => {

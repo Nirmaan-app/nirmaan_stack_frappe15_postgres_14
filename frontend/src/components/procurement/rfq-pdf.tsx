@@ -5,7 +5,7 @@ import redlogo from "@/assets/red-logo.png"
 import { formatDate } from "@/utils/FormatDate";
 import * as pdfjsLib from 'pdfjs-dist';
 import { Layout, Button } from "antd";
-import { CircleChevronDown, CircleChevronLeft } from "lucide-react";
+import { CircleChevronDown, CircleChevronLeft, FolderUp, Printer } from "lucide-react";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
 
@@ -164,6 +164,31 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
         documentTitle: `${getVendorName(vendor_id)}_${getVendorCity(vendor_id)}`
     });
 
+    const exportToCSV = () => {
+        const csvHeaders = ['Item', 'Category', 'Unit', 'Quantity', 'Rate'];
+
+        const csvRows = [];
+
+        csvRows.push(csvHeaders.join(','));
+        itemList?.list?.filter((item) =>
+            quotation_request_list?.some((q) => q.item === item.name)
+        ).forEach(i => {
+            const row = [i.item, i.category, i.unit, i.quantity, ""];
+            csvRows.push(row.join(','));
+        });
+
+        const csvString = csvRows.join('\n');
+
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', 'rfq_data.csv');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
 
     console.log("categories", categoryForVendor)
 
@@ -282,6 +307,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                                 </tr>
                                 )
                             })}
+                        </tbody>
 
                             {/* {[...Array(30)].map((_, index) => (
                                 quotation_request_list?.map((item) => {
@@ -306,7 +332,6 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{}</td>
                                     </tr>})} */}
-                        </tbody>
                     </table>
                     <div className="pt-24">
                         <p className="text-md font-bold text-red-700 underline">Note</p>
@@ -326,10 +351,16 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
             </div>
             </Content>
             </div>
-            <div className="text-center">
-                <button onClick={handlePrint} className="m-1 p-2 bg-blue-500 text-white">Print</button>
+            <div className="flex items-center gap-2 justify-end mt-4">
+                <button onClick={handlePrint} className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded flex items-center gap-1"><Printer className="w-6 h-6 max-md:w-4 max-md:h-4" />Print</button>
+                <button
+                    onClick={exportToCSV}
+                    className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded flex items-center gap-1"
+                    >
+                        <FolderUp className="w-6 h-6 max-md:w-4 max-md:h-4" />
+                    Export to CSV
+                </button>
             </div>
-
             </Layout>
             </Layout>
     )

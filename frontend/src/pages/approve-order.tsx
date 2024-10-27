@@ -30,6 +30,7 @@ import TextArea from "antd/es/input/TextArea";
 import { useUserData } from "@/hooks/useUserData";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { TailSpin } from "react-loader-spinner";
 
 const ApprovePRList = () => {
 
@@ -61,7 +62,7 @@ const ApprovePRList = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (pr_loading || project_loading || owner_loading || usersListLoading) return <h1>Loading...</h1>
+    if (pr_loading || project_loading || owner_loading || usersListLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
     if (pr_error || project_error || owner_error || usersListError) return <h1>Error</h1>
     if (pr?.workflow_state !== "Pending") {
         return (
@@ -145,7 +146,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
 
     // console.log("universalCOmment", universalComments)
 
-    const { createDoc: createDoc, error: update_error } = useFrappeCreateDoc()
+    const { createDoc: createDoc, error: update_error, loading : createLoading } = useFrappeCreateDoc()
 
 
     interface Category {
@@ -430,9 +431,9 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
 
     // console.log("userdata", userData)
     const { toast } = useToast()
-    const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+    const { updateDoc: updateDoc, loading: updateLoading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
     const { upload } = useFrappeFileUpload()
-    const { call } = useFrappePostCall('frappe.client.set_value');
+    const { call, loading : callLoading } = useFrappePostCall('frappe.client.set_value');
     const { deleteDoc } = useFrappeDeleteDoc()
     const { mutate } = useSWRConfig()
 
@@ -491,7 +492,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             }
 
             console.log("orderData2", res);
-
+            document.getElementById("dialogCloseforApproveOrder")?.click()
             toast({
                 title: "Success!",
                 description: `PR: ${res?.name} is successfully Approved!`,
@@ -534,6 +535,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 })
             }
             await mutate("ApprovePR,PRListMutate")
+            
+            document.getElementById("dialogCloseforApproveOrder")?.click()
             toast({
                 title: "Success!",
                 description: `PR: ${res?.name} is successfully Rejected!`,
@@ -634,7 +637,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 <div className="flex-1 md:space-y-4">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center pt-1  pb-4 ">
-                            <ArrowLeft className="cursor-pointer" onClick={() => navigate("/approve-order")} />
+                            <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                             <h2 className="text-lg pl-2 font-bold tracking-tight">Approve/Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
 
@@ -1066,7 +1069,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             </div>
 
                             {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) ||
-                                (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).length && (
+                                (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).length !== 0 && (
                                     <div className="flex flex-col gap-2 py-4 px-4">
                                         <h2 className="text-base font-bold tracking-tight">Previous Comments</h2>
                                         <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-4">
@@ -1164,19 +1167,22 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                         {dynamicPage === "reject" ? "Click on Confirm to Reject." : "Click on Confirm to Approve."}
                                     </DialogDescription>
                                 </DialogHeader>
-                                <DialogClose className="flex items-center justify-center">
+                                <DialogDescription className="flex items-center justify-center">
                                     {
                                         dynamicPage === "reject" ? (
+                                            createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"}  /> :
                                             <Button variant="default" onClick={() => handleReject()} className="flex items-center gap-1">
                                                 <CheckCheck />
                                                 Confirm</Button>
                                         ) : (
+                                            createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"}  /> :
                                             <Button variant="default" onClick={() => handleApprove()} className="flex items-center gap-1">
                                                 <CheckCheck />
                                                 Confirm</Button>
                                         )
                                     }
-                                </DialogClose>
+                                </DialogDescription>
+                                <DialogClose className="hidden" id="dialogCloseforApproveOrder">Close</DialogClose>
                             </DialogContent>
                         </Dialog>
                     </div>

@@ -184,7 +184,7 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
             // Error handling for address creation or customer creation failure
             toast({
                 title: "Failed!",
-                description: `${err?.message}`,
+                description: `${err?.exception}`,
                 variant: "destructive",
             });
             console.log("Error while creating new customer:", err);

@@ -28,6 +28,7 @@ import { useToast } from "../ui/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { NewVendor } from "@/pages/vendors/new-vendor";
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
+import { TailSpin } from "react-loader-spinner";
 
 export const UpdateQuote = () => {
     const { orderId } = useParams<{ orderId: string }>()
@@ -41,7 +42,7 @@ export const UpdateQuote = () => {
         "Vendors"
     );
 
-    const {data: procurement_request_list} = useFrappeGetDocList("Procurement Requests", {
+    const {data: procurement_request_list, isLoading : procurement_request_list_loading} = useFrappeGetDocList("Procurement Requests", {
         fields: ["*"],
         limit: 1000
     })
@@ -54,7 +55,7 @@ export const UpdateQuote = () => {
         `Quotations Requests,Procurement_task=${orderId}`
     );
 
-    console.log("quotations requests", quotation_request_list)
+    // console.log("quotations requests", quotation_request_list)
 
     const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["*"],
@@ -193,6 +194,13 @@ export const UpdateQuote = () => {
 
     // console.log("orderData", orderData)
 
+    const getVendorAddr = (name) => {
+        if(vendor_list) {
+            const vendor = vendor_list?.find((ven) => ven?.vendor_name === name)
+            return {city : vendor?.vendor_city, state : vendor?.vendor_state}
+        }
+    }
+
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
             {
@@ -302,6 +310,20 @@ export const UpdateQuote = () => {
                     return filterValue.every((filter) => categories.includes(filter));
                 },
             },
+            {
+                id: "vendor_address",
+                header: ({column}) => <DataTableColumnHeader column={column} title="Address" />,
+                cell: ({row}) => {
+                    const id = row.getValue("vendor_name")
+                    const address = getVendorAddr(id)
+                    return (
+                        <div>
+                            <span>{address?.city}, </span>
+                            <span>{address?.state}</span>
+                        </div>
+                    )
+                }
+            }
         ],
         [orderData, isButtonDisabled, vendor_list]
     )
@@ -312,7 +334,7 @@ export const UpdateQuote = () => {
         })
             .then(() => {
                 console.log("orderId", orderId)
-                navigate(`/procure-request/quote-update/select-vendors/${orderId}`);
+                navigate(`/select-vendor-list/${orderId}`);
             }).catch(() => {
                 console.log("submit_error", update_error)
             })
@@ -320,12 +342,14 @@ export const UpdateQuote = () => {
 
     const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
 
+    if(procurement_request_list_loading || category_loading || quotation_request_list_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+
     return (
         <>
             {page == 'quotation' &&
                     <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft className="cursor-pointer" onClick={() => navigate("/update-quote")} />
+                            <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
                         </div>
                         <ProcurementHeaderCard orderData={orderData} />
