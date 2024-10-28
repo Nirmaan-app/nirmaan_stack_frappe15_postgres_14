@@ -94,7 +94,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
         return usersList?.find((user) => user.name === id)?.full_name
     }
 
-    const {role} = useUserData()
+    const { role } = useUserData()
 
     const checkPoToPr = (prId: string) => {
         return po_data?.some((po) => po.procurement_request === prId)
@@ -155,7 +155,9 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
             for (let j = 0; j < po_data[i].order_list.list.length; j++) {
                 // console.log(j, ": ", po_data[i].order_list.list[j])
                 if (po_data[i].order_list.list[j].name === itemJson.name)
-                    return "Ordered"
+                    if (po_data[i].status === "PO Approved") {
+                        return "PO WIP"
+                    } else return "Ordered"
             }
         }
         return "In Progress"
@@ -282,7 +284,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                                                         </TableCell>
                                                                         <TableCell>{item.unit}</TableCell>
                                                                         <TableCell>{item.quantity}</TableCell>
-                                                                        <TableCell>{item.status === "Pending" ? "Pending" : getItemStatus(item)}</TableCell>
+                                                                        <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge></TableCell>
                                                                     </TableRow>
                                                                 )
                                                             }
@@ -318,7 +320,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                                                     {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(userData?.role) ? <Link to={po?.name.replaceAll("/", "&=")} className="text-blue-500 underline">{po?.name}</Link> : po.name}
                                                                 </TableCell>
                                                                 <TableCell>{formatDate(po.creation)}</TableCell>
-                                                                <TableCell>{po.status}</TableCell>
+                                                                <TableCell><Badge variant="outline">{po.status}</Badge></TableCell>
                                                             </TableRow>
                                                         )
                                                     })}
