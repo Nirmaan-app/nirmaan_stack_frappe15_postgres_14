@@ -11,8 +11,10 @@ import {
 import { useFrappeGetDoc } from "frappe-react-sdk";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Badge } from "./ui/badge";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Building, Calendar, MapPin, ReceiptIndianRupee, User } from "lucide-react";
 import { Label } from "./ui/label";
+import { useEffect, useState } from "react";
+import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 
 const chartConfig = {
   visitors: {
@@ -33,34 +35,39 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 export const POSummary = () => {
-    const { id } = useParams();
-    const poId = id?.replaceAll("&=", "/");
-    const { data: po, isLoading: poLoading, error: poError } = useFrappeGetDoc("Procurement Orders", poId);
 
-    if (po) {
-        return <POSummaryPage po_data={po} />;
+  const [address, setAddress] = useState()
+  const { id } = useParams();
+  const poId = id?.replaceAll("&=", "/");
+
+
+  const { data: po, isLoading: poLoading, error: poError } = useFrappeGetDoc("Procurement Orders", poId);
+  const { data: vendor_address, isLoading: vendor_address_loading, error: vendor_error } = useFrappeGetDoc("Address", address)
+
+  useEffect(() => {
+    if (!poLoading && po) {
+      setAddress(po?.vendor_address)
     }
+  }, [po])
+
+  if (poLoading || vendor_address_loading) return <h1>Loading</h1>
+  if (poError || vendor_error) return <h1>Error</h1>
+  if (po && vendor_address) {
+    return <POSummaryPage po_data={po} vendorAddress={vendor_address} />;
+  }
 };
 
-interface PODataType {
-  name: string;
-  creation: string;
-  modified: string;
-  project_name: string;
-  project_address: string;
-  vendor_name: string;
-  vendor_address: string;
-  vendor_gst: string;
-  status: string;
-  order_list: string;
+interface POSummaryPageProps {
+  po_data: ProcurementOrdersType
+  vendorAddress: any
 }
 
-const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
+const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
 
   const itemsOrderList = JSON.parse(po_data?.order_list)?.list;
   const navigate = useNavigate();
 
-  const { data: vendorAddress } = useFrappeGetDoc("Address", po_data?.vendor_address);
+  // const { data: vendorAddress } = useFrappeGetDoc("Address", po_data?.vendor_address);
 
   const categoryTotals = itemsOrderList.reduce((acc, item) => {
     const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
@@ -90,86 +97,122 @@ const POSummaryPage = ({ po_data }: { po_data: PODataType }) => {
 
   return (
     <div className="flex flex-col gap-4">
-            {/* Header with Back Button */}
-            <div className="flex items-center gap-1 flex-wrap">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-                <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
-                <span className="text-red-500 text-2xl max-md:text-xl">PO-{po_data?.name}</span>
+      <div className="flex items-center gap-1 flex-wrap">
+        <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+        <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
+        <span className="text-red-500 text-2xl max-md:text-xl"> {po_data?.name}</span>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle className="text-xl text-red-600 flex items-center justify-between">
+              PO Details
+              <Badge variant={`${po_data.status === "PO Approved" ? "green" : "yellow"}`}>
+                {po_data.status}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="flex items-center gap-2">
+              <Building className="w-4 h-4 text-muted-foreground" />
+              <Label className="font-light text-red-700">Project:</Label>
+              <span>{po_data?.project_name}</span>
             </div>
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 text-muted-foreground" />
+              <Label className="font-light text-red-700">Vendor:</Label>
+              <span>{po_data?.vendor_name}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-muted-foreground" />
+              <Label className="font-light text-red-700">Date Created:</Label>
+              <span>{new Date(po_data?.creation).toDateString()}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ReceiptIndianRupee className="w-4 h-4 text-muted-foreground" />
+              <Label className="font-light text-red-700">Vendor GST:</Label>
+              <span>{po_data?.vendor_gst}</span>
+            </div>
+            <div className="flex-1 items-center gap-2">
+              <div className="flex mb-2">
+                <MapPin className="w-4 h-4 text-muted-foreground" />
+                <Label className="font-light text-red-700">Vendor Address:</Label>
+              </div>
+              <span>
+                {vendorAddress?.address_line1}, {vendorAddress?.address_line2}, {vendorAddress?.city}, {vendorAddress?.state}-{vendorAddress?.pincode}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
 
-            {/* PO Details Card */}
-            <Card className="w-full">
-                <CardHeader>
-                    <CardTitle className="text-xl text-red-600 flex items-center justify-between">
-                        PO Details
-                        <Badge variant={`${po_data.status === "PO Approved" ? "green" : "yellow"}`}>
-                            {po_data.status}
-                        </Badge>
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4">
-                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                        <div className="space-y-1">
-                            <Label className="text-slim text-red-300">Project:</Label>
-                            <p className="font-semibold">{po_data?.project_name}</p>
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-slim text-red-300">Vendor:</Label>
-                            <p className="font-semibold">{po_data?.vendor_name}</p>
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-slim text-red-300">Date Created:</Label>
-                            <p className="font-semibold">{new Date(po_data?.creation).toDateString()}</p>
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-slim text-red-300">Vendor Address:</Label>
-                            <p className="font-semibold">
-                                {vendorAddress?.address_line1}, {vendorAddress?.address_line2}, {vendorAddress?.city}, {vendorAddress?.state}-{vendorAddress?.pincode}
-                            </p>
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-slim text-red-300">Vendor GST:</Label>
-                            <p className="font-semibold">{po_data?.vendor_gst}</p>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-xl text-red-600 flex items-center justify-between">
+              Pricing Summary
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span>Total (without GST):</span>
+                <span className="font-semibold">{formatToIndianRupee(overallTotal.withoutGst)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Total (with GST):</span>
+                <span className="font-semibold">{formatToIndianRupee(overallTotal.withGst)}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-            {/* Order Details and Totals */}
-            <Card className="w-full">
-                <CardHeader>
-                    <CardTitle className="text-xl text-red-600">Order Details & Totals</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    {itemsOrderList.map((category: any) => (
-                        <div key={category.name} className="my-3">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow className="bg-red-100">
-                                        <TableHead className="w-[30%] text-red-700 font-extrabold">{category.category}</TableHead>
-                                        <TableHead className="w-[15%]">Qty</TableHead>
-                                        <TableHead className="w-[15%]">UOM</TableHead>
-                                        <TableHead className="w-[15%]">Amount</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {itemsOrderList
-                                        .filter((item: any) => item.category === category.category)
-                                        .map((item: any) => (
-                                            <TableRow key={item.item}>
-                                                <TableCell>{item.item}</TableCell>
-                                                <TableCell>{item.quantity}</TableCell>
-                                                <TableCell>{item.unit}</TableCell>
-                                                <TableCell>{formatToIndianRupee((item?.quantity * item?.quote) + (item?.quantity * item?.quote * (item?.tax / 100)))}</TableCell>
-                                            </TableRow>
-                                        ))}
-                                </TableBody>
-                            </Table>
-                        </div>
+
+      {/* Order Details and Totals */}
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle className="text-xl text-red-600">Order Details & Totals</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(() => {
+            // Group items by category without lodash
+            const groupedItems = itemsOrderList.reduce((acc, item) => {
+              if (!acc[item.category]) {
+                acc[item.category] = [];
+              }
+              acc[item.category].push(item);
+              return acc;
+            }, {});
+
+            return Object.entries(groupedItems).map(([categoryName, items]) => (
+              <div key={categoryName} className="my-3">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-red-100">
+                      <TableHead className="w-[30%] text-red-700 font-extrabold">{categoryName}</TableHead>
+                      <TableHead className="w-[15%]">Qty</TableHead>
+                      <TableHead className="w-[15%]">UOM</TableHead>
+                      <TableHead className="w-[15%]">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {items.map((item) => (
+                      <TableRow key={item.name}>
+                        <TableCell>{item.item}</TableCell>
+                        <TableCell>{item.quantity}</TableCell>
+                        <TableCell>{item.unit}</TableCell>
+                        <TableCell>{formatToIndianRupee((item.quantity * item.quote) + (item.quantity * item.quote * (item.tax / 100)))}</TableCell>
+                      </TableRow>
                     ))}
-                </CardContent>
-            </Card>
-            {/* <Card className="flex flex-col">
+                  </TableBody>
+                </Table>
+              </div>
+            ));
+          })()}
+
+        </CardContent>
+      </Card>
+      {/* <Card className="flex flex-col">
                 <CardHeader className="items-center pb-0">
                   <CardTitle>Category-Wise Totals Visualization</CardTitle>
                   <CardDescription>PO-{po_data.name}</CardDescription>

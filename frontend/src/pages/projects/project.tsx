@@ -153,7 +153,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
     fields: ["*"],
-    filters: [["project", "=", projectId], ["status", "in", ["PO Sent", "Dispatched", "Delivered", "Partially Delivered"]]],
+    filters: [["project", "=", projectId], ["status", "!=", "PO Approved"]],
     limit: 1000,
     orderBy: { field: "creation", order: "desc" }
   },
@@ -176,7 +176,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
     }
   }, [usersList, projectAssignees])
 
-  console.log("poData", po_data)
+  // console.log("poData", po_data)
 
   const totalPosRaised = () => {
     if (po_data && po_data.length > 0) {
@@ -402,7 +402,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
     }
 
     const filteredPOs = po_data?.filter(po => po.procurement_request === prId) || [];
-    const allItemsApproved = itemList.every(item => getItemStatus(item, filteredPOs));
+    const allItemsApproved = itemList.every(item => { return getItemStatus(item, filteredPOs); });
 
     return allItemsApproved ? "Approved PO" : "Open PR";
   };
@@ -575,93 +575,93 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
 
   const groupItemsByWorkPackageAndCategory = (items) => {
     return items?.reduce((acc, item) => {
-        const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
-        const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
-        const amountWithTax = baseAmount + taxAmount;
+      const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
+      const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
+      const amountWithTax = baseAmount + taxAmount;
 
-        if (!acc[item.work_package]) {
-            acc[item.work_package] = {};
-        }
+      if (!acc[item.work_package]) {
+        acc[item.work_package] = {};
+      }
 
-        if (!acc[item.work_package][item.category]) {
-            acc[item.work_package][item.category] = [];
-        }
+      if (!acc[item.work_package][item.category]) {
+        acc[item.work_package][item.category] = [];
+      }
 
-        const existingItem = acc[item.work_package][item.category].find(
-            (i) => i.item_id === item.item_id
-        );
+      const existingItem = acc[item.work_package][item.category].find(
+        (i) => i.item_id === item.item_id
+      );
 
-        if (existingItem) {
-            existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
-            existingItem.amount += amountWithTax;
-        } else {
-            acc[item.work_package][item.category].push({
-                ...item,
-                amount: amountWithTax
-            });
-        }
+      if (existingItem) {
+        existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
+        existingItem.amount += amountWithTax;
+      } else {
+        acc[item.work_package][item.category].push({
+          ...item,
+          amount: amountWithTax
+        });
+      }
 
-        return acc;
+      return acc;
     }, {});
-};
+  };
 
-// Usage
-const categorizedData = groupItemsByWorkPackageAndCategory(po_item_data);
+  // Usage
+  const categorizedData = groupItemsByWorkPackageAndCategory(po_item_data);
 
-// const categoryTotals = po_item_data?.reduce((acc, item) => {
-//   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
+  // const categoryTotals = po_item_data?.reduce((acc, item) => {
+  //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
 
-//   const itemTotal = parseFloat(item.quantity) * parseFloat(item.quote);
-//   const itemTotalWithGst = itemTotal * (1 + parseFloat(item.tax) / 100);
+  //   const itemTotal = parseFloat(item.quantity) * parseFloat(item.quote);
+  //   const itemTotalWithGst = itemTotal * (1 + parseFloat(item.tax) / 100);
 
-//   category.withoutGst += itemTotal;
-//   category.withGst += itemTotalWithGst;
+  //   category.withoutGst += itemTotal;
+  //   category.withGst += itemTotalWithGst;
 
-//   acc[item.category] = category;
-//   return acc;
-// }, {});
-
-
-// const overallTotal = Object.values(categoryTotals || [])?.reduce(
-//   (acc, totals) => ({
-//     withoutGst: acc.withoutGst + totals.withoutGst,
-//     withGst: acc.withGst + totals.withGst,
-//   }),
-//   { withoutGst: 0, withGst: 0 }
-// );
+  //   acc[item.category] = category;
+  //   return acc;
+  // }, {});
 
 
-// const pieChartData = Object.keys(categoryTotals || []).map((category) => ({
-//   name: category,
-//   value: categoryTotals[category].withGst,
-//   fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
-// }));
+  // const overallTotal = Object.values(categoryTotals || [])?.reduce(
+  //   (acc, totals) => ({
+  //     withoutGst: acc.withoutGst + totals.withoutGst,
+  //     withGst: acc.withGst + totals.withGst,
+  //   }),
+  //   { withoutGst: 0, withGst: 0 }
+  // );
 
-// const getChartData = (po_item_data) => {
-//   const aggregatedData = {};
 
-//   po_item_data?.forEach((item) => {
-//     const date = formatDate(item.creation.split(" ")[0]); // Extract date only
-//     const baseTotal = parseFloat(item.quote) * parseFloat(item.quantity);
-//     const totalWithGST = baseTotal * (1 + parseFloat(item.tax) / 100);
+  // const pieChartData = Object.keys(categoryTotals || []).map((category) => ({
+  //   name: category,
+  //   value: categoryTotals[category].withGst,
+  //   fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
+  // }));
 
-//     if (!aggregatedData[date]) {
-//       aggregatedData[date] = { withGST: 0, withoutGST: 0 };
-//     }
-//     aggregatedData[date].withoutGST += baseTotal;
-//     aggregatedData[date].withGST += totalWithGST;
-//   });
+  // const getChartData = (po_item_data) => {
+  //   const aggregatedData = {};
 
-//   return Object.keys(aggregatedData || []).map((date) => ({
-//     date,
-//     withoutGST: aggregatedData[date].withoutGST,
-//     withGST: aggregatedData[date].withGST,
-//   }));
-// };
+  //   po_item_data?.forEach((item) => {
+  //     const date = formatDate(item.creation.split(" ")[0]); // Extract date only
+  //     const baseTotal = parseFloat(item.quote) * parseFloat(item.quantity);
+  //     const totalWithGST = baseTotal * (1 + parseFloat(item.tax) / 100);
 
-// const chartData = getChartData(po_item_data); // Now ready for use in Recharts
+  //     if (!aggregatedData[date]) {
+  //       aggregatedData[date] = { withGST: 0, withoutGST: 0 };
+  //     }
+  //     aggregatedData[date].withoutGST += baseTotal;
+  //     aggregatedData[date].withGST += totalWithGST;
+  //   });
 
-const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
+  //   return Object.keys(aggregatedData || []).map((date) => ({
+  //     date,
+  //     withoutGST: aggregatedData[date].withoutGST,
+  //     withGST: aggregatedData[date].withGST,
+  //   }));
+  // };
+
+  // const chartData = getChartData(po_item_data); // Now ready for use in Recharts
+
+  const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
 
   return (
     <div className="flex-1 space-y-4">
@@ -671,29 +671,29 @@ const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [
         <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
       </div>
       <div className="flex justify-between items-center">
-      <div className="w-full">
-      <ConfigProvider
-        theme={{
-          components: {
-            Menu: {
-              horizontalItemSelectedColor: "#D03B45",
-              itemSelectedBg: "#FFD3CC",
-              itemSelectedColor: "#D03B45"
-            }
-          }
-        }}
-      >
-        <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
-      </ConfigProvider>
-      </div>
+        <div className="w-full">
+          <ConfigProvider
+            theme={{
+              components: {
+                Menu: {
+                  horizontalItemSelectedColor: "#D03B45",
+                  itemSelectedBg: "#FFD3CC",
+                  itemSelectedColor: "#D03B45"
+                }
+              }
+            }}
+          >
+            <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
+          </ConfigProvider>
+        </div>
 
-      {/* {totalPosRaised && ( */}
-            <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
-                <span className=" whitespace-nowrap">Total PO's raised</span>
-                <span>: </span>
-                <span className="max-sm:text-end max-sm:w-full text-primary">{formatToIndianRupee(totalPosRaised())}</span>
-             </div>
-            {/* )} */}
+        {/* {totalPosRaised && ( */}
+        <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
+          <span className=" whitespace-nowrap">Total PO's raised</span>
+          <span>: </span>
+          <span className="max-sm:text-end max-sm:w-full text-primary">{formatToIndianRupee(totalPosRaised())}</span>
+        </div>
+        {/* )} */}
       </div>
 
       {/* Overview Section */}
@@ -907,29 +907,29 @@ const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [
 
       {current === "POSummary" && (
         <>
-        <div className="w-full">
-        <Select
-          value={selectedPackage}
-          onValueChange={(value) => setSelectedPackage(value)}
-        >
-          <SelectTrigger id="work-package-dropdown" className="w-full">
-            <SelectValue placeholder="Choose a work package" />
-          </SelectTrigger>
-          
-          <SelectContent>
-            {workPackages.map((packageItem, index) => (
-              <SelectItem key={index} value={packageItem.work_package_name}>
-                {packageItem.work_package_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-        {selectedPackage ? (
-          <CategoryAccordion categorizedData={categorizedData} selectedPackage={selectedPackage}  />
-        ) : <div className="h-[40vh] flex items-center justify-center"> Please select a Work Package</div>}
+          <div className="w-full">
+            <Select
+              value={selectedPackage}
+              onValueChange={(value) => setSelectedPackage(value)}
+            >
+              <SelectTrigger id="work-package-dropdown" className="w-full">
+                <SelectValue placeholder="Choose a work package" />
+              </SelectTrigger>
+
+              <SelectContent>
+                {workPackages.map((packageItem, index) => (
+                  <SelectItem key={index} value={packageItem.work_package_name}>
+                    {packageItem.work_package_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {selectedPackage ? (
+            <CategoryAccordion categorizedData={categorizedData} selectedPackage={selectedPackage} />
+          ) : <div className="h-[40vh] flex items-center justify-center"> Please select a Work Package</div>}
         </>
-)}
+      )}
 
       <div className="hidden">
         <div ref={componentRef} className="px-4 pb-1">
@@ -1235,8 +1235,8 @@ const CategoryAccordion = ({ categorizedData, selectedPackage }) => {
         <div className="flex flex-col gap-4">
           <Accordion type="multiple" className="space-y-4">
             {Object.entries(selectedData).map(([category, items]) => {
-              const totalAmount = items.reduce((sum, item) => 
-                sum + parseFloat(item.quote) * parseFloat(item.quantity) * (1 + parseFloat(item.tax) / 100), 
+              const totalAmount = items.reduce((sum, item) =>
+                sum + parseFloat(item.quote) * parseFloat(item.quantity) * (1 + parseFloat(item.tax) / 100),
                 0
               );
               return (
@@ -1260,13 +1260,13 @@ const CategoryAccordion = ({ categorizedData, selectedPackage }) => {
                       </TableHeader>
                       <TableBody>
                         {items?.map((item) => (
-                            <TableRow key={item.item_id}>
-                              <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
-                              <TableCell className="px-4 py-2">{item.item_name}</TableCell>
-                              <TableCell className="px-4 py-2">{item.quantity}</TableCell>
-                              <TableCell className="px-4 py-2">{item.unit}</TableCell>
-                              <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
-                            </TableRow>
+                          <TableRow key={item.item_id}>
+                            <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
+                            <TableCell className="px-4 py-2">{item.item_name}</TableCell>
+                            <TableCell className="px-4 py-2">{item.quantity}</TableCell>
+                            <TableCell className="px-4 py-2">{item.unit}</TableCell>
+                            <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
+                          </TableRow>
                         ))}
                       </TableBody>
                     </Table>
