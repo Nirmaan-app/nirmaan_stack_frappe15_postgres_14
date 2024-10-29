@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
 import { Toaster } from './components/ui/toaster.tsx'
-import { escape } from 'querystring'
+import ReloadPrompt from './ReloadPrompt.tsx';
 
 const registerServiceWorker = () => {
   if ('serviceWorker' in navigator) {
@@ -36,6 +36,7 @@ if (import.meta.env.DEV) {
         <React.StrictMode>
           <App />
           <Toaster />
+          <ReloadPrompt />
         </React.StrictMode>,
       )
     }
@@ -46,6 +47,7 @@ if (import.meta.env.DEV) {
     <React.StrictMode>
       <App />
       <Toaster />
+      <ReloadPrompt />
     </React.StrictMode>,
   )
 }
