@@ -230,8 +230,8 @@ export const ProjectForm = () => {
     });
 
 
-    useFrappeDocTypeEventListener("Project Types",async (d) => {
-            await project_types_mutate()
+    useFrappeDocTypeEventListener("Project Types", async (d) => {
+        await project_types_mutate()
     })
 
     const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
@@ -433,9 +433,9 @@ export const ProjectForm = () => {
                     <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/projects")} />
                     <h2 className="pl-2 text-2xl font-bold tracking-tight">Add New Project</h2>
                 </div>
-                <p className="pl-8 text-muted-foreground">
+                {/* <p className="pl-8 text-muted-foreground">
                     Fill all the necessary fields to create a new project
-                </p>
+                </p> */}
             </div>
 
             <Separator className="my-6 max-md:my-4" />

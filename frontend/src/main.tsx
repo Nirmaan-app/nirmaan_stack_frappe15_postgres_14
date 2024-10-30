@@ -36,7 +36,7 @@ if (import.meta.env.DEV) {
         <React.StrictMode>
           <App />
           <Toaster />
-          <ReloadPrompt />
+          {/* <ReloadPrompt /> */}
         </React.StrictMode>,
       )
     }
@@ -47,7 +47,7 @@ if (import.meta.env.DEV) {
     <React.StrictMode>
       <App />
       <Toaster />
-      <ReloadPrompt />
+      {/* <ReloadPrompt /> */}
     </React.StrictMode>,
   )
 }
