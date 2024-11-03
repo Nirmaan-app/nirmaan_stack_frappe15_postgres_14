@@ -62,9 +62,9 @@ const ApproveAmendPO = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (po_error || project_error || owner_error || versionsError) return <h1>Error</h1>
-    if(po_data?.status !== "PO Amendment") return (
+    if (po_data?.status !== "PO Amendment") return (
         <div className="flex items-center justify-center h-full">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
@@ -129,6 +129,11 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
 
     const [previousOrderList, setPreviousOrderList] = useState<any[]>([])
     const [amendedOrderList, setAmendedOrderList] = useState<any[]>([])
+    const [comment, setComment] = useState('');
+    const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [actionType, setActionType] = useState<'approve' | 'revert'>('approve');
+
+    const [clicked, setClicked] = useState(false)
 
     const extractOrderListFromVersions = () => {
 
@@ -161,9 +166,6 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
 
     // console.log("previousOrderList", previousOrderList)
 
-    const [comment, setComment] = useState('');
-    const [isDialogOpen, setIsDialogOpen] = useState(false);
-    const [actionType, setActionType] = useState<'approve' | 'revert'>('approve');
 
     // console.log("comment", comment)
 
@@ -173,6 +175,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
     const { toast } = useToast();
 
     const handleAction = async () => {
+        setClicked(true)
         try {
             if (actionType === 'approve') {
                 await updateDoc("Procurement Orders", po_data.name, {
@@ -218,6 +221,8 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                 description: "An error occurred. Please try again.",
                 variant: "destructive"
             });
+        } finally {
+            setClicked(false)
         }
     };
 
@@ -344,6 +349,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                         setIsDialogOpen(true);
                     }}
                     className="flex items-center space-x-2"
+                    disabled={clicked}
                 >
                     <Undo2 className="mr-2" /> Revert to Original
                 </Button>
@@ -353,6 +359,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                         setIsDialogOpen(true);
                     }}
                     className="flex items-center space-x-2"
+                    disabled={clicked}
                 >
                     <CheckCheck className="mr-2" /> Approve Amendments
                 </Button>
@@ -378,7 +385,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                         </Button>
 
 
-                        <Button onClick={handleAction} className="ml-2 flex gap-1 items-center">
+                        <Button onClick={handleAction} className="ml-2 flex gap-1 items-center" disabled={clicked}>
                             {actionType === 'approve' ? (<div className="flex gap-1 items-center"><CheckCheck className="h-4 w-4" /> Approve</div>) : (<div className="flex gap-1 items-center"><Undo2 className="h-4 w-4" /> Revert</div>)}
                         </Button>
                     </div>

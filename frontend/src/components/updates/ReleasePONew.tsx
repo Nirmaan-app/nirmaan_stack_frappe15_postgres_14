@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Button, Layout } from 'antd';
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useEffect, useRef } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
@@ -32,7 +32,7 @@ import { TailSpin } from 'react-loader-spinner';
 
 const { Sider, Content } = Layout;
 
-export const ReleasePONew = ({not}) => {
+export const ReleasePONew = ({ not }) => {
 
     const [collapsed, setCollapsed] = useState(true);
     const [comment, setComment] = useState('')
@@ -53,6 +53,20 @@ export const ReleasePONew = ({not}) => {
     const [emailError, setEmailError] = useState("")
     const [sheetOpen, setSheetOpen] = useState(false)
 
+    const [advance, setAdvance] = useState(0)
+    const [loadingCharges, setLoadingCharges] = useState(0)
+    const [freightCharges, setFreightCharges] = useState(0)
+    const [notes, setNotes] = useState("")
+    const [contactPerson, setContactPerson] = useState({
+        name: "",
+        number: ""
+    })
+
+    const [vendor, setVendor] = useState("")
+    const [vendorGST, setVendorGST] = useState()
+
+    const [clicked, setClicked] = useState(false)
+
 
     const { id } = useParams<{ id: string }>()
     const orderId = id?.replaceAll("&=", "/")
@@ -71,6 +85,8 @@ export const ReleasePONew = ({not}) => {
         fields: ["name", "full_name"],
         limit: 1000
     })
+
+    const { data: vendor_data, isLoading: vendor_loading, error: vendor_error } = useFrappeGetDoc("Vendors", vendor, vendor === "" ? null : undefined)
 
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
@@ -91,8 +107,14 @@ export const ReleasePONew = ({not}) => {
             setPhoneNumber(doc2?.phone || "")
             setEmail(doc2?.email_id || "")
         }
+        if (orderData?.vendor) {
+            setVendor(orderData?.vendor)
+        }
+        if (vendor_data) {
+            setVendorGST(vendor_data?.vendor_gst)
+        }
 
-    }, [orderData, address_list]);
+    }, [orderData, address_list, vendor_data]);
 
     const handlePhoneChange = (e: any) => {
         const value = e.target.value.replace(/\D/g, '').slice(0, 10)
@@ -142,7 +164,7 @@ export const ReleasePONew = ({not}) => {
 
     // console.log("mergedPOs", mergedItems)
     const handleUnmergeAll = () => {
-        if(mergedItems.length) {
+        if (mergedItems.length) {
             const updatedList = orderData.order_list.list.filter((item) => !mergedItems.includes(item.po));
 
             setOrderData((prev) => ({
@@ -154,7 +176,7 @@ export const ReleasePONew = ({not}) => {
     }
 
     useEffect(() => {
-        if(!sheetOpen) {
+        if (!sheetOpen) {
             handleUnmergeAll()
         }
     }, [sheetOpen])
@@ -166,14 +188,6 @@ export const ReleasePONew = ({not}) => {
         documentTitle: `${orderData?.name}_${orderData?.vendor_name}`
     });
 
-    const [advance, setAdvance] = useState(0)
-    const [loadingCharges, setLoadingCharges] = useState(0)
-    const [freightCharges, setFreightCharges] = useState(0)
-    const [notes, setNotes] = useState("")
-    const [contactPerson, setContactPerson] = useState({
-        name: "",
-        number: ""
-    })
 
     const { control, handleSubmit, reset } = useForm({
         defaultValues: {
@@ -273,7 +287,7 @@ export const ReleasePONew = ({not}) => {
             categories.push({ name: item.category })
             itemList.push({ ...item, status: "Pending" })
         })
-
+        setClicked(true)
         try {
             await updateDoc("Procurement Orders", orderId, {
                 status: "Cancelled"
@@ -309,11 +323,13 @@ export const ReleasePONew = ({not}) => {
                 description: `PO: ${orderId} Cancellation Failed!`,
                 variant: "destructive"
             })
+        } finally {
+            setClicked(false)
         }
     }
 
     const handleAmendPo = async () => {
-
+        setClicked(true)
         try {
             await updateDoc("Procurement Orders", orderId, {
                 status: "PO Amendment",
@@ -342,11 +358,13 @@ export const ReleasePONew = ({not}) => {
                 description: `${orderId} Amendment Failed!`,
                 variant: "destructive"
             })
+        } finally {
+            setClicked(false)
         }
     }
 
     const handleDispatchPO = async () => {
-
+        setClicked(true)
         try {
             if (contactPerson.name !== "" || contactPerson.number !== "") {
                 await updateDoc("Procurement Orders", orderId, {
@@ -371,12 +389,15 @@ export const ReleasePONew = ({not}) => {
                 description: `PO: ${orderId} Updation Failed!`,
                 variant: "destructive"
             })
+        } finally {
+            setClicked(false)
         }
     }
 
     const { deleteDoc } = useFrappeDeleteDoc()
 
     const handleMergePOs = async () => {
+        setClicked(true)
         const deletionResults = await Promise.all(
             mergedItems.map(async (po) => {
                 try {
@@ -385,6 +406,9 @@ export const ReleasePONew = ({not}) => {
                 } catch (error) {
                     console.error(`Error while merging PO(s)`, error);
                     return { po, success: false }; // Deletion failed
+                }
+                finally {
+                    setClicked(false)
                 }
             })
         );
@@ -424,6 +448,7 @@ export const ReleasePONew = ({not}) => {
     };
 
     const handleSendPO = async () => {
+        setClicked(true)
         try {
             await updateDoc("Procurement Orders", orderId, {
                 status: "PO Sent"
@@ -442,6 +467,9 @@ export const ReleasePONew = ({not}) => {
                 description: `PO: ${orderId} Updation Failed!`,
                 variant: "destructive"
             })
+        }
+        finally {
+            setClicked(false)
         }
     }
 
@@ -548,9 +576,9 @@ export const ReleasePONew = ({not}) => {
     // console.log("orderData", orderData?.order_list?.list)
     // console.log("mergedItems", mergedItems)
 
-    if (procurement_order_list_loading || address_list_loading || usersListLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
-    if (procurement_order_list_error || address_list_error) return procurement_order_list_error ? procurement_order_list_error.message : address_list_error.message
-    if(!not && orderData?.status !== "PO Approved") return (
+    if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (procurement_order_list_error || address_list_error || vendor_error) return <h1>Error</h1>
+    if (!not && orderData?.status !== "PO Approved") return (
         <div className="flex items-center justify-center h-full">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
@@ -851,7 +879,7 @@ export const ReleasePONew = ({not}) => {
                                                                 <AlertDialogTrigger>
                                                                     <Button
                                                                         className='flex items-center gap-1'
-                                                                        disabled={!mergedItems.length}
+                                                                        disabled={!mergedItems.length || clicked}
                                                                     >
                                                                         <CheckCheck className="h-4 w-4" />
                                                                         Confirm
@@ -875,7 +903,7 @@ export const ReleasePONew = ({not}) => {
                                                                         <AlertDialogCancel className="flex items-center gap-1" >
                                                                             <Undo2 className="h-4 w-4" />
                                                                             Cancel </AlertDialogCancel>
-                                                                        < AlertDialogAction onClick={handleMergePOs}>
+                                                                        < AlertDialogAction onClick={handleMergePOs} disabled={clicked}>
                                                                             <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex gap-1 items-center' >
                                                                                 <CheckCheck className="h-4 w-4" />
                                                                                 Confirm </button>
@@ -923,7 +951,7 @@ export const ReleasePONew = ({not}) => {
                                                                 <div className="text-gray-500 text-sm pb-2 text-left">Vendor Address</div>
                                                                 <div className="text-sm font-medium text-gray-900 max-w-[280px] truncate text-left">{orderData?.vendor_name}</div>
                                                                 <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{vendorAddress}</div>
-                                                                <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {orderData?.vendor_gst}</div>
+                                                                <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {vendorGST}</div>
                                                             </div>
                                                             <div>
                                                                 <div>
@@ -1330,7 +1358,7 @@ export const ReleasePONew = ({not}) => {
                                                 </ShadButton>
                                                 <Dialog>
                                                     <DialogTrigger asChild>
-                                                        <ShadButton variant="default" className="bg-yellow-500 hover:bg-yellow-600">
+                                                        <ShadButton variant="default" className="bg-yellow-500 hover:bg-yellow-600" disabled={clicked}>
                                                             <Send className='h-4 w-4 mr-2' />
                                                             Mark PO Sent
                                                         </ShadButton>
@@ -1347,7 +1375,7 @@ export const ReleasePONew = ({not}) => {
                                                                 <Undo2 className="h-4 w-4 mr-2" />
                                                                 Cancel
                                                             </ShadButton>
-                                                            <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600">
+                                                            <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600" disabled={clicked}>
                                                                 <CheckCheck className="h-4 w-4 mr-2" />
                                                                 Confirm
                                                             </ShadButton>
@@ -1423,7 +1451,7 @@ export const ReleasePONew = ({not}) => {
                                                     <div className='flex justify-end mt-4'>
                                                         <AlertDialog>
                                                             <AlertDialogTrigger asChild>
-                                                                <ShadButton className='bg-green-500 text-white hover:bg-green-600'>
+                                                                <ShadButton className='bg-green-500 text-white hover:bg-green-600' disabled={clicked}>
                                                                     <ListChecks className="h-4 w-4 mr-2" />
                                                                     Mark Dispatched
                                                                 </ShadButton>
@@ -1440,7 +1468,7 @@ export const ReleasePONew = ({not}) => {
                                                                         <Undo2 className="h-4 w-4 mr-2" />
                                                                         Cancel
                                                                     </AlertDialogCancel>
-                                                                    <ShadButton onClick={handleDispatchPO} className='bg-green-500 text-white hover:bg-green-600'>
+                                                                    <ShadButton onClick={handleDispatchPO} className='bg-green-500 text-white hover:bg-green-600' disabled={clicked}>
                                                                         <CheckCheck className="h-4 w-4 mr-2" />
                                                                         Confirm
                                                                     </ShadButton>
@@ -1664,7 +1692,7 @@ export const ReleasePONew = ({not}) => {
                                                                                         <AlertDialogCancel className="flex items-center gap-1">
                                                                                             <Undo2 className="h-4 w-4" />
                                                                                             Cancel</AlertDialogCancel>
-                                                                                        <AlertDialogAction onClick={handleAmendPo}>
+                                                                                        <AlertDialogAction onClick={handleAmendPo} disabled={clicked}>
                                                                                             <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex items-center gap-1'>
                                                                                                 <CheckCheck className="h-4 w-4" />
                                                                                                 Confirm</button>
@@ -1774,7 +1802,7 @@ export const ReleasePONew = ({not}) => {
                                                                     <AlertDialogCancel className="flex items-center gap-1">
                                                                         <Undo2 className="h-4 w-4" />
                                                                         Cancel</AlertDialogCancel>
-                                                                    <AlertDialogAction onClick={handleCancelPo}>
+                                                                    <AlertDialogAction onClick={handleCancelPo} disabled={clicked}>
                                                                         <button className='h-9 px-4 py-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 flex items-center gap-1'>
                                                                             <CheckCheck className="h-4 w-4" />
                                                                             Confirm</button>

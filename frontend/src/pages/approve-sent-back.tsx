@@ -107,7 +107,7 @@ const ApproveSentBack = () => {
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
     const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
 
-    const {data: usersList, isLoading: usersListLoading, error: usersListError} = useFrappeGetDocList("Nirmaan Users", {
+    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["name", "full_name"],
         limit: 1000
     })
@@ -122,14 +122,14 @@ const ApproveSentBack = () => {
     const navigate = useNavigate()
 
     const getUserName = (id) => {
-        if(usersList) {
+        if (usersList) {
             return usersList.find((user) => user?.name === id)?.full_name
         }
     }
 
-    if (sb_loading || project_loading || owner_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+    if (sb_loading || project_loading || owner_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (sb_error || project_error || owner_error) return <h1>Error</h1>
-    if(!["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && !sb?.item_list?.list?.some((i) => i?.status === "Pending")) return (
+    if (!["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && !sb?.item_list?.list?.some((i) => i?.status === "Pending")) return (
         <div className="flex items-center justify-center h-full">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
@@ -173,6 +173,7 @@ interface ApproveSentBackPageProps {
 const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
     // const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
+    const [clicked, setClicked] = useState(false)
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
@@ -338,7 +339,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
     const userData = useUserData()
 
     const newHandleApprove = async () => {
-
+        setClicked(true)
         try {
             setIsLoading('newHandleApprove');
             const filteredData = selectedItems?.filter(item => {
@@ -460,11 +461,13 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             });
         } finally {
             setIsLoading(null);
+            setClicked(false)
         }
 
     }
 
     const newHandleSentBack = async () => {
+        setClicked(true)
         try {
             setIsLoading('newHandleSentBack');
             const filteredData = selectedItems?.filter(item => {
@@ -586,6 +589,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
         } finally {
             setComment('');
             setIsLoading(null);
+            setClicked(false)
         }
     }
 
@@ -833,7 +837,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             {selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2 mt-2">
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" disabled={clicked}>
                             <SendToBack className='w-4 h-4' />
                             {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
                         </Button>
@@ -862,7 +866,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                             <AlertDialogCancel className="flex items-center gap-1">
                                 <Undo2 className="h-4 w-4" />
                                 Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1">
+                            <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1" disabled={clicked}>
                                 <CheckCheck className="h-4 w-4" />
                                 Confirm</AlertDialogAction>
                         </AlertDialogFooter>
@@ -874,7 +878,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 </AlertDialog>
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
+                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center' disabled={clicked}>
                             <ListChecks className="h-4 w-4" />
                             {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
                         </Button>
@@ -895,7 +899,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                             <AlertDialogCancel className="flex items-center gap-1">
                                 <Undo2 className="h-4 w-4" />
                                 Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1">
+                            <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1" disabled={clicked}>
                                 <CheckCheck className="h-4 w-4" />
                                 Confirm</AlertDialogAction>
                         </AlertDialogFooter>

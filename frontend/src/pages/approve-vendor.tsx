@@ -135,7 +135,7 @@ const ApproveVendor = () => {
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
     const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
 
-    const {data: usersList, isLoading: usersListLoading, error: usersListError} = useFrappeGetDocList("Nirmaan Users", {
+    const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["name", "full_name"],
         limit: 1000
     })
@@ -150,16 +150,16 @@ const ApproveVendor = () => {
     const navigate = useNavigate()
 
     const getUserName = (id) => {
-        if(usersList) {
+        if (usersList) {
             return usersList.find((user) => user?.name === id)?.full_name
         }
     }
 
     // console.log("within 1st component", owner_data)
-    if (pr_loading || project_loading || owner_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+    if (pr_loading || project_loading || owner_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (pr_error || project_error || owner_error) return <h1>Error</h1>
 
-    if(!["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state) && !pr?.procurement_list?.list?.some((i) => i?.status === "Pending")) return (
+    if (!["Vendor Selected", "Partially Approved"].includes(pr?.workflow_state) && !pr?.procurement_list?.list?.some((i) => i?.status === "Pending")) return (
         <div className="flex items-center justify-center h-full">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
@@ -202,7 +202,7 @@ interface ApproveVendorPageProps {
 export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procurement_list_mutate }: ApproveVendorPageProps) => {
     // const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate()
-
+    const [clicked, setClicked] = useState(false)
     // const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: procurement_list_mutate } = useFrappeGetDocList("Procurement Requests",
     //     {
     //         fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
@@ -464,6 +464,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     // console.log("selectedItems", selectedItems)
 
     const newHandleApprove = async () => {
+        setClicked(true)
         try {
             setIsLoading('newHandleApprove');
 
@@ -586,10 +587,12 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             });
         } finally {
             setIsLoading(null);
+            setClicked(false)
         }
     };
 
     const newHandleSentBack = async () => {
+        setClicked(true)
         try {
             setIsLoading('newHandleSentBack');
 
@@ -708,6 +711,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         } finally {
             setComment('');
             setIsLoading(null);
+            setClicked(false)
         }
     };
 
@@ -1022,7 +1026,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             {selectedItems?.length > 0 && <div className="flex justify-end gap-2 mr-2 mt-2">
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" disabled={clicked}>
                             <SendToBack className='w-4 h-4' />
                             {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
                         </Button>
@@ -1046,7 +1050,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             <AlertDialogCancel className="flex items-center gap-1">
                                 <Undo2 className="h-4 w-4" />
                                 Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1">
+                            <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1" disabled={clicked}>
                                 <CheckCheck className="h-4 w-4" />
                                 Confirm</AlertDialogAction>
                         </AlertDialogFooter>
@@ -1054,7 +1058,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 </AlertDialog>
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
+                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center' disabled={clicked}>
                             <ListChecks className="h-4 w-4" />
                             {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
                         </Button>
@@ -1070,7 +1074,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             <AlertDialogCancel className="flex items-center gap-1">
                                 <Undo2 className="h-4 w-4" />
                                 Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1">
+                            <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1" disabled={clicked}>
                                 <CheckCheck className="h-4 w-4" />
                                 Confirm</AlertDialogAction>
                         </AlertDialogFooter>
@@ -1087,46 +1091,46 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                 <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
             </div>
             <div className="overflow-x-auto">
-    <div className="min-w-full inline-block align-middle">
-        {/* Group items by category */}
-        {(() => {
-            const delayedItems = JSON.parse(pr_data?.procurement_list)?.list.filter(item => item.status === "Delayed");
-            const groupedByCategory = delayedItems.reduce((acc, item) => {
-                if (!acc[item.category]) {
-                    acc[item.category] = [];
-                }
-                acc[item.category].push(item);
-                return acc;
-            }, {});
+                <div className="min-w-full inline-block align-middle">
+                    {/* Group items by category */}
+                    {(() => {
+                        const delayedItems = JSON.parse(pr_data?.procurement_list)?.list.filter(item => item.status === "Delayed");
+                        const groupedByCategory = delayedItems.reduce((acc, item) => {
+                            if (!acc[item.category]) {
+                                acc[item.category] = [];
+                            }
+                            acc[item.category].push(item);
+                            return acc;
+                        }, {});
 
-            // Render each category group
-            return Object.keys(groupedByCategory).map(category => (
-                <div key={category} className="p-5">
-                    <ReactTable>
-                        <TableHeader>
-                            <TableRow className="bg-red-100">
-                                <TableHead className="w-[60%]">
-                                    <span className="text-red-700 pr-1 font-extrabold">{category}</span>
-                                </TableHead>
-                                <TableHead className="w-[25%]">UOM</TableHead>
-                                <TableHead className="w-[15%]">Qty</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {groupedByCategory[category].map(item => (
-                                <TableRow key={item.item}>
-                                    <TableCell>{item.item}</TableCell>
-                                    <TableCell>{item.unit}</TableCell>
-                                    <TableCell>{item.quantity}</TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </ReactTable>
+                        // Render each category group
+                        return Object.keys(groupedByCategory).map(category => (
+                            <div key={category} className="p-5">
+                                <ReactTable>
+                                    <TableHeader>
+                                        <TableRow className="bg-red-100">
+                                            <TableHead className="w-[60%]">
+                                                <span className="text-red-700 pr-1 font-extrabold">{category}</span>
+                                            </TableHead>
+                                            <TableHead className="w-[25%]">UOM</TableHead>
+                                            <TableHead className="w-[15%]">Qty</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {groupedByCategory[category].map(item => (
+                                            <TableRow key={item.item}>
+                                                <TableCell>{item.item}</TableCell>
+                                                <TableCell>{item.unit}</TableCell>
+                                                <TableCell>{item.quantity}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </ReactTable>
+                            </div>
+                        ));
+                    })()}
                 </div>
-            ));
-        })()}
-    </div>
-</div>
+            </div>
         </>
     )
 }
