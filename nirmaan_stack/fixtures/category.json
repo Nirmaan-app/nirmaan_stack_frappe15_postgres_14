@@ -1,15 +1,5 @@
 [
  {
-  "category_name": "Electrical Miscellaneous",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-misc.jpg",
-  "modified": "2024-09-06 13:35:02.118574",
-  "name": "Electrical Miscellaneous",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
   "category_name": "Earthing Material",
   "docstatus": 0,
   "doctype": "Category",
@@ -64,60 +54,50 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped hvac/hvac-service.jpg",
-  "modified": "2024-09-06 18:01:58.112939",
+  "modified": "2024-11-04 13:40:12.593083",
   "name": "HVAC Services",
   "tax": "18",
-  "work_package": "HVAC System"
+  "work_package": "Services"
  },
  {
   "category_name": "Fire Fighting Services",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped fire safety/fire-services.jpg",
-  "modified": "2024-09-07 12:05:08.152741",
+  "modified": "2024-11-04 13:39:50.058704",
   "name": "Fire Fighting Services",
   "tax": "18",
-  "work_package": "Fire Fighting System"
+  "work_package": "Services"
  },
  {
   "category_name": "FA Services",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped fa/fa-service.jpg",
-  "modified": "2024-09-07 12:07:37.433947",
+  "modified": "2024-11-04 13:39:43.270696",
   "name": "FA Services",
   "tax": "18",
-  "work_package": "FA System"
+  "work_package": "Services"
  },
  {
   "category_name": "PA Services",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped pa/pa-service.jpg",
-  "modified": "2024-09-07 12:39:17.800252",
+  "modified": "2024-11-04 13:39:34.836754",
   "name": "PA Services",
   "tax": "18",
-  "work_package": "PA System"
- },
- {
-  "category_name": "Access Control Services",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/access-service.jpg",
-  "modified": "2024-09-07 12:40:24.584211",
-  "name": "Access Control Services",
-  "tax": "18",
-  "work_package": "Access Control System"
+  "work_package": "Services"
  },
  {
   "category_name": "Data & Networking Services",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped data/data_nw_services.jpg",
-  "modified": "2024-09-06 18:35:41.027107",
+  "modified": "2024-11-04 13:40:00.871908",
   "name": "Data & Networking Services",
   "tax": "18",
-  "work_package": "Data & Networking"
+  "work_package": "Services"
  },
  {
   "category_name": "Copper Piping",
@@ -390,16 +370,6 @@
   "work_package": "PA System"
  },
  {
-  "category_name": "Controllers",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/controller.jpg",
-  "modified": "2024-09-07 12:40:46.009771",
-  "name": "Controllers",
-  "tax": "18",
-  "work_package": "Access Control System"
- },
- {
   "category_name": "Data Cabling",
   "docstatus": 0,
   "doctype": "Category",
@@ -530,16 +500,6 @@
   "work_package": "Electrical Work"
  },
  {
-  "category_name": "Switch & Sockets",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/sockets-switches.jpg",
-  "modified": "2024-09-06 13:36:48.043994",
-  "name": "Switch & Sockets",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
   "category_name": "Fire Extinguishers",
   "docstatus": 0,
   "doctype": "Category",
@@ -550,42 +510,12 @@
   "work_package": "Fire Fighting System"
  },
  {
-  "category_name": "Reader",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/reader.jpg",
-  "modified": "2024-09-07 12:41:02.774636",
-  "name": "Reader",
-  "tax": "18",
-  "work_package": "Access Control System"
- },
- {
-  "category_name": "Electrical Accessories",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-accessories.jpg",
-  "modified": "2024-09-06 13:34:16.694668",
-  "name": "Electrical Accessories",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
   "category_name": "LT Panels",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/lt-panel.jpg",
   "modified": "2024-09-06 13:36:02.929877",
   "name": "LT Panels",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Electrical Services",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-services.jpg",
-  "modified": "2024-09-06 13:35:28.584914",
-  "name": "Electrical Services",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -604,10 +534,10 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped cctv/cctv-service.jpg",
-  "modified": "2024-09-07 12:45:53.064225",
+  "modified": "2024-11-04 13:39:16.884446",
   "name": "CCTV Services",
   "tax": "18",
-  "work_package": "CCTV System"
+  "work_package": "Services"
  },
  {
   "category_name": "Raceway",
@@ -626,36 +556,6 @@
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-lighting-fixtures.jpg",
   "modified": "2024-09-06 13:34:33.866734",
   "name": "Lighting",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Cable Tray & Junction Box",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/cable-tray-jb.jpg",
-  "modified": "2024-09-06 13:31:46.997543",
-  "name": "Cable Tray & Junction Box",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Wires & Cables",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/wires_cables.png",
-  "modified": "2024-09-06 13:37:49.808857",
-  "name": "Wires & Cables",
-  "tax": "18",
-  "work_package": "Electrical Work"
- },
- {
-  "category_name": "Conduits",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/conduits.jpg",
-  "modified": "2024-09-06 13:32:22.761673",
-  "name": "Conduits",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -698,5 +598,105 @@
   "name": "HVAC Cable Tray & Accessories",
   "tax": "18",
   "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Access Control Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/access-service.jpg",
+  "modified": "2024-11-04 13:39:26.728013",
+  "name": "Access Control Services",
+  "tax": "18",
+  "work_package": "Services"
+ },
+ {
+  "category_name": "Switch & Sockets",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/sockets-switches.jpg",
+  "modified": "2024-09-06 13:36:48.043994",
+  "name": "Switch & Sockets",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Electrical Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-services.jpg",
+  "modified": "2024-11-04 13:40:20.345473",
+  "name": "Electrical Services",
+  "tax": "18",
+  "work_package": "Services"
+ },
+ {
+  "category_name": "Cable Tray & Junction Box",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/cable-tray-jb.jpg",
+  "modified": "2024-09-06 13:31:46.997543",
+  "name": "Cable Tray & Junction Box",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Wires & Cables",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/wires_cables.png",
+  "modified": "2024-09-06 13:37:49.808857",
+  "name": "Wires & Cables",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Conduits",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/conduits.jpg",
+  "modified": "2024-09-06 13:32:22.761673",
+  "name": "Conduits",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Electrical Miscellaneous",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-misc.jpg",
+  "modified": "2024-09-06 13:35:02.118574",
+  "name": "Electrical Miscellaneous",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Electrical Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped electrical categories/electrical-accessories.jpg",
+  "modified": "2024-09-06 13:34:16.694668",
+  "name": "Electrical Accessories",
+  "tax": "18",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Controllers",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/controller.jpg",
+  "modified": "2024-09-07 12:40:46.009771",
+  "name": "Controllers",
+  "tax": "18",
+  "work_package": "Access Control System"
+ },
+ {
+  "category_name": "Reader",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/reader.jpg",
+  "modified": "2024-09-07 12:41:02.774636",
+  "name": "Reader",
+  "tax": "18",
+  "work_package": "Access Control System"
  }
 ]
