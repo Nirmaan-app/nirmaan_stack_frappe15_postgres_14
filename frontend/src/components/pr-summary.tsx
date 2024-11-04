@@ -296,9 +296,9 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                     </div>
                                 </div>
                             </Card>
-                            <Card className="w-full">
+                            {userData.role !== "Nirmaan Project Manager Profile" && <Card className="w-full">
                                 <CardHeader>
-                                    <CardTitle className="text-xl text-red-600">Associated {userData.role === "Nirmaan Admin Profile" ? "POs" : "Delivery Notes"}</CardTitle>
+                                    <CardTitle className="text-xl text-red-600">Associated POs:</CardTitle>
                                     <div className="overflow-x-auto">
                                         <div className="min-w-full inline-block align-middle">
                                         </div>
@@ -317,7 +317,40 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                                         return (
                                                             <TableRow key={po.name}>
                                                                 <TableCell>
-                                                                    {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(userData?.role) ? <Link to={po?.name.replaceAll("/", "&=")} className="text-blue-500 underline">{po?.name}</Link> : po.name}
+                                                                    <Link to={po?.name.replaceAll("/", "&=")} className="text-blue-500 underline">{po?.name}</Link>
+                                                                </TableCell>
+                                                                <TableCell>{formatDate(po.creation)}</TableCell>
+                                                                <TableCell><Badge variant="outline">{po.status}</Badge></TableCell>
+                                                            </TableRow>
+                                                        )
+                                                    })}
+                                                </TableBody>
+                                            </Table>}
+                                    </div>
+                                </CardHeader>
+                            </Card>}
+                            <Card className="w-full">
+                                <CardHeader>
+                                    <CardTitle className="text-xl text-red-600">Associated Delivery Notes:</CardTitle>
+                                    <div className="overflow-x-auto">
+                                        <div className="min-w-full inline-block align-middle">
+                                        </div>
+                                        {po_data?.filter(item => ["Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).length === 0 ? <p>No DNs generated as of now</p>
+                                            :
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow className="bg-red-100">
+                                                        <TableHead className="w-[40%]">DN No.</TableHead>
+                                                        <TableHead className="w-[30%]">Date Created</TableHead>
+                                                        <TableHead className="w-[30%]">Status</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {po_data?.filter(item => ["Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).map((po) => {
+                                                        return (
+                                                            <TableRow key={po.name}>
+                                                                <TableCell>
+                                                                    <Link to={`dn/${po?.name.replaceAll("/", "&=")}`} className="text-blue-500 underline">DN-{po?.name.split("/")[1]}</Link>
                                                                 </TableCell>
                                                                 <TableCell>{formatDate(po.creation)}</TableCell>
                                                                 <TableCell><Badge variant="outline">{po.status}</Badge></TableCell>

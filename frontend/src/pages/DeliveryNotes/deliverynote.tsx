@@ -478,10 +478,12 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { useUserData } from '@/hooks/useUserData';
 
 
 export default function DeliveryNote() {
     const { id } = useParams();
+    const userData = useUserData();
     const poId = id?.replaceAll("&=", "/");
     const { data, isLoading, mutate: poMutate } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
     const [order, setOrder] = useState(null);
@@ -647,9 +649,10 @@ export default function DeliveryNote() {
             <Card>
                 <CardHeader className='flex flex-row items-center justify-between'>
                     <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Item List</CardTitle>
-                    {!show && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)} className="flex items-center gap-1">
-                        <Pencil className="h-4 w-4" />
-                        Edit</Button>)}
+                    {["Nirmaan Project Manager Profile", "Nirmaan Admin Profile"].includes(userData?.role) &&
+                        (!show && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)} className="flex items-center gap-1">
+                            <Pencil className="h-4 w-4" />
+                            Edit</Button>))}
                 </CardHeader>
                 <CardContent>
                     {show &&
@@ -751,7 +754,7 @@ export default function DeliveryNote() {
                                                 <div className="text-sm font-medium text-gray-900 max-w-[280px] truncate text-left">{data?.vendor_name}</div>
                                                 <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{vendorAddress}</div>
                                                 <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {data?.vendor_gst}</div>
-                                                
+
                                             </div>
                                             <div>
                                                 <div>

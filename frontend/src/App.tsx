@@ -166,8 +166,9 @@ const router = createBrowserRouter(
 						/>
 						<Route path=":projectId/edit" element={<EditProjectForm />} />
 						<Route path=":projectId/:id">
-							<Route index  lazy={() => import('@/components/pr-summary')} />
+							<Route index lazy={() => import('@/components/pr-summary')} />
 							<Route path=":id" element={<POSummary />} />
+							<Route path="dn/:id" element={<DeliveryNote />} />
 						</Route>
 					</Route>
 
