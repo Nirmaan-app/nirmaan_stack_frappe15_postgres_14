@@ -1,0 +1,80 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-11-04 17:27:40.750667",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "service_order_links_section",
+  "project",
+  "service_request",
+  "vendor",
+  "service_order_details_section",
+  "service_order_list",
+  "status"
+ ],
+ "fields": [
+  {
+   "fieldname": "service_order_links_section",
+   "fieldtype": "Section Break",
+   "label": "Service Order Links"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "service_request",
+   "fieldtype": "Link",
+   "label": "Service Request",
+   "options": "Service Requests"
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors"
+  },
+  {
+   "fieldname": "service_order_details_section",
+   "fieldtype": "Section Break",
+   "label": "Service Order Details"
+  },
+  {
+   "fieldname": "service_order_list",
+   "fieldtype": "JSON",
+   "label": "Service Order List"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-11-04 17:36:50.605139",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Service Orders",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
