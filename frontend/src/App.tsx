@@ -51,6 +51,7 @@ import { messaging } from './firebase/firebaseConfig'
 import { onMessage } from 'firebase/messaging'
 import { ApproveSelectAmendPO } from './pages/approve-select-amend-po'
 import { POSummary } from './components/POSummary'
+import ListSR from './components/service-request/list-sr'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -83,6 +84,11 @@ const router = createBrowserRouter(
 						</Route>
 					</Route>
 
+					{/* Service Requests Paths */}
+					<Route path='service-request'>
+						<Route index element={<ListSR />} />
+						<Route path=":project/new" lazy={() => import('@/components/service-request/new-service-request')} />
+					</Route>
 					{/* Approve PR Paths  */}
 					<Route path="approve-order">
 						<Route index element={<ApprovePR />} />
