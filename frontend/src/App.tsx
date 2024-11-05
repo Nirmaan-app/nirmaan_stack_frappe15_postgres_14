@@ -88,6 +88,7 @@ const router = createBrowserRouter(
 					<Route path='service-request'>
 						<Route index element={<ListSR />} />
 						<Route path=":project/new" lazy={() => import('@/components/service-request/new-service-request')} />
+						<Route path=":id" lazy={() => import('@/components/service-request/sr-summary')} />
 					</Route>
 					{/* Approve PR Paths  */}
 					<Route path="approve-order">

@@ -5,7 +5,7 @@ import { NewPRSkeleton } from "../ui/skeleton";
 import { useUserData } from "@/hooks/useUserData";
 import { useToast } from "../ui/use-toast";
 import { useEffect, useState } from "react";
-import { ArrowLeft, CheckCheck, CirclePlus, ListChecks, Pencil, Replace, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCheck, CirclePlus, ListChecks, MessageCircleMore, Pencil, Replace, Trash2, Undo } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "../ui/card";
 import imageUrl from "@/assets/user-icon.jpeg"
 import { Category as CategoryType } from "@/types/NirmaanStack/Category";
@@ -14,6 +14,7 @@ import { Button } from "../ui/button";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { TailSpin } from "react-loader-spinner";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 
 
 
@@ -56,6 +57,9 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
     const [curDesc, setCurDesc] = useState("")
     const [editDesctiption, setEditDescription] = useState("")
     const [orderList, setOrderList] = useState<{ list: { category: string, description: string }[] }>({ list: [] })
+    const [tax, setTax] = useState<number | null>(null)
+    const [universalComment, setUniversalComment] = useState<string | null>(null)
+    const [stack, setStack] = useState<any[]>([]);
 
     const { createDoc: createDoc, loading: createLoading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
 
@@ -101,9 +105,9 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
     }
     const handleDelete = (description: string) => {
         let curRequest = orderList.list;
-        // let itemToPush = curRequest.find(curValue => curValue.description === description);
+        let itemToPush = curRequest.find(curValue => curValue.description === description);
 
-        // setStack(prevStack => [...prevStack, itemToPush]);
+        setStack(prevStack => [...prevStack, itemToPush]);
         curRequest = curRequest.filter(curValue => curValue.description !== description);
         setOrderList({
             list: curRequest
@@ -115,6 +119,11 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
         // setQuantity('')
         setCurDesc('')
     }
+
+    const handleCommentChange = (e: any) => {
+        setUniversalComment(e.target.value === "" ? null : e.target.value)
+    }
+
     const handleSave = (itemDescription: string) => {
         // let curRequest = orderList.list;
         // let newRequest = orderList.list.find(item => item.description===itemDescription)
@@ -154,16 +163,16 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                     status: "Created"
                 });
 
-                // if (universalComment) {
-                //     await createDoc("Nirmaan Comments", {
-                //         comment_type: "Comment",
-                //         reference_doctype: "Procurement Requests",
-                //         reference_name: res.name,
-                //         comment_by: userData?.user_id,
-                //         content: universalComment,
-                //         subject: "creating pr"
-                //     })
-                // }
+                if (universalComment) {
+                    await createDoc("Nirmaan Comments", {
+                        comment_type: "Comment",
+                        reference_doctype: "Service Requests",
+                        reference_name: res.name,
+                        comment_by: userData?.user_id,
+                        content: universalComment,
+                        subject: "creating sr"
+                    })
+                }
                 // console.log("newPR", res);
                 await mutate("Service Requests,orderBy(creation-desc)");
 
@@ -185,6 +194,17 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                 });
             }
         }
+    };
+
+    const UndoDeleteOperation = () => {
+        let curRequest = orderList.list;
+        let itemToRestore = stack.pop();
+
+        curRequest.push(itemToRestore);
+        const newOrderList = { list: [...curRequest] }
+        setOrderList(newOrderList)
+
+        setStack([...stack]);
     };
 
     return (
@@ -263,7 +283,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                 </div>
                 <div className="flex justify-between items-center max-md:py-4">
                     <p className="max-md:text-xs text-rose-700">Added Services</p>
-                    {/* {stack.length !== 0 && (
+                    {stack.length !== 0 && (
                         <div className="flex items-center space-x-2">
                             <HoverCard>
                                 <HoverCardTrigger>
@@ -271,7 +291,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                                         onClick={() => UndoDeleteOperation()}
                                         className="flex items-center max-md:text-sm max-md:px-2 max-md:py-1  px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-600 transition duration-200 ease-in-out"
                                     >
-                                        <Undo className="mr-2 max-md:w-4 max-md:h-4" /> 
+                                        <Undo className="mr-2 max-md:w-4 max-md:h-4" />
                                         Undo
                                     </button>
                                 </HoverCardTrigger>
@@ -280,7 +300,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                                 </HoverCardContent>
                             </HoverCard>
                         </div>
-                    )} */}
+                    )}
                 </div>
                 {
                     categories.list.length ? (
@@ -343,9 +363,9 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                     </div>
                 }
 
-                {/* <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
+                <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
                     <h3 className="font-bold flex items-center gap-1"><MessageCircleMore className="w-5 h-5" />Comments</h3>
-                    {rejected_pr_data && (
+                    {/* {rejected_pr_data && (
                         <div className="py-4 w-full flex flex-col gap-2">
                             {
                                 universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && comment.subject === "rejecting pr")).map((cmt) => (
@@ -370,9 +390,9 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                                     </>
                                 ))}
                         </div>
-                    )}
-                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder={`${rejected_pr_data ? "Write Resolving Comments here..." : "Write comments here..."}`} value={universalComment || ""} onChange={(e) => handleCommentChange(e)} />
-                </Card> */}
+                    )} */}
+                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder={"Write comments here..."} value={universalComment || ""} onChange={(e) => handleCommentChange(e)} />
+                </Card>
                 <Dialog>
                     <DialogTrigger asChild>
                         <Button disabled={!orderList.list.length ? true : false} variant={`${!orderList.list.length ? "secondary" : "destructive"}`} className="h-8 mt-4 w-full"><div className="flex items-center gap-1"><ListChecks className="h-4 w-4" />Submit</div></Button>
@@ -381,7 +401,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                         <DialogHeader>
                             <DialogTitle>Are you Sure?</DialogTitle>
                             <DialogDescription>
-                                If there is any pending PR created by you with the same Project & Package, then the older PRs will be merged with this PR. Are you sure you want to continue?"
+                                This action will create a new Service Request. Are you sure you want to continue?"
                             </DialogDescription>
                         </DialogHeader>
                         <DialogDescription className="flex justify-center">
