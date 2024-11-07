@@ -11,10 +11,12 @@ import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
+import { useUserData } from "@/hooks/useUserData";
 
 
 export default function Projects() {
     const navigate = useNavigate()
+    const { role } = useUserData()
 
     const { data: projectTypesList, isLoading: projectTypesListLoading } = useFrappeGetDocList("Project Types", {
         fields: ["*"],
@@ -136,9 +138,9 @@ export default function Projects() {
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
                 </div>
 
-                <Button asChild data-cy="add-project-button">
+                {role === "Nirmaan Admin Profile" && <Button asChild data-cy="add-project-button">
                     <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
-                </Button>
+                </Button>}
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2 cursor-pointer">
                 <Card className="hover:animate-shadow-drop-center" onClick={() => {

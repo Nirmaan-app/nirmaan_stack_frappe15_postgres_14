@@ -42,6 +42,7 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { Pie, PieChart, Label, BarChart, CartesianGrid, XAxis, YAxis, Legend, Bar, Tooltip } from "recharts";
+import { useUserData } from "@/hooks/useUserData"
 
 const Project = () => {
 
@@ -98,6 +99,7 @@ const chartConfig = {
 
 const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: ProjectViewProps) => {
 
+  const { role } = useUserData()
   const [selectedUser, setSelectedUser] = useState(null)
   const [userOptions, setUserOptions] = useState([])
   const { createDoc, loading: createDocLoading } = useFrappeCreateDoc()
@@ -266,18 +268,18 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
       label: 'Overview',
       key: 'overview',
     },
-    {
+    role === "Nirmaan Admin Profile" ? {
       label: 'Project Tracking',
       key: 'projectTracking',
-    },
+    } : null,
     {
       label: 'Procurement Summary',
       key: 'procurementSummary',
     },
-    {
+    role === "Nirmaan Admin Profile" ? {
       label: 'PO Summary',
       key: 'POSummary',
-    },
+    } : null,
   ];
 
   const [areaNames, setAreaNames] = useState(null)
@@ -668,7 +670,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
       <div className="flex items-center">
         <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
         <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
-        <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
+        {role === "Nirmaan Admin Profile" && <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />}
       </div>
       <div className="flex justify-between items-center">
         <div className="w-full">
@@ -688,11 +690,11 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
         </div>
 
         {/* {totalPosRaised && ( */}
-        <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
+        {role === "Nirmaan Admin Profile" && <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
           <span className=" whitespace-nowrap">Total PO's raised</span>
           <span>: </span>
           <span className="max-sm:text-end max-sm:w-full text-primary">{formatToIndianRupee(totalPosRaised())}</span>
-        </div>
+        </div>}
         {/* )} */}
       </div>
 
@@ -775,7 +777,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">Assignees
-                <Dialog>
+                {role === "Nirmaan Admin Profile" && <Dialog>
                   <DialogTrigger asChild>
                     <Button asChild>
                       <div className="cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign User</div>
@@ -823,7 +825,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
                       close
                     </DialogClose>
                   </DialogContent>
-                </Dialog>
+                </Dialog>}
               </CardTitle>
             </CardHeader>
             <CardContent>

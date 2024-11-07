@@ -15,6 +15,7 @@ export default function ProcurementDashboard() {
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocCount("Vendors");
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocCount("Items");
+    const { data: projects_data, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList("Projects")
 
     return (
         <div className="flex-1 md:space-y-4 space-y-4">
@@ -22,7 +23,7 @@ export default function ProcurementDashboard() {
                 <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Procurement Dashboard</h2>
                 <div className="flex gap-2">
                     <Button onClick={() => navigate("/prs&milestones/procurement-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
-                    <Button onClick={() => navigate("/service-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />New Service Request</Button>
+                    <Button onClick={() => navigate("/service-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Service Request</Button>
                 </div>
 
             </div>
@@ -118,6 +119,14 @@ export default function ProcurementDashboard() {
                 <h2 className="text-base pt-1 font-bold tracking-tight">General Actions</h2>
             </div>
             <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                    <Link to="/projects">
+                        <p className="text-center py-6 font-bold text-gray-500">Projects Assigned</p>
+                        <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">{(projects_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                            : (projects_data?.length)}
+                            {projects_error && <p>Error</p>}</p>
+                    </Link>
+                </Card>
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
                     <Link to="/vendors">
                         <p className="text-center py-6 font-bold text-gray-500">Total Vendors</p>
