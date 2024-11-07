@@ -12,6 +12,7 @@ import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import { useUserData } from "@/hooks/useUserData";
+import { Badge } from "@/components/ui/badge";
 
 
 export default function Projects() {
@@ -44,6 +45,21 @@ export default function Projects() {
                             <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
                                 {row.getValue("name")?.slice(-4)}
                             </Link>
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "status",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Status" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            <Badge>{row.getValue("status")}</Badge>
                         </div>
                     )
                 }
@@ -101,7 +117,7 @@ export default function Projects() {
             },
             {
                 id: "location",
-                accessorFn: row => `${row.project_city}, ${row.project_state}`,
+                accessorFn: row => `${row.project_city},${row.project_state}`,
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Location" />

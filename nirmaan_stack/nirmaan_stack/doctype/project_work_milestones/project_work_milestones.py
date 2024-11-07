@@ -42,30 +42,31 @@ def generate_pwm(project, method=None):
 			doc.insert(ignore_permissions=True)
 
 def edit_pwm(project, method=None):
-	#doc = project.get_doc_before_save()
-	#if project.project_start_date!=doc.project_start_date or project.project_end_date!=doc.project_end_date:
-	project_start_datetime = datetime.strptime(project.project_start_date, "%Y-%m-%d %H:%M:%S")
-	project_start_date = project_start_datetime.date()
-	project_end_datetime = datetime.strptime(project.project_end_date, "%Y-%m-%d %H:%M:%S")
-	project_end_date = project_end_datetime.date()
-	project_duration_days = (project_end_date - project_start_date).days
-	scopes = project.project_scopes["scopes"]
-	for values in scopes:
-		milestones = frappe.db.get_list("Milestones",
+	doc = project.get_doc_before_save()
+	print("doc before save", doc)
+	if project.project_start_date != doc.project_start_date or project.project_end_date!=doc.project_end_date:
+		project_start_datetime = datetime.strptime(project.project_start_date, "%Y-%m-%d %H:%M:%S")
+		project_start_date = project_start_datetime.date()
+		project_end_datetime = datetime.strptime(project.project_end_date, "%Y-%m-%d %H:%M:%S")
+		project_end_date = project_end_datetime.date()
+		project_duration_days = (project_end_date - project_start_date).days
+		scopes = project.project_scopes["scopes"]
+		for values in scopes:
+			milestones = frappe.db.get_list("Milestones",
 								filters={ "scope_of_work" : values["scope_of_work_name"]},
 								fields=["scope_of_work", "milestone_name","start_day","end_day"]
 								)	
-		pwm = frappe.db.get_list("Project Work Milestones",
+			pwm = frappe.db.get_list("Project Work Milestones",
 								filters={"project": project.name, "scope_of_work": values["scope_of_work_name"]},
 								fields=["name" ,"project", "start_date", "end_date", "scope_of_work", "milestone"])
-		for m in pwm:
-			new_pwm = frappe.get_doc("Project Work Milestones", m.name)
-			md = [mile for mile in milestones if mile.milestone_name==m.milestone]
-			start_day = int(md[0].start_day)
-			end_day = int(md[0].end_day)
-			new_pwm.start_date = project_start_date + timedelta(days=((start_day * project_duration_days) / 60))
-			new_pwm.end_date = project_start_date + timedelta(days=((end_day * project_duration_days) / 60))
-			new_pwm.save(ignore_permissions=True)
+			for m in pwm:
+				new_pwm = frappe.get_doc("Project Work Milestones", m.name)
+				md = [mile for mile in milestones if mile.milestone_name==m.milestone]
+				start_day = int(md[0].start_day)
+				end_day = int(md[0].end_day)
+				new_pwm.start_date = project_start_date + timedelta(days=((start_day * project_duration_days) / 60))
+				new_pwm.end_date = project_start_date + timedelta(days=((end_day * project_duration_days) / 60))
+				new_pwm.save(ignore_permissions=True)
 	#else:
 	#	pass
 

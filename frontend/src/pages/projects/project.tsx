@@ -21,8 +21,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import { ConfigProvider, Menu, MenuProps } from "antd"
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall } from "frappe-react-sdk"
-import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, Download, FilePenLine, ListChecks, UserCheckIcon } from "lucide-react"
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { ArrowLeft, Check, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDown, CirclePlus, Download, FilePenLine, ListChecks, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
@@ -43,14 +43,21 @@ import {
 } from "@/components/ui/chart";
 import { Pie, PieChart, Label, BarChart, CartesianGrid, XAxis, YAxis, Legend, Bar, Tooltip } from "recharts";
 import { useUserData } from "@/hooks/useUserData"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { CommandGroup, CommandItem, Command, CommandEmpty, CommandList } from "@/components/ui/command"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+
+const statuses = [
+  { value: 'WIP', label: 'WIP' },
+  { value: 'Completed', label: 'Completed' },
+  { value: 'Halted', label: 'Halted' }
+]
 
 const Project = () => {
 
   const { projectId } = useParams<{ projectId: string }>()
 
-  const { data, isLoading } = useFrappeGetDoc("Projects", projectId, `Projects ${projectId}`, {
-    revalidateIfStale: false
-  })
+  const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId)
 
   const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
 
@@ -59,7 +66,7 @@ const Project = () => {
   return (
     <div>
       {(isLoading || projectCustomerLoading || po_item_loading) && <Skeleton className="w-[30%] h-10" />}
-      {data && <ProjectView projectId={projectId} data={data} projectCustomer={projectCustomer} po_item_data={po_item_data?.message?.po_items} />}
+      {data && <ProjectView projectId={projectId} data={data} project_mutate={project_mutate} projectCustomer={projectCustomer} po_item_data={po_item_data?.message?.po_items} />}
     </div>
   )
 }
@@ -68,6 +75,7 @@ const Project = () => {
 interface ProjectViewProps {
   projectId: string | undefined
   data: any
+  project_mutate: any
   //mile_data?: any
   projectCustomer: any
   //projectAssignees?: any
@@ -97,12 +105,18 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: ProjectViewProps) => {
+const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
 
   const { role } = useUserData()
   const [selectedUser, setSelectedUser] = useState(null)
   const [userOptions, setUserOptions] = useState([])
+
+  const [newStatus, setNewStatus] = useState<string>("")
+  const [open, setOpen] = useState(false)
+  const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false)
+
   const { createDoc, loading: createDocLoading } = useFrappeCreateDoc()
+  const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc()
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList("Project Work Milestones", {
     fields: ["*"],
@@ -144,7 +158,6 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
   },
     `Procurement Requests ${projectId}`
   )
-
 
   const getUserFullName = (id) => {
     if (id === "Administrator") return id
@@ -663,14 +676,104 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
 
   // const chartData = getChartData(po_item_data); // Now ready for use in Recharts
 
+  const [popOverOpen, setPopOverOpen] = useState(false)
+
+  const setPopOverStatus = () => {
+    setPopOverOpen(prevState => !prevState)
+  }
+
   const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
+
+  const handleStatusChange = (value: string) => {
+    if (value === data?.status) {
+      setPopOverStatus()
+      return
+    }
+    if (statuses.some(s => s.value === value)) {
+      setNewStatus(value)
+      setShowStatusChangeDialog(true)
+    }
+  }
+
+  const handleConfirmStatus = async () => {
+    // console.log("YAY")
+    try {
+      await updateDoc("Projects", data?.name, { status: newStatus })
+      await project_mutate()
+      toast({
+        title: "Success!",
+        description: `Successfully changed status to ${newStatus}`,
+        variant: "success"
+      })
+    } catch (error) {
+      console.log("error", error)
+      toast({
+        title: "Failed!",
+        description: `Failed to changed status to ${newStatus}`,
+        variant: "destructive"
+      })
+    } finally {
+      setShowStatusChangeDialog(false)
+    }
+  }
+
+  const handleCancelStatus = () => {
+    setNewStatus("")
+    setShowStatusChangeDialog(false)
+  }
 
   return (
     <div className="flex-1 space-y-4">
-      <div className="flex items-center">
-        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
-        {role === "Nirmaan Admin Profile" && <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center">
+          <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
+          <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
+          {role === "Nirmaan Admin Profile" && <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />}
+        </div>
+        {role === "Nirmaan Admin Profile" && <div className="flex max-sm:text-xs max-md:text-sm text-right items-center">
+          <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
+            <PopoverTrigger asChild>
+              <Button variant='outline' role="combobox" aria-expanded={open} className="w-40">
+                {statuses.find((s) => s.value === data?.status)?.label || "N/A"}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-40 p-0">
+              <Command>
+                <CommandList>
+                  <CommandGroup>
+                    {statuses.map((s) => (
+                      <CommandItem key={s.value} value={s.value} onSelect={() => handleStatusChange(s.value)}>
+                        {/* <Check className={cn("mr-2 h-4 w-4", status === s.value ? "opacity-100" : "opacity-0")} /> */}
+                        {s.label}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+          <AlertDialog open={showStatusChangeDialog} onOpenChange={setShowStatusChangeDialog}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action will change the status from "
+                  {statuses.find((s) => s.value === data?.status)?.label || "Unknown"} "
+                  to "{statuses.find((s) => s.value === newStatus)?.label || "Unknown"}".
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={handleCancelStatus}>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleConfirmStatus}>Continue</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          <div className="ml-2">
+            <span className=" whitespace-nowrap">Total PO's raised: </span>
+            <span className="max-sm:text-end max-sm:w-full text-primary">{formatToIndianRupee(totalPosRaised())}</span>
+          </div>
+        </div>}
       </div>
       <div className="flex justify-between items-center">
         <div className="w-full">
@@ -690,11 +793,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
         </div>
 
         {/* {totalPosRaised && ( */}
-        {role === "Nirmaan Admin Profile" && <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
-          <span className=" whitespace-nowrap">Total PO's raised</span>
-          <span>: </span>
-          <span className="max-sm:text-end max-sm:w-full text-primary">{formatToIndianRupee(totalPosRaised())}</span>
-        </div>}
+
         {/* )} */}
       </div>
 
