@@ -14,7 +14,8 @@ import { ArrowLeft, ListChecks, ListRestart, Undo2 } from "lucide-react"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
 
-const VendorFormSchema = z.object({
+const getVendorFormSchema = (service: boolean) => {
+    return z.object({
     vendor_contact_person_name: z
         .string()
         .optional(),
@@ -68,21 +69,31 @@ const VendorFormSchema = z.object({
         .max(10, { message: "Mobile number must be of 10 digits" })
         .min(10, { message: "Mobile number must be of 10 digits" })
         .optional(),
-    vendor_gst: z
-        .string({
-            required_error: "Vendor GST Required"
-        })
-        .min(1, {
-            message: "Vendor GST Required"
-        })
-        .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
-            message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
-        }),
-    // vendor_categories: z
-    //     .array(z.string())
+    // vendor_gst: z
+    //     .string({
+    //         required_error: "Vendor GST Required"
+    //     })
+    //     .min(1, {
+    //         message: "Vendor GST Required"
+    //     })
+    //     .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+    //         message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
+    //     }),
+    vendor_gst: service 
+      ? z.string()
+      .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+        message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
+    })
+      .optional()  // GST is optional when `service` is true
+      : z.string()
+          .min(1, { message: "Vendor GST Required" })
+          .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
+            message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
+    }),
 })
+};
 
-type VendorFormValues = z.infer<typeof VendorFormSchema>
+type VendorFormValues = z.infer<ReturnType<typeof getVendorFormSchema>>;
 
 interface SelectOption {
     label: string;
@@ -90,7 +101,9 @@ interface SelectOption {
 }
 
 export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined, prData = undefined, service = false }) => {
+
     const navigate = useNavigate()
+    const VendorFormSchema = getVendorFormSchema(service);
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
         defaultValues: {},
@@ -145,74 +158,6 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         form.clearErrors();
         document.getElementById("vendorShopName")?.focus()
     }
-
-
-    // const onSubmit = async (values: VendorFormValues) => {
-    //     let category_json = categories.map((cat) => cat["value"])
-
-    //     try {
-    //         const addressDoc = await createDoc('Address', {
-    //             address_title: values.vendor_name,
-    //             address_type: "Shop",
-    //             address_line1: values.address_line_1,
-    //             address_line2: values.address_line_2,
-    //             city: values.vendor_city,
-    //             state: values.vendor_state,
-    //             country: "India",
-    //             pincode: values.pin,
-    //             email_id: values.vendor_email,
-    //             phone: values.vendor_mobile,
-    //         })
-
-    //         const vendorDoc = await createDoc('Vendors', {
-    //             vendor_name: values.vendor_name,
-    //             vendor_type: "Material",
-    //             vendor_address: addressDoc.name,
-    //             vendor_city: addressDoc.city,
-    //             vendor_state: addressDoc.state,
-    //             vendor_contact_person_name: values.vendor_contact_person_name,
-    //             vendor_mobile: values.vendor_mobile,
-    //             vendor_email: values.vendor_email,
-    //             vendor_gst: values.vendor_gst,
-    //             vendor_category: { "categories": (!renderCategorySelection && dynamicCategories.length) ? dynamicCategories : category_json }
-    //         })
-    //         const promises = []
-    //         sentBackData && sentBackData.item_list?.list.map((item) => {
-    //             const newItem = {
-    //                 procurement_task: sentBackData.procurement_request,
-    //                 category: item.category,
-    //                 item: item.name,
-    //                 vendor: vendorDoc.name,
-    //                 quantity: item.quantity
-    //             }
-    //             promises.push(createDoc("Quotation Requests", newItem))
-    //         })
-
-    //         await Promise.all(promises)
-    //         await mutate("Vendors")
-    //         await mutate("Quotation Requests")
-    //         await mutate("Vendor Category")
-
-    //         toast({
-    //             title: "Success!",
-    //             description: "Vendor Created Successfully!",
-    //             variant: "success"
-    //         })
-
-    //         if (navigation) {
-    //             navigate("/vendors")
-    //         } else {
-    //             closewindow()
-    //         }
-    //     } catch (error) {
-    //         toast({
-    //             title: "Failed!",
-    //             description: `${error?.message}`,
-    //             variant: "destructive"
-    //         })
-    //         console.error("Submit Error", error)
-    //     }
-    // }
 
     const onSubmit = async (values: VendorFormValues) => {
 
@@ -311,11 +256,19 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 throw vendorError;
             }
         } catch (error) {
-            toast({
-                title: "Failed!",
-                description: `${error?.exception}`,
-                variant: "destructive"
-            });
+            if(error?.exc_type === "VendorGSTExistError") {
+                toast({
+                    title: "Duplicate Value Error!",
+                    description: `Vendor with this GST already exists!`,
+                    variant: "destructive"
+                });
+            } else {
+                toast({
+                    title: "Failed!",
+                    description: `${error?.exception}`,
+                    variant: "destructive"
+                });
+            }
             console.error("Submit Error", error);
         }
     };

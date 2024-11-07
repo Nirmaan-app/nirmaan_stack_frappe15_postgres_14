@@ -11,6 +11,7 @@ import {
     SendToBack,
     Shapes,
     ShoppingCart,
+    SquareSquare,
 } from "lucide-react";
 import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
@@ -471,6 +472,7 @@ export const NavBar = () => {
                             ),
 
                         },
+                        { key: '/approve-service-request', label: 'Approve Service Request' },
                     ],
                 }
             ]
@@ -504,8 +506,18 @@ export const NavBar = () => {
 
                         )},
                         { key: '/update-quote', label: 'Update Quote' },
-                        { key: '/select-vendor-list', label: 'Choose Vendor' }
+                        { key: '/select-vendor-list', label: 'Choose Vendor' },
+                        // {key: '/service-request', label: 'Service Requests'}
                     ],
+                },
+                {
+                    key: 'pe-sr-actions',
+                    icon: <SquareSquare className="h-4 w-4" />,
+                    label: "Service Requests",
+                    children: [
+                        {key: '/service-request', label : 'View/Create SR'},
+                        {key: '/select-service-vendor', label : 'Select Service Vendor'},
+                    ]
                 },
                 {
                     key : 'pe-po-actions',
@@ -620,14 +632,16 @@ export const NavBar = () => {
         "projects", "users", "items", "vendors", "customers",
         "prs&milestones", "approve-order", "approve-vendor",
         "approve-sent-back", "approve-amended-po", "procure-request", "update-quote",
-        "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb"
+        "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
+        "service-request", "approve-service-request", "select-service-vendor"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
     const openKey = ["prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po"].includes(selectedKeys) ? "pl-actions" : ["procure-request", "update-quote",
-            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ""
+        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["service-request", "procure-request", "update-quote",
+            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
+            ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor"].includes(selectedKeys) ? "pe-sr-actions" : ""
 
     if (user_id !== "Administrator" && !role) {
         return (<div>loading...</div>)
@@ -662,7 +676,7 @@ export const NavBar = () => {
                         <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70, dropdownWidth: 220 } } }}>
                             <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                 ...item,
-                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                 children: item.children?.map((child) => ({
                                     ...child,
                                     label: <Link to={child.key}>{child.label}</Link>
@@ -681,7 +695,7 @@ export const NavBar = () => {
                                     <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                         ...item,
                                         onClick: () => setIsMobileSidebarOpen(false),
-                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                         children: item.children?.map((child) => ({
                                             ...child,
                                             label: <Link to={child.key}>{child.label}</Link>
