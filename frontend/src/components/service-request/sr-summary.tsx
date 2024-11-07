@@ -17,6 +17,8 @@ import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUs
 import { formatDate } from "@/utils/FormatDate";
 import { Timeline } from "antd";
 import { Badge } from "../ui/badge";
+import { SelectServiceVendorPage } from "./select-service-vendor";
+import formatToIndianRupee from "@/utils/FormatPrice";
 
 const SrSummary = () => {
 
@@ -25,7 +27,7 @@ const SrSummary = () => {
     const [project, setProject] = useState<string | undefined>()
 
 
-    const { data: sr_data, isLoading: sr_loading, error: sr_error } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id);
+    const { data: sr_data, isLoading: sr_loading, error: sr_error } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id, id ? `Service Requests ${id}` : null);
 
     const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
         fields: ["*"],
@@ -65,6 +67,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
     const navigate = useNavigate();
     const sr_no = sr_data?.name.split("-").slice(-1)
     const userData = useUserData()
+    const [page, setPage] = useState("Summary")
 
     const { mutate } = useSWRConfig()
     const { deleteDoc } = useFrappeDeleteDoc()
@@ -117,9 +120,10 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
     }
 
     return (
-        <>
             <div className="flex-1 space-y-2 md:space-y-4">
-                <>
+                {
+                    page === "Summary" && (
+                        <>
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1 flex-wrap">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
@@ -127,8 +131,13 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                             <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span>
                         </div>
                         <div className="flex gap-4 items-center">
+                            {sr_data?.status === "Rejected" && (
+                                <Button onClick={() => setPage("Resolve")} className="flex items-center gap-1">
+                                    <Settings2 className="h-4 w-4" />
+                                    Resolve</Button>
+                            )}
                             {
-                                ["Created", userData?.role === "Nirmaan Procurement Executive Profile" ? "Vendor Selected" : ""].includes(sr_data?.status) && (
+                                ["Created", "Rejected", userData?.role === "Nirmaan Procurement Executive Profile" ? "Vendor Selected" : ""].includes(sr_data?.status) && (
                                     <AlertDialog>
                                         <AlertDialogTrigger>
                                             <Button className="flex items-center gap-1">
@@ -158,12 +167,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                     </AlertDialog>
                                 )
                             }
-                            {sr_data?.status === "Rejected" && (
-
-                                <Button className="flex items-center gap-1">
-                                    <Settings2 className="h-4 w-4" />
-                                    Resolve</Button>
-                            )}
                         </div>
                     </div>
                     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -213,21 +216,25 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 <div className="min-w-full inline-block align-middle">
                                     {JSON.parse(sr_data?.service_category_list).list.map((cat: any) => {
                                         return <div className="p-5">
-                                            {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
                                             <Table>
                                                 <TableHeader>
                                                     <TableRow className="bg-red-100">
-                                                        <TableHead className="w-[80%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
+                                                        <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
+                                                        {sr_data?.status !== "Created" && (
+                                                            <TableHead className="w-[20%]">Amount</TableHead>
+                                                        )}
                                                         <TableHead className="w-[20%]">Status</TableHead>
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
-                                                    {JSON.parse(sr_data?.service_order_list).list.map((item: any) => {
-                                                        // console.log(item)
+                                                    {sr_data &&  JSON.parse(sr_data?.service_order_list).list.map((item: any) => {
                                                         if (item.category === cat.name) {
                                                             return (
                                                                 <TableRow key={item.description}>
                                                                     <TableCell>{item.description}</TableCell>
+                                                                    {sr_data?.status !== "Created" && (
+                                                                        <TableCell>{formatToIndianRupee(item.amount)}</TableCell>
+                                                                    )}
                                                                     <TableCell>
                                                                         {/* <Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge> */}
                                                                         {sr_data?.status}
@@ -280,12 +287,16 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
                     {sr_data?.status === "Created" &&
                         <div className="text-right">
-                            <Button onClick={() => navigate('select-vendor')}>Select Service Vendor</Button>
+                            <Button onClick={() => navigate(`/select-service-vendor/${sr_data?.name}`)}>Select Service Vendor</Button>
                         </div>
                     }
                 </>
+                    )
+                }
+                {page === "Resolve" && (
+                    <SelectServiceVendorPage resolve={true} sr_data={sr_data} universalComments={universalComments?.filter((com) => com?.subject === "rejecting sr")} setPage={setPage} />
+                )}
             </div>
-        </>
     )
 }
 

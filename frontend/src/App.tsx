@@ -52,6 +52,9 @@ import { onMessage } from 'firebase/messaging'
 import { ApproveSelectAmendPO } from './pages/approve-select-amend-po'
 import { POSummary } from './components/POSummary'
 import ListSR from './components/service-request/list-sr'
+import { ApproveSelectSR } from './components/service-request/approve-service-request-list'
+import { ApproveServiceRequest } from './components/service-request/approve-service-request'
+import { SelectServiceVendorList } from './components/service-request/select-service-vendor-list'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -89,8 +92,13 @@ const router = createBrowserRouter(
 						<Route index element={<ListSR />} />
 						<Route path=":project/new" lazy={() => import('@/components/service-request/new-service-request')} />
 						<Route path=":id" lazy={() => import('@/components/service-request/sr-summary')} />
-						<Route path=":id/select-vendor" lazy={() => import('@/components/service-request/select-service-vendor')} />
 					</Route>
+
+					<Route path='select-service-vendor'>
+						<Route index element={<SelectServiceVendorList />} />
+						<Route path=":id" lazy={() => import('@/components/service-request/select-service-vendor')} />
+					</Route>
+
 					{/* Approve PR Paths  */}
 					<Route path="approve-order">
 						<Route index element={<ApprovePR />} />
@@ -113,6 +121,12 @@ const router = createBrowserRouter(
 					<Route path="approve-sent-back">
 						<Route index element={<ApproveSelectSentBack />} />
 						<Route path=":id" lazy={() => import('@/pages/approve-sent-back')} />
+					</Route>
+
+					{/* Approve Service Request Paths  */}
+					<Route path="approve-service-request">
+						<Route index element={<ApproveSelectSR />} />
+						<Route path=":id" element={<ApproveServiceRequest />} />
 					</Route>
 
 					{/* New PR Request Paths  */}

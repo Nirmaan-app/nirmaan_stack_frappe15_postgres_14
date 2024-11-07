@@ -15,14 +15,11 @@ import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { TailSpin } from "react-loader-spinner";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
-
-
-
+import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 
 const NewSR = () => {
 
     const { project } = useParams<{ project: string }>();
-
 
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project, project ? undefined : null);
 
@@ -42,41 +39,180 @@ const NewSR = () => {
 interface NewSRPageProps {
     project?: ProjectsType | undefined
     category?: any
-    // rejected_pr_data?: any
-    // setSection?: any
 }
 
 const NewSRPage = ({ project, category }: NewSRPageProps) => {
-    const userData = useUserData()
-    const { toast } = useToast()
-    const navigate = useNavigate()
+    // const userData = useUserData()
+    // const { toast } = useToast()
+    // const navigate = useNavigate()
 
-    const [page, setPage] = useState<string>('categorylist')
-    const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] })
-    const [curCategory, setCurCategory] = useState<string>("")
-    const [curDesc, setCurDesc] = useState("")
-    const [editDesctiption, setEditDescription] = useState("")
-    const [orderList, setOrderList] = useState<{ list: { category: string, description: string }[] }>({ list: [] })
-    const [tax, setTax] = useState<number | null>(null)
-    const [universalComment, setUniversalComment] = useState<string | null>(null)
+    // const [page, setPage] = useState<string>('categorylist')
+    // const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] })
+    // const [curCategory, setCurCategory] = useState<string>("")
+    // const [curDesc, setCurDesc] = useState("")
+    // const [editDesctiption, setEditDescription] = useState("")
+    // const [orderList, setOrderList] = useState<{ list: { category: string, description: string }[] }>({ list: [] })
+    // const [universalComment, setUniversalComment] = useState<string | null>(null)
+    // const [stack, setStack] = useState<any[]>([]);
+
+    // const { createDoc: createDoc, loading: createLoading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+
+    // useEffect(() => {
+    //     const newCategories: { name: string }[] = [];
+    //     orderList.list.map((item) => {
+    //         const isDuplicate = newCategories.some(category => category.name === item.category);
+    //         if (!isDuplicate) {
+    //             newCategories.push({ name: item.category })
+    //         }
+    //     })
+    //     setCategories({ list: newCategories });
+    // }, [orderList]);
+
+    // const addCategory = (categoryName: string) => {
+    //     setCurCategory(categoryName);
+    //     const isDuplicate = categories.list.some(category => category.name === categoryName);
+    //     if (!isDuplicate) {
+    //         setCategories(prevState => ({
+    //             ...prevState,
+    //             list: [...prevState.list, { name: categoryName }]
+    //         }));
+    //     }
+    //     console.log(categories)
+    // };
+
+    // const handleCategoryClick = (category: string, value: string) => {
+    //     addCategory(category);
+    //     setPage(value);
+
+    // };
+
+    // const handleAdd = () => {
+    //     const service_object: { category: string, description: string } = { category: "", description: "" }
+    //     service_object.category = curCategory
+    //     service_object.description = curDesc
+    //     const newOrderList = { list: [...orderList.list, service_object] }
+    //     setOrderList(newOrderList)
+    //     setCurCategory("")
+    //     setCurDesc("")
+    // }
+
+    // const handleDelete = (description: string) => {
+    //     let curRequest = orderList.list;
+    //     let itemToPush = curRequest.find(curValue => curValue.description === description);
+
+    //     setStack(prevStack => [...prevStack, itemToPush]);
+    //     curRequest = curRequest.filter(curValue => curValue.description !== description);
+    //     setOrderList({
+    //         list: curRequest
+    //     });
+    //     setCurDesc('')
+    // }
+
+    // const handleCommentChange = (e: any) => {
+    //     setUniversalComment(e.target.value === "" ? null : e.target.value)
+    // }
+
+    // const handleSave = (itemDescription: string) => {
+    //     setOrderList(prevState => ({
+    //         list: prevState.list.map(item =>
+    //             item.description === itemDescription
+    //                 ? { ...item, description: editDesctiption }
+    //                 : item
+    //         )
+    //     }));
+    //     setCurDesc('')
+    //     document?.getElementById("editDialogCloseSR")?.click()
+    // };
+
+    // const { mutate } = useSWRConfig()
+
+    // const handleSubmit = async () => {
+    //     if (
+    //         userData?.role === "Nirmaan Project Manager Profile" ||
+    //         userData?.role === "Nirmaan Admin Profile" ||
+    //         userData?.role === "Nirmaan Procurement Executive Profile" ||
+    //         userData?.role === "Nirmaan Project Lead Profile"
+    //     ) {
+    //         try {
+    //             const res = await createDoc('Service Requests', {
+    //                 project: project?.name,
+    //                 service_order_list: orderList,
+    //                 service_category_list: categories,
+    //                 status: "Created"
+    //             });
+
+    //             if (universalComment) {
+    //                 await createDoc("Nirmaan Comments", {
+    //                     comment_type: "Comment",
+    //                     reference_doctype: "Service Requests",
+    //                     reference_name: res.name,
+    //                     comment_by: userData?.user_id,
+    //                     content: universalComment,
+    //                     subject: "creating sr"
+    //                 })
+    //             }
+    //             // console.log("newPR", res);
+    //             await mutate("Service Requests,orderBy(creation-desc)");
+
+    //             document.getElementById("dialogCloseforNewSR")?.click()
+    //             toast({
+    //                 title: "Success!",
+    //                 description: `New SR: ${res?.name} created successfully!`,
+    //                 variant: "success",
+    //             });
+
+    //             navigate(-1);
+    //         } catch (error) {
+    //             console.log("submit_error", error);
+
+    //             toast({
+    //                 title: "Failed!",
+    //                 description: `SR Creation failed!`,
+    //                 variant: "destructive",
+    //             });
+    //         }
+    //     }
+    // };
+
+    // const UndoDeleteOperation = () => {
+    //     let curRequest = orderList.list;
+    //     let itemToRestore = stack.pop();
+
+    //     curRequest.push(itemToRestore);
+    //     const newOrderList = { list: [...curRequest] }
+    //     setOrderList(newOrderList)
+
+    //     setStack([...stack]);
+    // };
+
+    const userData = useUserData();
+    const { toast } = useToast();
+    const navigate = useNavigate();
+
+    const [page, setPage] = useState<string>('categorylist');
+    const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] });
+    const [curCategory, setCurCategory] = useState<string>("");
+    const [curDesc, setCurDesc] = useState("");
+    const [editDescription, setEditDescription] = useState("");
+    const [orderList, setOrderList] = useState<{ list: { id: string, category: string, description: string }[] }>({ list: [] });
+    const [universalComment, setUniversalComment] = useState<string | null>(null);
     const [stack, setStack] = useState<any[]>([]);
 
-    const { createDoc: createDoc, loading: createLoading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { createDoc, loading: createLoading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc();
 
     useEffect(() => {
         const newCategories: { name: string }[] = [];
-        orderList.list.map((item) => {
+        orderList.list.forEach((item) => {
             const isDuplicate = newCategories.some(category => category.name === item.category);
             if (!isDuplicate) {
-                newCategories.push({ name: item.category })
+                newCategories.push({ name: item.category });
             }
-        })
+        });
         setCategories({ list: newCategories });
     }, [orderList]);
 
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
-        // setTax(category?.find((category) => category.category_name === categoryName).tax)
         const isDuplicate = categories.list.some(category => category.name === categoryName);
         if (!isDuplicate) {
             setCategories(prevState => ({
@@ -84,76 +220,55 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                 list: [...prevState.list, { name: categoryName }]
             }));
         }
-        console.log(categories)
     };
 
     const handleCategoryClick = (category: string, value: string) => {
         addCategory(category);
         setPage(value);
-
     };
 
     const handleAdd = () => {
+        const serviceObject = {
+            id: uuidv4(), // Generate a unique ID
+            category: curCategory,
+            description: curDesc,
+        };
+        setOrderList(prevState => ({ list: [...prevState.list, serviceObject] }));
+        setCurCategory("");
+        setCurDesc("");
+    };
 
-        const service_object: { category: string, description: string } = { category: "", description: "" }
-        service_object.category = curCategory
-        service_object.description = curDesc
-        const newOrderList = { list: [...orderList.list, service_object] }
-        setOrderList(newOrderList)
-        console.log("Added order obj:", orderList)
-        setCurDesc("")
-    }
-    const handleDelete = (description: string) => {
-        let curRequest = orderList.list;
-        let itemToPush = curRequest.find(curValue => curValue.description === description);
+    const handleDelete = (id: string) => {
+        const itemToPush = orderList.list.find(curValue => curValue.id === id);
 
         setStack(prevStack => [...prevStack, itemToPush]);
-        curRequest = curRequest.filter(curValue => curValue.description !== description);
-        setOrderList({
-            list: curRequest
-        });
-        // setComments(prev => {
-        //     delete prev[item]
-        //     return prev
-        // })
-        // setQuantity('')
-        setCurDesc('')
-    }
+        const updatedList = orderList.list.filter(curValue => curValue.id !== id);
+        setOrderList({ list: updatedList });
+        setCurDesc('');
+    };
 
     const handleCommentChange = (e: any) => {
-        setUniversalComment(e.target.value === "" ? null : e.target.value)
-    }
+        setUniversalComment(e.target.value === "" ? null : e.target.value);
+    };
 
-    const handleSave = (itemDescription: string) => {
-        // let curRequest = orderList.list;
-        // let newRequest = orderList.list.find(item => item.description===itemDescription)
-        // console.log("comments of item name", comments[itemName])
-        // curRequest = curRequest.map((curValue) => {
-        //     if (curValue.item === itemName) {
-        //         return { ...curValue, quantity: parseInt(newQuantity), comment: comments[itemName] === undefined ? curValue.comment || "" : comments[itemName] || "" };
-        //     }
-        //     return curValue;
-        // });
+    const handleSave = (itemId: string) => {
         setOrderList(prevState => ({
             list: prevState.list.map(item =>
-                item.description === itemDescription
-                    ? { ...item, description: editDesctiption }
+                item.id === itemId
+                    ? { ...item, description: editDescription }
                     : item
             )
         }));
-        setCurDesc('')
+        setCurDesc('');
+        document?.getElementById("editDialogCloseSR")?.click();
     };
 
-    const { mutate } = useSWRConfig()
-
-    // console.log("quantity", quantity)
+    const { mutate } = useSWRConfig();
 
     const handleSubmit = async () => {
         if (
-            userData?.role === "Nirmaan Project Manager Profile" ||
-            userData?.role === "Nirmaan Admin Profile" ||
-            userData?.role === "Nirmaan Procurement Executive Profile" ||
-            userData?.role === "Nirmaan Project Lead Profile"
+            ["Nirmaan Project Manager Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"]
+            .includes(userData?.role)
         ) {
             try {
                 const res = await createDoc('Service Requests', {
@@ -171,12 +286,12 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                         comment_by: userData?.user_id,
                         content: universalComment,
                         subject: "creating sr"
-                    })
+                    });
                 }
-                // console.log("newPR", res);
+                
                 await mutate("Service Requests,orderBy(creation-desc)");
 
-                document.getElementById("dialogCloseforNewPR")?.click()
+                document.getElementById("dialogCloseforNewSR")?.click();
                 toast({
                     title: "Success!",
                     description: `New SR: ${res?.name} created successfully!`,
@@ -186,7 +301,6 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                 navigate(-1);
             } catch (error) {
                 console.log("submit_error", error);
-
                 toast({
                     title: "Failed!",
                     description: `SR Creation failed!`,
@@ -197,15 +311,14 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
     };
 
     const UndoDeleteOperation = () => {
-        let curRequest = orderList.list;
-        let itemToRestore = stack.pop();
-
-        curRequest.push(itemToRestore);
-        const newOrderList = { list: [...curRequest] }
-        setOrderList(newOrderList)
-
-        setStack([...stack]);
+        const itemToRestore = stack.pop();
+        if (itemToRestore) {
+            setOrderList(prevState => ({ list: [...prevState.list, itemToRestore] }));
+            setStack([...stack]);
+        }
     };
+
+    console.log("order", orderList)
 
     return (
         <>
@@ -234,7 +347,6 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                                     <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.name === null ? imageUrl : item.image_url} alt="Category" />
                                     <span>{item.name}</span>
                                 </CardTitle>
-                                {/* {console.log("FROM WP:", item.work_package_image)} */}
                             </CardHeader>
                         </Card>
                     ))}
@@ -264,23 +376,28 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                 <div className="flex justify-between">
                     <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => {
                         setCurDesc("")
-                        // setMake("")
-                        // setQuantity(null)
                         setPage('categorylist')
-                    }}><Replace className="w-5 h-5" />Change Category</button>
+                    }}>
+                        <Replace className="w-5 h-5" />
+                        {curCategory && curCategory !== "" ? "Change Category" : "Choose Category"}
+                    </button>
                 </div>
-                <h3 className="font-bold">{curCategory}</h3>
-                <div className="grid w-full gap-1.5">
-                    <Label htmlFor="message">Service Description</Label>
-                    <Textarea placeholder={`Add ${curCategory} Description...`} id="service_description" onChange={(e: any) => setCurDesc(e.target.value === "" ? null : e.target.value)} value={curDesc} />
-                </div>
-                <div className="flex justify-right md:space-x-0 mt-2">
-                    {/* <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button> */}
-                    {(curDesc !== "") ?
-                        <Button variant="default" className="flex items-center gap-1" onClick={() => handleAdd()}> <CirclePlus className="w-4 h-4" />Add</Button>
-                        :
-                        <Button disabled={true} variant="outline" className="border-primary flex items-center gap-1 disabled:opacity-[30%]"><CirclePlus className="w-4 h-4" /> Add</Button>}
-                </div>
+                {curCategory && curCategory !== ""  && (
+                    <>
+                    <h3 className="font-bold">{curCategory}</h3>
+                    <div className="grid w-full gap-1.5">
+                        <Label htmlFor="message">Service Description</Label>
+                        <Textarea placeholder={`Add ${curCategory} Description...`} id="service_description" onChange={(e: any) => setCurDesc(e.target.value === "" ? null : e.target.value)} value={curDesc} />
+                    </div>
+                    <div className="flex justify-right md:space-x-0 mt-2">
+                        {/* <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button> */}
+                        {(curDesc !== "") ?
+                            <Button variant="default" className="flex items-center gap-1" onClick={() => handleAdd()}> <CirclePlus className="w-4 h-4" />Add</Button>
+                            :
+                            <Button disabled={true} variant="outline" className="border-primary flex items-center gap-1 disabled:opacity-[30%]"><CirclePlus className="w-4 h-4" /> Add</Button>}
+                    </div>
+                    </>
+                )}
                 <div className="flex justify-between items-center max-md:py-4">
                     <p className="max-md:text-xs text-rose-700">Added Services</p>
                     {stack.length !== 0 && (
@@ -303,10 +420,9 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                     )}
                 </div>
                 {
-                    categories.list.length ? (
-                        categories.list?.map((cat) => {
-                            return <div className="container mb-4 mx-0 px-0">
-                                <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
+                    orderList?.list?.length ? (
+                            <div className="container mb-4 mx-0 px-0">
+                                {/* <h3 className="text-sm font-semibold py-2">{item?.category}</h3> */}
                                 <table className="table-auto md:w-full">
                                     <thead>
                                         <tr className="bg-gray-200">
@@ -316,48 +432,43 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {orderList.list?.map((item) => {
-                                            if (item.category === cat.name) {
-                                                return <tr key={item.description} >
-                                                    <td className="w-[15%] text-left border-b-2 px-4 py-1 text-sm">
-                                                        {item.category}
-                                                    </td>
-                                                    <td className="w-[75%] border-b-2 px-4 py-1 text-sm text-left">{item.description}</td>
-                                                    <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
-                                                        <Dialog>
-                                                            <DialogTrigger><Pencil className="w-4 h-4" onClick={() => setEditDescription(item.description)} /></DialogTrigger>
-                                                            <DialogContent>
-                                                                <DialogHeader>
-                                                                    <DialogTitle className="flex justify-between">Edit Item</DialogTitle>
-                                                                    <DialogDescription className="flex flex-col gap-2">
-                                                                        <div className="flex space-x-2">
-                                                                            <div className="w-1/2 md:w-2/3">
-                                                                                <h5 className="text-base text-gray-400 text-left mb-1">Service Description</h5>
-                                                                                <div className="w-full  p-1 text-left">
-                                                                                    <Textarea placeholder={`Add ${curCategory} Description...`} onChange={(e: any) => setEditDescription(e.target.value === "" ? null : e.target.value)} value={editDesctiption} />
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    </DialogDescription>
-                                                                    <DialogDescription className="flex justify-end">
-                                                                        <div className="flex gap-2">
-                                                                            <Button className="bg-gray-100 text-black hover:text-white flex items-center gap-1" onClick={() => handleDelete(item.description)}><Trash2 className="h-4 w-4" /> Delete</Button>
-                                                                            <Button onClick={() => handleSave(item.description)}
-                                                                                className="flex items-center gap-1"
-                                                                            ><ListChecks className="h-4 w-4" />Update</Button>
-                                                                        </div>
-                                                                    </DialogDescription>
-                                                                </DialogHeader>
-                                                            </DialogContent>
-                                                        </Dialog>
-                                                    </td>
-                                                </tr>
-                                            }
-                                        })}
+                                        {orderList?.list?.map((item) => (
+                                            <tr key={item.id} >
+                                            <td className="w-[30%] text-left border-b-2 px-4 py-1 text-sm">
+                                                {item.category}
+                                            </td>
+                                            <td className="w-[50%] border-b-2 px-4 py-1 text-sm text-left">{item.description}</td>
+                                            <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
+                                                <Dialog>
+                                                    <DialogTrigger><Pencil className="w-4 h-4" onClick={() => setEditDescription(item.description)} /></DialogTrigger>
+                                                    <DialogContent>
+                                                        <DialogHeader>
+                                                            <DialogTitle className="">Edit <span className="text-primary font-semibold">{item.category}</span></DialogTitle>
+                                                            <DialogDescription className="flex flex-col gap-2">
+                                                                <div className="flex flex-col mb-2">
+                                                                        <h5 className="text-base text-gray-400 text-left mb-1">Service Description</h5>
+                                                                        <Textarea placeholder={`Add ${curCategory} Description...`} onChange={(e: any) => setEditDescription(e.target.value === "" ? null : e.target.value)} value={editDescription} />
+                                                                </div>
+                                                            </DialogDescription>
+                                                            <DialogDescription className="flex justify-end">
+                                                                <div className="flex gap-2">
+                                                                    <Button className="bg-gray-100 text-black hover:text-white flex items-center gap-1" onClick={() => handleDelete(item.id)}>
+                                                                        <Trash2 className="h-4 w-4" /> Delete</Button>
+                                                                    <Button onClick={() => handleSave(item.id)}
+                                                                        className="flex items-center gap-1"
+                                                                    ><ListChecks className="h-4 w-4" />Update</Button>
+                                                                </div>
+                                                            </DialogDescription>
+                                                            <DialogClose id="editDialogCloseSR" className="hidden">Close</DialogClose>
+                                                        </DialogHeader>
+                                                    </DialogContent>
+                                                </Dialog>
+                                            </td>
+                                        </tr>
+                                        ))}
                                     </tbody>
                                 </table>
                             </div>
-                        })
                     ) : <div className="text-center bg-gray-100 p-2 text-gray-600">
                         Empty!
                     </div>
@@ -365,32 +476,6 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
 
                 <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
                     <h3 className="font-bold flex items-center gap-1"><MessageCircleMore className="w-5 h-5" />Comments</h3>
-                    {/* {rejected_pr_data && (
-                        <div className="py-4 w-full flex flex-col gap-2">
-                            {
-                                universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && comment.subject === "rejecting pr")).map((cmt) => (
-                                    <>
-                                        <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
-                                            <Avatar>
-                                                <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
-                                                <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
-                                            </Avatar>
-                                            <div className="flex-1">
-                                                <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
-                                                <div className="flex justify-between items-center mt-2">
-                                                    <p className="text-sm text-gray-500">
-                                                        {cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}
-                                                    </p>
-                                                    <p className="text-xs text-gray-400">
-                                                        {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </>
-                                ))}
-                        </div>
-                    )} */}
                     <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder={"Write comments here..."} value={universalComment || ""} onChange={(e) => handleCommentChange(e)} />
                 </Card>
                 <Dialog>
@@ -413,7 +498,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                             }
                         </DialogDescription>
 
-                        <DialogClose className="hidden" id="dialogCloseforNewPR">Close</DialogClose>
+                        <DialogClose className="hidden" id="dialogCloseforNewSR">Close</DialogClose>
                     </DialogContent>
                 </Dialog>
             </div>}
