@@ -1,0 +1,106 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-11-07 13:45:01.767690",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "project",
+  "work_package",
+  "category",
+  "item",
+  "estimate_details_section",
+  "item_name",
+  "uom",
+  "quantity_estimate",
+  "rate_estimate",
+  "item_tax"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "work_package",
+   "fieldtype": "Link",
+   "label": "Work Package",
+   "options": "Work Packages"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "label": "Category",
+   "options": "Category"
+  },
+  {
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Items"
+  },
+  {
+   "fieldname": "estimate_details_section",
+   "fieldtype": "Section Break",
+   "label": "Estimate Details"
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item Name"
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Data",
+   "label": "UOM"
+  },
+  {
+   "fieldname": "quantity_estimate",
+   "fieldtype": "Data",
+   "label": "Quantity Estimate"
+  },
+  {
+   "fieldname": "rate_estimate",
+   "fieldtype": "Data",
+   "label": "Rate Estimate"
+  },
+  {
+   "fetch_from": "category.tax",
+   "fieldname": "item_tax",
+   "fieldtype": "Data",
+   "label": "Item Tax"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-11-07 13:58:54.450245",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Project Estimates",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
