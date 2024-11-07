@@ -5,7 +5,7 @@ import { NewPRSkeleton } from "../ui/skeleton";
 import { useEffect, useState } from "react";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { useUserData } from "@/hooks/useUserData";
-import { ArrowLeft, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, ListChecks, Settings2, Trash2, Undo2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { toast } from "../ui/use-toast";
@@ -16,6 +16,7 @@ import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/Nir
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { formatDate } from "@/utils/FormatDate";
 import { Timeline } from "antd";
+import { Badge } from "../ui/badge";
 
 const SrSummary = () => {
 
@@ -137,11 +138,11 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                         <AlertDialogContent>
                                             <AlertDialogHeader>
                                                 <AlertDialogTitle className="text-center">
-                                                    Are you sure, you want to delete this PR?
+                                                    Are you sure, you want to delete this SR?
                                                 </AlertDialogTitle>
                                             </AlertDialogHeader>
                                             <AlertDialogDescription className="">
-                                                This action will delete this pr from the system. Are you sure you want to continue?
+                                                This action will delete this service request from the system. Are you sure you want to continue?
                                                 <div className="flex gap-2 items-center justify-center">
                                                     <AlertDialogCancel className="flex items-center gap-1">
                                                         <Undo2 className="h-4 w-4" />
@@ -173,7 +174,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                     {/* <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "green" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "orange" : pr_data.workflow_state === "Rejected" ? "red" : "yellow"}`}>
                                             {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "In Progress" : pr_data.workflow_state === "Pending" ? "Approval Pending" : pr_data.workflow_state}
                                         </Badge> */}
-                                    {sr_data?.status}
+                                    <Badge>{sr_data?.status}</Badge>
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="flex flex-col gap-4">
@@ -276,6 +277,12 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 </CardHeader>
                             </Card>} */}
                     </div>
+
+                    {sr_data?.status === "Created" &&
+                        <div className="text-right">
+                            <Button onClick={() => navigate('select-vendor')}>Select Service Vendor</Button>
+                        </div>
+                    }
                 </>
             </div>
         </>

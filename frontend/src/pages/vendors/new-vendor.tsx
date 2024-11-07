@@ -89,7 +89,7 @@ interface SelectOption {
     value: string;
 }
 
-export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined, prData = undefined }) => {
+export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined, prData = undefined, service = false }) => {
     const navigate = useNavigate()
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
@@ -240,7 +240,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 // Create the vendor document using the address document reference
                 const vendorDoc = await createDoc('Vendors', {
                     vendor_name: values.vendor_name,
-                    vendor_type: "Material",
+                    vendor_type: service ? "Service" : "Material",
                     vendor_address: addressDoc.name,
                     vendor_city: addressDoc.city,
                     vendor_state: addressDoc.state,
@@ -248,11 +248,13 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                     vendor_mobile: values.vendor_mobile,
                     vendor_email: values.vendor_email,
                     vendor_gst: values.vendor_gst,
-                    vendor_category: {
-                        categories: (!renderCategorySelection && dynamicCategories.length)
-                            ? dynamicCategories
-                            : category_json
-                    }
+                    vendor_category: service ? { categories: ["Electrical Services", "HVAC Services", "Data & Networking Services", "Fire Fighting Services", "FA Services", "PA Services", "Access Control Services", "CCTV Services"] }
+                        :
+                        {
+                            categories: (!renderCategorySelection && dynamicCategories.length)
+                                ? dynamicCategories
+                                : category_json
+                        }
                 });
 
                 // Create quotation requests

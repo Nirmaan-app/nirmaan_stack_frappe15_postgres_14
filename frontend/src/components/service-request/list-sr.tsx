@@ -143,7 +143,7 @@ export default function ListSR() {
                                             {/* <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(item.workflow_state) && checkPoToPr(item.name)) ? "green" : (["Delayed", "Sent Back"].includes(item.workflow_state) && !checkPoToPr(item.name)) ? "orange" : item.workflow_state === "Rejected" ? "red" : "yellow"}`}>
                                                     {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(item.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(item.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(item.workflow_state) && checkPoToPr(item.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(item.workflow_state) && !checkPoToPr(item.name)) ? "In Progress" : item.workflow_state === "Pending" ? "Approval Pending" : item.workflow_state}
                                                 </Badge> */}
-                                            <span>item.status</span>
+                                            <span>{item.status}</span>
                                         </TableCell>
                                     </TableRow>
                                 }

@@ -7,6 +7,7 @@
  "field_order": [
   "service_request_links_section",
   "project",
+  "vendor",
   "service_request_details_section",
   "service_order_list",
   "service_category_list",
@@ -43,11 +44,17 @@
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-11-04 21:34:54.458764",
+ "modified": "2024-11-06 18:06:09.941645",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",

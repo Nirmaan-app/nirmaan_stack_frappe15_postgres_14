@@ -12,6 +12,8 @@ export interface ServiceRequests{
 	idx?: number
 	/**	Project : Link - Projects	*/
 	project?: string
+	/**	Vendor : Link - Vendors	*/
+	vendor?: string
 	/**	Service Order List : JSON	*/
 	service_order_list?: any
 	/**	Service Category List : JSON	*/
