@@ -327,7 +327,8 @@ export const ProjectForm = () => {
                     subdivisions: values.subdivisions,
                     subdivision_list: {
                         list: areaNames
-                    }
+                    },
+                    status: "Created"
                 });
 
                 console.log("project", projectDoc)
