@@ -230,7 +230,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     {sr_data &&  JSON.parse(sr_data?.service_order_list).list.map((item: any) => {
                                                         if (item.category === cat.name) {
                                                             return (
-                                                                <TableRow key={item.description}>
+                                                                <TableRow key={item.id}>
                                                                     <TableCell>{item.description}</TableCell>
                                                                     {sr_data?.status !== "Created" && (
                                                                         <TableCell>{formatToIndianRupee(item.amount)}</TableCell>

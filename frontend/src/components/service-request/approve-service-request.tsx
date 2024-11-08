@@ -36,11 +36,12 @@ export const ApproveServiceRequest = () => {
     const { createDoc: createDoc, loading: create_loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
 
-    const getUserName = (id) => {
-        if (usersList) {
-            return usersList.find((user) => user?.name === id)?.full_name
-        }
-    }
+    // const getUserName = (id) => {
+    //     if (usersList) {
+    //         return usersList.find((user) => user?.name === id)?.full_name
+    //     }
+    // }
+
     useEffect(() => {
         if (service_request) {
             setProject(service_request?.project)
@@ -74,7 +75,7 @@ export const ApproveServiceRequest = () => {
         }
     }, [groupedData]);
 
-    console.log("groupedData", groupedData)
+    // console.log("groupedData", groupedData)
 
     // Main table columns
     const columns = [
@@ -106,14 +107,16 @@ export const ApproveServiceRequest = () => {
             dataIndex: "amount",
             key: "amount",
             width: "20%",
-            render: (text) => <span className="italic">{formatToIndianRupee(text)}</span>,
+            render: (text, record) => <span className={`italic ${record?.id === undefined ? "font-semibold text-green-700" : ""}`}>{formatToIndianRupee(text)}</span>,
         },
         {
             title: "Amt inc. tax",
             dataIndex: "amount",
             key: "amountinctax",
             width: "20%",
-            render: (text) => <span className="italic">{formatToIndianRupee(parseFloat(text) * 1.18)}</span>,
+            render: (text, record) => {
+                return  <span className={`italic ${record?.id === undefined ? "font-semibold text-green-700" : ""}`}>{formatToIndianRupee(parseFloat(text) * 1.18)}</span>
+            },
         },
     ];
 
@@ -209,7 +212,15 @@ export const ApproveServiceRequest = () => {
                 </div>
 
                 <div className="pt-6 overflow-x-auto">
-                <ConfigProvider>
+                <ConfigProvider
+                theme={{
+                    components: {
+                        Table : {
+                            // headerBg: "#FFD3CC"
+                        }
+                    }
+                }}
+                >
                     <Table
                         dataSource={((groupedData && Object.keys(groupedData)) || []).map((key) => ({
                             key,
@@ -235,6 +246,7 @@ export const ApproveServiceRequest = () => {
                                     columns={innerColumns}
                                     pagination={false}
                                     rowKey={(item) => item.id || 'total'}
+                                    // rowClassName={(record) => record?.id === undefined ? "bg-gray-200" : ""}
                                 />
                             ),
                         }}
