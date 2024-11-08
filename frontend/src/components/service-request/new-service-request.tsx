@@ -234,7 +234,6 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
             description: curDesc,
         };
         setOrderList(prevState => ({ list: [...prevState.list, serviceObject] }));
-        setCurCategory("");
         setCurDesc("");
     };
 
@@ -318,7 +317,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
         }
     };
 
-    console.log("order", orderList)
+    // console.log("order", orderList)
 
     return (
         <>
@@ -391,7 +390,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                     </div>
                     <div className="flex justify-right md:space-x-0 mt-2">
                         {/* <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button> */}
-                        {(curDesc !== "") ?
+                        {(curDesc !== "" && curDesc) ?
                             <Button variant="default" className="flex items-center gap-1" onClick={() => handleAdd()}> <CirclePlus className="w-4 h-4" />Add</Button>
                             :
                             <Button disabled={true} variant="outline" className="border-primary flex items-center gap-1 disabled:opacity-[30%]"><CirclePlus className="w-4 h-4" /> Add</Button>}

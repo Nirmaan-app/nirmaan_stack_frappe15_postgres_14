@@ -121,7 +121,8 @@ export const SentBackSelectVendor = () => {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address'],
+            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type'],
+            filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
@@ -147,6 +148,13 @@ export const SentBackSelectVendor = () => {
     const [orderData, setOrderData] = useState({
         project: ''
     })
+
+    const {data: filtered_quotation_data} = useFrappeGetDocList("Quotation Requests", {
+        fields: ["*"],
+        filters: [["procurement_task", "=", orderData?.procurement_request]],
+        limit: 2000
+    })
+
     if (!orderData.project) {
         sent_back_list?.map(item => {
             if (item.name === id) {
@@ -200,8 +208,8 @@ export const SentBackSelectVendor = () => {
         setDelayedItems(delayedItems);
     };
 
-    console.log("data", data)
-    console.log("delayedItems", delayedItems)
+    // console.log("data", data)
+    // console.log("delayedItems", delayedItems)
 
     // console.log("orderData", orderData)
     useEffect(() => {
@@ -380,12 +388,14 @@ export const SentBackSelectVendor = () => {
         setPriceMap(newPriceMap);
     }, [quotation_request_list, orderData]);
 
-    const getPackage = (name: string) => {
-        return procurement_request_list?.find(item => item.name === name)?.work_package;
-    }
+    // const getPackage = (name: string) => {
+    //     return procurement_request_list?.find(item => item.name === name)?.work_package;
+    // }
+
+    console.log('quotationrequestlist', quotation_request_list)
 
     const getLeadTime = (vendor: string, category: string) => {
-        const item = quotation_request_list?.find(item => item.vendor === vendor && item.category === category && item.procurement_task === orderData?.procurement_request)
+        const item = filtered_quotation_data?.find(item => item.vendor === vendor && item.category === category)
         return item?.lead_time;
     }
     const getSelectedVendor = (item: string) => {
