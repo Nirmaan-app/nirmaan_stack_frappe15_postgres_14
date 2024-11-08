@@ -12,7 +12,7 @@ import ProjectTypeForm from "../../components/project-type-form"
 import { Separator } from "../../components/ui/separator"
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
 import { cn } from "@/lib/utils"
-import { ArrowLeft, CalendarIcon, CirclePlus, GitCommitVertical, ListChecks, Undo2 } from "lucide-react"
+import { ArrowLeft, BadgeIndianRupee, CalendarIcon, CirclePlus, GitCommitVertical, ListChecks, Undo2 } from "lucide-react"
 import { Calendar } from "../../components/ui/calendar"
 import { format } from "date-fns"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../components/ui/accordion"
@@ -246,6 +246,7 @@ export const ProjectForm = () => {
     const [popoverOpen2, setPopoverOpen2] = useState(false);
     const [duration, setDuration] = useState(0)
     const [areaNames, setAreaNames] = useState([]);
+    const [newProjectId, setNewProjectId] = useState();
     const { toast } = useToast()
 
 
@@ -329,16 +330,17 @@ export const ProjectForm = () => {
                         list: areaNames
                     },
                     status: "Created"
-                });
+                })
 
-                console.log("project", projectDoc)
+                // console.log("project", projectDoc)
                 toast({
                     title: "Success!",
                     description: `Project ${projectDoc.project_name} created successfully!`,
                     variant: "success"
                 })
-
+                setNewProjectId(projectDoc.project_name)
                 handleOpenDialog()
+
             }
             catch (projectError) {
                 await deleteDoc('Address', addressDoc.name);
@@ -1146,12 +1148,13 @@ export const ProjectForm = () => {
                             <AlertDialogContent>
                                 <AlertDialogHeader className="flex items-center justify-center">
                                     <AlertDialogTitle className="text-green-500">
-                                        Project Created Successfully!
+                                        Project Created Successfully! You can start adding project estimates.
                                     </AlertDialogTitle>
                                     <div className="flex gap-2">
                                         <AlertDialogAction onClick={() => navigate("/projects")} className="flex items-center gap-1 bg-gray-100 text-black">
                                             <Undo2 className="h-4 w-4" />
-                                            Go Back</AlertDialogAction>
+                                            Go Back
+                                        </AlertDialogAction>
                                         {/* <AlertDialogAction onClick={() => {
                                             form.reset()
                                             form.clearErrors()
@@ -1160,6 +1163,10 @@ export const ProjectForm = () => {
                                         >
                                             <CirclePlus className="h-4 w-4" />
                                             Create New</AlertDialogAction> */}
+                                        <AlertDialogAction onClick={() => navigate(`/projects/${newProjectId}/add-estimates`)} className="flex items-center gap-1 bg-gray-100 text-black">
+                                            <BadgeIndianRupee className="h-4 w-4" />
+                                            Next: Fill Estimates
+                                        </AlertDialogAction>
                                     </div>
                                 </AlertDialogHeader>
 

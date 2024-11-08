@@ -22,7 +22,7 @@ import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/
 import { toast } from "@/components/ui/use-toast"
 import { ConfigProvider, Menu, MenuProps } from "antd"
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall, useFrappeUpdateDoc } from "frappe-react-sdk"
-import { ArrowLeft, Check, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDown, CirclePlus, Download, FilePenLine, ListChecks, UserCheckIcon } from "lucide-react"
+import { ArrowLeft, Check, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDown, CirclePlus, Download, FilePenLine, HardHat, ListChecks, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
@@ -47,10 +47,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { CommandGroup, CommandItem, Command, CommandEmpty, CommandList } from "@/components/ui/command"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 
-const statuses = [
-  { value: 'WIP', label: 'WIP' },
-  { value: 'Completed', label: 'Completed' },
-  { value: 'Halted', label: 'Halted' }
+const projectStatuses = [
+  { value: 'WIP', label: 'WIP', color: 'text-yellow-500' },
+  { value: 'Completed', label: 'Completed', color: 'text-green-500' },
+  { value: 'Halted', label: 'Halted', color: 'text-red-500' }
 ]
 
 const Project = () => {
@@ -689,7 +689,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       setPopOverStatus()
       return
     }
-    if (statuses.some(s => s.value === value)) {
+    if (projectStatuses.some(s => s.value === value)) {
       setNewStatus(value)
       setShowStatusChangeDialog(true)
     }
@@ -733,8 +733,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {role === "Nirmaan Admin Profile" && <div className="flex max-sm:text-xs max-md:text-sm text-right items-center">
           <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
             <PopoverTrigger asChild>
-              <Button variant='outline' role="combobox" aria-expanded={open} className="w-40">
-                {statuses.find((s) => s.value === data?.status)?.label || "N/A"}
+              <Button variant='outline' role="combobox" aria-expanded={open} className="w-48 flex justify-between">
+                <span className="font-bold text-md">Status: </span>
+                <div className={`flex ${projectStatuses.find((s) => s.value === data?.status)?.color || "text-gray-500"}`}>{projectStatuses.find((s) => s.value === data?.status)?.label || "Not Set"}</div>
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
@@ -742,7 +743,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               <Command>
                 <CommandList>
                   <CommandGroup>
-                    {statuses.map((s) => (
+                    {projectStatuses.map((s) => (
                       <CommandItem key={s.value} value={s.value} onSelect={() => handleStatusChange(s.value)}>
                         {/* <Check className={cn("mr-2 h-4 w-4", status === s.value ? "opacity-100" : "opacity-0")} /> */}
                         {s.label}
@@ -759,8 +760,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                 <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                 <AlertDialogDescription>
                   This action will change the status from "
-                  {statuses.find((s) => s.value === data?.status)?.label || "Unknown"} "
-                  to "{statuses.find((s) => s.value === newStatus)?.label || "Unknown"}".
+                  {projectStatuses.find((s) => s.value === data?.status)?.label || "Unknown"} "
+                  to "{projectStatuses.find((s) => s.value === newStatus)?.label || "Unknown"}".
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -804,7 +805,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           <Card>
             <CardHeader>
               <CardTitle>
-                {data?.project_name}
+                <div className="flex justify-between items-center">
+                  {data?.project_name}
+                  <Button onClick={() => navigate('add-estimates')}><CirclePlus className="h-4 w-4 mr-2" /> Add Project Estimates</Button>
+                </div>
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-10 w-full">

@@ -186,6 +186,7 @@ const router = createBrowserRouter(
 							path=":projectId"
 							lazy={() => import('@/pages/projects/project')}
 						/>
+						<Route path=":projectId/add-estimates" lazy={() => import('@/components/add-project-estimates')} />
 						<Route path=":projectId/edit" element={<EditProjectForm />} />
 						<Route path=":projectId/:id">
 							<Route index lazy={() => import('@/components/pr-summary')} />
