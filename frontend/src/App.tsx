@@ -55,6 +55,8 @@ import ListSR from './components/service-request/list-sr'
 import { ApproveSelectSR } from './components/service-request/approve-service-request-list'
 import { ApproveServiceRequest } from './components/service-request/approve-service-request'
 import { SelectServiceVendorList } from './components/service-request/select-service-vendor-list'
+import { ApprovedSRList } from './components/service-request/approved-sr-list'
+import { ApprovedSR } from './components/service-request/approved-sr'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -127,6 +129,11 @@ const router = createBrowserRouter(
 					<Route path="approve-service-request">
 						<Route index element={<ApproveSelectSR />} />
 						<Route path=":id" element={<ApproveServiceRequest />} />
+					</Route>
+
+					<Route path='approved-sr'>
+						<Route index element={<ApprovedSRList />} />
+						<Route path=":id" element={<ApprovedSR />} />
 					</Route>
 
 					{/* New PR Request Paths  */}

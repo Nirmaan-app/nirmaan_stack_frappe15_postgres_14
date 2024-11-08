@@ -1,51 +1,29 @@
-import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
-import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
-import { useNavigate, useParams } from "react-router-dom"
-import { NewPRSkeleton } from "../ui/skeleton";
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { ArrowLeft, Printer } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { useUserData } from "@/hooks/useUserData";
-import { ArrowLeft, ListChecks, Printer, Settings2, Trash2, Undo2 } from "lucide-react";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
-import { Button } from "../ui/button";
-import { toast } from "../ui/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
-import { Label } from "../ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
-import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
-import { formatDate } from "@/utils/FormatDate";
-import { Timeline } from "antd";
-import { Badge } from "../ui/badge";
-import { SelectServiceVendorPage } from "./select-service-vendor";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 import redlogo from "@/assets/red-logo.png"
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
+import formatToIndianRupee from "@/utils/FormatPrice";
+import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 
-const SrSummary = () => {
+export const ApprovedSR = () => {
 
-    const { id } = useParams<{ id: any }>();
+    const {id} = useParams()
 
-    const [project, setProject] = useState<string | undefined>()
+    const navigate = useNavigate()
 
-    const { data: sr_data, isLoading: sr_loading, error: sr_error } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id, id ? `Service Requests ${id}` : null);
+    const {data : service_request, isLoading: service_request_loading, error: service_request_error, mutate: service_request_mutate} = useFrappeGetDoc("Service Requests", id, id ? `Service Requests ${id}` : null)
 
-    const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
-        fields: ["*"],
-        limit: 1000,
-    })
+    const [orderData, setOrderData] = useState(null)
+    const [vendorAddress, setVendorAddress] = useState()
+    const [projectAddress, setProjectAddress] = useState()
 
-    const { data: universalComments, isLoading: universalCommentsLoading, error: universalCommentsError } = useFrappeGetDocList<NirmaanCommentsType>("Nirmaan Comments", {
-        fields: ["*"],
-        limit: 1000,
-        filters: [["reference_name", "=", id]],
-        orderBy: { field: "creation", order: "desc" }
-    })
+    const {data: service_vendor, isLoading: service_vendor_loading, error: service_vendor_error, mutate: service_vendor_mutate} = useFrappeGetDoc("Vendors", orderData?.vendor, orderData?.vendor ? `Vendors ${orderData?.vendor}` : null)
 
-    const {data: service_vendor, isLoading: service_vendor_loading, error: service_vendor_error, mutate: service_vendor_mutate} = useFrappeGetDoc("Vendors", sr_data?.vendor, sr_data?.vendor ? `Vendors ${sr_data?.vendor}` : null)
-
-    const {data: projectData, isLoading: project_loading, error: project_error, mutate: project_mutate} = useFrappeGetDoc("Projects", sr_data?.project, sr_data?.project ? `Projects ${sr_data?.project}` : null)
+    const {data: project, isLoading: project_loading, error: project_error, mutate: project_mutate} = useFrappeGetDoc("Projects", orderData?.project, orderData?.project ? `Projects ${orderData?.project}` : null)
 
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
@@ -56,46 +34,14 @@ const SrSummary = () => {
     );
 
     useEffect(() => {
-        if (sr_data) {
-            setProject(sr_data?.project)
+        if(service_request) {
+            setOrderData(service_request)
         }
-    }, [sr_data])
-
-    return (
-        <>  {(sr_loading || project_loading || userLoading || universalCommentsLoading || service_vendor_loading || address_list_loading) ? <NewPRSkeleton /> : 
-        <SrSummaryPage sr_data={sr_data} project_data={projectData} universalComments={universalComments} usersList={usersList} service_vendor={service_vendor} address_list={address_list} />}
-            {(sr_error || project_error || userError || universalCommentsError || service_vendor_error || address_list_error) && <h1>Error</h1>}
-        </>
-    )
-};
-
-interface SrSummaryPageProps {
-    sr_data: ServiceRequestsType | undefined
-    project_data: ProjectsType | undefined
-    usersList: NirmaanUsersType[] | undefined
-    universalComments: NirmaanCommentsType[] | undefined
-    service_vendor?: any
-    address_list?: any
-}
-
-export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComments, service_vendor, address_list}: SrSummaryPageProps) => {
-    const navigate = useNavigate();
-    const sr_no = sr_data?.name.split("-").slice(-1)
-    const userData = useUserData()
-    const [page, setPage] = useState("Summary")
-    const [vendorAddress, setVendorAddress] = useState()
-    const [projectAddress, setProjectAddress] = useState()
-
-    const { mutate } = useSWRConfig()
-    const { deleteDoc } = useFrappeDeleteDoc()
-
-    const getFullName = (id: string) => {
-        return usersList?.find((user) => user.name === id)?.full_name
-    }
+    }, [service_request])
 
     useEffect(() => {
-        if (sr_data?.project && project_data && service_vendor) {
-            const doc = address_list?.find(item => item.name == project_data?.project_address);
+        if (orderData?.project && project && service_vendor) {
+            const doc = address_list?.find(item => item.name == project?.project_address);
             const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
             setProjectAddress(address)
             const doc2 = address_list?.find(item => item.name == service_vendor?.vendor_address);
@@ -111,62 +57,19 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
         //     setVendorGST(vendor_data?.vendor_gst)
         // }
 
-    }, [sr_data, address_list, project_data, service_vendor]);
-
-    const itemsTimelineList = universalComments?.map((cmt: any) => ({
-        label: (
-            <span className="max-sm:text-wrap text-xs m-0 p-0">{formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}</span>
-        ), children: (
-            <Card>
-                <CardHeader className="p-2">
-                    <CardTitle>
-                        {cmt.comment_by === "Administrator" ? (
-                            <span className="text-sm">Administrator</span>
-                        ) : (
-                            <span className="text-sm">{getFullName(cmt.comment_by)}</span>
-                        )}
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                    {cmt.content}
-                </CardContent>
-            </Card>
-        ), color:
-            cmt.subject ? (cmt.subject === "creating pr" ? "green" : cmt.subject === "rejecting pr" ? "red" : "blue") : 'gray'
-    }))
-
-
-    const handleDeleteSr = async () => {
-        try {
-            await deleteDoc("Service Requests", sr_data?.name)
-            await mutate("Service Requests,orderBy(creation-desc)")
-            toast({
-                title: "Success!",
-                description: `SR: ${sr_data?.name} deleted successfully!`,
-                variant: "success"
-            })
-            navigate("/service-request")
-        } catch (error) {
-            console.log("error while deleting SR", error)
-            toast({
-                title: "Failed!",
-                description: `SR: ${sr_data?.name} deletion Failed!`,
-                variant: "destructive"
-            })
-        }
-    }
+    }, [orderData, address_list, project, service_vendor]);
 
     const componentRef = useRef<HTMLDivElement>(null);
 
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
-        documentTitle: `${sr_data?.name}_${sr_data?.vendor}`
+        documentTitle: `${orderData?.name}_${orderData?.vendor}`
     });
 
     const getTotal = () => {
         let total: number = 0;
-        if(sr_data) {
-            const serviceOrder = JSON.parse(sr_data?.service_order_list);
+        if(orderData) {
+            const serviceOrder = JSON.parse(orderData?.service_order_list);
             serviceOrder?.list?.map((item) => {
             const price = item.amount;
             total += price ? parseFloat(price) : 0
@@ -175,177 +78,20 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
         return total;
     }
 
+
     return (
-            <div className="flex-1 space-y-2 md:space-y-4">
-                {
-                    page === "Summary" && (
-                        <>
-                    <div className="flex items-center justify-between">
-                        <div className="flex gap-2 items-center">
-                            <div className="flex items-center gap-1 flex-wrap">
-                                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-                                <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
-                                <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span>
-                            </div>
-                            <Button className='flex items-center gap-2' onClick={handlePrint}>
-                                <Printer className='h-4 w-4' />
-                                Print
-                            </Button>
-                        </div>
-                        <div className="flex gap-4 items-center">
-                            {sr_data?.status === "Rejected" && (
-                                <Button onClick={() => setPage("Resolve")} className="flex items-center gap-1">
-                                    <Settings2 className="h-4 w-4" />
-                                    Resolve</Button>
-                            )}
-                            {
-                                ["Created", "Rejected", userData?.role === "Nirmaan Procurement Executive Profile" ? "Vendor Selected" : ""].includes(sr_data?.status) && (
-                                    <AlertDialog>
-                                        <AlertDialogTrigger>
-                                            <Button className="flex items-center gap-1">
-                                                <Trash2 className="h-4 w-4" />
-                                                Delete</Button>
-                                        </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                            <AlertDialogHeader>
-                                                <AlertDialogTitle className="text-center">
-                                                    Are you sure, you want to delete this SR?
-                                                </AlertDialogTitle>
-                                            </AlertDialogHeader>
-                                            <AlertDialogDescription className="">
-                                                This action will delete this service request from the system. Are you sure you want to continue?
-                                                <div className="flex gap-2 items-center justify-center">
-                                                    <AlertDialogCancel className="flex items-center gap-1">
-                                                        <Undo2 className="h-4 w-4" />
-                                                        Cancel
-                                                    </AlertDialogCancel>
-                                                    <AlertDialogAction className="flex items-center gap-1" onClick={handleDeleteSr}>
-                                                        <ListChecks className="h-4 w-4" />
-                                                        Confirm
-                                                    </AlertDialogAction>
-                                                </div>
-                                            </AlertDialogDescription>
-                                        </AlertDialogContent>
-                                    </AlertDialog>
-                                )
-                            }
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                        <Card className="w-full">
-                            <CardHeader>
-                                <CardTitle className="text-xl text-red-600 flex items-center justify-between">
-                                    SR Details
-                                    {/* <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "green" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "orange" : pr_data.workflow_state === "Rejected" ? "red" : "yellow"}`}>
-                                            {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "In Progress" : pr_data.workflow_state === "Pending" ? "Approval Pending" : pr_data.workflow_state}
-                                        </Badge> */}
-                                    <Badge>{sr_data?.status}</Badge>
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="flex flex-col gap-4">
-                                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                                    <div className="space-y-1">
-                                        <Label className="text-slim text-red-300">Project:</Label>
-                                        <p className="font-semibold">{project_data?.project_name}</p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label className="text-slim text-red-300">Package:</Label>
-                                        <p className="font-semibold">Services</p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label className="text-slim text-red-300">Date Created:</Label>
-                                        <p className="font-semibold">{new Date(sr_data?.creation).toDateString()}</p>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1 flex flex-col items-start justify-start">
-                                    <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
-                                    <Timeline
-                                        className="w-full"
-                                        mode={'left'}
-                                        items={itemsTimelineList}
-                                    />
-                                </div>
-                            </CardContent>
-                        </Card>
-                        <Card className="w-full">
-                            <CardHeader>
-                                <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
-                            </CardHeader>
-
-                            <div className="overflow-x-auto">
-                                <div className="min-w-full inline-block align-middle">
-                                    {JSON.parse(sr_data?.service_category_list).list.map((cat: any) => {
-                                        return <div className="p-5">
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow className="bg-red-100">
-                                                        <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
-                                                        {sr_data?.status !== "Created" && (
-                                                            <TableHead className="w-[20%]">Amount</TableHead>
-                                                        )}
-                                                        <TableHead className="w-[20%]">Status</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {sr_data &&  JSON.parse(sr_data?.service_order_list).list.map((item: any) => {
-                                                        if (item.category === cat.name) {
-                                                            return (
-                                                                <TableRow key={item.id}>
-                                                                    <TableCell>{item.description}</TableCell>
-                                                                    {sr_data?.status !== "Created" && (
-                                                                        <TableCell>{formatToIndianRupee(item.amount)}</TableCell>
-                                                                    )}
-                                                                    <TableCell>
-                                                                        {/* <Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge> */}
-                                                                        {sr_data?.status}
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            )
-                                                        }
-                                                    })}
-                                                </TableBody>
-                                            </Table>
-                                        </div>
-                                    })}
-                                </div>
-                            </div>
-                        </Card>
-                        {/* {userData.role !== "Nirmaan Project Manager Profile" && <Card className="w-full">
-                                <CardHeader>
-                                    <CardTitle className="text-xl text-red-600">Associated POs:</CardTitle>
-                                    <div className="overflow-x-auto">
-                                        <div className="min-w-full inline-block align-middle">
-                                        </div>
-                                        {po_data?.length === 0 ? <p>No POs generated as of now</p>
-                                            :
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow className="bg-red-100">
-                                                        <TableHead className="w-[40%]">PO Number</TableHead>
-                                                        <TableHead className="w-[30%]">Date Created</TableHead>
-                                                        <TableHead className="w-[30%]">Status</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {po_data?.map((po) => {
-                                                        return (
-                                                            <TableRow key={po.name}>
-                                                                <TableCell>
-                                                                    <Link to={po?.name.replaceAll("/", "&=")} className="text-blue-500 underline">{po?.name}</Link>
-                                                                </TableCell>
-                                                                <TableCell>{formatDate(po.creation)}</TableCell>
-                                                                <TableCell><Badge variant="outline">{po.status}</Badge></TableCell>
-                                                            </TableRow>
-                                                        )
-                                                    })}
-                                                </TableBody>
-                                            </Table>}
-                                    </div>
-                                </CardHeader>
-                            </Card>} */}
-
-                            <div className={`w-full border rounded-lg h-screen overflow-y-scroll hidden`}>
+        <div className='flex-1 md:space-y-4'>
+            <div className="flex justify-between items-center">
+                <div className="py-4 flex items-center gap-1">
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                    <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
+                </div>
+                <Button className='flex items-center gap-2' onClick={handlePrint}>
+                    <Printer className='h-4 w-4' />
+                    Print
+                </Button>
+                </div>
+                        <div className={`w-full border rounded-lg h-screen overflow-y-scroll`}>
                                 <div ref={componentRef} className="w-full p-4">
                                     <div className="overflow-x-auto">
                                         <table className="min-w-full divide-gray-200">
@@ -361,7 +107,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                             </div>
                                                             <div>
                                                                 <div className="pt-2 text-xl text-gray-600 font-semibold">Service Order No.</div>
-                                                                <div className="text-lg font-semibold text-black">{(sr_data?.name)?.toUpperCase()}</div>
+                                                                <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>
 
@@ -385,8 +131,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                                     <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{projectAddress}</div>
                                                                 </div>
                                                                 <div className="pt-2">
-                                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{sr_data?.modified?.split(" ")[0]}</i></div>
-                                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{sr_data?.project}</i></div>
+                                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.modified?.split(" ")[0]}</i></div>
+                                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.project}</i></div>
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -402,8 +148,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                 </tr>
                                             </thead>
                                              <tbody className={`bg-white`}>
-                                                {sr_data && JSON.parse(sr_data?.service_order_list)?.list?.map((item, index) => (
-                                                <tr key={item.id} className={`${index === (sr_data && JSON.parse(sr_data?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
+                                                {orderData && JSON.parse(orderData?.service_order_list)?.list?.map((item, index) => (
+                                                <tr key={item.id} className={`${index === (orderData && JSON.parse(orderData?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
                                                     <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
                                                     <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap">{item?.description}</td>
@@ -475,7 +221,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                             </div>
                                                             <div>
                                                                 <div className="pt-2 text-xl text-gray-600 font-semibold">Service Order No. :</div>
-                                                                <div className="text-lg font-semibold text-black">{(sr_data?.name)?.toUpperCase()}</div>
+                                                                <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>
 
@@ -552,21 +298,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                     </div>
                                 </div>
                         </div>
-                    </div>
-
-                    {sr_data?.status === "Created" &&
-                        <div className="text-right">
-                            <Button onClick={() => navigate(`/select-service-vendor/${sr_data?.name}`)}>Select Service Vendor</Button>
-                        </div>
-                    }
-                </>
-                    )
-                }
-                {page === "Resolve" && (
-                    <SelectServiceVendorPage resolve={true} sr_data={sr_data} universalComments={universalComments?.filter((com) => com?.subject === "rejecting sr")} setPage={setPage} />
-                )}
-            </div>
-    )
-}
-
-export const Component = SrSummary
+        </div>
+    );
+};

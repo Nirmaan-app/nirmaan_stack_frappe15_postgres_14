@@ -517,6 +517,7 @@ export const NavBar = () => {
                     children: [
                         {key: '/service-request', label : 'View/Create SR'},
                         {key: '/select-service-vendor', label : 'Select Service Vendor'},
+                        {key: '/approved-sr', label : 'Approved SR'},
                     ]
                 },
                 {
@@ -633,7 +634,7 @@ export const NavBar = () => {
         "prs&milestones", "approve-order", "approve-vendor",
         "approve-sent-back", "approve-amended-po", "procure-request", "update-quote",
         "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
-        "service-request", "approve-service-request", "select-service-vendor"
+        "service-request", "approve-service-request", "select-service-vendor", "approved-sr"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
@@ -641,7 +642,7 @@ export const NavBar = () => {
     const openKey = ["prs&milestones", "approve-order", "approve-vendor",
         "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["service-request", "procure-request", "update-quote",
             "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
-            ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor"].includes(selectedKeys) ? "pe-sr-actions" : ""
+            ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
 
     if (user_id !== "Administrator" && !role) {
         return (<div>loading...</div>)
