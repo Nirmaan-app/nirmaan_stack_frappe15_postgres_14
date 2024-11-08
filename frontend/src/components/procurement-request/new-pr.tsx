@@ -123,12 +123,14 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
             orderBy: { field: 'work_package_name', order: 'asc' },
             limit: 100
         });
+        
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package', 'image_url', 'tax'],
             orderBy: { field: 'category_name', order: 'asc' },
             limit: 1000
         });
+        
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
@@ -462,7 +464,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
 
     return (
         <>
-            {(page == 'wplist' && !rejected_pr_data) && <div className="flex-1 md:space-y-4">
+            {(page == 'wplist' && !rejected_pr_data) && 
+            <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                     <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
