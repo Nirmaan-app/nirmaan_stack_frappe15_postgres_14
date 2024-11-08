@@ -43,9 +43,9 @@ const SrSummary = () => {
         orderBy: { field: "creation", order: "desc" }
     })
 
-    const {data: service_vendor, isLoading: service_vendor_loading, error: service_vendor_error, mutate: service_vendor_mutate} = useFrappeGetDoc("Vendors", sr_data?.vendor, sr_data?.vendor ? `Vendors ${sr_data?.vendor}` : null)
+    const { data: service_vendor, isLoading: service_vendor_loading, error: service_vendor_error, mutate: service_vendor_mutate } = useFrappeGetDoc("Vendors", sr_data?.vendor, sr_data?.vendor ? `Vendors ${sr_data?.vendor}` : null)
 
-    const {data: projectData, isLoading: project_loading, error: project_error, mutate: project_mutate} = useFrappeGetDoc("Projects", sr_data?.project, sr_data?.project ? `Projects ${sr_data?.project}` : null)
+    const { data: projectData, isLoading: project_loading, error: project_error, mutate: project_mutate } = useFrappeGetDoc("Projects", sr_data?.project, sr_data?.project ? `Projects ${sr_data?.project}` : null)
 
     const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
         {
@@ -62,8 +62,8 @@ const SrSummary = () => {
     }, [sr_data])
 
     return (
-        <>  {(sr_loading || project_loading || userLoading || universalCommentsLoading || service_vendor_loading || address_list_loading) ? <NewPRSkeleton /> : 
-        <SrSummaryPage sr_data={sr_data} project_data={projectData} universalComments={universalComments} usersList={usersList} service_vendor={service_vendor} address_list={address_list} />}
+        <>  {(sr_loading || project_loading || userLoading || universalCommentsLoading || service_vendor_loading || address_list_loading) ? <NewPRSkeleton /> :
+            <SrSummaryPage sr_data={sr_data} project_data={projectData} universalComments={universalComments} usersList={usersList} service_vendor={service_vendor} address_list={address_list} />}
             {(sr_error || project_error || userError || universalCommentsError || service_vendor_error || address_list_error) && <h1>Error</h1>}
         </>
     )
@@ -78,7 +78,7 @@ interface SrSummaryPageProps {
     address_list?: any
 }
 
-export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComments, service_vendor, address_list}: SrSummaryPageProps) => {
+export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComments, service_vendor, address_list }: SrSummaryPageProps) => {
     const navigate = useNavigate();
     const sr_no = sr_data?.name.split("-").slice(-1)
     const userData = useUserData()
@@ -165,153 +165,153 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
     const getTotal = () => {
         let total: number = 0;
-        if(sr_data) {
+        if (sr_data) {
             const serviceOrder = JSON.parse(sr_data?.service_order_list);
             serviceOrder?.list?.map((item) => {
-            const price = item.amount;
-            total += price ? parseFloat(price) : 0
+                const price = item.amount;
+                total += price ? parseFloat(price) : 0
             })
         }
         return total;
     }
 
     return (
-            <div className="flex-1 space-y-2 md:space-y-4">
-                {
-                    page === "Summary" && (
-                        <>
-                    <div className="flex items-center justify-between">
-                        <div className="flex gap-2 items-center">
-                            <div className="flex items-center gap-1 flex-wrap">
-                                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-                                <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
-                                <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span>
+        <div className="flex-1 space-y-2 md:space-y-4">
+            {
+                page === "Summary" && (
+                    <>
+                        <div className="flex items-center justify-between">
+                            <div className="flex gap-2 items-center">
+                                <div className="flex items-center gap-1 flex-wrap">
+                                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                                    <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
+                                    <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span>
+                                </div>
+                                <Button className='flex items-center gap-2' onClick={handlePrint}>
+                                    <Printer className='h-4 w-4' />
+                                    Print
+                                </Button>
                             </div>
-                            <Button className='flex items-center gap-2' onClick={handlePrint}>
-                                <Printer className='h-4 w-4' />
-                                Print
-                            </Button>
+                            <div className="flex gap-4 items-center">
+                                {sr_data?.status === "Rejected" && (
+                                    <Button onClick={() => setPage("Resolve")} className="flex items-center gap-1">
+                                        <Settings2 className="h-4 w-4" />
+                                        Resolve</Button>
+                                )}
+                                {
+                                    ["Created", "Rejected", userData?.role === "Nirmaan Procurement Executive Profile" ? "Vendor Selected" : ""].includes(sr_data?.status) && (
+                                        <AlertDialog>
+                                            <AlertDialogTrigger>
+                                                <Button className="flex items-center gap-1">
+                                                    <Trash2 className="h-4 w-4" />
+                                                    Delete</Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle className="text-center">
+                                                        Are you sure, you want to delete this SR?
+                                                    </AlertDialogTitle>
+                                                </AlertDialogHeader>
+                                                <AlertDialogDescription className="">
+                                                    This action will delete this service request from the system. Are you sure you want to continue?
+                                                    <div className="flex gap-2 items-center justify-center">
+                                                        <AlertDialogCancel className="flex items-center gap-1">
+                                                            <Undo2 className="h-4 w-4" />
+                                                            Cancel
+                                                        </AlertDialogCancel>
+                                                        <AlertDialogAction className="flex items-center gap-1" onClick={handleDeleteSr}>
+                                                            <ListChecks className="h-4 w-4" />
+                                                            Confirm
+                                                        </AlertDialogAction>
+                                                    </div>
+                                                </AlertDialogDescription>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                    )
+                                }
+                            </div>
                         </div>
-                        <div className="flex gap-4 items-center">
-                            {sr_data?.status === "Rejected" && (
-                                <Button onClick={() => setPage("Resolve")} className="flex items-center gap-1">
-                                    <Settings2 className="h-4 w-4" />
-                                    Resolve</Button>
-                            )}
-                            {
-                                ["Created", "Rejected", userData?.role === "Nirmaan Procurement Executive Profile" ? "Vendor Selected" : ""].includes(sr_data?.status) && (
-                                    <AlertDialog>
-                                        <AlertDialogTrigger>
-                                            <Button className="flex items-center gap-1">
-                                                <Trash2 className="h-4 w-4" />
-                                                Delete</Button>
-                                        </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                            <AlertDialogHeader>
-                                                <AlertDialogTitle className="text-center">
-                                                    Are you sure, you want to delete this SR?
-                                                </AlertDialogTitle>
-                                            </AlertDialogHeader>
-                                            <AlertDialogDescription className="">
-                                                This action will delete this service request from the system. Are you sure you want to continue?
-                                                <div className="flex gap-2 items-center justify-center">
-                                                    <AlertDialogCancel className="flex items-center gap-1">
-                                                        <Undo2 className="h-4 w-4" />
-                                                        Cancel
-                                                    </AlertDialogCancel>
-                                                    <AlertDialogAction className="flex items-center gap-1" onClick={handleDeleteSr}>
-                                                        <ListChecks className="h-4 w-4" />
-                                                        Confirm
-                                                    </AlertDialogAction>
-                                                </div>
-                                            </AlertDialogDescription>
-                                        </AlertDialogContent>
-                                    </AlertDialog>
-                                )
-                            }
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                        <Card className="w-full">
-                            <CardHeader>
-                                <CardTitle className="text-xl text-red-600 flex items-center justify-between">
-                                    SR Details
-                                    {/* <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "green" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "orange" : pr_data.workflow_state === "Rejected" ? "red" : "yellow"}`}>
+                        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                            <Card className="w-full">
+                                <CardHeader>
+                                    <CardTitle className="text-xl text-red-600 flex items-center justify-between">
+                                        SR Details
+                                        {/* <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "green" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "orange" : pr_data.workflow_state === "Rejected" ? "red" : "yellow"}`}>
                                             {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "In Progress" : pr_data.workflow_state === "Pending" ? "Approval Pending" : pr_data.workflow_state}
                                         </Badge> */}
-                                    <Badge>{sr_data?.status}</Badge>
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="flex flex-col gap-4">
-                                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                                    <div className="space-y-1">
-                                        <Label className="text-slim text-red-300">Project:</Label>
-                                        <p className="font-semibold">{project_data?.project_name}</p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label className="text-slim text-red-300">Package:</Label>
-                                        <p className="font-semibold">Services</p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label className="text-slim text-red-300">Date Created:</Label>
-                                        <p className="font-semibold">{new Date(sr_data?.creation).toDateString()}</p>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1 flex flex-col items-start justify-start">
-                                    <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
-                                    <Timeline
-                                        className="w-full"
-                                        mode={'left'}
-                                        items={itemsTimelineList}
-                                    />
-                                </div>
-                            </CardContent>
-                        </Card>
-                        <Card className="w-full">
-                            <CardHeader>
-                                <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
-                            </CardHeader>
-
-                            <div className="overflow-x-auto">
-                                <div className="min-w-full inline-block align-middle">
-                                    {JSON.parse(sr_data?.service_category_list).list.map((cat: any) => {
-                                        return <div className="p-5">
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow className="bg-red-100">
-                                                        <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
-                                                        {sr_data?.status !== "Created" && (
-                                                            <TableHead className="w-[20%]">Amount</TableHead>
-                                                        )}
-                                                        <TableHead className="w-[20%]">Status</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {sr_data &&  JSON.parse(sr_data?.service_order_list).list.map((item: any) => {
-                                                        if (item.category === cat.name) {
-                                                            return (
-                                                                <TableRow key={item.id}>
-                                                                    <TableCell>{item.description}</TableCell>
-                                                                    {sr_data?.status !== "Created" && (
-                                                                        <TableCell>{formatToIndianRupee(item.amount)}</TableCell>
-                                                                    )}
-                                                                    <TableCell>
-                                                                        {/* <Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge> */}
-                                                                        {sr_data?.status}
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            )
-                                                        }
-                                                    })}
-                                                </TableBody>
-                                            </Table>
+                                        <Badge>{sr_data?.status}</Badge>
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="flex flex-col gap-4">
+                                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                                        <div className="space-y-1">
+                                            <Label className="text-slim text-red-300">Project:</Label>
+                                            <p className="font-semibold">{project_data?.project_name}</p>
                                         </div>
-                                    })}
+                                        <div className="space-y-1">
+                                            <Label className="text-slim text-red-300">Package:</Label>
+                                            <p className="font-semibold">Services</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-slim text-red-300">Date Created:</Label>
+                                            <p className="font-semibold">{new Date(sr_data?.creation).toDateString()}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-1 flex flex-col items-start justify-start">
+                                        <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
+                                        <Timeline
+                                            className="w-full"
+                                            mode={'left'}
+                                            items={itemsTimelineList}
+                                        />
+                                    </div>
+                                </CardContent>
+                            </Card>
+                            <Card className="w-full">
+                                <CardHeader>
+                                    <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
+                                </CardHeader>
+
+                                <div className="overflow-x-auto">
+                                    <div className="min-w-full inline-block align-middle">
+                                        {JSON.parse(sr_data?.service_category_list).list.map((cat: any) => {
+                                            return <div className="p-5">
+                                                <Table>
+                                                    <TableHeader>
+                                                        <TableRow className="bg-red-100">
+                                                            <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
+                                                            {sr_data?.status !== "Created" && (
+                                                                <TableHead className="w-[20%]">Amount</TableHead>
+                                                            )}
+                                                            <TableHead className="w-[20%]">Status</TableHead>
+                                                        </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                        {sr_data && JSON.parse(sr_data?.service_order_list).list.map((item: any) => {
+                                                            if (item.category === cat.name) {
+                                                                return (
+                                                                    <TableRow key={item.id}>
+                                                                        <TableCell>{item.description}</TableCell>
+                                                                        {sr_data?.status !== "Created" && (
+                                                                            <TableCell>{formatToIndianRupee(item.amount)}</TableCell>
+                                                                        )}
+                                                                        <TableCell>
+                                                                            {/* <Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge> */}
+                                                                            {sr_data?.status}
+                                                                        </TableCell>
+                                                                    </TableRow>
+                                                                )
+                                                            }
+                                                        })}
+                                                    </TableBody>
+                                                </Table>
+                                            </div>
+                                        })}
+                                    </div>
                                 </div>
-                            </div>
-                        </Card>
-                        {/* {userData.role !== "Nirmaan Project Manager Profile" && <Card className="w-full">
+                            </Card>
+                            {/* {userData.role !== "Nirmaan Project Manager Profile" && <Card className="w-full">
                                 <CardHeader>
                                     <CardTitle className="text-xl text-red-600">Associated POs:</CardTitle>
                                     <div className="overflow-x-auto">
@@ -394,25 +394,25 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                 </tr>
                                                 <tr className="border-t border-black">
                                                     <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">S. No.</th>
-                                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider pr-48">Services</th>
+                                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Description</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                                 </tr>
                                             </thead>
-                                             <tbody className={`bg-white`}>
+                                            <tbody className={`bg-white`}>
                                                 {sr_data && JSON.parse(sr_data?.service_order_list)?.list?.map((item, index) => (
-                                                <tr key={item.id} className={`${index === (sr_data && JSON.parse(sr_data?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
-                                                    <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
-                                                    <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap">{item?.description}</td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.amount)}</td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.amount * 1.18)}</td>
-                                                </tr>
+                                                    <tr key={item.id} className={`${index === (sr_data && JSON.parse(sr_data?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
+                                                        <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
+                                                        <td className="py-2 text-sm whitespace-nowrap text-wrap w-[10%]">{item?.category}</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[7%]">{formatToIndianRupee(item.amount)}</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[4%]">18%</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[7%]">{formatToIndianRupee(item.amount * 1.18)}</td>
+                                                    </tr>
                                                 ))}
-                                                 <tr className="">
+                                                <tr className="">
                                                     <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
                                                     <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
@@ -438,7 +438,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     </td>
 
                                                 </tr>
-                                                
+
                                                 <tr className="end-of-page page-break-inside-avoid" >
                                                     <td colSpan={6}>
                                                         {/* {notes !== "" && (
@@ -457,7 +457,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                         <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
                                                     </td>
                                                 </tr>
-                                            </tbody> 
+                                            </tbody>
                                         </table>
                                     </div>
                                     <div style={{ display: 'block', pageBreakBefore: 'always', }}></div>
@@ -551,21 +551,21 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                         </table>
                                     </div>
                                 </div>
+                            </div>
                         </div>
-                    </div>
 
-                    {sr_data?.status === "Created" &&
-                        <div className="text-right">
-                            <Button onClick={() => navigate(`/select-service-vendor/${sr_data?.name}`)}>Select Service Vendor</Button>
-                        </div>
-                    }
-                </>
-                    )
-                }
-                {page === "Resolve" && (
-                    <SelectServiceVendorPage resolve={true} sr_data={sr_data} universalComments={universalComments?.filter((com) => com?.subject === "rejecting sr")} setPage={setPage} />
-                )}
-            </div>
+                        {sr_data?.status === "Created" &&
+                            <div className="text-right">
+                                <Button onClick={() => navigate(`/select-service-vendor/${sr_data?.name}`)}>Select Service Vendor</Button>
+                            </div>
+                        }
+                    </>
+                )
+            }
+            {page === "Resolve" && (
+                <SelectServiceVendorPage resolve={true} sr_data={sr_data} universalComments={universalComments?.filter((com) => com?.subject === "rejecting sr")} setPage={setPage} />
+            )}
+        </div>
     )
 }
 
