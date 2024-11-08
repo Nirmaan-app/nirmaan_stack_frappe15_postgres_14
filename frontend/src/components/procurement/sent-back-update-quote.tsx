@@ -44,6 +44,7 @@ export const SentBackUpdateQuote = () => {
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
             fields: ["*"],
+            filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         },
         "Vendors"

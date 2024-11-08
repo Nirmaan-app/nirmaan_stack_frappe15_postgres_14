@@ -43,6 +43,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ["*"],
+            filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         },
         "Vendors"

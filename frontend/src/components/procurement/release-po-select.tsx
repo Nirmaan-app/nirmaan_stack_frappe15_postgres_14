@@ -40,7 +40,8 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
     })
 
     const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
-        fields: ["vendor_name"],
+        fields: ["vendor_name", 'vendor_type'],
+        filters: [["vendor_type", "=", "Material"]],
         limit: 1000
     },
         "Vendors"
