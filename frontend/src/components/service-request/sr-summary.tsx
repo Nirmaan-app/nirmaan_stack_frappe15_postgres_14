@@ -187,12 +187,12 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                     <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
                                     <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span>
                                 </div>
-                                <Button className='flex items-center gap-2' onClick={handlePrint}>
-                                    <Printer className='h-4 w-4' />
-                                    Print
-                                </Button>
                             </div>
                             <div className="flex gap-4 items-center">
+                                {sr_data?.status === "Approved" && <Button className='flex items-center gap-2' onClick={handlePrint}>
+                                    <Printer className='h-4 w-4' />
+                                    Print
+                                </Button>}
                                 {sr_data?.status === "Rejected" && (
                                     <Button onClick={() => setPage("Resolve")} className="flex items-center gap-1">
                                         <Settings2 className="h-4 w-4" />
