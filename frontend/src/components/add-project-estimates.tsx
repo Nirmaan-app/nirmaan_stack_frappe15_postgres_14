@@ -1,10 +1,10 @@
 import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useNavigate, useParams } from "react-router-dom";
 import { Skeleton } from "./ui/skeleton";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Trash } from "lucide-react";
 import { Button } from "./ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 import ReactSelect from 'react-select';
@@ -12,7 +12,11 @@ import { Input } from "./ui/input";
 import { toast } from "./ui/use-toast";
 import { ConfigProvider, Table } from "antd";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
+import { Separator } from "./ui/separator";
+import { Pencil2Icon } from "@radix-ui/react-icons";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
+import { TailSpin } from "react-loader-spinner";
 
 
 const AddProjectEstimates = () => {
@@ -61,8 +65,12 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     const [showRateDialog, setShowRateDialog] = useState(false);
     const [rateInput, setRateInput] = useState("");
     const [errorItem, setErrorItem] = useState(null);
+    const [editEstimation, setEditEstimation] = useState({})
 
     const {createDoc, loading: create_loading} = useFrappeCreateDoc()
+    const {updateDoc, loading: update_loading} = useFrappeUpdateDoc()
+    const {deleteDoc, loading: delete_loading} = useFrappeDeleteDoc()
+    const [deleteItem, setDeleteItem] = useState(null)
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -194,6 +202,8 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         },
     ];
 
+    console.log("estimations", editEstimation)
+
     const innerColumns = [
         {   title: "Item", 
             dataIndex: "item_name", 
@@ -204,26 +214,129 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
             title: "UOM",
             dataIndex: "uom",
             key: "uom",
-            width: "20%",
+            width: "10%",
         },
         {
-            title: "Estd Quantity",
+            title: "Estd Qty",
             dataIndex: "quantity_estimate",
             key: "quantity_estimate",
-            width: "20%",
+            width: "10%",
         },
         {
             title: "Estd Rate",
             dataIndex: "rate_estimate",
             key: "rate_estimate",
-            width: "20%",
+            width: "15%",
             render: (text, record) => {
                 return  <span>{formatToIndianRupee(parseFloat(text))}</span>
             },
         },
+        {
+            title: "Estd Amount",
+            key: "amount_estimate",
+            width: "20%",
+            render: (text, record) => {
+                return  <span>{formatToIndianRupee(record?.rate_estimate * record?.quantity_estimate)}</span>
+            },
+        },
+        {
+            title: "Edit/Delete",
+            key: "edit-delete-actions",
+            width: "10%",
+            render: (text, record) => {
+                // console.log("recordeditdelete", record)
+                return  (
+                    <div className="flex items-center gap-2">
+                        <Dialog>
+                            <DialogTrigger>
+                                <Pencil2Icon onClick={() => {
+                                    const estimation = {rate_estimate : record?.rate_estimate, quantity_estimate : record?.quantity_estimate}
+                                    setEditEstimation(estimation)
+                                }}  className="w-6 h-6" />
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>
+                                        Edit <span className="text-primary">{record?.item_name}</span> estimation
+                                    </DialogTitle>
+                                </DialogHeader>
+                                <DialogDescription className="flex gap-4 items-end w-full">
+                                        <div className="flex flex-col gap-2">
+                                            <h3 className="text-gray-500">Qty</h3>
+                                            <Input type="number" placeholder="Enter Estimated Qty" 
+                                                value={editEstimation?.quantity_estimate} 
+                                                onChange={(e) => setEditEstimation({...editEstimation, quantity_estimate : e.target.value})} 
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-2">
+                                            <h3 className="text-gray-500">Rate</h3>
+                                            <Input type="number" placeholder="Enter Estimated Rate" 
+                                                value={editEstimation?.rate_estimate} 
+                                                onChange={(e) => setEditEstimation({...editEstimation, rate_estimate : e.target.value})} 
+                                            />
+                                        </div>
+                                        <Button onClick={() => handleEditEstimate(record?.name, record?.item_name)} disabled={(record?.rate_estimate === editEstimation?.rate_estimate && record?.quantity_estimate === editEstimation?.quantity_estimate) || Object.values(editEstimation || [])?.some((i) => !i)}>
+                                            {update_loading ? "Updating..." : "Update"}
+                                        </Button>
+                                        <DialogClose id="estimateEditClose" className="hidden">Close</DialogClose>
+                                    </DialogDescription>
+                            </DialogContent>
+                        </Dialog>
+                        <span>|</span>
+                        {(deleteItem && deleteItem === record?.name) ? <TailSpin color={"red"} width={20} height={20} /> : 
+                            <Trash onClick={() => handleDeleteEstimate(record?.name, record?.item_name)} className="w-6 h-6 text-primary" />
+                        }
+                    </div>
+                )
+            },
+        },
     ];
 
-    console.log("categorizedData", categorizedData)
+    // console.log("categorizedData", categorizedData)
+
+    const handleEditEstimate = async (id, item) => {
+        try {
+            await updateDoc("Project Estimates", id, editEstimation)
+            await estimates_data_mutate()
+
+            toast({
+                title: "Success!",
+                description: `${item} Estimation updated successfully!`,
+                variant: "success",
+            })
+            document?.getElementById("estimateEditClose")?.click()
+        } catch (error) {
+            toast({
+                title: "Failed!",
+                description: `${item} Estimate updation failed!.`,
+                variant: "destructive",
+            });
+            console.log("error while editing estimation", error)
+        }
+    }
+
+    const handleDeleteEstimate = async (id, item) => {
+        try {
+            setDeleteItem(id)
+            await deleteDoc("Project Estimates", id)
+            await estimates_data_mutate()
+
+            toast({
+                title: "Success!",
+                description: `${item} Estimation deleted successfully!`,
+                variant: "success",
+            })
+        } catch (error) {
+            toast({
+                title: "Failed!",
+                description: `${item} Estimate deletion failed!.`,
+                variant: "destructive",
+            });
+            console.log("error while deleting estimation", error)
+        } finally {
+            setDeleteItem(null)
+        }
+    }
 
     const handleSubmit = async (wp) => {
         const category = curCategory[wp]?.value
@@ -341,7 +454,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                             </AccordionTrigger>
                             <AccordionContent className="p-4">
                                 <div className="flex flex-col gap-6">
-                                    <div className=" overflow-x-auto">
+                                    <div className=" overflow-x-auto border-b border-gray-100">
                                             <ConfigProvider
                                                 theme={{
                                                     components: {
@@ -371,6 +484,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                                 />
                                             </ConfigProvider>
                                     </div>
+                                    {/* <Separator /> */}
                                     <div className="flex flex-col gap-2">
                                         <h2 className="font-semibold text-base underline">Submit New Estimation</h2>
                                         <div className="flex justify-between items-end">
@@ -422,7 +536,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                                                         No Quotes Found
                                                                     </AlertDialogTitle>
                                                                 </AlertDialogHeader>
-                                                                <div className="p-4">
+                                                                <AlertDialogDescription>
                                                                     <p>No quotes found for the item: <span className="text-primary italic">{errorItem?.item_name}</span> in the system. Please provide a rate:</p>
                                                                     <Input
                                                                         type="number"
@@ -431,9 +545,9 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                                                         onChange={(e) => handleRateChange(e.target.value)}
                                                                         className="mt-4"
                                                                     />
-                                                                    <div className="flex justify-end space-x-4 mt-6">
-                                                                        <AlertDialogCancel asChild>
-                                                                            <Button variant="secondary">Cancel</Button>
+                                                                    <div className="flex items-center justify-end gap-2 mt-4">
+                                                                        <AlertDialogCancel>
+                                                                            Cancel
                                                                         </AlertDialogCancel>
                                                                         <AlertDialogAction asChild>
                                                                             <Button
@@ -444,7 +558,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                                                             </Button>
                                                                         </AlertDialogAction>
                                                                     </div>
-                                                                </div>
+                                                                </AlertDialogDescription>
                                                             </AlertDialogContent>
                                                         </AlertDialog>
                                             </div>
