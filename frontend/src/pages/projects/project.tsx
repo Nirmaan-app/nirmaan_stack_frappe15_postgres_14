@@ -1364,12 +1364,19 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                 sum + parseFloat(item.quote) * parseFloat(item.quantity) * (1 + parseFloat(item.tax) / 100),
                 0
               );
+
+              const categoryEstimates = projectEstimates?.filter((i) => i?.category === category)
+              const totalCategoryEstdAmt = categoryEstimates?.reduce((sum, item) => 
+                sum + parseFloat(item?.rate_estimate) * parseFloat(item?.quantity_estimate) * (1 + parseFloat(item?.item_tax) / 100),
+              0
+              )
               return (
                 <AccordionItem key={category} value={category} className="border-b rounded-lg shadow">
                   <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
                     <div className="flex space-x-4 text-sm text-gray-600">
                       <span className="font-semibold">{category}:</span>
                       <span>Total Amount: ₹{totalAmount.toLocaleString()}</span>
+                      <span>Total Estd Amount: {formatToIndianRupee(totalCategoryEstdAmt)}</span>
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>
@@ -1379,7 +1386,8 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                           <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
                           <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Qty(Actual/Estd) </TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Actual Amt</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
                         </TableRow>
@@ -1407,7 +1415,8 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                             <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
                             <TableCell className="px-4 py-2">{item.item_name}</TableCell>
                             <TableCell className="px-4 py-2">{item.unit}</TableCell>
-                            <TableCell className="px-4 py-2"><span className={`${dynamicQtyClass}`}>{item.quantity}</span>/{estimateItem?.quantity_estimate || "--"}</TableCell>
+                            <TableCell className={`px-4 py-2 ${dynamicQtyClass}`}>{item.quantity}</TableCell>
+                            <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
                             <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
                             <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell>
                           </TableRow>

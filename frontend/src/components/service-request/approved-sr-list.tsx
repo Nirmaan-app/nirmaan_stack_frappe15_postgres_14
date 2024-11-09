@@ -36,7 +36,7 @@ export const ApprovedSRList = () => {
         let total: number = 0;
         const orderData = service_list?.find(item => item.name === order_id)?.service_order_list;
         orderData?.list.map((item) => {
-            const price = item.amount;
+            const price = item.rate * item.quantity;
             total += price ? parseFloat(price) : 0
         })
         return total;

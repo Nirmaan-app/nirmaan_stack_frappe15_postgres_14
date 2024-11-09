@@ -167,10 +167,14 @@ export const ApprovedSR = () => {
                                     <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                    <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                    <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal())}</td>
                                 </tr>
                                 <tr className="border-none">
+                                    <td></td>
+                                    <td></td>
                                     <td></td>
                                     <td></td>
                                     <td></td>
@@ -182,7 +186,7 @@ export const ApprovedSR = () => {
                                     </td>
 
                                     <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                        <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18)}</div>
+                                        <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div>
                                         <div className="ml-4">- {formatToIndianRupee((getTotal() * 1.18).toFixed(2) - Math.floor(getTotal() * 1.18))}</div>
                                         <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * 1.18))}</div>
                                     </td>

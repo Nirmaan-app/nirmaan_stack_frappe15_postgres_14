@@ -129,7 +129,7 @@ export const ApproveServiceRequest = () => {
             dataIndex: "amount",
             key: "amount",
             width: "10%",
-            render: (text, record) => <span className="italic">{formatToIndianRupee(record?.id === undefined ? text : record.rate * record.quantity)}</span>,
+            render: (text, record) => <span className={`italic ${record?.id === undefined ? "font-semibold text-green-700" : ""}`}>{formatToIndianRupee(record?.id === undefined ? text : record.rate * record.quantity)}</span>,
         },
         {
             title: "Amt inc. tax",

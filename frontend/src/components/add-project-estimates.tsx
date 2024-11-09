@@ -284,7 +284,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                         </Dialog>
                         <span>|</span>
                         {(deleteItem && deleteItem === record?.name) ? <TailSpin color={"red"} width={20} height={20} /> : 
-                            <Trash onClick={() => handleDeleteEstimate(record?.name, record?.item_name)} className="w-6 h-6 text-primary" />
+                            <Trash onClick={() => handleDeleteEstimate(record?.name, record?.item_name)} className="w-6 h-6 text-primary cursor-pointer" />
                         }
                     </div>
                 )
