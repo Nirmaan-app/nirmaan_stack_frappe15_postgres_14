@@ -1,19 +1,4 @@
-// import { DataTable } from "@/components/data-table/data-table"
-// import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
-// import { Badge } from "@/components/ui/badge"
-// import { Button } from "@/components/ui/button"
-// import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-// import { Projects } from "@/types/NirmaanStack/Projects"
-// import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
-// import { ArrowLeft, HardHat } from "lucide-react"
-// import { useMemo } from "react"
-// import { Link, useNavigate, useParams } from "react-router-dom"
-// import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
-// import React from 'react';
-// import { ProjectSkeleton, TableSkeleton } from "@/components/ui/skeleton"
-// import { useToast } from "@/components/ui/use-toast"
-
 import { ColumnDef } from "@tanstack/react-table"
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
@@ -22,7 +7,7 @@ import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/
 import { toast } from "@/components/ui/use-toast"
 import { ConfigProvider, Menu, MenuProps } from "antd"
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall, useFrappeUpdateDoc } from "frappe-react-sdk"
-import { ArrowLeft, Check, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDown, CirclePlus, Download, FilePenLine, HardHat, ListChecks, UserCheckIcon } from "lucide-react"
+import { ArrowDown, ArrowLeft, Check, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDown, CirclePlus, CornerRightDown, Download, FilePenLine, HardHat, ListChecks, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
@@ -120,7 +105,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList("Project Work Milestones", {
     fields: ["*"],
-    filters: [["project", "=", `${projectId}`]],
+    filters: [["project", "=", projectId]],
     limit: 1000,
     orderBy: { field: "start_date", order: "asc" }
   },
@@ -129,6 +114,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       revalidateIfStale: false
     }
   )
+
+  const {data: project_estimates, isLoading: project_estimates_loading, error: project_estimates_error} = useFrappeGetDocList("Project Estimates", {
+    fields: ["*"],
+    filters: [["project", "=", projectId]],
+    limit: 1000
+  })
 
   const [selectedPackage, setSelectedPackage] = useState("");
 
@@ -523,6 +514,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   ]
 
   const [current, setCurrent] = useState('overview')
+  const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState({});
 
   const onClick: MenuProps['onClick'] = (e) => {
     setCurrent(e.key);
@@ -589,39 +581,52 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }
 
   const groupItemsByWorkPackageAndCategory = (items) => {
-    return items?.reduce((acc, item) => {
+    const totals = {};
+  
+    const groupedData = items?.reduce((acc, item) => {
       const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
       const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
       const amountWithTax = baseAmount + taxAmount;
-
+  
+      if (totals[item.work_package]) {
+        totals[item.work_package] += amountWithTax;
+      } else {
+        totals[item.work_package] = amountWithTax;
+      }
+  
       if (!acc[item.work_package]) {
         acc[item.work_package] = {};
       }
-
       if (!acc[item.work_package][item.category]) {
         acc[item.work_package][item.category] = [];
       }
-
+  
       const existingItem = acc[item.work_package][item.category].find(
         (i) => i.item_id === item.item_id
       );
-
+  
       if (existingItem) {
         existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
         existingItem.amount += amountWithTax;
       } else {
         acc[item.work_package][item.category].push({
           ...item,
-          amount: amountWithTax
+          amount: amountWithTax,
         });
       }
-
+  
       return acc;
     }, {});
+  
+    return { groupedData, totals };
   };
 
-  // Usage
-  const categorizedData = groupItemsByWorkPackageAndCategory(po_item_data);
+  useEffect(() => {
+    const { totals } = groupItemsByWorkPackageAndCategory(po_item_data);
+    setWorkPackageTotalAmounts(totals);
+  }, [po_item_data]);
+
+  const {groupedData : categorizedData} = groupItemsByWorkPackageAndCategory(po_item_data);
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
@@ -683,6 +688,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }
 
   const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
+
+  useEffect(() => {
+    if(workPackages) {
+      setSelectedPackage(workPackages[0]?.work_package_name)
+    }
+  }, [])
 
   const handleStatusChange = (value: string) => {
     if (value === data?.status) {
@@ -1012,8 +1023,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
       {current === "POSummary" && (
         <>
-          <div className="w-full">
-            <Select
+          <div className="w-full flex flex-col gap-2">
+            <div className="flex gap-2 items-center">
+              <h2 className="font-semibold text-gray-500">Work Package Selection</h2>
+              <ArrowDown className="w-4 h-4" />
+            </div>
+            {selectedPackage && (
+              <Select
               value={selectedPackage}
               onValueChange={(value) => setSelectedPackage(value)}
             >
@@ -1024,14 +1040,19 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               <SelectContent>
                 {workPackages.map((packageItem, index) => (
                   <SelectItem key={index} value={packageItem.work_package_name}>
-                    {packageItem.work_package_name}
+                    {/* {packageItem.work_package_name} */}
+                    <div className="flex space-x-4 text-sm text-gray-600">
+                      <span className="font-semibold">{packageItem.work_package_name}:</span>
+                      <span>Total Amount: {formatToIndianRupee(workPackageTotalAmounts?.[packageItem.work_package_name])}</span>
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            )}
           </div>
           {selectedPackage ? (
-            <CategoryAccordion categorizedData={categorizedData} selectedPackage={selectedPackage} />
+            <CategoryAccordion categorizedData={categorizedData} selectedPackage={selectedPackage} projectEstimates={project_estimates?.filter((i) => i?.work_package === selectedPackage) || []} />
           ) : <div className="h-[40vh] flex items-center justify-center"> Please select a Work Package</div>}
         </>
       )}
@@ -1319,7 +1340,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   </tr>
                 )}
               </tbody>
-
             </table>
           </div>
         </div>
@@ -1330,7 +1350,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 }
 
 
-const CategoryAccordion = ({ categorizedData, selectedPackage }) => {
+const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates }) => {
 
   const selectedData = categorizedData[selectedPackage] || null;
 
@@ -1358,21 +1378,40 @@ const CategoryAccordion = ({ categorizedData, selectedPackage }) => {
                         <TableRow className="bg-gray-100 text-gray-700">
                           <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
                           <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Qty</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Qty(Actual/Estd) </TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Actual Amt</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {items?.map((item) => (
-                          <TableRow key={item.item_id}>
+                        {items?.map((item) => {
+                          const estimateItem = projectEstimates?.find((i) => i?.item === item?.item_id);
+                          const quantityDif = item?.quantity - estimateItem?.quantity_estimate
+                          let dynamicQtyClass = null;
+
+                          if(estimateItem) {
+                            if(quantityDif > 0) {
+                              dynamicQtyClass = "text-primary"
+                            } else if (quantityDif < 0 && Math.abs(quantityDif) < 5) {
+                              dynamicQtyClass = "text-yellow-600"
+                            } else if(quantityDif === 0) {
+                              dynamicQtyClass = "text-green-500"
+                            } else {
+                              dynamicQtyClass = "text-blue-500"
+                            }
+                          }
+
+                          console.log("estimateItme", estimateItem)
+                          return <TableRow key={item.item_id}>
                             <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
                             <TableCell className="px-4 py-2">{item.item_name}</TableCell>
-                            <TableCell className="px-4 py-2">{item.quantity}</TableCell>
                             <TableCell className="px-4 py-2">{item.unit}</TableCell>
+                            <TableCell className="px-4 py-2"><span className={`${dynamicQtyClass}`}>{item.quantity}</span>/{estimateItem?.quantity_estimate || "--"}</TableCell>
                             <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
+                            <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell>
                           </TableRow>
-                        ))}
+                        })}
                       </TableBody>
                     </Table>
                   </AccordionContent>
