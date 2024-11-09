@@ -76,7 +76,7 @@ interface DataType {
     children?: DataType[];
 }
 
-export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, universalComments, resolve= false, setPage }: SelectServiceVendorPageProps) => {
+export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, universalComments, resolve = false, setPage }: SelectServiceVendorPageProps) => {
 
     const navigate = useNavigate()
     const userData = useUserData()
@@ -90,6 +90,8 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     const [isNextEnabled, setIsNextEnabled] = useState(false);
     const [expandedRowKeys, setExpandedRowKeys] = useState([]);
 
+    console.log("sr_data", JSON.parse(sr_data?.service_order_list))
+
     const groupedData = useMemo(() => {
         return order?.reduce((acc, item) => {
             acc[item.category] = acc[item.category] || [];
@@ -97,7 +99,9 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
             return acc;
         }, {});
     }, [order]);
-    
+
+    console.log("groupedData, ", groupedData)
+
     useEffect(() => {
         if (groupedData) {
             setExpandedRowKeys(Object.keys(groupedData));
@@ -123,26 +127,48 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
 
     // Inner table columns
     const innerColumns = [
-        { title: "Description", 
-            dataIndex: "description", 
-            key: "description", 
-            width: "50%",
+        {
+            title: "Description",
+            dataIndex: "description",
+            key: "description",
+            width: "60%",
             render: (text) => <span className="italic">{text}</span>
+        },
+        {
+            title: "Unit",
+            dataIndex: "uom",
+            key: "uom",
+            width: "10%",
+            render: (text) => <span>{text}</span>,
+        },
+        {
+            title: "Quantity",
+            dataIndex: "quantity",
+            key: "quantity",
+            width: "10%",
+            render: (text) => <span>{text}</span>,
+        },
+        {
+            title: "Rate",
+            dataIndex: "rate",
+            key: "rate",
+            width: "10%",
+            render: (text) => <span className="italic">{formatToIndianRupee(text)}</span>,
         },
         {
             title: "Amount",
             dataIndex: "amount",
             key: "amount",
-            width: "20%",
-            render: (text) => <span className="italic">{formatToIndianRupee(text)}</span>,
+            width: "10%",
+            render: (text, record) => <span className="italic">{formatToIndianRupee(record.rate * record.quantity)}</span>,
         },
-        {
-            title: "Amt inc. tax",
-            dataIndex: "amount",
-            key: "amountinctax",
-            width: "20%",
-            render: (text) => <span className="italic">{formatToIndianRupee(parseFloat(text) * 1.18)}</span>,
-        },
+        // {
+        //     title: "Amt inc. tax",
+        //     dataIndex: "amount",
+        //     key: "amountinctax",
+        //     width: "20%",
+        //     render: (text) => <span className="italic">{formatToIndianRupee(parseFloat(text) * 1.18)}</span>,
+        // },
     ];
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
@@ -164,7 +190,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
         }
     }, [vendor_list]);
 
-    const {mutate} = useSWRConfig()
+    const { mutate } = useSWRConfig()
     const { createDoc: createDoc, loading: create_loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_complete, error: update_error } = useFrappeUpdateDoc()
 
@@ -255,7 +281,9 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
             entry.id = item.id
             entry.category = item.category
             entry.description = item.description
-            entry.amount = amounts[item.id] || 0
+            entry.uom = item.uom
+            entry.quantity = item.quantity
+            entry.rate = amounts[item.id] || 0
             newOrderData.push(entry)
         }
         setOrder(newOrderData)
@@ -271,15 +299,15 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     }, [amounts]);
 
     useEffect(() => {
-        if(resolve && sr_data && vendor_list) {
+        if (resolve && sr_data && vendor_list) {
             const vendor = vendor_list?.find((ven) => ven?.name === sr_data?.vendor)
-            const selectedVendor = {value : vendor?.name, label: vendor?.vendor_name}
+            const selectedVendor = { value: vendor?.name, label: vendor?.vendor_name }
             setSelectedvendor(selectedVendor)
         }
-        if(resolve && sr_data) {
+        if (resolve && sr_data) {
             let amounts = {}
             JSON.parse(sr_data?.service_order_list)?.list?.forEach((item) => {
-                amounts = {...amounts, [item.id] : item?.amount}
+                amounts = { ...amounts, [item.id]: item?.amount }
             })
             setAmounts(amounts)
         }
@@ -292,19 +320,19 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
 
     const handleSubmit = async () => {
         try {
-            if(comment) {
-                    await createDoc("Nirmaan Comments", {
-                        comment_type: "Comment",
-                        reference_doctype: "Service Requests",
-                        reference_name: sr_data?.name,
-                        comment_by: userData?.user_id,
-                        content: comment,
-                        subject: "sending sr for appr"
-                    })
+            if (comment) {
+                await createDoc("Nirmaan Comments", {
+                    comment_type: "Comment",
+                    reference_doctype: "Service Requests",
+                    reference_name: sr_data?.name,
+                    comment_by: userData?.user_id,
+                    content: comment,
+                    subject: "sending sr for appr"
+                })
             }
             await updateDoc("Service Requests", sr_data?.name, {
                 vendor: selectedVendor?.value,
-                service_order_list: {list : order},
+                service_order_list: { list: order },
                 status: "Vendor Selected"
             })
 
@@ -327,19 +355,19 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
 
     const handleResolveSR = async () => {
         try {
-            if(comment) {
-                    await createDoc("Nirmaan Comments", {
-                        comment_type: "Comment",
-                        reference_doctype: "Service Requests",
-                        reference_name: sr_data?.name,
-                        comment_by: userData?.user_id,
-                        content: comment,
-                        subject: "resolving sr"
-                    })
+            if (comment) {
+                await createDoc("Nirmaan Comments", {
+                    comment_type: "Comment",
+                    reference_doctype: "Service Requests",
+                    reference_name: sr_data?.name,
+                    comment_by: userData?.user_id,
+                    content: comment,
+                    subject: "resolving sr"
+                })
             }
             await updateDoc("Service Requests", sr_data?.name, {
                 vendor: selectedVendor?.value,
-                service_order_list: {list : order},
+                service_order_list: { list: order },
                 status: "Vendor Selected"
             })
 
@@ -372,7 +400,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                 <div className="flex-1 md:space-y-4">
                     <div className="flex items-center pt-1 pb-4">
                         <ArrowLeft className='cursor-pointer' onClick={() => {
-                            if(resolve) {
+                            if (resolve) {
                                 setPage("Summary")
                             } else {
                                 navigate(-1)
@@ -413,34 +441,40 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                     </div>
                     <div className="overflow-x-auto">
                         <div className="min-w-full inline-block align-middle">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow className="bg-red-100">
-                                                <TableHead className="w-[20%]"><span className="text-red-700 pr-1 font-extrabold">Service</span></TableHead>
-                                                <TableHead className="w-[60%]">Description</TableHead>
-                                                <TableHead className="w-[20%]">Amount</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {sr_data && JSON.parse(sr_data?.service_order_list)?.list?.map((item: any) => (
-                                                <TableRow key={item.id}>
-                                                    <TableCell className="w-[30%] font-semibold">{item.category}</TableCell>
-                                                    <TableCell className="w-[50%]">{item.description}</TableCell>
-                                                    <TableCell className="w-[10%]">
-                                                            <input
-                                                                type="text"
-                                                                className="border p-1 w-full rounded-md"
-                                                                value={amounts[item.id] ? `₹ ${amounts[item.id]}` : "₹"}
-                                                                onChange={(e) => handleAmountChange(item.id, e.target.value)}
-                                                                disabled={!selectedVendor}
-                                                            />
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </div>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="bg-red-100">
+                                        <TableHead className="w-[10%]"><span className="text-red-700 pr-1 font-extrabold">Service</span></TableHead>
+                                        <TableHead className="w-[50%]">Description</TableHead>
+                                        <TableHead className="w-[10%]">Unit</TableHead>
+                                        <TableHead className="w-[10%]">Quantity</TableHead>
+                                        <TableHead className="w-[10%]">Rate</TableHead>
+                                        <TableHead className="w-[10%]">Amount</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {sr_data && JSON.parse(sr_data?.service_order_list)?.list?.map((item: any) => (
+                                        <TableRow key={item.id}>
+                                            <TableCell className="w-[10%] font-semibold">{item.category}</TableCell>
+                                            <TableCell className="w-[50%]">{item.description}</TableCell>
+                                            <TableCell className="w-[10%]">{item.uom}</TableCell>
+                                            <TableCell className="w-[10%]">{item.quantity}</TableCell>
+                                            <TableCell className="w-[10%]">
+                                                <input
+                                                    type="text"
+                                                    className="border p-1 w-full rounded-md"
+                                                    value={amounts[item.id] ? `₹ ${amounts[item.id]}` : "₹"}
+                                                    onChange={(e) => handleAmountChange(item.id, e.target.value)}
+                                                    disabled={!selectedVendor}
+                                                />
+                                            </TableCell>
+                                            <TableCell className="w-[10%]">P/H</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
                         </div>
+                    </div>
                     <div className="flex justify-end mt-4">
                         <Button disabled={!isNextEnabled} onClick={handleSaveAmounts}>Next</Button>
                     </div>
@@ -501,38 +535,38 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                         </ConfigProvider>
                     </div> */}
 
-<div className="pt-6 overflow-x-auto">
-                <ConfigProvider
-                >
-                    <AntTable
-                        dataSource={((groupedData && Object.keys(groupedData)) || []).map((key) => ({
-                            key,
-                            category: key,
-                            items: groupedData[key],
-                        }))}
-                        columns={columns}
-                        expandable={{
-                            expandedRowKeys,
-                            onExpandedRowsChange: setExpandedRowKeys,
-                            expandedRowRender: (record) => (
-                                <AntTable
-                                    dataSource={record.items}
-                                    columns={innerColumns}
-                                    pagination={false}
-                                    rowKey={(item) => item.id}
-                                />
-                            ),
-                        }}
-                    />
-                </ConfigProvider>
-            </div>
+                    <div className="pt-6 overflow-x-auto">
+                        <ConfigProvider
+                        >
+                            <AntTable
+                                dataSource={((groupedData && Object.keys(groupedData)) || []).map((key) => ({
+                                    key,
+                                    category: key,
+                                    items: groupedData[key],
+                                }))}
+                                columns={columns}
+                                expandable={{
+                                    expandedRowKeys,
+                                    onExpandedRowsChange: setExpandedRowKeys,
+                                    expandedRowRender: (record) => (
+                                        <AntTable
+                                            dataSource={record.items}
+                                            columns={innerColumns}
+                                            pagination={false}
+                                            rowKey={(item) => item.id}
+                                        />
+                                    ),
+                                }}
+                            />
+                        </ConfigProvider>
+                    </div>
                     <div className="flex flex-col justify-end items-end mr-2 mb-4 mt-4">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button className="flex items-center gap-1">
-                                    {resolve ? 
-                                    <Settings2 className="h-4 w-4" /> : 
-                                    <ArrowBigUpDash className="" />
+                                    {resolve ?
+                                        <Settings2 className="h-4 w-4" /> :
+                                        <ArrowBigUpDash className="" />
                                     }
                                     {resolve ? "Resolve" : "Send for Approval"}
                                 </Button>
@@ -552,14 +586,14 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                                     </DialogClose>
                                     {resolve ? (
                                         <Button variant="default" className="flex items-center gap-1" onClick={handleResolveSR} disabled={create_loading || update_loading}>
-                                        <CheckCheck className="h-4 w-4" />
-                                        Confirm
-                                    </Button>
+                                            <CheckCheck className="h-4 w-4" />
+                                            Confirm
+                                        </Button>
                                     ) : (
                                         <Button variant="default" className="flex items-center gap-1" onClick={handleSubmit} disabled={create_loading || update_loading}>
-                                        <CheckCheck className="h-4 w-4" />
-                                        Confirm
-                                    </Button>
+                                            <CheckCheck className="h-4 w-4" />
+                                            Confirm
+                                        </Button>
                                     )}
                                 </DialogDescription>
                             </DialogContent>

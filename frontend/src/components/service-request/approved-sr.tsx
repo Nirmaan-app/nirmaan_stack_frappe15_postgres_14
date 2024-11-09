@@ -71,7 +71,7 @@ export const ApprovedSR = () => {
         if (orderData) {
             const serviceOrder = JSON.parse(orderData?.service_order_list);
             serviceOrder?.list?.map((item) => {
-                const price = item.amount;
+                const price = item.quantity * item.rate;
                 total += price ? parseFloat(price) : 0
             })
         }
@@ -142,6 +142,8 @@ export const ApprovedSR = () => {
                                     <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">No.</th>
                                     <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th>
                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Description</th>
+                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
+                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
@@ -150,12 +152,14 @@ export const ApprovedSR = () => {
                             <tbody className={`bg-white`}>
                                 {orderData && JSON.parse(orderData?.service_order_list)?.list?.map((item, index) => (
                                     <tr key={item.id} className={`${index === (orderData && JSON.parse(orderData?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
-                                        <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
-                                        <td className="py-2 text-sm whitespace-nowrap text-wrap w-[10%]">{item?.category}</td>
+                                        <td className="py-2 text-sm whitespace-nowrap w-[5%]">{index + 1}.</td>
+                                        <td className="py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.category}</td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
-                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[7%]">{formatToIndianRupee(item.amount)}</td>
-                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[4%]">18%</td>
-                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[7%]">{formatToIndianRupee(item.amount * 1.18)}</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate)}</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">18%</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate * item.quantity)}</td>
                                     </tr>
                                 ))}
                                 <tr className="">

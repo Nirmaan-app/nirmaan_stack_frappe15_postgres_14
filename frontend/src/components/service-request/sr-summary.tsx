@@ -168,7 +168,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
         if (sr_data) {
             const serviceOrder = JSON.parse(sr_data?.service_order_list);
             serviceOrder?.list?.map((item) => {
-                const price = item.amount;
+                const price = item.quantity * item.rate;
                 total += price ? parseFloat(price) : 0
             })
         }
@@ -281,10 +281,12 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     <TableHeader>
                                                         <TableRow className="bg-red-100">
                                                             <TableHead className="w-[60%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
+                                                            <TableHead className="w-[10%]">Unit</TableHead>
+                                                            <TableHead className="w-[10%]">Quantity</TableHead>
                                                             {sr_data?.status !== "Created" && (
                                                                 <TableHead className="w-[20%]">Amount</TableHead>
                                                             )}
-                                                            <TableHead className="w-[20%]">Status</TableHead>
+
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
@@ -293,13 +295,16 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                                 return (
                                                                     <TableRow key={item.id}>
                                                                         <TableCell>{item.description}</TableCell>
-                                                                        {sr_data?.status !== "Created" && (
-                                                                            <TableCell>{formatToIndianRupee(item.amount)}</TableCell>
-                                                                        )}
                                                                         <TableCell>
-                                                                            {/* <Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge> */}
-                                                                            {sr_data?.status}
+                                                                            {item.uom}
                                                                         </TableCell>
+                                                                        <TableCell>
+                                                                            {item.quantity}
+                                                                        </TableCell>
+                                                                        {sr_data?.status !== "Created" && (
+                                                                            <TableCell>{formatToIndianRupee(item.quantity * item.rate)}</TableCell>
+                                                                        )}
+
                                                                     </TableRow>
                                                                 )
                                                             }
@@ -393,9 +398,11 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     </th>
                                                 </tr>
                                                 <tr className="border-t border-black">
-                                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">S. No.</th>
+                                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">No.</th>
                                                     <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Description</th>
+                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
+                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
@@ -404,12 +411,14 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                             <tbody className={`bg-white`}>
                                                 {sr_data && JSON.parse(sr_data?.service_order_list)?.list?.map((item, index) => (
                                                     <tr key={item.id} className={`${index === (sr_data && JSON.parse(sr_data?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
-                                                        <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
-                                                        <td className="py-2 text-sm whitespace-nowrap text-wrap w-[10%]">{item?.category}</td>
+                                                        <td className="py-2 text-sm whitespace-nowrap w-[5%]">{index + 1}.</td>
+                                                        <td className="py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.category}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[7%]">{formatToIndianRupee(item.amount)}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[4%]">18%</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[7%]">{formatToIndianRupee(item.amount * 1.18)}</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate)}</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">18%</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate * item.quantity)}</td>
                                                     </tr>
                                                 ))}
                                                 <tr className="">

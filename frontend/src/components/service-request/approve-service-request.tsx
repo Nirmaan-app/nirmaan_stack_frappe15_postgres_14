@@ -23,10 +23,10 @@ export const ApproveServiceRequest = () => {
     const userData = useUserData()
     const [expandedRowKeys, setExpandedRowKeys] = useState([]);
 
-    const {data : service_request, isLoading: service_request_loading, error: service_request_error, mutate: service_request_mutate} = useFrappeGetDoc("Service Requests", id)
+    const { data: service_request, isLoading: service_request_loading, error: service_request_error, mutate: service_request_mutate } = useFrappeGetDoc("Service Requests", id)
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc("Projects", project, project ? undefined : null);
     const { data: owner_data, isLoading: owner_loading, error: owner_error } = useFrappeGetDoc("Nirmaan Users", owner, owner ? (owner === "Administrator" ? null : undefined) : null);
-    const {data: serviceVendor} = useFrappeGetDoc("Vendors", service_request?.vendor,service_request ? service_request?.vendor : null)
+    const { data: serviceVendor } = useFrappeGetDoc("Vendors", service_request?.vendor, service_request ? service_request?.vendor : null)
 
     const { data: usersList, isLoading: usersListLoading, error: usersListError } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["name", "full_name"],
@@ -63,19 +63,19 @@ export const ApproveServiceRequest = () => {
             const category = item.category
             acc[category] = acc[category] || { items: [], total: 0, totalWithGST: 0 }
             acc[category].items.push(item)
-            acc[category].total += parseFloat(item.amount)
-            acc[category].totalWithGST += parseFloat(item.amount) * 1.18 // Assuming 18% GST
+            acc[category].total += parseFloat(item.rate) * parseFloat(item.quantity)
+            acc[category].totalWithGST += parseFloat(item.rate) * parseFloat(item.quantity) * 1.18 // Assuming 18% GST
             return acc
         }, {})
     }, [serviceOrderData])
-    
+
     useEffect(() => {
         if (groupedData) {
             setExpandedRowKeys(Object.keys(groupedData));
         }
     }, [groupedData]);
 
-    // console.log("groupedData", groupedData)
+    console.log("groupedData", groupedData)
 
     // Main table columns
     const columns = [
@@ -96,18 +96,40 @@ export const ApproveServiceRequest = () => {
 
     // Inner table columns
     const innerColumns = [
-        { title: "Description", 
-            dataIndex: "description", 
-            key: "description", 
+        {
+            title: "Description",
+            dataIndex: "description",
+            key: "description",
             width: "50%",
             render: (text) => <span className="italic">{text}</span>
+        },
+        {
+            title: "Unit",
+            dataIndex: "uom",
+            key: "uom",
+            width: "10%",
+            render: (text) => <span>{text}</span>,
+        },
+        {
+            title: "Quantity",
+            dataIndex: "quantity",
+            key: "quantity",
+            width: "10%",
+            render: (text) => <span>{text}</span>,
+        },
+        {
+            title: "Rate",
+            dataIndex: "rate",
+            key: "rate",
+            width: "10%",
+            render: (text) => <span className="italic">{formatToIndianRupee(text)}</span>,
         },
         {
             title: "Amount",
             dataIndex: "amount",
             key: "amount",
-            width: "20%",
-            render: (text, record) => <span className={`italic ${record?.id === undefined ? "font-semibold text-green-700" : ""}`}>{formatToIndianRupee(text)}</span>,
+            width: "10%",
+            render: (text, record) => <span className="italic">{formatToIndianRupee(record?.id === undefined ? text : record.rate * record.quantity)}</span>,
         },
         {
             title: "Amt inc. tax",
@@ -115,7 +137,7 @@ export const ApproveServiceRequest = () => {
             key: "amountinctax",
             width: "20%",
             render: (text, record) => {
-                return  <span className={`italic ${record?.id === undefined ? "font-semibold text-green-700" : ""}`}>{formatToIndianRupee(parseFloat(text) * 1.18)}</span>
+                return <span className={`italic ${record?.id === undefined ? "font-semibold text-green-700" : ""}`}>{formatToIndianRupee(parseFloat(record?.id === undefined ? text : record.rate * record.quantity) * 1.18)}</span>
             },
         },
     ];
@@ -153,7 +175,7 @@ export const ApproveServiceRequest = () => {
                 status: "Rejected"
             })
 
-            if(comment) {
+            if (comment) {
                 await createDoc("Nirmaan Comments", {
                     comment_type: "Comment",
                     reference_doctype: "Service Requests",
@@ -185,41 +207,41 @@ export const ApproveServiceRequest = () => {
     }
 
     return (
-            <>
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1 pb-4">
-                        <ArrowLeft onClick={() => { navigate('/approve-service-request') }} />
-                        <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">SR-{service_request?.name?.slice(-4)}</span></h2>
-                    </div>
-                    <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(service_request?.creation?.split(" ")[0])}</p>
-                        </div>
-                        <div className="border-0 flex flex-col justify-center">
-                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{service_request?.project}</p>
-                        </div>
-                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Location</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{`${project_data?.project_city}, ${project_data?.project_state}`}</p>
-                        </div>
-                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Created by</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name || "Administrator"}</p>
-                        </div>
-                    </Card>
+        <>
+            <div className="flex-1 md:space-y-4">
+                <div className="flex items-center pt-1 pb-4">
+                    <ArrowLeft onClick={() => { navigate('/approve-service-request') }} />
+                    <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">SR-{service_request?.name?.slice(-4)}</span></h2>
                 </div>
+                <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                    <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                        <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
+                        <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(service_request?.creation?.split(" ")[0])}</p>
+                    </div>
+                    <div className="border-0 flex flex-col justify-center">
+                        <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project:</p>
+                        <p className="text-left font-bold py-1 font-bold text-base text-black">{service_request?.project}</p>
+                    </div>
+                    <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                        <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Location</p>
+                        <p className="text-left font-bold py-1 font-bold text-base text-black">{`${project_data?.project_city}, ${project_data?.project_state}`}</p>
+                    </div>
+                    <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                        <p className="text-left py-1 font-light text-sm text-sm text-red-700">Created by</p>
+                        <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name || "Administrator"}</p>
+                    </div>
+                </Card>
+            </div>
 
-                <div className="pt-6 overflow-x-auto">
+            <div className="pt-6 overflow-x-auto">
                 <ConfigProvider
-                theme={{
-                    components: {
-                        Table : {
-                            // headerBg: "#FFD3CC"
+                    theme={{
+                        components: {
+                            Table: {
+                                // headerBg: "#FFD3CC"
+                            }
                         }
-                    }
-                }}
+                    }}
                 >
                     <Table
                         dataSource={((groupedData && Object.keys(groupedData)) || []).map((key) => ({
@@ -246,7 +268,7 @@ export const ApproveServiceRequest = () => {
                                     columns={innerColumns}
                                     pagination={false}
                                     rowKey={(item) => item.id || 'total'}
-                                    // rowClassName={(record) => record?.id === undefined ? "bg-gray-200" : ""}
+                                // rowClassName={(record) => record?.id === undefined ? "bg-gray-200" : ""}
                                 />
                             ),
                         }}
@@ -314,6 +336,6 @@ export const ApproveServiceRequest = () => {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>
-            </>
+        </>
     )
 }
