@@ -5,7 +5,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
-import { ConfigProvider, Menu, MenuProps } from "antd"
+import { ConfigProvider, Menu, MenuProps, Tree } from "antd"
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { ArrowDown, ArrowLeft, Check, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDown, CirclePlus, CornerRightDown, Download, FilePenLine, HardHat, ListChecks, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
@@ -31,6 +31,9 @@ import { useUserData } from "@/hooks/useUserData"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CommandGroup, CommandItem, Command, CommandEmpty, CommandList } from "@/components/ui/command"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { Separator } from "@/components/ui/separator"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { DownOutlined } from '@ant-design/icons';
 
 const projectStatuses = [
   { value: 'WIP', label: 'WIP', color: 'text-yellow-500' },
@@ -166,6 +169,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     `Procurement Orders ${projectId}`
   )
 
+  const {data: serviceRequestsData, isLoading: sRloading} = useFrappeGetDocList("Service Requests", {
+    fields: ["*"],
+    filters: [["status", "=", "Approved"], ["project", "=", projectId]],
+    limit: 1000
+  })
 
   useEffect(() => {
     if (usersList && projectAssignees) {
@@ -191,7 +199,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           const poTotal = po.order_list.list.reduce((itemAcc, item) => {
             const baseAmount = item.quote * item.quantity
             const taxAmount = baseAmount * (item.tax / 100)
-            return itemAcc + (baseAmount + taxAmount);
+            // return itemAcc + (baseAmount + taxAmount);
+            return itemAcc + baseAmount;
           }, 0);
           return acc + poTotal;
         }
@@ -371,26 +380,45 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     return [...staticColumns, ...dynamicColumns];
   }, [mile_data]);
 
-  const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
+  const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
     {
-      fields: ['item_id', 'quote'],
+      fields: ['name', 'item', 'quote'],
       limit: 10000
     });
 
-  const getTotal = (order_id) => {
-    let total: number = 0;
-    const orderData = pr_data?.find(item => item.name === order_id)?.procurement_list;
-    // console.log("orderData", orderData)
-    orderData?.list.map((item: any) => {
-      const quotesForItem = quote_data
-        ?.filter(value => value.item_id === item.name && value.quote != null)
-        ?.map(value => value.quote);
-      let minQuote;
-      if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
-      total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
-    })
-    return total || "N/A";
-  }
+    const getTotal = (order_id) => {
+      let total = 0;
+    
+      const procurementRequest = pr_data?.find(item => item.name === order_id);
+      const orderData = procurementRequest?.procurement_list;
+    
+      const status = statusRender(procurementRequest?.status, order_id);
+    
+      if (status === "Approved PO") {
+        const filteredPOs = po_data?.filter(po => po.procurement_request === order_id) || [];
+    
+        filteredPOs.forEach(po => {
+          po.order_list?.list.forEach(item => {
+            if (item.quote && item.quantity) {
+              total += parseFloat(item.quote) * item.quantity;
+            }
+          });
+        });
+      } else {
+        orderData?.list.forEach(item => {
+          const quotesForItem = quote_data
+            ?.filter(value => value.item === item.name && value.quote != null)
+            ?.map(value => value.quote);
+    
+          let minQuote;
+          if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
+          total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+        });
+      }
+    
+      return total || "N/A";
+    };
+    
 
   const getItemStatus = (item: any, filteredPOs: any[]) => {
     return filteredPOs.some(po =>
@@ -586,12 +614,14 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     const groupedData = items?.reduce((acc, item) => {
       const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
       const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
-      const amountWithTax = baseAmount + taxAmount;
+      const amountPlusTax = baseAmount + taxAmount;
   
       if (totals[item.work_package]) {
-        totals[item.work_package] += amountWithTax;
+        const {amountWithTax, amountWithoutTax} = totals[item.work_package]
+        totals[item.work_package] = {amountWithTax : amountPlusTax + amountWithTax, amountWithoutTax : amountWithoutTax + baseAmount}
       } else {
-        totals[item.work_package] = amountWithTax;
+        totals[item.work_package] = {amountWithTax : amountPlusTax, amountWithoutTax : baseAmount}
+        // totals[item.work_package] = amountWithTax;
       }
   
       if (!acc[item.work_package]) {
@@ -607,11 +637,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   
       if (existingItem) {
         existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
-        existingItem.amount += amountWithTax;
+        existingItem.amount += baseAmount;
+        existingItem.amountWithTax += amountPlusTax
       } else {
         acc[item.work_package][item.category].push({
           ...item,
-          amount: amountWithTax,
+          amount: baseAmount,
+          amountWithTax : amountPlusTax,
         });
       }
   
@@ -627,6 +659,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [po_item_data]);
 
   const {groupedData : categorizedData} = groupItemsByWorkPackageAndCategory(po_item_data);
+
+  console.log("workPackageTotals", workPackageTotalAmounts)
+
+  console.log("groupeddata", categorizedData)
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
@@ -689,11 +725,14 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
 
+  // workPackages.push({work_package_name : "Tool & Equipments"})
+
   useEffect(() => {
     if(workPackages) {
       setSelectedPackage(workPackages[0]?.work_package_name)
     }
   }, [])
+
 
   const handleStatusChange = (value: string) => {
     if (value === data?.status) {
@@ -705,6 +744,52 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       setShowStatusChangeDialog(true)
     }
   }
+
+  const segregateServiceOrderData = (serviceRequestsData) => {
+    const result = [];
+  
+    serviceRequestsData?.forEach(serviceRequest => {
+      serviceRequest.service_order_list.list?.forEach(item => {
+        const { category, uom, quantity, rate } = item;
+        const amount = parseFloat(quantity) * parseFloat(rate);
+  
+        // Find if the category already exists in the result
+        const existingCategory = result.find((entry) => entry[category]);
+  
+        if (existingCategory) {
+          // Update quantity and amount for the existing category
+          existingCategory[category].quantity += parseFloat(quantity);
+          existingCategory[category].amount += amount;
+        } else {
+          // If the category doesn't exist, add a new object for it
+          result.push({
+            [category]: {
+              unit: uom,
+              quantity: parseFloat(quantity),
+              amount: amount
+            }
+          });
+        }
+      });
+    });
+  
+    return result;
+  };
+  
+  const segregatedServiceOrderData = segregateServiceOrderData(serviceRequestsData);
+
+  const totalServiceOrdersAmt = segregatedServiceOrderData?.reduce((acc, item) => {
+    const category = Object.keys(item)[0];
+    const { amount } = item[category];
+    return acc + parseFloat(amount)
+  }, 0)
+
+  // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt)
+
+
+  // console.log("service requests", serviceRequestsData)
+
+  // console.log("segregatedServicedata", segregatedServiceOrderData)
 
   const handleConfirmStatus = async () => {
     // console.log("YAY")
@@ -733,16 +818,21 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     setShowStatusChangeDialog(false)
   }
 
+
   return (
     <div className="flex-1 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between max-md:flex-col max-md:gap-4 max-md:items-start">
         <div className="flex items-center">
           <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
           <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
           {role === "Nirmaan Admin Profile" && <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />}
         </div>
-        {role === "Nirmaan Admin Profile" && <div className="flex max-sm:text-xs max-md:text-sm text-right items-center">
-          <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
+        <div className="flex max-sm:text-xs max-md:text-sm items-center max-md:justify-between max-md:w-full">
+          {role === "Nirmaan Admin Profile" && 
+
+          (
+            <>
+            <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
             <PopoverTrigger asChild>
               <Button variant='outline' role="combobox" aria-expanded={open} className="w-48 flex justify-between">
                 <span className="font-bold text-md">Status: </span>
@@ -781,11 +871,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <div className="ml-2">
-            <span className=" whitespace-nowrap">Total PO's raised: </span>
-            <span className="max-sm:text-end max-sm:w-full text-primary">{formatToIndianRupee(totalPosRaised())}</span>
-          </div>
-        </div>}
+          </>)}
+  <CustomHoverCard  totalPosRaised={totalPosRaised} totalServiceOrdersAmt={totalServiceOrdersAmt} categorizedData={categorizedData} workPackageTotalAmounts={workPackageTotalAmounts} />
+        </div>
       </div>
       <div className="flex justify-between items-center">
         <div className="w-full">
@@ -1043,7 +1131,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     {/* {packageItem.work_package_name} */}
                     <div className="flex space-x-4 text-sm text-gray-600">
                       <span className="font-semibold">{packageItem.work_package_name}:</span>
-                      <span>Total Amount: {formatToIndianRupee(workPackageTotalAmounts?.[packageItem.work_package_name])}</span>
+                      <span>Total Amount: {formatToIndianRupee(workPackageTotalAmounts?.[packageItem.work_package_name]?.amountWithoutTax)}</span>
                     </div>
                   </SelectItem>
                 ))}
@@ -1054,6 +1142,28 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           {selectedPackage ? (
             <CategoryAccordion categorizedData={categorizedData} selectedPackage={selectedPackage} projectEstimates={project_estimates?.filter((i) => i?.work_package === selectedPackage) || []} />
           ) : <div className="h-[40vh] flex items-center justify-center"> Please select a Work Package</div>}
+
+          <Separator />
+          <div>
+              <div className="flex gap-2 items-center mb-4">
+                  <h2 className="font-semibold text-gray-500">Tools & Equipments</h2>
+                  <ArrowDown className="w-4 h-4" />
+              </div>
+              <div>
+                  <ToolandEquipementAccordion categorizedData={categorizedData} />
+              </div>
+          </div>
+
+          <Separator />
+          <div>
+              <div className="flex gap-2 items-center mb-4">
+                  <h2 className="font-semibold text-gray-500">Service Requests</h2>
+                  <ArrowDown className="w-4 h-4" />
+              </div>
+              <div>
+                  <ServiceRequestsAccordion segregatedData={segregatedServiceOrderData} />
+              </div>
+          </div>
         </>
       )}
 
@@ -1361,7 +1471,7 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
           <Accordion type="multiple" className="space-y-4">
             {Object.entries(selectedData).map(([category, items]) => {
               const totalAmount = items.reduce((sum, item) =>
-                sum + parseFloat(item.quote) * parseFloat(item.quantity) * (1 + parseFloat(item.tax) / 100),
+                sum + parseFloat(item?.amount),
                 0
               );
 
@@ -1418,7 +1528,8 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                             <TableCell className={`px-4 py-2 ${dynamicQtyClass}`}>{item.quantity}</TableCell>
                             <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
                             <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
-                            <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell>
+                            {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
+                            <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
                           </TableRow>
                         })}
                       </TableBody>
@@ -1430,11 +1541,193 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
           </Accordion>
         </div>
       ) : (
-        <div className="h-[60vh] flex items-center justify-center">No Results.</div>
+        <div className="h-[10vh] flex items-center justify-center">No Results.</div>
       )}
     </div>
   );
 };
 
 
+const ToolandEquipementAccordion = ({ categorizedData }) => {
 
+  const selectedData = categorizedData["Tool & Equipments"] || null;
+
+  return (
+    <div className="w-full">
+      {selectedData ? (
+        <div className="flex flex-col gap-4">
+          <Accordion type="multiple" className="space-y-4">
+            {Object.entries(selectedData).map(([category, items]) => {
+              const totalAmount = items.reduce((sum, item) =>
+                sum + parseFloat(item?.amount),
+                0
+              );
+
+              // const categoryEstimates = projectEstimates?.filter((i) => i?.category === category)
+              // const totalCategoryEstdAmt = categoryEstimates?.reduce((sum, item) => 
+              //   sum + parseFloat(item?.rate_estimate) * parseFloat(item?.quantity_estimate) * (1 + parseFloat(item?.item_tax) / 100),
+              // 0
+              // )
+              return (
+                <AccordionItem key={category} value={category} className="border-b rounded-lg shadow">
+                  <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
+                    <div className="flex space-x-4 text-sm text-gray-600">
+                      <span className="font-semibold">{category}:</span>
+                      <span>Total Amount: ₹{totalAmount.toLocaleString()}</span>
+                      {/* <span>Total Estd Amount: {formatToIndianRupee(totalCategoryEstdAmt)}</span> */}
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <Table className="min-w-full text-left text-sm">
+                      <TableHeader>
+                        <TableRow className="bg-gray-100 text-gray-700">
+                          <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Qty</TableHead>
+                          {/* <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead> */}
+                          <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
+                          {/* <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead> */}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {items?.map((item) => {
+                          // const estimateItem = projectEstimates?.find((i) => i?.item === item?.item_id);
+                          // const quantityDif = item?.quantity - estimateItem?.quantity_estimate
+                          // let dynamicQtyClass = null;
+
+                          // if(estimateItem) {
+                          //   if(quantityDif > 0) {
+                          //     dynamicQtyClass = "text-primary"
+                          //   } else if (quantityDif < 0 && Math.abs(quantityDif) < 5) {
+                          //     dynamicQtyClass = "text-yellow-600"
+                          //   } else if(quantityDif === 0) {
+                          //     dynamicQtyClass = "text-green-500"
+                          //   } else {
+                          //     dynamicQtyClass = "text-blue-500"
+                          //   }
+                          // }
+
+                          // console.log("estimateItme", estimateItem)
+                          return <TableRow key={item.item_id}>
+                            <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
+                            <TableCell className="px-4 py-2">{item.item_name}</TableCell>
+                            <TableCell className="px-4 py-2">{item.unit}</TableCell>
+                            <TableCell className={`px-4 py-2`}>{item.quantity}</TableCell>
+                            {/* <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell> */}
+                            <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
+                            {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
+                          </TableRow>
+                        })}
+                      </TableBody>
+                    </Table>
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
+        </div>
+      ) : (
+        <div className="h-[10vh] flex items-center justify-center">No Results.</div>
+      )}
+    </div>
+  );
+};
+
+
+const ServiceRequestsAccordion = ({ segregatedData }) => {
+
+  return (
+    <div className="w-full">
+     {segregatedData?.length > 0 ? (
+        <Table className="min-w-full text-left text-sm">
+          <TableHeader>
+            <TableRow className="bg-gray-100 text-gray-700">
+              <TableHead className="px-4 py-2 font-semibold">Category</TableHead>
+              <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
+              <TableHead className="px-4 py-2 font-semibold">Qty</TableHead>
+              <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {segregatedData?.map((item, index) => {
+
+            const category = Object.keys(item)[0];
+            const { unit, quantity, amount } = item[category];
+
+            return (
+              <TableRow key={index}>
+                <TableCell className="px-4 py-2">{category}</TableCell>
+                <TableCell className="px-4 py-2">{unit}</TableCell>
+                <TableCell className="px-4 py-2">{quantity}</TableCell>
+                <TableCell className="px-4 py-2">₹{parseFloat(amount).toLocaleString()}</TableCell>
+              </TableRow> )
+            })}
+          </TableBody>
+      </Table>
+     ) : ( <div className="h-[10vh] flex items-center justify-center">No Results.</div> )}
+    </div>
+  );
+};
+
+
+
+const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedData, workPackageTotalAmounts }) => {
+  // Generate tree data for the Tree component
+  const generateTreeData = () => {
+    const treeData = categorizedData && Object.entries(categorizedData)?.map(([workPackage, categories]) => {
+      // Children for each category in the work package
+      const categoryNodes = Object.entries(categories).map(([category, items]) => {
+        const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+        const totalAmountWithTax = items.reduce((sum, item) => sum + item.amountWithTax, 0);
+
+        return {
+          title: `${category}: ₹${parseFloat(totalAmountWithTax).toLocaleString()} (Base: ₹${parseFloat(totalAmount).toLocaleString()})`,
+          key: `${workPackage}-${category}`,
+          children: items.map((item, index) => ({
+            title: `${item.item_name} - Qty: ${item.quantity}`,
+            key: `${workPackage}-${category}-${index}`,
+          })),
+        };
+      });
+
+      return {
+        title: `${workPackage} - Total: ₹${parseFloat(workPackageTotalAmounts[workPackage]?.amountWithoutTax).toLocaleString()}`,
+        key: workPackage,
+        children: categoryNodes,
+      };
+    });
+
+    // Add service requests total as a standalone item
+    treeData?.push({
+      title: `Service Requests Total: ₹${parseFloat(totalServiceOrdersAmt).toLocaleString()}`,
+      key: 'service-requests-total',
+    });
+
+    return treeData;
+  };
+
+  return (
+    <HoverCard>
+      <HoverCardTrigger>
+        <div className="ml-2 underline">
+          <span className="whitespace-nowrap">Total Spent: </span>
+          <span className="max-sm:text-end max-sm:w-full text-primary">
+            {formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}
+          </span>
+        </div>
+      </HoverCardTrigger>
+      <HoverCardContent>
+        <div className="">
+          <h3 className="font-semibold text-lg mb-2">Total Spent Breakdown</h3>
+          <Tree
+            showLine
+            switcherIcon={<DownOutlined />}
+            defaultExpandedKeys={['0-0']}
+            treeData={generateTreeData()}
+          />
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  );
+};
