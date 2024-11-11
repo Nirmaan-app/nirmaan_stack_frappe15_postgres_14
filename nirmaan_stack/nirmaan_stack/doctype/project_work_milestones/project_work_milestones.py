@@ -42,9 +42,9 @@ def generate_pwm(project, method=None):
 			doc.insert(ignore_permissions=True)
 
 def edit_pwm(project, method=None):
-	doc = project.get_doc_before_save()
-	print("doc before save", doc)
-	if project.project_start_date != doc.project_start_date or project.project_end_date!=doc.project_end_date:
+	# doc = project.get_doc_before_save()
+	# print("doc before save", doc)
+	if project.has_value_changed("project_start_date") or project.has_value_changed("project_end_date"):
 		project_start_datetime = datetime.strptime(project.project_start_date, "%Y-%m-%d %H:%M:%S")
 		project_start_date = project_start_datetime.date()
 		project_end_datetime = datetime.strptime(project.project_end_date, "%Y-%m-%d %H:%M:%S")
