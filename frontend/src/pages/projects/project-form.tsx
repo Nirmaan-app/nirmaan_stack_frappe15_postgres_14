@@ -338,7 +338,7 @@ export const ProjectForm = () => {
                     description: `Project ${projectDoc.project_name} created successfully!`,
                     variant: "success"
                 })
-                setNewProjectId(projectDoc.project_name)
+                setNewProjectId(projectDoc.name)
                 handleOpenDialog()
 
             }
