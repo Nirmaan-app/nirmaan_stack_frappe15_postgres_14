@@ -40,9 +40,11 @@ export const ApproveSelectSR = () => {
 
     const getTotal = (order_id: string) => {
         let total: number = 0;
+
+        console.log("service_request_list", service_request_list)
         const orderData = service_request_list?.find(item => item.name === order_id)?.service_order_list;
         orderData?.list.map((item) => {
-            const price = item.amount;
+            const price = (item?.rate * item?.quantity);
             total += price ? parseFloat(price) : 0
         })
         return total;
