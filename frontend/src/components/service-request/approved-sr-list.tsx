@@ -1,6 +1,6 @@
-import { useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -9,6 +9,7 @@ import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useNotificationStore } from "@/zustand/useNotificationStore";
 
 
 export const ApprovedSRList = () => {
@@ -41,6 +42,15 @@ export const ApprovedSRList = () => {
         })
         return total;
     }
+    const {notifications, mark_seen_notification} = useNotificationStore()
+
+    const {db} = useContext(FrappeContext) as FrappeConfig
+
+    const handleNewPRSeen = (notification) => {
+        if(notification) {
+            mark_seen_notification(db, notification)
+        }
+    }
 
     const columns = useMemo(
         () => [
@@ -52,10 +62,20 @@ export const ApprovedSRList = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const srId = row.getValue("name")
+                    const isNew = notifications.find(
+                        (item) => item.docname === srId && item.seen === "false" && item.event_id === "sr:approved"
+                    )
                     return (
-                        <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`${row.getValue("name")}`}>
-                                {row.getValue("name")?.slice(-4)}
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                            {isNew && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                            )}
+                            <Link
+                                className="underline hover:underline-offset-2"
+                                to={`${srId}`}
+                            >
+                                {srId?.slice(-5)}
                             </Link>
                         </div>
                     )

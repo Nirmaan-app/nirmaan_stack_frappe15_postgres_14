@@ -54,6 +54,11 @@ interface StoreState {
     adminChooseVendorPRCount: number | null;
     otherPOCount: number | null;
     adminOtherPOCount: number | null;
+    updateSRCounts: (srData : any, admin: boolean) => void;
+    selectedSRCount: number | null;
+    adminSelectedSRCount: number | null;
+    approvedSRCount : number | null;
+    adminApprovedSRCount : number | null;
 }
 
 export const useDocCountStore = create<StoreState>()(
@@ -81,6 +86,10 @@ export const useDocCountStore = create<StoreState>()(
             adminNewSBCounts: { rejected: null, delayed: null, cancelled: null},
             setPendingPRCount: (count) => set({ pendingPRCount: count }),
             setApprovePRCount: (count) => set({ approvePRCount: count }),
+            selectedSRCount: null,
+            adminSelectedSRCount: null,
+            approvedSRCount : null,
+            adminApprovedSRCount : null,
             updatePRCounts: (prData, admin) => {
                 const pendingCount = prData.filter((pr) => pr.workflow_state === 'Pending').length;
                 const approveCount = prData.filter((pr) => ['Vendor Selected', 'Partially Approved'].includes(pr.workflow_state) && pr?.procurement_list?.list?.some((i) => i?.status === "Pending")).length;
@@ -138,6 +147,21 @@ export const useDocCountStore = create<StoreState>()(
                         amendPOCount: amendPOCount,
                         newPOCount: newPOCount,
                         otherPOCount: otherPOCount
+                    });
+                }
+            },
+            updateSRCounts : (srData, admin) => {
+                const selectedPOCount = srData?.filter((sr) => sr?.status === "Vendor Selected")?.length
+                const approvedSRCount = srData?.filter((sr) => sr?.status === "Approved")?.length
+                if(admin) {
+                    set({
+                        adminSelectedSRCount: selectedPOCount,
+                        adminApprovedSRCount: approvedSRCount,
+                    });
+                } else {
+                    set({
+                        selectedSRCount: selectedPOCount,
+                        approvedSRCount: approvedSRCount,
                     });
                 }
             }
