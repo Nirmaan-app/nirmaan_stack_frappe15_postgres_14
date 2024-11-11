@@ -26,7 +26,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
             fields: ["*"],
             filters: [["status", not ? "not in" : "in", not ? [status, "PO Amendment"] : [status]]],
             limit: 1000,
-            orderBy: {field : "modified", order : "desc"}
+            orderBy: { field: "modified", order: "desc" }
         },
     );
 
@@ -53,32 +53,32 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
     const getTotal = (order_id: string) => {
         let total: number = 0;
         let totalWithGST: number = 0;
-        
+
         const orderData = procurement_order_list?.find(item => item.name === order_id)?.order_list;
-        
+
         orderData?.list.map((item) => {
             const price = parseFloat(item?.quote) || 0;
             const quantity = parseFloat(item?.quantity) || 1;
             const gst = parseFloat(item?.tax) || 0;
-            
+
             total += price * quantity;
-            
+
             const gstAmount = (price * gst) / 100;
             totalWithGST += (price + gstAmount) * quantity;
         });
-        
+
         return {
             totalWithoutGST: total,
             totalWithGST: totalWithGST
         };
     };
-    
 
-    const {notifications, mark_seen_notification} = useNotificationStore()
 
-    const {db} = useContext(FrappeContext) as FrappeConfig
+    const { notifications, mark_seen_notification } = useNotificationStore()
+
+    const { db } = useContext(FrappeContext) as FrappeConfig
     const handleNewPRSeen = (notification) => {
-        if(notification) {
+        if (notification) {
             mark_seen_notification(db, notification)
         }
     }
@@ -228,6 +228,12 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                         </div>
                     )
                 }
+            },
+            {
+                accessorKey: 'order_list',
+                header: ({ column }) => {
+                    return <h1>:</h1>
+                }
             }
         ],
         [project_values, procurement_order_list]
@@ -251,7 +257,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                     <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">{not ? "Released" : "Approved"} PO</h2>
                 </div>
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} />
+                    <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
                 )}
             </div>
 

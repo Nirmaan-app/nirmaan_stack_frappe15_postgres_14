@@ -46,10 +46,13 @@ interface DataTableProps<TData, TValue> {
     roleTypeOptions?: any
     statusOptions?: any
     totalPOsRaised?: any
+    itemSearch?: boolean
 
 }
 
-export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined }: DataTableProps<TData, TValue>) {
+
+
+export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined, itemSearch = false }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([
         {
             id: "creation",
@@ -62,6 +65,18 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
     const [rowSelection, setRowSelection] = React.useState({})
 
     const [globalFilter, setGlobalFilter] = React.useState('')
+
+    const customGlobalFilter = (row, columnId, filterValue) => {
+        const name = row.getValue("name");
+        const vendorName = row.getValue("vendor_name");
+        const orderList = row.getValue("order_list");
+
+        // Combine all fields into a single string for searching
+        const combinedString = `${name || ""} ${vendorName || ""} ${JSON.stringify(orderList) || ""
+            }`.toLowerCase();
+
+        return combinedString.includes(filterValue.toLowerCase());
+    };
 
     const table = useReactTable({
         data,
@@ -78,7 +93,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
         onColumnVisibilityChange: setColumnVisibility,
         onRowSelectionChange: setRowSelection,
         onGlobalFilterChange: setGlobalFilter,
-        globalFilterFn: fuzzyFilter,
+        globalFilterFn: itemSearch ? customGlobalFilter : fuzzyFilter,
         state: {
             sorting,
             columnFilters,
