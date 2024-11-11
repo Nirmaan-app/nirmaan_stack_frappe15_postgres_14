@@ -29,6 +29,10 @@ export const ApproveSelectSR = () => {
         }
     );
 
+    useFrappeDocTypeEventListener("Service Requests", async () => {
+        await sr_list_mutate()
+    })
+
     // console.log("sbdata", sent_back_list)
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
@@ -41,7 +45,7 @@ export const ApproveSelectSR = () => {
     const getTotal = (order_id: string) => {
         let total: number = 0;
 
-        console.log("service_request_list", service_request_list)
+        // console.log("service_request_list", service_request_list)
         const orderData = service_request_list?.find(item => item.name === order_id)?.service_order_list;
         orderData?.list.map((item) => {
             const price = (item?.rate * item?.quantity);
@@ -50,18 +54,15 @@ export const ApproveSelectSR = () => {
         return total;
     }
 
-    // useFrappeDocTypeEventListener("Sent Back Category", async (data) => {
-    //     await sbListMutate()
-    // })
+    const {notifications, mark_seen_notification} = useNotificationStore()
 
-    // const {notifications, mark_seen_notification} = useNotificationStore()
+    const {db} = useContext(FrappeContext) as FrappeConfig
 
-    // const {db} = useContext(FrappeContext) as FrappeConfig
-    // const handleNewPRSeen = (notification) => {
-    //     if(notification) {
-    //         mark_seen_notification(db, notification)
-    //     }
-    // }
+    const handleNewPRSeen = (notification) => {
+        if(notification) {
+            mark_seen_notification(db, notification)
+        }
+    }
 
     console.log("service list", service_request_list)
     const columns: ColumnDef<PRTable>[] = useMemo(
@@ -73,34 +74,23 @@ export const ApproveSelectSR = () => {
                         <DataTableColumnHeader column={column} title="ID" />
                     )
                 },
-                // cell: ({ row }) => {
-                //     const sbId = row.getValue("name")
-                //     const isNew = notifications.find(
-                //         (item) => item.docname === sbId && item.seen === "false" && item.event_id === "sb:vendorSelected"
-                //     )
-                //     return (
-                //         <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
-                //             {isNew && (
-                //                 <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
-                //             )}
-                //             <Link
-                //                 className="underline hover:underline-offset-2"
-                //                 to={`/approve-sent-back/${sbId}`}
-                //             >
-                //                 {sbId?.slice(-5)}
-                //             </Link>
-                //         </div>
-                //     )
-                // }
-                cell: ({row}) => {
+                cell: ({ row }) => {
                     const srId = row.getValue("name")
+                    const isNew = notifications.find(
+                        (item) => item.docname === srId && item.seen === "false" && item.event_id === "sr:vendorSelected"
+                    )
                     return (
-                        <Link
-                            className="underline hover:underline-offset-2"
-                            to={`${srId}`}
-                        >
-                            {srId?.slice(-5)}
-                        </Link>
+                        <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
+                            {isNew && (
+                                <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />
+                            )}
+                            <Link
+                                className="underline hover:underline-offset-2"
+                                to={`${srId}`}
+                            >
+                                {srId?.slice(-5)}
+                            </Link>
+                        </div>
                     )
                 }
             },

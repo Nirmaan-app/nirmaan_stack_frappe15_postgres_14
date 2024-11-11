@@ -180,7 +180,8 @@ doc_events = {
             ]
     },
     "Service Requests": {
-        "on_trash": "nirmaan_stack.integrations.controllers.service_requests.on_trash"
+        "on_trash": "nirmaan_stack.integrations.controllers.service_requests.on_trash",
+        "on_update": "nirmaan_stack.integrations.controllers.service_requests.on_update"
     }
 }
 

@@ -206,6 +206,42 @@ export const ApproveServiceRequest = () => {
         }
     }
 
+    const getUserName = (id) => {
+        if (usersList) {
+            return usersList.find((user) => user?.name === id)?.full_name
+        }
+    }
+
+
+    if (service_request?.status !== "Vendor Selected") return (
+        <div className="flex items-center justify-center h-full">
+            <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
+                <h2 className="text-2xl font-semibold text-gray-800">
+                    Heads Up!
+                </h2>
+                <p className="text-gray-600 text-lg">
+                    Hey there, the SR:{" "}
+                    <span className="font-medium text-gray-900">{service_request?.name}</span>{" "}
+                    is no longer available for{" "}
+                    <span className="italic">Reviewing</span>. The current state is{" "}
+                    <span className="font-semibold text-blue-600">
+                        {service_request?.status}
+                    </span>{" "}
+                    And the last modification was done by <span className="font-medium text-gray-900">
+                        {service_request?.modified_by === "Administrator" ? service_request?.modified_by : getUserName(service_request?.modified_by)}
+                    </span>
+                    !
+                </p>
+                <button
+                    className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
+                    onClick={() => navigate("/approve-service-request")}
+                >
+                    Go Back
+                </button>
+            </div>
+        </div>
+    );
+
     return (
         <>
             <div className="flex-1 md:space-y-4">
