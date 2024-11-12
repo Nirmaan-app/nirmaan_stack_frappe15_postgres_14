@@ -17,6 +17,33 @@ import { Separator } from "./ui/separator";
 import { Pencil2Icon } from "@radix-ui/react-icons";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { TailSpin } from "react-loader-spinner";
+import { Textarea } from "./ui/textarea";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { Label, Pie, PieChart } from "recharts";
+import {
+  ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+
+const chartConfig = {
+    visitors: {
+      label: "Visitors",
+    },
+    category1: {
+      label: "Category 1",
+      color: "hsl(var(--chart-1))",
+    },
+    category2: {
+      label: "Category 2",
+      color: "hsl(var(--chart-2))",
+    },
+    category3: {
+      label: "Category 3",
+      color: "hsl(var(--chart-3))",
+    },
+  } satisfies ChartConfig;
 
 
 const AddProjectEstimates = () => {
@@ -66,11 +93,13 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     const [rateInput, setRateInput] = useState("");
     const [errorItem, setErrorItem] = useState(null);
     const [editEstimation, setEditEstimation] = useState({})
+    const [allWorkPackages, setAllWorkPackages] = useState(null)
 
     const {createDoc, loading: create_loading} = useFrappeCreateDoc()
     const {updateDoc, loading: update_loading} = useFrappeUpdateDoc()
     const {deleteDoc, loading: delete_loading} = useFrappeDeleteDoc()
     const [deleteItem, setDeleteItem] = useState(null)
+    const [serviceDesc, setServiceDesc] = useState(null)
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -178,7 +207,11 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
 
       useEffect(() => {
         if (project_data) {
-            const list: string[] = JSON.parse(project_data.project_work_packages)?.work_packages?.map((wp) => wp.work_package_name)
+            const wpList = JSON.parse(project_data.project_work_packages)?.work_packages
+            wpList?.push({work_package_name : "Tool & Equipments"})
+            wpList?.push({work_package_name : "Services"})
+            setAllWorkPackages(wpList)
+            const list: string[] = wpList?.map((wp) => wp.work_package_name)
             setDefaultValues(list)
         }
     }, [project_data])
@@ -202,19 +235,18 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         },
     ];
 
-    console.log("estimations", editEstimation)
-
     const innerColumns = [
         {   title: "Item", 
             dataIndex: "item_name", 
             key: "item_name", 
-            render: (text) => <span className="italic">{text}</span>
+            render: (text) => <span className="italic">{text || "--"}</span>
         },
         {
             title: "UOM",
             dataIndex: "uom",
             key: "uom",
             width: "10%",
+            render: (text) => <span>{text || "--"}</span>
         },
         {
             title: "Estd Qty",
@@ -244,13 +276,13 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
             key: "edit-delete-actions",
             width: "10%",
             render: (text, record) => {
-                // console.log("recordeditdelete", record)
+                console.log("recordeditdelete", record)
                 return  (
                     <div className="flex items-center gap-2">
                         <Dialog>
                             <DialogTrigger>
                                 <Pencil2Icon onClick={() => {
-                                    const estimation = {rate_estimate : record?.rate_estimate, quantity_estimate : record?.quantity_estimate}
+                                    const estimation = {rate_estimate : record?.rate_estimate, quantity_estimate : record?.quantity_estimate, uom : record?.uom}
                                     setEditEstimation(estimation)
                                 }}  className="w-6 h-6" />
                             </DialogTrigger>
@@ -269,11 +301,22 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                             />
                                         </div>
                                         <div className="flex flex-col gap-2">
+                                            <h3 className="text-gray-500">Unit</h3>
+                                            <Input type="text"
+                                                value={editEstimation?.uom} 
+                                                disabled
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-2">
                                             <h3 className="text-gray-500">Rate</h3>
                                             <Input type="number" placeholder="Enter Estimated Rate" 
                                                 value={editEstimation?.rate_estimate} 
                                                 onChange={(e) => setEditEstimation({...editEstimation, rate_estimate : e.target.value})} 
                                             />
+                                        </div>
+                                        <div className="flex flex-col gap-4">
+                                            <h3 className="text-gray-500">Amount</h3>
+                                            <p className="text-primary">{formatToIndianRupee((editEstimation?.quantity_estimate || 0) * (editEstimation?.rate_estimate || 0))}</p>
                                         </div>
                                         <Button onClick={() => handleEditEstimate(record?.name, record?.item_name)} disabled={(record?.rate_estimate === editEstimation?.rate_estimate && record?.quantity_estimate === editEstimation?.quantity_estimate) || Object.values(editEstimation || [])?.some((i) => !i)}>
                                             {update_loading ? "Updating..." : "Update"}
@@ -283,9 +326,31 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                             </DialogContent>
                         </Dialog>
                         <span>|</span>
-                        {(deleteItem && deleteItem === record?.name) ? <TailSpin color={"red"} width={20} height={20} /> : 
+                        {/* {(deleteItem && deleteItem === record?.name) ? <TailSpin color={"red"} width={20} height={20} /> : 
                             <Trash onClick={() => handleDeleteEstimate(record?.name, record?.item_name)} className="w-6 h-6 text-primary cursor-pointer" />
-                        }
+                        } */}
+
+                        <Dialog>
+                            <DialogTrigger>
+                                <Trash className="w-6 h-6 text-primary cursor-pointer" />
+                            </DialogTrigger>
+                            <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>
+                                    Are you sure!
+                                </DialogTitle>
+                                <DialogDescription>Click on Confirm to proceed!</DialogDescription>
+                                <DialogDescription className="flex items-center justify-end gap-2">
+                                    <DialogClose>
+                                        <Button variant={"outline"}>Cancel</Button>
+                                    </DialogClose>
+                                    {(deleteItem && deleteItem === record?.name) ? <TailSpin color={"red"} width={20} height={20} /> : 
+                                        <Button onClick={() => handleDeleteEstimate(record?.name, record?.item_name)}>Confirm</Button>
+                                    }
+                                </DialogDescription>
+                            </DialogHeader>
+                            </DialogContent>
+                        </Dialog>
                     </div>
                 )
             },
@@ -338,14 +403,15 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         }
     }
 
+
     const handleSubmit = async (wp) => {
         const category = curCategory[wp]?.value
         const tax = curCategory[wp]?.tax
         const item = selectedItem[wp]?.value
-        const item_name = selectedItem[wp]?.label
+        const item_name = wp === "Services" ? serviceDesc : selectedItem[wp]?.label
         const uom = selectedItem[wp]?.unit
         const quantity = enteredQuantities[wp]
-        // const rate = enteredRates[wp] || ''
+        const rate = wp === "Services" ? rateInput : undefined
 
         try {
 
@@ -357,7 +423,8 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                 item_name : item_name,
                 uom : uom,
                 quantity_estimate : quantity,
-                item_tax : tax
+                item_tax : tax,
+                rate_estimate: rate
             })
 
             await estimates_data_mutate()
@@ -366,6 +433,8 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
             setCurCategory({ ...curCategory, [wp]: null });
             setSelectedItem({ ...selectedItem, [wp]: null });
             setEnteredQuantities({ ...enteredQuantities, [wp]: '' });
+            setRateInput('')
+            setServiceDesc(null)
             // setEnteredRates({ ...enteredRates, [wp]: '' });
 
             toast({
@@ -425,6 +494,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                 });
 
                 setShowRateDialog(false);
+                setRateInput('')
 
             } catch (error) {
                 toast({
@@ -437,6 +507,63 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         }
     };
 
+    const categoryTotals = estimates_data?.reduce((acc, item) => {
+        const category = acc[item?.category] || { withoutGst: 0, withGst: 0 };
+
+        const itemTotal = parseFloat(item?.quantity_estimate) * parseFloat(item?.rate_estimate);
+        const itemTotalWithGst = itemTotal * (1 + parseFloat(item?.item_tax) / 100);
+
+        category.withoutGst += itemTotal;
+        category.withGst += itemTotalWithGst;
+
+        acc[item.category] = category;
+        return acc;
+    }, {});
+
+    const workPackageTotals = estimates_data?.reduce((acc, item) => {
+        const work_package = acc[item?.work_package] || { withoutGst: 0, withGst: 0 };
+
+        const itemTotal = parseFloat(item?.quantity_estimate) * parseFloat(item?.rate_estimate);
+        const itemTotalWithGst = itemTotal * (1 + parseFloat(item?.item_tax) / 100);
+
+        work_package.withoutGst += itemTotal;
+        work_package.withGst += itemTotalWithGst;
+
+        acc[item?.work_package] = work_package;
+        return acc;
+    }, {});
+
+//   const overallTotal = categoryTotals && Object.values(categoryTotals)?.reduce(
+//     (acc, totals) => ({
+//       withoutGst: acc.withoutGst + totals.withoutGst,
+//       withGst: acc.withGst + totals.withGst,
+//     }),
+//     { withoutGst: 0, withGst: 0 }
+//   );
+
+const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.reduce(
+    (acc, totals) => ({
+      withoutGst: acc.withoutGst + totals.withoutGst,
+      withGst: acc.withGst + totals.withGst,
+    }),
+    { withoutGst: 0, withGst: 0 }
+  );
+
+
+//   const pieChartData = categoryTotals && Object.keys(categoryTotals)?.map((category) => ({
+//     name: category,
+//     value: categoryTotals[category]?.withoutGst,
+//     fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
+//   }));
+
+  const pieChartData = workPackageTotals && Object.keys(workPackageTotals)?.map((wp) => ({
+    name: wp,
+    value: workPackageTotals[wp]?.withoutGst,
+    fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
+  }));
+
+//   console.log("errorItems", errorItem)
+
     return (
         <>
             <div className="flex-1 md:space-y-4">
@@ -445,10 +572,85 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                     <h3 className="text-base pl-2 font-bold tracking-tight">
                         {/* <span className="text-primary">{project_data?.project_name}</span>  */} Estimations Overview</h3>
                 </div>
-                <div>
+                <div className="space-y-4">
+                                <Card className="flex flex-col">
+                <CardHeader>
+                  <CardTitle>
+                  <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                            <p className="text-left py-1 font-light text-sm text-red-700">Project Name:</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
+                        </div>
+                        <div className="border-0 flex flex-col justify-center">
+                            <p className="text-left py-1 font-light text-sm text-red-700">Project ID:</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.name}</p>
+                        </div>
+                        <div className="border-0 flex flex-col justify-center">
+                            <p className="text-left py-1 font-light text-sm text-red-700">Start_Date:</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_start_date}</p>
+                        </div>
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                            <p className="text-left py-1 font-light text-sm text-red-700">End_Date:</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_end_date}</p>
+                        </div>
+                        {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                            <p className="text-left py-1 font-light text-sm text-red-700">Location:</p>
+                            <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_city}, {project_data?.project_state}</p>
+                        </div> */}
+                    </Card>
+                  </CardTitle>
+                </CardHeader>
+                {Object.keys(workPackageTotals)?.length > 0 ? (
+                    <CardContent className="flex max-md:flex-col items-center lg:mx-10">
+                    <div className="flex-1">
+                        <p className="font-bold text-lg text-gray-700">
+                          Overall Total: <span className="font-medium">{formatToIndianRupee(overallTotal?.withoutGst)}</span>
+                        </p>
+                        <ul className="list-disc ml-6">
+                            {workPackageTotals && Object.keys(workPackageTotals)?.map((wp) => (
+                                <li>
+                                    <span>{wp}: </span>
+                                    <span>{formatToIndianRupee(workPackageTotals[wp]?.withoutGst)}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                  <ChartContainer
+                    config={chartConfig}
+                    className="mx-auto w-full min-h-[250px] max-h-[300px] flex-1 flex justify-center"
+                  >
+                    <PieChart>
+                      <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                      <Pie data={pieChartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
+                        <Label
+                          content={({ viewBox }) => {
+                            if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                              return (
+                                <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+                                  <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
+                                    {overallTotal?.withoutGst?.toLocaleString()}
+                                  </tspan>
+                                  <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
+                                    Total
+                                  </tspan>
+                                </text>
+                              );
+                            }
+                          }}
+                        />
+                      </Pie>
+                    </PieChart>
+                  </ChartContainer>
+                </CardContent>
+                ) : (
+                    <CardContent className="flex items-center justify-center my-10 italic">
+                        Please Start filling the estimates to show the totals overview!
+                    </CardContent>
+                )}
+            </Card>
                     {defaultValues && (
-                    <Accordion type="multiple" className="space-y-4" defaultValue={defaultValues || []}>
-                        {JSON.parse(project_data?.project_work_packages)?.work_packages?.map((wp) => (
+                    <Accordion type="multiple" className="space-y-4" defaultValue={defaultValues?.slice(0, 2) || []}>
+                        {allWorkPackages?.map((wp) => (
                             <AccordionItem key={wp.work_package_name} value={wp.work_package_name} className="border-b rounded-lg shadow">
                             <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
                               {wp.work_package_name}
@@ -491,43 +693,76 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                         <div className="flex justify-between items-end">
                                                 <div className="flex gap-2 items-end flex-wrap">
                                                     <div className="flex flex-col gap-2">
-                                                        <h3 className="text-gray-500">Select Associated Category</h3>
+                                                        <h3 className="text-gray-500">Select Associated Category<sup className="text-sm text-red-600">*</sup></h3>
                                                         <ReactSelect 
                                                             className="w-64"
                                                             value={curCategory[wp.work_package_name]} 
                                                             options={workPackageCategoryList[wp.work_package_name]} 
                                                             onChange={(value) => handleCategoryChange(wp.work_package_name, value)} />
                                                     </div>
+                                                    {wp?.work_package_name !== "Services" ? (
+                                                        <div className="flex flex-col gap-2">
+                                                            <h3 className="text-gray-500">Select Item<sup className="text-sm text-red-600">*</sup></h3>
+                                                            <ReactSelect 
+                                                                className="w-64"
+                                                                value={selectedItem[wp.work_package_name]} 
+                                                                options={categoryItemList[curCategory[wp.work_package_name]?.value]} 
+                                                                onChange={(value) => handleItemChange(wp.work_package_name, curCategory[wp.work_package_name], value)}
+                                                                isDisabled={!curCategory[wp.work_package_name]}
+                                                                 />
+                                                        </div>
+                                                    ) :  (
+                                                        <div className="flex flex-col gap-2">
+                                                            <h3 className="text-gray-500">Description (optional)</h3>
+                                                            <Textarea
+                                                                placeholder={`Add Description...`}
+                                                                id="description"
+                                                                className="w-64"
+                                                                disabled={!curCategory[wp.work_package_name]}
+                                                                onChange={(e) => setServiceDesc(e.target.value)}
+                                                                value={serviceDesc || ''}
+                                                            />
+                                                        </div>
+                                                    )}
                                                     <div className="flex flex-col gap-2">
-                                                        <h3 className="text-gray-500">Select Item</h3>
-                                                        <ReactSelect 
-                                                            className="w-64"
-                                                            value={selectedItem[wp.work_package_name]} 
-                                                            options={categoryItemList[curCategory[wp.work_package_name]?.value]} 
-                                                            onChange={(value) => handleItemChange(wp.work_package_name, curCategory[wp.work_package_name], value)}
-                                                            isDisabled={!curCategory[wp.work_package_name]}
-                                                             />
-                                                    </div>
-                                                    <div className="flex flex-col gap-2">
-                                                        <h3 className="text-gray-500">Qty</h3>
+                                                        <h3 className="text-gray-500">Qty<sup className="text-sm text-red-600">*</sup></h3>
                                                         <Input type="number" placeholder="Enter Estimated Qty" 
-                                                        value={enteredQuantities[wp.work_package_name]} 
-                                                        onChange={(e) => handleQuantityChange(wp.work_package_name, curCategory[wp.work_package_name],  e.target.value)} 
-                                                        disabled={!selectedItem[wp.work_package_name]}
+                                                            className="w-20"
+                                                            value={enteredQuantities[wp.work_package_name]} 
+                                                            onChange={(e) => handleQuantityChange(wp.work_package_name, curCategory[wp.work_package_name],  e.target.value)} 
+                                                            disabled={wp?.work_package_name === "Services" ? !curCategory[wp.work_package_name] : !selectedItem[wp.work_package_name]}
                                                         />
                                                     </div>
-                                                    {/* <div className="flex flex-col gap-2">
-                                                        <h3 className="text-gray-500">Rate</h3>
-                                                        <Input type="number" placeholder="Enter Estimated Rate" 
-                                                        value={enteredRates[wp.work_package_name]} 
-                                                        onChange={(e) => handleRateChange(wp.work_package_name, curCategory[wp.work_package_name],  e.target.value)}  
-                                                        disabled={!selectedItem[wp.work_package_name]}
+                                                    {wp?.work_package_name !== "Services" && (
+                                                    <div className="flex flex-col gap-2">
+                                                        <h3 className="text-gray-500">UNIT<sup className="text-sm text-red-600">*</sup></h3>
+                                                        <Input type="text"
+                                                            className="w-20"
+                                                            value={selectedItem[wp.work_package_name]?.unit}  
+                                                            disabled
                                                         />
-                                                    </div> */}
+                                                    </div>
+                                                    )}
+                                                    {wp?.work_package_name === "Services" && (
+                                                        <>
+                                                        <div className="flex flex-col gap-2">
+                                                            <h3 className="text-gray-500">Rate<sup className="text-sm text-red-600">*</sup></h3>
+                                                            <Input type="number" placeholder="Enter Estimated Rate" 
+                                                            value={rateInput}
+                                                            onChange={(e) => handleRateChange(e.target.value)}  
+                                                            disabled={!enteredQuantities[wp.work_package_name]}
+                                                            />
+                                                        </div>
+                                                        <div className="flex flex-col gap-4">
+                                                            <h3 className="text-gray-500">Amount</h3>
+                                                            <p className="text-primary">{formatToIndianRupee((enteredQuantities["Services"] || 0) * (rateInput || 0))}</p>
+                                                        </div>
+                                                    </>
+                                                    )}
                                                     </div>
                                                         <Button
                                                              onClick={() => handleSubmit(wp.work_package_name)}
-                                                            disabled={!curCategory[wp.work_package_name] || !selectedItem[wp.work_package_name] || !enteredQuantities[wp.work_package_name]}>
+                                                            disabled={!curCategory[wp.work_package_name] || (wp?.work_package_name !== "Services" && !selectedItem[wp.work_package_name]) || (wp?.work_package_name === "Services" && !rateInput) || !enteredQuantities[wp.work_package_name]}>
                                                             {create_loading ? "Submitting.." : "Submit"}
                                                         </Button>
                                                         <AlertDialog open={showRateDialog} onOpenChange={setShowRateDialog}>
@@ -539,20 +774,46 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                                                 </AlertDialogHeader>
                                                                 <AlertDialogDescription>
                                                                     <p>No quotes found for the item: <span className="text-primary italic">{errorItem?.item_name}</span> in the system. Please provide a rate:</p>
-                                                                    <Input
-                                                                        type="number"
-                                                                        placeholder="Enter Rate"
-                                                                        value={rateInput}
-                                                                        onChange={(e) => handleRateChange(e.target.value)}
-                                                                        className="mt-4"
-                                                                    />
+                                                                    <div className="flex items-center gap-6">
+                                                                        <div className="flex flex-col gap-2">
+                                                                            <h3 className="text-gray-500">Qty</h3>
+                                                                            <Input type="number" placeholder="Enter Estimated Qty" 
+                                                                                value={errorItem?.quantity_estimate} 
+                                                                                onChange={(e) => setErrorItem({...errorItem, quantity_estimate : e.target.value})} 
+                                                                            />
+                                                                        </div>
+                                                                        <div className="flex flex-col gap-2">
+                                                                            <h3 className="text-gray-500">Unit</h3>
+                                                                            <Input type="text"
+                                                                                value={errorItem?.uom} 
+                                                                                disabled
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                    
+                                                                    <div className="flex items-center gap-6 mt-4">
+                                                                        <div className="flex flex-col gap-2">
+                                                                            <h3 className="text-gray-500">Rate</h3>
+                                                                            <Input
+                                                                                type="number"
+                                                                                placeholder="Enter Rate"
+                                                                                value={rateInput}
+                                                                                onChange={(e) => handleRateChange(e.target.value)}
+                                                                                disabled={!errorItem?.quantity_estimate}
+                                                                            />
+                                                                        </div>
+                                                                        <div className="flex flex-col gap-4">
+                                                                            <h3 className="text-gray-500">Amount</h3>
+                                                                            <p className="text-primary">{formatToIndianRupee((errorItem?.quantity_estimate || 0) * (rateInput || 0))}</p>
+                                                                        </div>
+                                                                    </div>
                                                                     <div className="flex items-center justify-end gap-2 mt-4">
                                                                         <AlertDialogCancel>
                                                                             Cancel
                                                                         </AlertDialogCancel>
                                                                         <AlertDialogAction asChild>
                                                                             <Button
-                                                                                disabled={!rateInput}
+                                                                                disabled={!rateInput || !errorItem?.quantity_estimate}
                                                                                 onClick={handleAlertSubmit}
                                                                             >
                                                                                 {create_loading ? "Submitting.." : "Submit"}
@@ -562,8 +823,8 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                                                 </AlertDialogDescription>
                                                             </AlertDialogContent>
                                                         </AlertDialog>
-                                            </div>
-                                    </div>
+                                                </div>
+                                        </div>
                                 </div>
                             </AccordionContent>
                           </AccordionItem>

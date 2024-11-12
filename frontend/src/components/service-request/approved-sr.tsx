@@ -1,13 +1,18 @@
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, Printer } from "lucide-react";
+import { ArrowLeft, ArrowLeftToLine, CheckIcon, NotebookPen, Printer, Trash } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 import redlogo from "@/assets/red-logo.png"
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { Button } from "../ui/button";
+// import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
+import { Input } from "../ui/input";
+import { Pencil2Icon } from "@radix-ui/react-icons";
+import { Button, Layout } from 'antd';
+
+const { Sider, Content } = Layout;
 
 export const ApprovedSR = () => {
 
@@ -20,6 +25,9 @@ export const ApprovedSR = () => {
     const [orderData, setOrderData] = useState(null)
     const [vendorAddress, setVendorAddress] = useState()
     const [projectAddress, setProjectAddress] = useState()
+    const [notes, setNotes] = useState([])
+    const [curNote, setCurNote] = useState(null)
+    const [collapsed, setCollapsed] = useState(true);
 
     const { data: service_vendor, isLoading: service_vendor_loading, error: service_vendor_error, mutate: service_vendor_mutate } = useFrappeGetDoc("Vendors", orderData?.vendor, orderData?.vendor ? `Vendors ${orderData?.vendor}` : null)
 
@@ -78,6 +86,29 @@ export const ApprovedSR = () => {
         return total;
     }
 
+    const [editingIndex, setEditingIndex] = useState(null);
+
+    const handleAddNote = () => {
+        if (editingIndex !== null) {
+            const updatedNotes = [...notes];
+            updatedNotes[editingIndex] = curNote;
+            setNotes(updatedNotes);
+            setEditingIndex(null);
+        } else {
+            setNotes([...notes, curNote]);
+        }
+        setCurNote(null);
+    };
+
+    const handleEditNote = (index) => {
+        setCurNote(notes[index]);
+        setEditingIndex(index);
+    };
+
+    const handleDeleteNote = (index) => {
+        setNotes(notes.filter((_, i) => i !== index));
+    };
+
 
     return (
         <div className='flex-1 md:space-y-4'>
@@ -91,7 +122,81 @@ export const ApprovedSR = () => {
                     Print
                 </Button>
             </div>
-            <div className={`w-full border rounded-lg h-screen overflow-y-scroll`}>
+            <Layout>
+                <Sider theme='light' collapsedWidth={0} width={400} trigger={null} collapsible collapsed={collapsed}>
+                <div className="flex flex-col gap-2">
+                <h3 className="text-sm font-semibold">New Note</h3>
+                <Input
+                    type="text"
+                    placeholder="type here..."
+                    value={curNote || ""}
+                    className="w-[90%]"
+                    onChange={(e) => setCurNote(e.target.value)}
+                 />
+                 <Button onClick={() => {
+                    setNotes([...notes, curNote])
+                    setCurNote(null)
+                 }}
+                 className="w-16"
+                 disabled={!curNote}>
+                    Add
+                 </Button>
+            </div>
+
+            {notes?.length > 0 && (
+                <div className="flex flex-col gap-2 pt-2">
+                    <h3 className="text-sm font-semibold">Added Notes</h3>
+                    <ul className="list-disc">
+                        {notes.map((note, index) => (
+                            <li key={index} className="ml-4 flex items-center gap-2">
+                                <input
+                                    type="text"
+                                    value={editingIndex === index ? curNote : note}
+                                    disabled={editingIndex !== index}
+                                    onChange={(e) => setCurNote(e.target.value)}
+                                    className="border p-1 rounded"
+                                />
+                                <div className="flex gap-2 items-center">
+                                    {editingIndex === index ? (
+                                        <CheckIcon 
+                                            className="w-4 h-4 cursor-pointer text-green-500" 
+                                            onClick={handleAddNote} 
+                                        />
+                                    ) : (
+                                        <Pencil2Icon 
+                                            className="w-4 h-4 cursor-pointer" 
+                                            onClick={() => handleEditNote(index)} 
+                                        />
+                                    )}
+                                    <span>|</span>
+                                    <Trash 
+                                        className="w-4 h-4 text-primary cursor-pointer" 
+                                        onClick={() => handleDeleteNote(index)} 
+                                    />
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+                </Sider>
+                <Layout className='bg-white'>
+                    <div className="flex">
+                        <Button
+                            type="text"
+                            icon={collapsed ? <NotebookPen className='hover:text-primary/40' /> : <ArrowLeftToLine className='hover:text-primary/40' />}
+                            onClick={() => setCollapsed(!collapsed)}
+                            style={{
+                                fontSize: '16px',
+                                width: 64,
+                                height: 64,
+                                backgroundColor: "white"
+                            }}
+                        />
+                        <Content
+                            className={`${collapsed ? "md:mx-10 lg:mx-32" : ""} my-4 mx-2 flex flex-col gap-4 relative`}
+                        >
+                            <div className={`w-full border rounded-lg h-screen overflow-y-scroll`}>
                 <div ref={componentRef} className="w-full p-4">
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
@@ -162,6 +267,20 @@ export const ApprovedSR = () => {
                                         <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate * item.quantity)}</td>
                                     </tr>
                                 ))}
+                                {/* {[...Array(20)].map((_, index) => (
+                                    orderData && JSON.parse(orderData?.service_order_list)?.list?.map((item) => (
+                                        <tr key={item.id} className={`${index === 19 && "border-b border-black"} page-break-inside-avoid`}>
+                                            <td className="py-2 text-sm whitespace-nowrap w-[5%]">{index + 2}.</td>
+                                            <td className="py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.category}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate)}</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">18%</td>
+                                            <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate * item.quantity)}</td>
+                                        </tr>
+                                    ))
+                                        ))} */}
                                 <tr className="">
                                     <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
                                     <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
@@ -195,6 +314,17 @@ export const ApprovedSR = () => {
 
                                 <tr className="end-of-page page-break-inside-avoid" >
                                     <td colSpan={6}>
+
+                                        {notes?.length > 0 && (
+                                            <div className="mb-2">
+                                                <div className="text-gray-400 text-sm py-2">Notes</div>
+                                                <ul className="list-[number]">
+                                                    {notes?.map((note) => (
+                                                        <li className="text-sm text-gray-900 ml-4">{note}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
                                         {/* {notes !== "" && (
                                                             <>
                                                                 <div className="text-gray-400 text-sm py-2">Note</div>
@@ -306,6 +436,10 @@ export const ApprovedSR = () => {
                     </div>
                 </div>
             </div>
+                        </Content>
+                        </div>
+                    </Layout>    
+            </Layout>
         </div>
     );
 };

@@ -33,7 +33,7 @@
    "fieldname": "work_package",
    "fieldtype": "Link",
    "label": "Work Package",
-   "options": "Work Packages"
+   "options": "Procurement Packages"
   },
   {
    "fieldname": "category",
@@ -54,7 +54,7 @@
   },
   {
    "fieldname": "item_name",
-   "fieldtype": "Data",
+   "fieldtype": "Long Text",
    "label": "Item Name"
   },
   {
@@ -81,7 +81,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-11-07 13:58:54.450245",
+ "modified": "2024-11-12 12:39:46.809357",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Estimates",
