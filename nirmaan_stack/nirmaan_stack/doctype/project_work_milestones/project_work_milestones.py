@@ -17,7 +17,7 @@ def generate_pwm(project, method=None):
 	project_end_date = project_end_datetime.date()
 	project_duration_days = (project_end_date - project_start_date).days
 
-	divisions = int(project.subdivisions)
+	# divisions = int(project.subdivisions)
 
 	scopes = project.project_scopes["scopes"]
 	for values in scopes:
