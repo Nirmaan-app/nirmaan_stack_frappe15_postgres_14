@@ -660,9 +660,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const {groupedData : categorizedData} = groupItemsByWorkPackageAndCategory(po_item_data);
 
-  console.log("workPackageTotals", workPackageTotalAmounts)
+  // console.log("workPackageTotals", workPackageTotalAmounts)
 
-  console.log("groupeddata", categorizedData)
+  // console.log("groupeddata", categorizedData)
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
@@ -818,7 +818,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     setShowStatusChangeDialog(false)
   }
 
-
   return (
     <div className="flex-1 space-y-4">
       <div className="flex items-center justify-between max-md:flex-col max-md:gap-4 max-md:items-start">
@@ -829,7 +828,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </div>
         <div className="flex max-sm:text-xs max-md:text-sm items-center max-md:justify-between max-md:w-full">
           {role === "Nirmaan Admin Profile" && 
-
           (
             <>
             <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
@@ -1520,7 +1518,6 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                             }
                           }
 
-                          console.log("estimateItme", estimateItem)
                           return <TableRow key={item.item_id}>
                             <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
                             <TableCell className="px-4 py-2">{item.item_name}</TableCell>

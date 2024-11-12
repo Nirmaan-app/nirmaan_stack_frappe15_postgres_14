@@ -70,9 +70,9 @@ export function DataTableFacetedFilter<TData, TValue>({
     return (
         <Popover>
             <PopoverTrigger asChild>
-                <div className={`cursor-pointer ${selectedValues.size > 0 && "animate-bounce bg-gray-200"} hover:bg-gray-100 p-1 rounded-md`}>
+                <div className={`cursor-pointer ${selectedValues.size > 0 && "bg-gray-200"} hover:bg-gray-100 px-1 pt-2 pb-1 rounded-md`}>
                     {selectedValues.size > 0 ? (
-                        <FilterX className="text-primary h-4 w-4" />
+                        <FilterX className={`text-primary h-4 w-4 ${selectedValues.size > 0 && "animate-bounce"}`} />
                     ) : (
                         <Filter  className="text-primary h-4 w-4" />
                     )}
