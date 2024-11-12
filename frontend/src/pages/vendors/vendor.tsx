@@ -6,6 +6,7 @@
 
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
+import { ApprovedSRList } from "@/components/service-request/approved-sr-list"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { ColumnDef } from "@tanstack/react-table"
@@ -139,18 +140,18 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
             label: 'Overview',
             key: 'overview',
         },
-        {
+        data?.vendor_type === "Material" ? {
             label: 'Previous Orders',
             key: 'previousOrders',
-        },
-        {
+        } : null,
+        data?.vendor_type === "Material" ? {
             label: 'Open Orders',
             key: 'openOrders',
-        },
-        {
-            label: 'Transactions',
-            key: 'transactions'
-        }
+        } : null,
+        data?.vendor_type === "Service" ? {
+            label: 'Service Orders',
+            key: 'serviceOrders'
+        } : null
     ];
 
     const [current, setCurrent] = useState('overview')
@@ -513,8 +514,8 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
 
             {/* Transactions Section  */}
 
-            {current === "transactions" && (
-                <div>Pending...</div>
+            {current === "serviceOrders" && (
+                <ApprovedSRList for_vendor={data?.name} />
             )}
         </div>
     )

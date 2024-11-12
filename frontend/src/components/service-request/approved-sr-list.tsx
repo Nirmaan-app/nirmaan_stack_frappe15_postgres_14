@@ -11,14 +11,22 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 
+interface ApprovedSRListProps {
+    for_vendor?: string
+}
 
-export const ApprovedSRList = () => {
+
+export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) => {
+    const sr_filters: any = [["status", "=", "Approved"]]
+    if (for_vendor !== undefined) {
+        sr_filters.push(["vendor", "=", for_vendor])
+    }
     const { data: service_list, isLoading: service_list_loading, error: service_list_error, mutate: serviceListMutate } = useFrappeGetDocList("Service Requests",
         {
             fields: ["*"],
-            filters: [["status", "=", "Approved"]],
+            filters: sr_filters,
             limit: 1000,
-            orderBy: {field: "modified", order: "desc"}
+            orderBy: { field: "modified", order: "desc" }
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
@@ -26,7 +34,7 @@ export const ApprovedSRList = () => {
         limit: 1000
     })
 
-    
+
     useFrappeDocTypeEventListener("Service Requests", async (event) => {
         await serviceListMutate()
     })
@@ -42,12 +50,12 @@ export const ApprovedSRList = () => {
         })
         return total;
     }
-    const {notifications, mark_seen_notification} = useNotificationStore()
+    const { notifications, mark_seen_notification } = useNotificationStore()
 
-    const {db} = useContext(FrappeContext) as FrappeConfig
+    const { db } = useContext(FrappeContext) as FrappeConfig
 
     const handleNewPRSeen = (notification) => {
-        if(notification) {
+        if (notification) {
             mark_seen_notification(db, notification)
         }
     }
@@ -73,7 +81,7 @@ export const ApprovedSRList = () => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`${srId}`}
+                                to={for_vendor === undefined ? `${srId}` : `/service-request/${srId}`}
                             >
                                 {srId?.slice(-5)}
                             </Link>
@@ -183,9 +191,9 @@ export const ApprovedSRList = () => {
 
     return (
         <div className="flex-1 md:space-y-4">
-            <div className="flex items-center justify-between space-y-2">
+            {for_vendor === undefined && <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Choose Vendor PR</h2>
-            </div>
+            </div>}
             {(projects_loading || service_list_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={service_list || []} project_values={project_values} />
             )}
