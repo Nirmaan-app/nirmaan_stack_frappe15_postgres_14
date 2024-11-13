@@ -101,6 +101,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     const [deleteItem, setDeleteItem] = useState(null)
     const [serviceDesc, setServiceDesc] = useState(null)
     const [serviceUnit, setServiceUnit] = useState(null)
+    const [loadingState, setLoadingState] = useState(null)
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -420,7 +421,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         const rate = wp === "Services" ? rateInput : undefined
 
         try {
-
+            setLoadingState(wp)
             await createDoc("Project Estimates", {
                 project : project_data.name,
                 work_package : wp,
@@ -474,6 +475,8 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                 });
                 console.log("error while submitting estimation", error);
             }
+        } finally {
+            setLoadingState(null)
         }
     }
 
@@ -574,7 +577,7 @@ const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.redu
 
     return (
         <>
-            <div className="flex-1 md:space-y-4">
+            <div className="flex-1 md:space-y-4 pb-10">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${project_data?.name}`)} />
                     <h3 className="text-base pl-2 font-bold tracking-tight">
@@ -774,8 +777,8 @@ const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.redu
                                                     </div>
                                                         <Button
                                                             onClick={() => handleSubmit(wp.work_package_name)}
-                                                            disabled={!curCategory[wp.work_package_name] || (wp?.work_package_name !== "Services" && !selectedItem[wp.work_package_name]) || (wp?.work_package_name === "Services" && !rateInput) || !enteredQuantities[wp.work_package_name]}>
-                                                            {create_loading ? "Submitting.." : "Submit"}
+                                                            disabled={!curCategory[wp.work_package_name] || (wp?.work_package_name !== "Services" && !selectedItem[wp.work_package_name]) || (wp?.work_package_name === "Services" && !rateInput) || !enteredQuantities[wp.work_package_name] || loadingState === wp.work_package_name}>
+                                                            {loadingState === wp.work_package_name ? "Submitting.." : "Submit"}
                                                         </Button>
                                                         <AlertDialog open={showRateDialog} onOpenChange={setShowRateDialog}>
                                                             <AlertDialogContent>
