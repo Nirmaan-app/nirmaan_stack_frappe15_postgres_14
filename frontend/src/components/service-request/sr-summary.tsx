@@ -5,7 +5,7 @@ import { NewPRSkeleton } from "../ui/skeleton";
 import { useEffect, useRef, useState } from "react";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { useUserData } from "@/hooks/useUserData";
-import { ArrowLeft, ListChecks, Printer, Settings2, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, ListChecks, Printer, Settings2, Trash2, Undo2, UserSearch } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { toast } from "../ui/use-toast";
@@ -145,7 +145,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                 description: `SR: ${sr_data?.name} deleted successfully!`,
                 variant: "success"
             })
-            navigate("/service-request")
+            await navigate("/service-request")
         } catch (error) {
             console.log("error while deleting SR", error)
             toast({
@@ -183,7 +183,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                         <div className="flex items-center justify-between">
                             <div className="flex gap-2 items-center">
                                 <div className="flex items-center gap-1 flex-wrap">
-                                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/service-request")} />
                                     <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
                                     <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span>
                                 </div>
@@ -569,7 +569,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
                         {sr_data?.status === "Created" &&
                             <div className="text-right">
-                                <Button onClick={() => navigate(`/select-service-vendor/${sr_data?.name}`)}>Select Service Vendor</Button>
+                                <Button onClick={() => navigate(`/select-service-vendor/${sr_data?.name}`)} className="items-center gap-2"><UserSearch className="h-4 w-4" />Select Service Vendor</Button>
                             </div>
                         }
                     </>
