@@ -100,6 +100,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     const {deleteDoc, loading: delete_loading} = useFrappeDeleteDoc()
     const [deleteItem, setDeleteItem] = useState(null)
     const [serviceDesc, setServiceDesc] = useState(null)
+    const [serviceUnit, setServiceUnit] = useState(null)
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -187,6 +188,10 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     const handleRateChange = (value) => {
         setRateInput(value);
     };
+
+    const handleUnitChange = (value) => {
+        setServiceUnit(value)
+    }
 
     const groupItemsByWorkPackageAndCategory = (items) => {
         return items?.reduce((acc, item) => {
@@ -318,7 +323,8 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                             <h3 className="text-gray-500">Amount</h3>
                                             <p className="text-primary">{formatToIndianRupee((editEstimation?.quantity_estimate || 0) * (editEstimation?.rate_estimate || 0))}</p>
                                         </div>
-                                        <Button onClick={() => handleEditEstimate(record?.name, record?.item_name)} disabled={(record?.rate_estimate === editEstimation?.rate_estimate && record?.quantity_estimate === editEstimation?.quantity_estimate) || Object.values(editEstimation || [])?.some((i) => !i)}>
+                                        <Button onClick={() => handleEditEstimate(record?.name, record?.item_name)} 
+                                        disabled={(record?.rate_estimate === editEstimation?.rate_estimate && record?.quantity_estimate === editEstimation?.quantity_estimate) || !editEstimation?.quantity_estimate || !editEstimation?.rate_estimate}>
                                             {update_loading ? "Updating..." : "Update"}
                                         </Button>
                                         <DialogClose id="estimateEditClose" className="hidden">Close</DialogClose>
@@ -409,7 +415,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         const tax = curCategory[wp]?.tax
         const item = selectedItem[wp]?.value
         const item_name = wp === "Services" ? serviceDesc : selectedItem[wp]?.label
-        const uom = selectedItem[wp]?.unit
+        const uom = wp === "Services" ? serviceUnit : selectedItem[wp]?.unit
         const quantity = enteredQuantities[wp]
         const rate = wp === "Services" ? rateInput : undefined
 
@@ -507,18 +513,18 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         }
     };
 
-    const categoryTotals = estimates_data?.reduce((acc, item) => {
-        const category = acc[item?.category] || { withoutGst: 0, withGst: 0 };
+    // const categoryTotals = estimates_data?.reduce((acc, item) => {
+    //     const category = acc[item?.category] || { withoutGst: 0, withGst: 0 };
 
-        const itemTotal = parseFloat(item?.quantity_estimate) * parseFloat(item?.rate_estimate);
-        const itemTotalWithGst = itemTotal * (1 + parseFloat(item?.item_tax) / 100);
+    //     const itemTotal = parseFloat(item?.quantity_estimate) * parseFloat(item?.rate_estimate);
+    //     const itemTotalWithGst = itemTotal * (1 + parseFloat(item?.item_tax) / 100);
 
-        category.withoutGst += itemTotal;
-        category.withGst += itemTotalWithGst;
+    //     category.withoutGst += itemTotal;
+    //     category.withGst += itemTotalWithGst;
 
-        acc[item.category] = category;
-        return acc;
-    }, {});
+    //     acc[item.category] = category;
+    //     return acc;
+    // }, {});
 
     const workPackageTotals = estimates_data?.reduce((acc, item) => {
         const work_package = acc[item?.work_package] || { withoutGst: 0, withGst: 0 };
@@ -532,6 +538,8 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         acc[item?.work_package] = work_package;
         return acc;
     }, {});
+
+    console.log("workpackage", workPackageTotals)
 
 //   const overallTotal = categoryTotals && Object.values(categoryTotals)?.reduce(
 //     (acc, totals) => ({
@@ -653,7 +661,10 @@ const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.redu
                         {allWorkPackages?.map((wp) => (
                             <AccordionItem key={wp.work_package_name} value={wp.work_package_name} className="border-b rounded-lg shadow">
                             <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
-                              {wp.work_package_name}
+                                <div className="flex space-x-4 text-sm text-gray-600">
+                                    <span className="font-semibold">{wp.work_package_name}:</span>
+                                    <span>Total Estd Amount: {formatToIndianRupee(workPackageTotals[wp.work_package_name]?.withoutGst)}</span>
+                                </div>
                             </AccordionTrigger>
                             <AccordionContent className="p-4">
                                 <div className="flex flex-col gap-6">
@@ -733,16 +744,17 @@ const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.redu
                                                             disabled={wp?.work_package_name === "Services" ? !curCategory[wp.work_package_name] : !selectedItem[wp.work_package_name]}
                                                         />
                                                     </div>
-                                                    {wp?.work_package_name !== "Services" && (
+
                                                     <div className="flex flex-col gap-2">
-                                                        <h3 className="text-gray-500">UNIT<sup className="text-sm text-red-600">*</sup></h3>
+                                                        <h3 className="text-gray-500">Unit{wp?.work_package_name === "Services" ? "(Opt)" : <sup className="text-sm text-red-600">*</sup>}</h3>
                                                         <Input type="text"
                                                             className="w-20"
-                                                            value={selectedItem[wp.work_package_name]?.unit}  
-                                                            disabled
+                                                            value={wp?.work_package_name !== "Services" ? selectedItem[wp.work_package_name]?.unit : (serviceUnit || "")}  
+                                                            onChange={(e) => handleUnitChange(e.target.value)}
+                                                            disabled={wp?.work_package_name !== "Services"}
                                                         />
                                                     </div>
-                                                    )}
+
                                                     {wp?.work_package_name === "Services" && (
                                                         <>
                                                         <div className="flex flex-col gap-2">
@@ -761,7 +773,7 @@ const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.redu
                                                     )}
                                                     </div>
                                                         <Button
-                                                             onClick={() => handleSubmit(wp.work_package_name)}
+                                                            onClick={() => handleSubmit(wp.work_package_name)}
                                                             disabled={!curCategory[wp.work_package_name] || (wp?.work_package_name !== "Services" && !selectedItem[wp.work_package_name]) || (wp?.work_package_name === "Services" && !rateInput) || !enteredQuantities[wp.work_package_name]}>
                                                             {create_loading ? "Submitting.." : "Submit"}
                                                         </Button>
