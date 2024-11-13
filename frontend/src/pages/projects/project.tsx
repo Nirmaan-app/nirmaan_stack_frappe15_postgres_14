@@ -820,6 +820,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const statusIcon = projectStatuses.find((s) => s.value === data?.status)?.icon
 
+  console.log("projectEstimates", project_estimates)
+
   return (
     <div className="flex-1 space-y-4">
       <div className="flex items-center justify-between max-md:flex-col max-md:gap-4 max-md:items-start">
@@ -1150,7 +1152,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               <ArrowDown className="w-4 h-4" />
             </div>
             <div>
-              <ToolandEquipementAccordion categorizedData={categorizedData} />
+              <ToolandEquipementAccordion projectEstimates={project_estimates} categorizedData={categorizedData} />
             </div>
           </div>
 
@@ -1161,7 +1163,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               <ArrowDown className="w-4 h-4" />
             </div>
             <div>
-              <ServiceRequestsAccordion segregatedData={segregatedServiceOrderData} />
+              <ServiceRequestsAccordion projectEstimates={project_estimates} segregatedData={segregatedServiceOrderData} />
             </div>
           </div>
         </>
@@ -1547,9 +1549,11 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
 };
 
 
-const ToolandEquipementAccordion = ({ categorizedData }) => {
+const ToolandEquipementAccordion = ({projectEstimates,  categorizedData }) => {
 
   const selectedData = categorizedData["Tool & Equipments"] || null;
+
+  const toolandEquipEstimates = projectEstimates?.filter((p) => p?.work_package === "Tool & Equipments")
 
   return (
     <div className="w-full">
@@ -1583,15 +1587,15 @@ const ToolandEquipementAccordion = ({ categorizedData }) => {
                           <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
                           <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Qty</TableHead>
-                          {/* <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead> */}
+                          <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
-                          {/* <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead> */}
+                          <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {items?.map((item) => {
-                          // const estimateItem = projectEstimates?.find((i) => i?.item === item?.item_id);
+                          const estimateItem = toolandEquipEstimates?.find((i) => i?.item === item?.item_id);
                           // const quantityDif = item?.quantity - estimateItem?.quantity_estimate
                           // let dynamicQtyClass = null;
 
@@ -1613,9 +1617,9 @@ const ToolandEquipementAccordion = ({ categorizedData }) => {
                             <TableCell className="px-4 py-2">{item.item_name}</TableCell>
                             <TableCell className="px-4 py-2">{item.unit}</TableCell>
                             <TableCell className={`px-4 py-2`}>{item.quantity}</TableCell>
-                            {/* <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell> */}
+                            <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
                             <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
-                            {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
+                            <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
                           </TableRow>
                         })}
                       </TableBody>
@@ -1634,7 +1638,9 @@ const ToolandEquipementAccordion = ({ categorizedData }) => {
 };
 
 
-const ServiceRequestsAccordion = ({ segregatedData }) => {
+const ServiceRequestsAccordion = ({projectEstimates,  segregatedData }) => {
+
+  const servicesEstimates = projectEstimates?.filter((p) => p?.work_package === "Services")
 
   return (
     <div className="w-full">
@@ -1644,8 +1650,10 @@ const ServiceRequestsAccordion = ({ segregatedData }) => {
             <TableRow className="bg-gray-100 text-gray-700">
               <TableHead className="px-4 py-2 font-semibold">Category</TableHead>
               <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
-              <TableHead className="px-4 py-2 font-semibold">Qty</TableHead>
+              <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
+              <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
               <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
+              <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1654,12 +1662,17 @@ const ServiceRequestsAccordion = ({ segregatedData }) => {
               const category = Object.keys(item)[0];
               const { unit, quantity, amount } = item[category];
 
+
+              const estimateItem = servicesEstimates?.find((i) => i?.category === category)
+
               return (
                 <TableRow key={index}>
                   <TableCell className="px-4 py-2">{category}</TableCell>
                   <TableCell className="px-4 py-2">{unit}</TableCell>
                   <TableCell className="px-4 py-2">{quantity}</TableCell>
+                  <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
                   <TableCell className="px-4 py-2">₹{parseFloat(amount).toLocaleString()}</TableCell>
+                  <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.quantity_estimate * estimateItem?.rate_estimate)}</TableCell>
                 </TableRow>)
             })}
           </TableBody>

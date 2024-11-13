@@ -1,4 +1,4 @@
-import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { ArrowLeft, ArrowLeftToLine, CheckIcon, NotebookPen, Printer, Trash } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -11,6 +11,9 @@ import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Pencil2Icon } from "@radix-ui/react-icons";
 import { Button, Layout } from 'antd';
+import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
+import { toast } from "../ui/use-toast";
+import { TailSpin } from "react-loader-spinner";
 
 const { Sider, Content } = Layout;
 
@@ -44,8 +47,11 @@ export const ApprovedSR = () => {
     useEffect(() => {
         if (service_request) {
             setOrderData(service_request)
+            const notes = service_request?.notes && JSON.parse(service_request?.notes)?.list
+            setNotes(notes || [])
         }
     }, [service_request])
+
 
     useEffect(() => {
         if (orderData?.project && project && service_vendor) {
@@ -67,6 +73,7 @@ export const ApprovedSR = () => {
 
     }, [orderData, address_list, project, service_vendor]);
 
+    const {updateDoc, loading: update_loading} = useFrappeUpdateDoc()
     const componentRef = useRef<HTMLDivElement>(null);
 
     const handlePrint = useReactToPrint({
@@ -90,25 +97,53 @@ export const ApprovedSR = () => {
 
     const handleAddNote = () => {
         if (editingIndex !== null) {
-            const updatedNotes = [...notes];
-            updatedNotes[editingIndex] = curNote;
+            const updatedNotes = notes.map(note => 
+                note.id === editingIndex ? { ...note, note: curNote } : note
+            );
             setNotes(updatedNotes);
             setEditingIndex(null);
         } else {
-            setNotes([...notes, curNote]);
+            const newNote = {id : uuidv4(), note : curNote}
+            setNotes([...notes, newNote])
         }
         setCurNote(null);
     };
 
-    const handleEditNote = (index) => {
-        setCurNote(notes[index]);
-        setEditingIndex(index);
+    const handleEditNote = (id) => {
+        setCurNote(notes?.find((i) => i?.id === id)?.note);
+        setEditingIndex(id);
     };
 
-    const handleDeleteNote = (index) => {
-        setNotes(notes.filter((_, i) => i !== index));
+    const handleDeleteNote = (id) => {
+        setNotes(notes.filter((note) => note?.id !== id));
     };
 
+    const handleNotesSave = async () => {
+        try {
+            await updateDoc("Service Requests", orderData?.name, {
+                notes: {list : notes}
+            })
+
+            await service_request_mutate()
+
+            toast({
+                title : "Success!",
+                description: `Saved notes successfully!`,
+                variant: "success"
+            })
+        } catch (error) {
+            console.log("error while adding notes to the database", error)
+            toast({
+                title : "Failed!",
+                description: `Saving notes Failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
+    // console.log("notes", notes)
+
+    // console.log("orderData", orderData)
 
     return (
         <div className='flex-1 md:space-y-4'>
@@ -133,31 +168,23 @@ export const ApprovedSR = () => {
                     className="w-[90%]"
                     onChange={(e) => setCurNote(e.target.value)}
                  />
-                 <Button onClick={() => {
-                    setNotes([...notes, curNote])
-                    setCurNote(null)
-                 }}
+                 <Button onClick={handleAddNote}
                  className="w-16"
                  disabled={!curNote}>
-                    Add
+                    {editingIndex === null ?  "Add" : "Update"}
                  </Button>
             </div>
 
-            {notes?.length > 0 && (
-                <div className="flex flex-col gap-2 pt-2">
+            {notes?.length > 0  && (
+                <div className="flex flex-col gap-2 pt-4">
                     <h3 className="text-sm font-semibold">Added Notes</h3>
-                    <ul className="list-disc">
-                        {notes.map((note, index) => (
-                            <li key={index} className="ml-4 flex items-center gap-2">
-                                <input
-                                    type="text"
-                                    value={editingIndex === index ? curNote : note}
-                                    disabled={editingIndex !== index}
-                                    onChange={(e) => setCurNote(e.target.value)}
-                                    className="border p-1 rounded"
-                                />
+                    <ul className="list-[number] space-y-2">
+                        {notes.map((note) => (
+                            <li key={note?.id} className="ml-4">
+                                <div className="flex items-center gap-2">
+                                <p>{note?.note}</p>
                                 <div className="flex gap-2 items-center">
-                                    {editingIndex === index ? (
+                                    {editingIndex === note?.id ? (
                                         <CheckIcon 
                                             className="w-4 h-4 cursor-pointer text-green-500" 
                                             onClick={handleAddNote} 
@@ -165,19 +192,24 @@ export const ApprovedSR = () => {
                                     ) : (
                                         <Pencil2Icon 
                                             className="w-4 h-4 cursor-pointer" 
-                                            onClick={() => handleEditNote(index)} 
+                                            onClick={() => handleEditNote(note?.id)} 
                                         />
                                     )}
                                     <span>|</span>
                                     <Trash 
                                         className="w-4 h-4 text-primary cursor-pointer" 
-                                        onClick={() => handleDeleteNote(index)} 
+                                        onClick={() => handleDeleteNote(note?.id)} 
                                     />
+                                </div>
                                 </div>
                             </li>
                         ))}
                     </ul>
                 </div>
+            )}
+
+            {(notes?.length > 0 || (service_request?.notes !== undefined && JSON.parse(service_request?.notes)?.list?.length > 0)) && (
+                <Button disabled={update_loading} onClick={handleNotesSave} className="w-full mt-4">{update_loading ? <TailSpin width={20} height={20} color="red" /> : "Save to Database"}</Button>
             )}
                 </Sider>
                 <Layout className='bg-white'>
@@ -320,7 +352,7 @@ export const ApprovedSR = () => {
                                                 <div className="text-gray-400 text-sm py-2">Notes</div>
                                                 <ul className="list-[number]">
                                                     {notes?.map((note) => (
-                                                        <li className="text-sm text-gray-900 ml-4">{note}</li>
+                                                        <li key={note?.id} className="text-sm text-gray-900 ml-4">{note?.note}</li>
                                                     ))}
                                                 </ul>
                                             </div>

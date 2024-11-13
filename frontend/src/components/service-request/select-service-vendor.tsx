@@ -21,6 +21,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, Di
 import { Textarea } from "../ui/textarea"
 import { useUserData } from "@/hooks/useUserData"
 import { toast } from "../ui/use-toast"
+import { TailSpin } from "react-loader-spinner"
 
 const SelectServiceVendor = () => {
     const { id }: any = useParams()
@@ -299,15 +300,15 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     }, [amounts]);
 
     useEffect(() => {
-        if (resolve && sr_data && vendor_list) {
+        if ((resolve || sr_data?.status === "Rejected") && vendor_list) {
             const vendor = vendor_list?.find((ven) => ven?.name === sr_data?.vendor)
             const selectedVendor = { value: vendor?.name, label: vendor?.vendor_name }
             setSelectedvendor(selectedVendor)
         }
-        if (resolve && sr_data) {
+        if ((resolve || sr_data?.status === "Rejected")) {
             let amounts = {}
             JSON.parse(sr_data?.service_order_list)?.list?.forEach((item) => {
-                amounts = { ...amounts, [item.id]: item?.amount }
+                amounts = { ...amounts, [item.id]: item?.rate }
             })
             setAmounts(amounts)
         }
@@ -468,7 +469,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                                                     disabled={!selectedVendor}
                                                 />
                                             </TableCell>
-                                            <TableCell className="w-[10%]">P/H</TableCell>
+                                            <TableCell className="w-[10%] text-primary">{formatToIndianRupee(item?.quantity * (amounts[item.id] || 0))}</TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -586,13 +587,25 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                                     </DialogClose>
                                     {resolve ? (
                                         <Button variant="default" className="flex items-center gap-1" onClick={handleResolveSR} disabled={create_loading || update_loading}>
-                                            <CheckCheck className="h-4 w-4" />
-                                            Confirm
+                                            {create_loading || update_loading ? (
+                                                <TailSpin width={20} height={20} color="white" />
+                                            ) : (
+                                                <>
+                                                <CheckCheck className="h-4 w-4" />
+                                                Confirm
+                                                 </>
+                                            )}
                                         </Button>
                                     ) : (
                                         <Button variant="default" className="flex items-center gap-1" onClick={handleSubmit} disabled={create_loading || update_loading}>
-                                            <CheckCheck className="h-4 w-4" />
-                                            Confirm
+                                            {create_loading || update_loading ? (
+                                                <TailSpin width={20} height={20} color="white" />
+                                            ) : (
+                                                <>
+                                                <CheckCheck className="h-4 w-4" />
+                                                Confirm
+                                                 </>
+                                            )}
                                         </Button>
                                     )}
                                 </DialogDescription>
