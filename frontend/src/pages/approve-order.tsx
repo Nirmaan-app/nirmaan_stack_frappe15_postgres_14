@@ -911,10 +911,10 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
 
                     <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-4">
                         {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) ||
-                            (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr"))).length ? (
+                            (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr" || comment.subject === "editing pr"))).length ? (
                             universalComments
                                 .filter((comment) => managersIdList?.includes(comment.comment_by) ||
-                                    (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr")))
+                                    (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr" || comment.subject === "editing pr")))
                                 .map((cmt) => (
                                     <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
                                         <Avatar>
