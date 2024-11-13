@@ -7,7 +7,7 @@ import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/
 import { toast } from "@/components/ui/use-toast"
 import { ConfigProvider, Menu, MenuProps, Tree } from "antd"
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall, useFrappeUpdateDoc } from "frappe-react-sdk"
-import { ArrowDown, ArrowLeft, Check, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDown, CirclePlus, CornerRightDown, Download, FilePenLine, HardHat, ListChecks, UserCheckIcon } from "lucide-react"
+import { ArrowDown, ArrowLeft, Check, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDown, CircleCheckBig, CirclePlus, CornerRightDown, Download, FilePenLine, HardHat, ListChecks, OctagonMinus, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
@@ -36,9 +36,9 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { DownOutlined } from '@ant-design/icons';
 
 const projectStatuses = [
-  { value: 'WIP', label: 'WIP', color: 'text-yellow-500' },
-  { value: 'Completed', label: 'Completed', color: 'text-green-500' },
-  { value: 'Halted', label: 'Halted', color: 'text-red-500' }
+  { value: 'WIP', label: 'WIP', color: 'text-yellow-500', icon: HardHat },
+  { value: 'Completed', label: 'Completed', color: 'text-green-500', icon: CircleCheckBig },
+  { value: 'Halted', label: 'Halted', color: 'text-red-500', icon: OctagonMinus }
 ]
 
 const Project = () => {
@@ -118,7 +118,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }
   )
 
-  const {data: project_estimates, isLoading: project_estimates_loading, error: project_estimates_error} = useFrappeGetDocList("Project Estimates", {
+  const { data: project_estimates, isLoading: project_estimates_loading, error: project_estimates_error } = useFrappeGetDocList("Project Estimates", {
     fields: ["*"],
     filters: [["project", "=", projectId]],
     limit: 1000
@@ -169,7 +169,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     `Procurement Orders ${projectId}`
   )
 
-  const {data: serviceRequestsData, isLoading: sRloading} = useFrappeGetDocList("Service Requests", {
+  const { data: serviceRequestsData, isLoading: sRloading } = useFrappeGetDocList("Service Requests", {
     fields: ["*"],
     filters: [["status", "=", "Approved"], ["project", "=", projectId]],
     limit: 1000
@@ -386,39 +386,39 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       limit: 10000
     });
 
-    const getTotal = (order_id) => {
-      let total = 0;
-    
-      const procurementRequest = pr_data?.find(item => item.name === order_id);
-      const orderData = procurementRequest?.procurement_list;
-    
-      const status = statusRender(procurementRequest?.status, order_id);
-    
-      if (status === "Approved PO") {
-        const filteredPOs = po_data?.filter(po => po.procurement_request === order_id) || [];
-    
-        filteredPOs.forEach(po => {
-          po.order_list?.list.forEach(item => {
-            if (item.quote && item.quantity) {
-              total += parseFloat(item.quote) * item.quantity;
-            }
-          });
+  const getTotal = (order_id) => {
+    let total = 0;
+
+    const procurementRequest = pr_data?.find(item => item.name === order_id);
+    const orderData = procurementRequest?.procurement_list;
+
+    const status = statusRender(procurementRequest?.status, order_id);
+
+    if (status === "Approved PO") {
+      const filteredPOs = po_data?.filter(po => po.procurement_request === order_id) || [];
+
+      filteredPOs.forEach(po => {
+        po.order_list?.list.forEach(item => {
+          if (item.quote && item.quantity) {
+            total += parseFloat(item.quote) * item.quantity;
+          }
         });
-      } else {
-        orderData?.list.forEach(item => {
-          const quotesForItem = quote_data
-            ?.filter(value => value.item === item.name && value.quote != null)
-            ?.map(value => value.quote);
-    
-          let minQuote;
-          if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
-          total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
-        });
-      }
-    
-      return total || "N/A";
-    };
-    
+      });
+    } else {
+      orderData?.list.forEach(item => {
+        const quotesForItem = quote_data
+          ?.filter(value => value.item === item.name && value.quote != null)
+          ?.map(value => value.quote);
+
+        let minQuote;
+        if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
+        total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+      });
+    }
+
+    return total || "N/A";
+  };
+
 
   const getItemStatus = (item: any, filteredPOs: any[]) => {
     return filteredPOs.some(po =>
@@ -610,31 +610,31 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const groupItemsByWorkPackageAndCategory = (items) => {
     const totals = {};
-  
+
     const groupedData = items?.reduce((acc, item) => {
       const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
       const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
       const amountPlusTax = baseAmount + taxAmount;
-  
+
       if (totals[item.work_package]) {
-        const {amountWithTax, amountWithoutTax} = totals[item.work_package]
-        totals[item.work_package] = {amountWithTax : amountPlusTax + amountWithTax, amountWithoutTax : amountWithoutTax + baseAmount}
+        const { amountWithTax, amountWithoutTax } = totals[item.work_package]
+        totals[item.work_package] = { amountWithTax: amountPlusTax + amountWithTax, amountWithoutTax: amountWithoutTax + baseAmount }
       } else {
-        totals[item.work_package] = {amountWithTax : amountPlusTax, amountWithoutTax : baseAmount}
+        totals[item.work_package] = { amountWithTax: amountPlusTax, amountWithoutTax: baseAmount }
         // totals[item.work_package] = amountWithTax;
       }
-  
+
       if (!acc[item.work_package]) {
         acc[item.work_package] = {};
       }
       if (!acc[item.work_package][item.category]) {
         acc[item.work_package][item.category] = [];
       }
-  
+
       const existingItem = acc[item.work_package][item.category].find(
         (i) => i.item_id === item.item_id
       );
-  
+
       if (existingItem) {
         existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
         existingItem.amount += baseAmount;
@@ -643,13 +643,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         acc[item.work_package][item.category].push({
           ...item,
           amount: baseAmount,
-          amountWithTax : amountPlusTax,
+          amountWithTax: amountPlusTax,
         });
       }
-  
+
       return acc;
     }, {});
-  
+
     return { groupedData, totals };
   };
 
@@ -658,7 +658,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     setWorkPackageTotalAmounts(totals);
   }, [po_item_data]);
 
-  const {groupedData : categorizedData} = groupItemsByWorkPackageAndCategory(po_item_data);
+  const { groupedData: categorizedData } = groupItemsByWorkPackageAndCategory(po_item_data);
 
   // console.log("workPackageTotals", workPackageTotalAmounts)
 
@@ -728,7 +728,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // workPackages.push({work_package_name : "Tool & Equipments"})
 
   useEffect(() => {
-    if(workPackages) {
+    if (workPackages) {
       setSelectedPackage(workPackages[0]?.work_package_name)
     }
   }, [])
@@ -747,15 +747,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const segregateServiceOrderData = (serviceRequestsData) => {
     const result = [];
-  
+
     serviceRequestsData?.forEach(serviceRequest => {
       serviceRequest.service_order_list.list?.forEach(item => {
         const { category, uom, quantity, rate } = item;
         const amount = parseFloat(quantity) * parseFloat(rate);
-  
+
         // Find if the category already exists in the result
         const existingCategory = result.find((entry) => entry[category]);
-  
+
         if (existingCategory) {
           // Update quantity and amount for the existing category
           existingCategory[category].quantity += parseFloat(quantity);
@@ -772,10 +772,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         }
       });
     });
-  
+
     return result;
   };
-  
+
   const segregatedServiceOrderData = segregateServiceOrderData(serviceRequestsData);
 
   const totalServiceOrdersAmt = segregatedServiceOrderData?.reduce((acc, item) => {
@@ -818,6 +818,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     setShowStatusChangeDialog(false)
   }
 
+  const statusIcon = projectStatuses.find((s) => s.value === data?.status)?.icon
+
   return (
     <div className="flex-1 space-y-4">
       <div className="flex items-center justify-between max-md:flex-col max-md:gap-4 max-md:items-start">
@@ -827,50 +829,50 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           {role === "Nirmaan Admin Profile" && <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />}
         </div>
         <div className="flex max-sm:text-xs max-md:text-sm items-center max-md:justify-between max-md:w-full">
-          {role === "Nirmaan Admin Profile" && 
-          (
-            <>
-            <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
-            <PopoverTrigger asChild>
-              <Button variant='outline' role="combobox" aria-expanded={open} className="w-48 flex justify-between">
-                <span className="font-bold text-md">Status: </span>
-                <div className={`flex ${projectStatuses.find((s) => s.value === data?.status)?.color || "text-gray-500"}`}>{projectStatuses.find((s) => s.value === data?.status)?.label || "Not Set"}</div>
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-40 p-0">
-              <Command>
-                <CommandList>
-                  <CommandGroup>
-                    {projectStatuses.map((s) => (
-                      <CommandItem key={s.value} value={s.value} onSelect={() => handleStatusChange(s.value)}>
-                        {/* <Check className={cn("mr-2 h-4 w-4", status === s.value ? "opacity-100" : "opacity-0")} /> */}
-                        {s.label}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
-          <AlertDialog open={showStatusChangeDialog} onOpenChange={setShowStatusChangeDialog}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This action will change the status from "
-                  {projectStatuses.find((s) => s.value === data?.status)?.label || "Unknown"} "
-                  to "{projectStatuses.find((s) => s.value === newStatus)?.label || "Unknown"}".
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel onClick={handleCancelStatus}>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleConfirmStatus}>Continue</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-          </>)}
-  <CustomHoverCard  totalPosRaised={totalPosRaised} totalServiceOrdersAmt={totalServiceOrdersAmt} categorizedData={categorizedData} workPackageTotalAmounts={workPackageTotalAmounts} />
+          {role === "Nirmaan Admin Profile" &&
+            (
+              <>
+                <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
+                  <PopoverTrigger asChild>
+                    <Button variant='outline' role="combobox" aria-expanded={open} className="w-48 flex justify-between">
+                      <span className="font-bold text-md">Status: </span>
+                      <div className={`flex items-center gap-2 ${projectStatuses.find((s) => s.value === data?.status)?.color || "text-gray-500"}`}>{statusIcon && React.createElement(statusIcon, { className: 'h-4 w-4' })}{projectStatuses.find((s) => s.value === data?.status)?.label || "Not Set"}</div>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-40 p-0">
+                    <Command>
+                      <CommandList>
+                        <CommandGroup>
+                          {projectStatuses.map((s) => (
+                            <CommandItem key={s.value} value={s.value} onSelect={() => handleStatusChange(s.value)}>
+                              {/* <Check className={cn("mr-2 h-4 w-4", status === s.value ? "opacity-100" : "opacity-0")} /> */}
+                              {s.label}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                <AlertDialog open={showStatusChangeDialog} onOpenChange={setShowStatusChangeDialog}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action will change the status from "
+                        {data.status} "
+                        to "{projectStatuses.find((s) => s.value === newStatus)?.label || "Unknown"}".
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel onClick={handleCancelStatus}>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleConfirmStatus}>Continue</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>)}
+          <CustomHoverCard totalPosRaised={totalPosRaised} totalServiceOrdersAmt={totalServiceOrdersAmt} categorizedData={categorizedData} workPackageTotalAmounts={workPackageTotalAmounts} />
         </div>
       </div>
       <div className="flex justify-between items-center">
@@ -1116,25 +1118,25 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             </div>
             {selectedPackage && (
               <Select
-              value={selectedPackage}
-              onValueChange={(value) => setSelectedPackage(value)}
-            >
-              <SelectTrigger id="work-package-dropdown" className="w-full">
-                <SelectValue placeholder="Choose a work package" />
-              </SelectTrigger>
+                value={selectedPackage}
+                onValueChange={(value) => setSelectedPackage(value)}
+              >
+                <SelectTrigger id="work-package-dropdown" className="w-full">
+                  <SelectValue placeholder="Choose a work package" />
+                </SelectTrigger>
 
-              <SelectContent>
-                {workPackages.map((packageItem, index) => (
-                  <SelectItem key={index} value={packageItem.work_package_name}>
-                    {/* {packageItem.work_package_name} */}
-                    <div className="flex space-x-4 text-sm text-gray-600">
-                      <span className="font-semibold">{packageItem.work_package_name}:</span>
-                      <span>Total Amount: {formatToIndianRupee(workPackageTotalAmounts?.[packageItem.work_package_name]?.amountWithoutTax)}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <SelectContent>
+                  {workPackages.map((packageItem, index) => (
+                    <SelectItem key={index} value={packageItem.work_package_name}>
+                      {/* {packageItem.work_package_name} */}
+                      <div className="flex space-x-4 text-sm text-gray-600">
+                        <span className="font-semibold">{packageItem.work_package_name}:</span>
+                        <span>Total Amount: {formatToIndianRupee(workPackageTotalAmounts?.[packageItem.work_package_name]?.amountWithoutTax)}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
           {selectedPackage ? (
@@ -1143,24 +1145,24 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
           <Separator />
           <div>
-              <div className="flex gap-2 items-center mb-4">
-                  <h2 className="font-semibold text-gray-500">Tools & Equipments</h2>
-                  <ArrowDown className="w-4 h-4" />
-              </div>
-              <div>
-                  <ToolandEquipementAccordion categorizedData={categorizedData} />
-              </div>
+            <div className="flex gap-2 items-center mb-4">
+              <h2 className="font-semibold text-gray-500">Tools & Equipments</h2>
+              <ArrowDown className="w-4 h-4" />
+            </div>
+            <div>
+              <ToolandEquipementAccordion categorizedData={categorizedData} />
+            </div>
           </div>
 
           <Separator />
           <div>
-              <div className="flex gap-2 items-center mb-4">
-                  <h2 className="font-semibold text-gray-500">Service Requests</h2>
-                  <ArrowDown className="w-4 h-4" />
-              </div>
-              <div>
-                  <ServiceRequestsAccordion segregatedData={segregatedServiceOrderData} />
-              </div>
+            <div className="flex gap-2 items-center mb-4">
+              <h2 className="font-semibold text-gray-500">Service Requests</h2>
+              <ArrowDown className="w-4 h-4" />
+            </div>
+            <div>
+              <ServiceRequestsAccordion segregatedData={segregatedServiceOrderData} />
+            </div>
           </div>
         </>
       )}
@@ -1474,9 +1476,9 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
               );
 
               const categoryEstimates = projectEstimates?.filter((i) => i?.category === category)
-              const totalCategoryEstdAmt = categoryEstimates?.reduce((sum, item) => 
+              const totalCategoryEstdAmt = categoryEstimates?.reduce((sum, item) =>
                 sum + parseFloat(item?.rate_estimate) * parseFloat(item?.quantity_estimate) * (1 + parseFloat(item?.item_tax) / 100),
-              0
+                0
               )
               return (
                 <AccordionItem key={category} value={category} className="border-b rounded-lg shadow">
@@ -1506,12 +1508,12 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                           const quantityDif = item?.quantity - estimateItem?.quantity_estimate
                           let dynamicQtyClass = null;
 
-                          if(estimateItem) {
-                            if(quantityDif > 0) {
+                          if (estimateItem) {
+                            if (quantityDif > 0) {
                               dynamicQtyClass = "text-primary"
                             } else if (quantityDif < 0 && Math.abs(quantityDif) < 5) {
                               dynamicQtyClass = "text-yellow-600"
-                            } else if(quantityDif === 0) {
+                            } else if (quantityDif === 0) {
                               dynamicQtyClass = "text-green-500"
                             } else {
                               dynamicQtyClass = "text-blue-500"
@@ -1636,7 +1638,7 @@ const ServiceRequestsAccordion = ({ segregatedData }) => {
 
   return (
     <div className="w-full">
-     {segregatedData?.length > 0 ? (
+      {segregatedData?.length > 0 ? (
         <Table className="min-w-full text-left text-sm">
           <TableHeader>
             <TableRow className="bg-gray-100 text-gray-700">
@@ -1649,20 +1651,20 @@ const ServiceRequestsAccordion = ({ segregatedData }) => {
           <TableBody>
             {segregatedData?.map((item, index) => {
 
-            const category = Object.keys(item)[0];
-            const { unit, quantity, amount } = item[category];
+              const category = Object.keys(item)[0];
+              const { unit, quantity, amount } = item[category];
 
-            return (
-              <TableRow key={index}>
-                <TableCell className="px-4 py-2">{category}</TableCell>
-                <TableCell className="px-4 py-2">{unit}</TableCell>
-                <TableCell className="px-4 py-2">{quantity}</TableCell>
-                <TableCell className="px-4 py-2">₹{parseFloat(amount).toLocaleString()}</TableCell>
-              </TableRow> )
+              return (
+                <TableRow key={index}>
+                  <TableCell className="px-4 py-2">{category}</TableCell>
+                  <TableCell className="px-4 py-2">{unit}</TableCell>
+                  <TableCell className="px-4 py-2">{quantity}</TableCell>
+                  <TableCell className="px-4 py-2">₹{parseFloat(amount).toLocaleString()}</TableCell>
+                </TableRow>)
             })}
           </TableBody>
-      </Table>
-     ) : ( <div className="h-[10vh] flex items-center justify-center">No Results.</div> )}
+        </Table>
+      ) : (<div className="h-[10vh] flex items-center justify-center">No Results.</div>)}
     </div>
   );
 };

@@ -14,9 +14,9 @@ export const SelectServiceVendorList = () => {
     const { data: service_list, isLoading: service_list_loading, error: service_list_error, mutate: serviceListMutate } = useFrappeGetDocList("Service Requests",
         {
             fields: ["*"],
-            filters: [["status", "=", "Created"]],
+            filters: [["status", "in", ["Created", "Rejected"]]],
             limit: 1000,
-            orderBy: {field: "modified", order: "desc"}
+            orderBy: { field: "modified", order: "desc" }
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
@@ -24,7 +24,7 @@ export const SelectServiceVendorList = () => {
         limit: 1000
     })
 
-    
+
     useFrappeDocTypeEventListener("Service Requests", async (event) => {
         await serviceListMutate()
     })
@@ -132,6 +132,19 @@ export const SelectServiceVendorList = () => {
                         <div className="flex flex-col gap-1 items-start justify-center">
                             {row.getValue("service_category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "status",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Status" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <Badge variant={row.getValue("status") === "Rejected" ? "red" : "yellow"}>{row.getValue("status")}</Badge>
                     )
                 }
             }
