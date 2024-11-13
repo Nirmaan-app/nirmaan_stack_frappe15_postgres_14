@@ -11,7 +11,8 @@
   "service_request_details_section",
   "service_order_list",
   "service_category_list",
-  "status"
+  "status",
+  "notes"
  ],
  "fields": [
   {
@@ -50,11 +51,16 @@
    "fieldtype": "Link",
    "label": "Vendor",
    "options": "Vendors"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "JSON",
+   "label": "Notes"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-11-06 18:06:09.941645",
+ "modified": "2024-11-13 18:01:23.763817",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",
