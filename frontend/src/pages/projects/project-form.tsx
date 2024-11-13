@@ -452,7 +452,16 @@ export const ProjectForm = () => {
         const fieldsToValidate = getFieldsForSection(section);
         const isValid = await form.trigger(fieldsToValidate);
 
-        console.log("isValid", isValid)
+        if(section === "projectTimeline" && !form.getValues("project_end_date")) {
+            toast({
+                title: "Failed!",
+                description: "Project End Data Must not be empty",
+                variant: "destructive"
+            })
+            return
+        }
+
+        // console.log("isValid", isValid)
         const nextSec = nextSection(section)
         const nextIndex = currentStep + 1
 
@@ -513,9 +522,11 @@ export const ProjectForm = () => {
 
             <Steps current={currentStep} className="py-6 px-10">
                 {sections.map((sec) => (
-                    <Step key={sec} onClick={() => {
-                        if (currentStep >= sections.findIndex((val) => val === sec)) {
+                    <Step className="cursor-pointer" key={sec} onClick={() => {
+                        const secIndex = sections.findIndex((val) => val === sec)
+                        if (currentStep >= secIndex) {
                             setSection(sec)
+                            setCurrentStep(secIndex)
                         }
                     }} title={sectionTitles[sec]} />
                 ))}
@@ -850,7 +861,10 @@ export const ProjectForm = () => {
                                     )}
                                 />
                                 <div className="flex items-center justify-end gap-2">
-                                    <Button variant={"outline"} onClick={() => setSection("projectDetails")}>Previous</Button>
+                                    <Button variant={"outline"} onClick={() => {
+                                        setSection("projectDetails")
+                                        setCurrentStep(prevStep => prevStep-1)
+                                    }}>Previous</Button>
                                     <Button onClick={goToNextSection}>Next</Button>
                                 </div>
                             </>
@@ -964,7 +978,10 @@ export const ProjectForm = () => {
                                     </div>
                                 </div>
                                 <div className="flex items-center justify-end gap-2">
-                                    <Button variant={"outline"} onClick={() => setSection("projectAddressDetails")}>Previous</Button>
+                                    <Button variant={"outline"} onClick={() => {
+                                        setSection("projectAddressDetails")
+                                        setCurrentStep(prevStep => prevStep-1)
+                                    }}>Previous</Button>
                                     <Button onClick={goToNextSection}>Next</Button>
                                 </div>
                             </>
@@ -1101,7 +1118,10 @@ export const ProjectForm = () => {
                                     )}
                                 />
                                 <div className="flex items-center justify-end gap-2">
-                                    <Button variant={"outline"} onClick={() => setSection("projectTimeline")}>Previous</Button>
+                                    <Button variant={"outline"} onClick={() => {
+                                        setSection("projectTimeline")
+                                        setCurrentStep(prevStep => prevStep-1)
+                                    }}>Previous</Button>
                                     <Button onClick={goToNextSection}>Next</Button>
                                 </div>
                             </>
@@ -1245,7 +1265,10 @@ export const ProjectForm = () => {
                                     )}
                                 />
                                 <div className="pt-2 flex items-center justify-end gap-2">
-                                    <Button variant={"outline"} onClick={() => setSection("projectAssignees")}>Previous</Button>
+                                    <Button variant={"outline"} onClick={() => {
+                                        setSection("projectAssignees")
+                                        setCurrentStep(prevStep => prevStep-1)
+                                    }}>Previous</Button>
                                     {(loading) ?
                                         <ButtonLoading />
                                         : <Button type="submit" className="flex items-center gap-1">
