@@ -155,11 +155,11 @@ const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
           <CardContent>
             <div className="space-y-2">
               <div className="flex justify-between">
-                <span>Total (without GST):</span>
+                <span>Total (Excl. GST):</span>
                 <span className="font-semibold">{formatToIndianRupee(overallTotal.withoutGst)}</span>
               </div>
               <div className="flex justify-between">
-                <span>Total (with GST):</span>
+                <span>Total (Incl. GST):</span>
                 <span className="font-semibold">{formatToIndianRupee(overallTotal.withGst)}</span>
               </div>
             </div>
@@ -192,7 +192,7 @@ const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
                       <TableHead className="w-[30%] text-red-700 font-extrabold">{categoryName}</TableHead>
                       <TableHead className="w-[15%]">Qty</TableHead>
                       <TableHead className="w-[15%]">UOM</TableHead>
-                      <TableHead className="w-[15%]">Amount</TableHead>
+                      <TableHead className="w-[15%]">Amount(Excl. GST)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -201,7 +201,7 @@ const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
                         <TableCell>{item.item}</TableCell>
                         <TableCell>{item.quantity}</TableCell>
                         <TableCell>{item.unit}</TableCell>
-                        <TableCell>{formatToIndianRupee((item.quantity * item.quote) + (item.quantity * item.quote * (item.tax / 100)))}</TableCell>
+                        <TableCell>{formatToIndianRupee((item.quantity * item.quote))}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
