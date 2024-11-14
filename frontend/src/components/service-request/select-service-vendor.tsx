@@ -314,8 +314,8 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
         }
     }, [resolve, sr_data, vendor_list])
 
-    console.log("amounts", amounts)
-    console.log("sr_data", sr_data)
+    // console.log("amounts", amounts)
+    // console.log("sr_data", sr_data)
 
     // console.log("selected vendor", selectedVendor)
 

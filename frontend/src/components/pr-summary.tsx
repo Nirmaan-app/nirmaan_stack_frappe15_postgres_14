@@ -100,9 +100,28 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
 
     const { role } = useUserData()
 
-    const checkPoToPr = (prId: string) => {
-        return po_data?.some((po) => po.procurement_request === prId)
-    }
+    // const checkPoToPr = (prId: string) => {
+    //     return po_data?.some((po) => po.procurement_request === prId)
+    // }
+
+    const getPOItemStatus = (item: any, filteredPOs: any[]) => {
+        return filteredPOs.some(po =>
+          po.order_list?.list.some(poItem => poItem.name === item.name)
+        );
+      };
+    
+    const statusRender = (status: string) => {
+
+      const itemList = pr_data?.procurement_list?.list || [];
+
+      if (["Approved", "RFQ Generated", "Quote Updated", "Vendor Selected"].includes(status)) {
+        return "Open PR";
+      }
+
+      const allItemsApproved = itemList.every(item => { return getPOItemStatus(item, po_data); });
+
+      return allItemsApproved ? "Approved PO" : "Open PR";
+    };
 
     const itemsTimelineList = universalComments?.map((cmt: any) => ({
         label: (
@@ -287,8 +306,8 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 <CardHeader>
                                     <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                                         PR Details
-                                        <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "green" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "orange" : pr_data.workflow_state === "Rejected" ? "red" : "yellow"}`}>
-                                            {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "In Progress" : pr_data.workflow_state === "Pending" ? "Approval Pending" : pr_data.workflow_state}
+                                        <Badge variant={`${pr_data?.workflow_state === "Rejected" ? "red" : pr_data?.workflow_state === "Pending" ? "yellow" : pr_data?.workflow_state === "Draft" ? "indigo" : statusRender(pr_data?.workflow_state) === "Open PR" ? "orange" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "green" : undefined}`}>
+                                            {pr_data?.workflow_state === "Rejected" ? "Rejected" : pr_data?.workflow_state === "Pending" ? "Approval Pending" : pr_data?.workflow_state === "Draft" ? "Draft" : statusRender(pr_data?.workflow_state) === "Open PR" ? "In Progress" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "Ordered" : ""}
                                         </Badge>
                                     </CardTitle>
                                 </CardHeader>

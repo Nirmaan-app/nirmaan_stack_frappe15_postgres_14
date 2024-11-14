@@ -307,7 +307,7 @@ export const ProjectForm = () => {
                 throw new Error('City and State are "Not Found", Please Enter a Valid Pincode')
             }
             if (!values.project_end_date) {
-                throw new Error('Project End Data Must not be empty')
+                throw new Error('Project_End_Date Must not be empty')
             }
             if (!values.project_work_packages.work_packages.length) {
                 throw new Error('Please select atleast one work package associated with this project')
@@ -455,7 +455,7 @@ export const ProjectForm = () => {
         if(section === "projectTimeline" && !form.getValues("project_end_date")) {
             toast({
                 title: "Failed!",
-                description: "Project End Data Must not be empty",
+                description: "Project_End_Date Must not be empty",
                 variant: "destructive"
             })
             return

@@ -64,6 +64,8 @@ interface POSummaryPageProps {
 
 const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
 
+  console.log("po_data", po_data)
+
   const itemsOrderList = JSON.parse(po_data?.order_list)?.list;
   const navigate = useNavigate();
 
@@ -93,7 +95,7 @@ const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
     fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
   }));
 
-  console.log("po_data", itemsOrderList)
+  // console.log("po_data", itemsOrderList)
 
   return (
     <div className="flex flex-col gap-4">
@@ -158,9 +160,21 @@ const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
                 <span>Total (Excl. GST):</span>
                 <span className="font-semibold">{formatToIndianRupee(overallTotal.withoutGst)}</span>
               </div>
+              {parseFloat(po_data?.loading_charges) > 0 && (
+                  <div className="flex justify-between">
+                    <span>Loading Charges (Inc. GST):</span>
+                    <span className="font-semibold">{formatToIndianRupee(po_data?.loading_charges * 1.18)}</span>
+                  </div>
+              )}
+              {parseFloat(po_data?.freight_charges) > 0 && (
+                  <div className="flex justify-between">
+                    <span>Freight Charges (Inc. GST):</span>
+                    <span className="font-semibold">{formatToIndianRupee(po_data?.freight_charges * 1.18)}</span>
+                  </div>
+              )}
               <div className="flex justify-between">
                 <span>Total (Incl. GST):</span>
-                <span className="font-semibold">{formatToIndianRupee(overallTotal.withGst)}</span>
+                <span className="font-semibold">{formatToIndianRupee(overallTotal.withGst + po_data?.loading_charges * 1.18 + po_data?.freight_charges * 1.18)}</span>
               </div>
             </div>
           </CardContent>
