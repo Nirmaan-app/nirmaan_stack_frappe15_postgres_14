@@ -232,8 +232,9 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
             {
                 accessorKey: 'order_list',
                 header: ({ column }) => {
-                    return <h1>:</h1>
-                }
+                    return <h1 className="hidden">:</h1>
+                },
+                cell: ({row}) => <span className="hidden">hh</span>
             }
         ],
         [project_values, procurement_order_list]
