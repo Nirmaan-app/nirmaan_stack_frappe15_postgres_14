@@ -101,7 +101,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
         }, {});
     }, [order]);
 
-    console.log("groupedData, ", groupedData)
+    // console.log("groupedData, ", groupedData)
 
     useEffect(() => {
         if (groupedData) {
@@ -565,18 +565,18 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button className="flex items-center gap-1">
-                                    {resolve ?
+                                    {(resolve || sr_data?.status === "Rejected") ?
                                         <Settings2 className="h-4 w-4" /> :
                                         <ArrowBigUpDash className="" />
                                     }
-                                    {resolve ? "Resolve" : "Send for Approval"}
+                                    {(resolve || sr_data?.status === "Rejected") ? "Resolve" : "Send for Approval"}
                                 </Button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
                                     <DialogTitle>Are you sure?</DialogTitle>
                                     <DialogDescription>
-                                        Click on Confirm to {resolve ? "resolve and send for approval" : "Submit"}!
+                                        Click on Confirm to {(resolve || sr_data?.status === "Rejected") ? "resolve and send for approval" : "Submit"}!
                                         <Textarea className="mt-4" placeholder={`Optional`} onChange={(e: any) => setComment(e.target.value === "" ? null : e.target.value)} value={comment || ""} />
                                     </DialogDescription>
                                 </DialogHeader>
@@ -585,7 +585,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                                         <Undo2 className="h-4 w-4" />
                                         Cancel</Button>
                                     </DialogClose>
-                                    {resolve ? (
+                                    {(resolve || sr_data?.status === "Rejected") ? (
                                         <Button variant="default" className="flex items-center gap-1" onClick={handleResolveSR} disabled={create_loading || update_loading}>
                                             {create_loading || update_loading ? (
                                                 <TailSpin width={20} height={20} color="white" />
