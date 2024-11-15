@@ -114,7 +114,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text === "Delayed" ? text : formatToIndianRupee(text)}
+                {(text === "Delayed" || text === "N/A") ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -125,7 +125,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text === "N/A" ? text : formatToIndianRupee(text)}
+                {(text === "N/A" || text === "Delayed") ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -183,7 +183,7 @@ export const SelectVendors = () => {
             fields: ['item_id', 'quote'],
             limit: 2000
         });
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { createDoc: createDoc, loading: create_loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
 
 
@@ -246,8 +246,8 @@ export const SelectVendors = () => {
                             rate: selectedVendors[item.name] ? price : "Delayed",
                             amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
                             selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
-                            lowest2: getLowest2(item.name) ? getLowest2(item.name) * item.quantity : "Delayed",
-                            lowest3: minQuote ? minQuote : "N/A",
+                            lowest2: selectedVendors[item.name] ? (getLowest2(item.name) ? getLowest2(item.name) * item.quantity : "N/A") : "Delayed",
+                            lowest3: selectedVendors[item.name] ? (minQuote ? minQuote : "N/A") : "Delayed",
                         });
                     }
                 });
@@ -546,7 +546,7 @@ export const SelectVendors = () => {
         }
     };
 
-    console.log('data', data)
+    // console.log('data', data)
     const { toast } = useToast()
 
     const generateVendorItemKey = (vendor: string, item: string): string => {
@@ -1026,12 +1026,16 @@ export const SelectVendors = () => {
                                     </DialogDescription>
                                 </DialogHeader>
                                 <DialogDescription className='flex items-center justify-center gap-2'>
-                                    <DialogClose><Button variant="secondary" className="flex items-center gap-1">
+                                    {(update_loading || create_loading) ? <TailSpin width={60} color={"red"}  /> : (
+                                        <>
+                                        <DialogClose><Button variant="secondary" className="flex items-center gap-1">
                                         <Undo2 className="h-4 w-4" />
                                         Cancel</Button></DialogClose>
                                     <Button variant="default" onClick={() => handleSubmit()} disabled={submitClicked} className="flex items-center gap-1">
                                         <CheckCheck className="h-4 w-4" />
                                         Confirm</Button>
+                                        </>
+                                    )}
                                 </DialogDescription>
                             </DialogContent>
                         </Dialog>

@@ -68,11 +68,11 @@ export default function Projects() {
         }
     }, [pr_data]);
 
-    console.log("prToProjectData", prToProjectData)
+    // console.log("prToProjectData", prToProjectData)
 
     const getItemStatus = (item: any, filteredPOs: any[]) => {
         return filteredPOs.some(po =>
-          po.order_list?.list.some(poItem => poItem.name === item.name)
+          po?.order_list?.list.some(poItem => poItem?.name === item.name)
         );
       };
     
@@ -84,7 +84,7 @@ export default function Projects() {
         return "New PR";
       }
 
-      const filteredPOs = po_data?.filter(po => po.procurement_request === procurementRequest?.name) || [];
+      const filteredPOs = po_data?.filter(po => po?.procurement_request === procurementRequest?.name) || [];
       const allItemsApproved = itemList.every(item => { return getItemStatus(item, filteredPOs); });
 
       return allItemsApproved ? "Approved PO" : "Open PR";
@@ -95,10 +95,10 @@ export default function Projects() {
             const statusCounts = {};
 
             for (const [project, prs] of Object.entries(prToProjectData)) {
-                statusCounts[project] = { "New PR": 0, "Approved PO": 0, "Open PR": 0 };
+                statusCounts[project] = { "New PR": 0, "Open PR": 0, "Approved PO": 0 };
             
                 prs?.forEach(pr => {
-                    const status = statusRender(pr.status, pr);
+                    const status = statusRender(pr?.workflow_state, pr);
                     statusCounts[project][status] += 1;
                 });
             }
@@ -234,7 +234,7 @@ export default function Projects() {
         [projectStatusCounts]
     )
 
-    console.log("projectStatusCounts", projectStatusCounts)
+    // console.log("projectStatusCounts", projectStatusCounts)
 
     return (
         <div className="flex-1 md:space-y-4">

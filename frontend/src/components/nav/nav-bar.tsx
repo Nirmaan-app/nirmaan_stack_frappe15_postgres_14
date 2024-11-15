@@ -142,7 +142,7 @@ export const NavBar = () => {
 
     const { data: srData, mutate: srDataMutate } = useFrappeGetDocList("Service Requests", {
         fields: ["status", "project", "vendor"],
-        filters: [["status", "in", ["Vendor Selected", "Approved", "Created"]], ["project", "in", permissionsList || []]],
+        filters: [["project", "in", permissionsList || []]],
         limit: 1000
     },
         (user_id === "Administrator" || !permissionsList) ? null : undefined
@@ -150,7 +150,6 @@ export const NavBar = () => {
 
     const { data: adminSRData, mutate: adminSRDataMutate } = useFrappeGetDocList("Service Requests", {
         fields: ["status", "project", "vendor"],
-        filters: [["status", "in", ["Vendor Selected", "Approved", "Created"]]],
         limit: 1000
     },
 

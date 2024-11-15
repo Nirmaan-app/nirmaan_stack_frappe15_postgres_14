@@ -7,7 +7,8 @@ import { useNavigate, useParams } from "react-router-dom"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button"
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { toast } from "@/components/ui/use-toast"
 
 const Item = () => {
     const { itemId } = useParams<{ itemId: string }>()
@@ -58,6 +59,14 @@ const ItemView = ({ itemId }: { itemId: string }) => {
 
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
 
+    useEffect(() => {
+        if(data) {
+            setCurItem(data?.item_name)
+            setCategory(data?.category)
+            setUnit(data?.unit_name)
+        }
+    }, [data])
+
     const handleEditItem = () => {
         updateDoc('Items', itemId, {
             category: category ? category : data?.category,
@@ -65,12 +74,21 @@ const ItemView = ({ itemId }: { itemId: string }) => {
             item_name: curItem ? curItem : data.item_name
         })
             .then(() => {
-                console.log("edited", itemId)
                 mutate()
+                toast({
+                    title: "Success!",
+                    description: `Item ${data?.name} updated successfully!`,
+                    variant: "success"
+                })
                 setUnit('')
                 setCurItem('')
                 setCategory('')
             }).catch(() => {
+                toast({
+                    title: "Failed!",
+                    description: `Unable to update Item ${data?.name}.`,
+                    variant: "destructive"
+                })
                 console.log("update_submit_error", update_submit_error)
             })
     }
@@ -94,21 +112,20 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                 <div className="flex flex-col gap-4 ">
 
                                     <div className="flex flex-col items-start">
-                                        <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
+                                        <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="pl-1 text-sm text-red-600">*</sup></label>
                                         <Input
                                             type="text"
                                             id="itemName"
-                                            placeholder={data?.item_name}
                                             value={curItem}
                                             onChange={(e) => setCurItem(e.target.value)}
                                             className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                         />
                                     </div>
                                     <div className="flex flex-col items-start">
-                                        <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
-                                        <Select onValueChange={(value) => setUnit(value)}>
+                                        <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                                        <Select onValueChange={(value) => setUnit(value)} defaultValue={unit}>
                                             <SelectTrigger className="">
-                                                <SelectValue className="text-gray-200" placeholder={data?.unit_name} />
+                                                <SelectValue className="text-gray-200" />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="BOX">BOX</SelectItem>
@@ -128,10 +145,10 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                         </Select>
                                     </div>
                                     <div className="flex flex-col items-start">
-                                        <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category</label>
-                                        <Select onValueChange={(value) => setCategory(value)}>
+                                        <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                                        <Select onValueChange={(value) => setCategory(value)} defaultValue={category}>
                                             <SelectTrigger className="">
-                                                <SelectValue className="text-gray-200" placeholder={data?.category} />
+                                                <SelectValue className="text-gray-200" />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {category_options?.map((item) => {
@@ -144,7 +161,7 @@ const ItemView = ({ itemId }: { itemId: string }) => {
                                     </div>
                                 </div>
                                 <DialogClose className="flex justify-center">
-                                    <Button className="flex items-center gap-1" onClick={() => handleEditItem()}>
+                                    <Button disabled={update_loading || (data?.item_name === curItem && data?.category === category && data?.unit_name === unit)} className="flex items-center gap-1" onClick={() => handleEditItem()}>
                                         <ListChecks className="h-4 w-4" />
                                         Submit</Button>
                                 </DialogClose>

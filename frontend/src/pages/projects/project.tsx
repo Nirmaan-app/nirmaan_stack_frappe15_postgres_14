@@ -434,7 +434,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const getItemStatus = (item: any, filteredPOs: any[]) => {
     return filteredPOs.some(po =>
-      po.order_list?.list.some(poItem => poItem.name === item.name)
+      po?.order_list?.list.some(poItem => poItem?.name === item.name)
     );
   };
 
@@ -447,7 +447,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       return "New PR";
     }
 
-    const filteredPOs = po_data?.filter(po => po.procurement_request === prId) || [];
+    const filteredPOs = po_data?.filter(po => po?.procurement_request === prId) || [];
     const allItemsApproved = itemList.every(item => { return getItemStatus(item, filteredPOs); });
 
     return allItemsApproved ? "Approved PO" : "Open PR";
@@ -455,7 +455,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   useEffect(() => {
     if(pr_data) {
-      const statusCounts = { "New PR": 0, "Approved PO": 0, "Open PR": 0 };
+      const statusCounts = { "New PR": 0, "Open PR": 0, "Approved PO": 0 };
       pr_data?.forEach((pr) => {
         const status = statusRender(pr?.workflow_state ,pr?.name)
           statusCounts[status] += 1
@@ -464,8 +464,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       setStatusCounts(statusCounts)
     }
   }, [pr_data])
-
-  console.log("statusCounts", statusCounts)
 
   const statusOptions = [
     { label: "New PR", value: "New PR" },
@@ -712,14 +710,14 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       document.getElementById("assignUserDialogClose")?.click()
       toast({
         title: "Success!",
-        description: `Successfully assigned ${getUserFullName(selectedUser)}`,
+        description: `Successfully assigned ${getUserFullName(selectedUser)}.`,
         variant: "success"
       })
     } catch (error) {
       console.log("error", error)
       toast({
         title: "Failed!",
-        description: `Failed to assign ${getUserFullName(selectedUser)}`,
+        description: `Failed to assign ${getUserFullName(selectedUser)}.`,
         variant: "destructive"
       })
     } finally {
@@ -942,14 +940,14 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       await project_mutate()
       toast({
         title: "Success!",
-        description: `Successfully changed status to ${newStatus}`,
+        description: `Successfully changed status to ${newStatus}.`,
         variant: "success"
       })
     } catch (error) {
       console.log("error", error)
       toast({
         title: "Failed!",
-        description: `Failed to changed status to ${newStatus}`,
+        description: `Failed to change status to ${newStatus}.`,
         variant: "destructive"
       })
     } finally {
@@ -1321,6 +1319,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           )}
 
           {selectedPackage === "All" && (
+            <>
             <div>
               <div className="flex gap-2 items-center">
               <h2 className="font-semibold text-gray-500">Work Packages</h2>
@@ -1333,10 +1332,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               </div>
             ))}
             </div>
-          )}
-
-          {selectedPackage === "All" && (
-            <>
             <Separator />
             <div>
               <div className="flex gap-2 items-center mb-4">
@@ -1347,12 +1342,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                 <ToolandEquipementAccordion projectEstimates={project_estimates} categorizedData={categorizedData} />
               </div>
             </div>
+              <Separator />
             </>
           )}
 
-            {selectedPackage === "All" && (
-              <Separator />
-            )}
           {["All", "Services"].includes(selectedPackage) && (
               <div>
                 {selectedPackage === "All" && (
