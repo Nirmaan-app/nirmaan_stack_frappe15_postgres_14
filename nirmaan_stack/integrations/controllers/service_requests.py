@@ -40,7 +40,7 @@ def on_update(doc, method):
             new_notification_doc = frappe.new_doc('Nirmaan Notifications')
             new_notification_doc.recipient = user['name']
             new_notification_doc.recipient_role = user['role_profile']
-            if doc.owner != 'Administrator':
+            if frappe.session.user != 'Administrator':
                 new_notification_doc.sender = frappe.session.user
             new_notification_doc.title = message["title"]
             new_notification_doc.description = message["description"]
@@ -97,7 +97,7 @@ def on_update(doc, method):
             new_notification_doc = frappe.new_doc('Nirmaan Notifications')
             new_notification_doc.recipient = user['name']
             new_notification_doc.recipient_role = user['role_profile']
-            if doc.owner != 'Administrator':
+            if frappe.session.user != 'Administrator':
                 new_notification_doc.sender = frappe.session.user
             new_notification_doc.title = message["title"]
             new_notification_doc.description = message["description"]
