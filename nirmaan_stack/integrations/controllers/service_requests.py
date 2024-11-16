@@ -6,6 +6,30 @@ def on_trash(doc, method):
     frappe.db.delete("Nirmaan Comments", {
         "reference_name" : ("=", doc.name)
     })
+    print(f"flagged for delete sr document: {doc} {doc.modified_by} {doc.owner}")
+    notifications = frappe.db.get_all("Nirmaan Notifications", 
+                                      filters={"docname": doc.name},
+                                      fields={"name", "recipient"}
+                                      )
+
+    if notifications:
+        for notification in notifications:
+            print(f"running delete notification event for user: {notification['recipient']} with {notification['name']}")
+            message = {
+            "title": _("SR Deleted"),
+            "description": _(f"SR: {doc.name} has been deleted."),
+            "docname": doc.name,
+            "sender": frappe.session.user,
+            "notificationId" : notification["name"]
+            }
+            frappe.publish_realtime(
+                event="sr:delete",
+                message=message,
+                user=notification["recipient"]
+            )
+    frappe.db.delete("Nirmaan Notifications", {
+        "docname": ("=", doc.name)
+    })
 
 def on_update(doc, method):
     if doc.status == "Vendor Selected":
