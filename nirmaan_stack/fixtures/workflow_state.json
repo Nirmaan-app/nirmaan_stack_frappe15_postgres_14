@@ -88,5 +88,14 @@
   "name": "Quote Updated",
   "style": "",
   "workflow_state_name": "Quote Updated"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2024-11-12 20:34:47.169078",
+  "name": "Draft",
+  "style": "",
+  "workflow_state_name": "Draft"
  }
 ]

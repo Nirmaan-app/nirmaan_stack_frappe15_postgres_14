@@ -170,13 +170,18 @@ doc_events = {
     },
     "Sent Back Category": {
         "after_insert": "nirmaan_stack.integrations.controllers.sent_back_category.after_insert",
-        "on_update": "nirmaan_stack.integrations.controllers.sent_back_category.on_update"
+        "on_update": "nirmaan_stack.integrations.controllers.sent_back_category.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.sent_back_category.on_trash"
     },
     "Version": {
         "after_insert": [
             "nirmaan_stack.integrations.controllers.nirmaan_versions.generate_amend_version",
             "nirmaan_stack.integrations.controllers.nirmaan_versions.remove_amend_version"
             ]
+    },
+    "Service Requests": {
+        "on_trash": "nirmaan_stack.integrations.controllers.service_requests.on_trash",
+        "on_update": "nirmaan_stack.integrations.controllers.service_requests.on_update"
     }
 }
 

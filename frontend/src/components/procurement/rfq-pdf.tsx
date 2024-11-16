@@ -111,7 +111,8 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_city'],
+            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_city', 'vendor_type'],
+            filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
 

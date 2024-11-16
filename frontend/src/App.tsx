@@ -51,6 +51,12 @@ import { messaging } from './firebase/firebaseConfig'
 import { onMessage } from 'firebase/messaging'
 import { ApproveSelectAmendPO } from './pages/approve-select-amend-po'
 import { POSummary } from './components/POSummary'
+import ListSR from './components/service-request/list-sr'
+import { ApproveSelectSR } from './components/service-request/approve-service-request-list'
+import { ApproveServiceRequest } from './components/service-request/approve-service-request'
+import { SelectServiceVendorList } from './components/service-request/select-service-vendor-list'
+import { ApprovedSRList } from './components/service-request/approved-sr-list'
+import { ApprovedSR } from './components/service-request/approved-sr'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -83,6 +89,18 @@ const router = createBrowserRouter(
 						</Route>
 					</Route>
 
+					{/* Service Requests Paths */}
+					<Route path='service-request'>
+						<Route index element={<ListSR />} />
+						<Route path=":project/new" lazy={() => import('@/components/service-request/new-service-request')} />
+						<Route path=":id" lazy={() => import('@/components/service-request/sr-summary')} />
+					</Route>
+
+					<Route path='select-service-vendor'>
+						<Route index element={<SelectServiceVendorList />} />
+						<Route path=":id" lazy={() => import('@/components/service-request/select-service-vendor')} />
+					</Route>
+
 					{/* Approve PR Paths  */}
 					<Route path="approve-order">
 						<Route index element={<ApprovePR />} />
@@ -105,6 +123,17 @@ const router = createBrowserRouter(
 					<Route path="approve-sent-back">
 						<Route index element={<ApproveSelectSentBack />} />
 						<Route path=":id" lazy={() => import('@/pages/approve-sent-back')} />
+					</Route>
+
+					{/* Approve Service Request Paths  */}
+					<Route path="approve-service-request">
+						<Route index element={<ApproveSelectSR />} />
+						<Route path=":id" element={<ApproveServiceRequest />} />
+					</Route>
+
+					<Route path='approved-sr'>
+						<Route index element={<ApprovedSRList />} />
+						<Route path=":id" element={<ApprovedSR />} />
 					</Route>
 
 					{/* New PR Request Paths  */}
@@ -164,6 +193,7 @@ const router = createBrowserRouter(
 							path=":projectId"
 							lazy={() => import('@/pages/projects/project')}
 						/>
+						<Route path=":projectId/add-estimates" lazy={() => import('@/components/add-project-estimates')} />
 						<Route path=":projectId/edit" element={<EditProjectForm />} />
 						<Route path=":projectId/:id">
 							<Route index lazy={() => import('@/components/pr-summary')} />

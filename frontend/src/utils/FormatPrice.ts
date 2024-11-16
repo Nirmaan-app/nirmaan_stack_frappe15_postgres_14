@@ -3,7 +3,7 @@ function formatToIndianRupee(price) {
     const amount = parseFloat(price);
   
     if (isNaN(amount)) {
-      return "Invalid amount";
+      return "--";
     }
   
     // Convert the number to Indian currency format

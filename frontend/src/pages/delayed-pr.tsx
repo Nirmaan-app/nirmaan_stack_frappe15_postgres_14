@@ -129,7 +129,8 @@ export const DelayedPR = () => {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst'],
+            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_gst', 'vendor_type'],
+            filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
     const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",

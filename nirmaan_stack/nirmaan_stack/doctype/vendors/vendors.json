@@ -92,8 +92,7 @@
   {
    "fieldname": "vendor_gst",
    "fieldtype": "Data",
-   "label": "Vendor GST",
-   "reqd": 1
+   "label": "Vendor GST"
   },
   {
    "fieldname": "vendor_category",
@@ -103,7 +102,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-09-12 14:46:55.783108",
+ "modified": "2024-11-07 20:38:10.662459",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

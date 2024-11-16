@@ -54,6 +54,15 @@ interface StoreState {
     adminChooseVendorPRCount: number | null;
     otherPOCount: number | null;
     adminOtherPOCount: number | null;
+    updateSRCounts: (srData : any, admin: boolean) => void;
+    selectedSRCount: number | null;
+    adminSelectedSRCount: number | null;
+    approvedSRCount : number | null;
+    adminApprovedSRCount : number | null;
+    allSRCount: number | null;
+    adminAllSRCount: number | null;
+    pendingSRCount: number | null;
+    adminPendingSRCount: number | null;
 }
 
 export const useDocCountStore = create<StoreState>()(
@@ -81,6 +90,14 @@ export const useDocCountStore = create<StoreState>()(
             adminNewSBCounts: { rejected: null, delayed: null, cancelled: null},
             setPendingPRCount: (count) => set({ pendingPRCount: count }),
             setApprovePRCount: (count) => set({ approvePRCount: count }),
+            selectedSRCount: null,
+            adminSelectedSRCount: null,
+            approvedSRCount : null,
+            adminApprovedSRCount : null,
+            allSRCount: null,
+            adminAllSRCount: null,
+            pendingSRCount: null,
+            adminPendingSRCount: null,
             updatePRCounts: (prData, admin) => {
                 const pendingCount = prData.filter((pr) => pr.workflow_state === 'Pending').length;
                 const approveCount = prData.filter((pr) => ['Vendor Selected', 'Partially Approved'].includes(pr.workflow_state) && pr?.procurement_list?.list?.some((i) => i?.status === "Pending")).length;
@@ -131,13 +148,35 @@ export const useDocCountStore = create<StoreState>()(
                     set({
                         adminAmendPOCount: amendPOCount,
                         adminNewPOCount: newPOCount,
-                        adminOtherPOCount: otherPOCount
+                        adminOtherPOCount: otherPOCount,
                     });
                 } else {
                     set({
                         amendPOCount: amendPOCount,
                         newPOCount: newPOCount,
                         otherPOCount: otherPOCount
+                    });
+                }
+            },
+            updateSRCounts : (srData, admin) => {
+                const selectedSRCount = srData?.filter((sr) => sr?.status === "Vendor Selected")?.length
+                const approvedSRCount = srData?.filter((sr) => sr?.status === "Approved")?.length
+                const allSRCount = srData?.length
+                const pendingSRCount = srData?.filter((sr) => !["Vendor Selected", "Approved"].includes(sr?.status))?.length
+
+                if(admin) {
+                    set({
+                        adminSelectedSRCount: selectedSRCount,
+                        adminApprovedSRCount: approvedSRCount,
+                        adminAllSRCount: allSRCount,
+                        adminPendingSRCount: pendingSRCount
+                    });
+                } else {
+                    set({
+                        selectedSRCount: selectedSRCount,
+                        approvedSRCount: approvedSRCount,
+                        allSRCount: allSRCount,
+                        pendingSRCount: pendingSRCount
                     });
                 }
             }

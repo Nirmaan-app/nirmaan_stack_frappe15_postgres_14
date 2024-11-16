@@ -1,6 +1,6 @@
-import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
+import { ArrowLeft, ListChecks, MessageCircleMore, MessageCircleWarning, Settings2, Trash2, Undo2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
@@ -18,6 +18,9 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { useUserData } from "@/hooks/useUserData";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { TailSpin } from "react-loader-spinner";
 
 const PRSummary = () => {
 
@@ -28,7 +31,7 @@ const PRSummary = () => {
     const [project, setProject] = useState()
     // const [projectAddress, setProjectAddress] = useState()
 
-    const { data: pr_data, error: pr_error, isLoading: prLoading } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id, `Procurement Requests ${id}`);
+    const { data: pr_data, error: pr_error, isLoading: prLoading, mutate: pr_data_mutate } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id, `Procurement Requests ${id}`);
 
     const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
         fields: ["*"],
@@ -40,7 +43,7 @@ const PRSummary = () => {
         limit: 1000,
         filters: [["reference_name", "=", id]],
         orderBy: { field: "creation", order: "desc" }
-    })
+    }, `Nirmaan Comments ${id}`)
 
     const { data: project_data, error: project_data_error, isLoading: project_data_loading } = useFrappeGetDoc<ProjectsType>("Projects", project);
 
@@ -65,7 +68,7 @@ const PRSummary = () => {
             {/* {address_error && <h1>{address_error.message}</h1>} */}
             {procurementOrdersError && <h1>{procurementOrdersError.message}</h1>}
             {userError && <h1>{userError.message}</h1>}
-            {(prLoading || project_data_loading || procurementOrdersLoading || userLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} project={project_data} po_data={procurementOrdersList} universalComments={universalComments || []} usersList={usersList} />}
+            {(prLoading || project_data_loading || procurementOrdersLoading || userLoading) ? <PRSummarySkeleton /> : <PRSummaryPage pr_data={pr_data} project={project_data} po_data={procurementOrdersList} universalComments={universalComments || []} usersList={usersList} pr_data_mutate={pr_data_mutate} />}
         </>
     )
 };
@@ -77,9 +80,10 @@ interface PRSummaryPageProps {
     po_data: ProcurementOrdersType[] | undefined
     universalComments: any
     usersList: NirmaanUsersType[] | undefined
+    pr_data_mutate?: any
 }
 
-const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList }: PRSummaryPageProps) => {
+const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList, pr_data_mutate }: PRSummaryPageProps) => {
     const navigate = useNavigate();
     const pr_no = pr_data?.name.split("-").slice(-1)
     const userData = useUserData()
@@ -96,9 +100,28 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
 
     const { role } = useUserData()
 
-    const checkPoToPr = (prId: string) => {
-        return po_data?.some((po) => po.procurement_request === prId)
-    }
+    // const checkPoToPr = (prId: string) => {
+    //     return po_data?.some((po) => po.procurement_request === prId)
+    // }
+
+    const getPOItemStatus = (item: any, filteredPOs: any[]) => {
+        return filteredPOs.some(po =>
+          po.order_list?.list.some(poItem => poItem.name === item.name)
+        );
+      };
+    
+    const statusRender = (status: string) => {
+
+      const itemList = pr_data?.procurement_list?.list || [];
+
+      if (["Approved", "RFQ Generated", "Quote Updated", "Vendor Selected"].includes(status)) {
+        return "Open PR";
+      }
+
+      const allItemsApproved = itemList.every(item => { return getPOItemStatus(item, po_data); });
+
+      return allItemsApproved ? "Approved PO" : "Open PR";
+    };
 
     const itemsTimelineList = universalComments?.map((cmt: any) => ({
         label: (
@@ -122,6 +145,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
             cmt.subject ? (cmt.subject === "creating pr" ? "green" : cmt.subject === "rejecting pr" ? "red" : "blue") : 'gray'
     }))
 
+    const {updateDoc, loading: updateLoading} = useFrappeUpdateDoc()
     const { mutate } = useSWRConfig()
 
     const handleDeletePr = async () => {
@@ -163,6 +187,47 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
         return "In Progress"
     }
 
+    const handleMarkDraftPR = async () => {
+        try {
+            await updateDoc("Procurement Requests", pr_data?.name, {
+                workflow_state : "Draft"
+            })
+            
+            await pr_data_mutate()
+            setSection("edit-pr")
+        } catch (error) {
+            console.log("error while marking pr as draft", error)
+            toast({
+                title: "Failed!",
+                description: `Marking PR: ${pr_data?.name} as Draft failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
+    const handleSendForAppr = async () => {
+        try {
+            await updateDoc("Procurement Requests", pr_data?.name, {
+                workflow_state : "Pending"
+            })
+            await pr_data_mutate()
+
+            toast({
+                title: "Success!",
+                description: `PR: ${pr_data?.name} Sent for approval!`,
+                variant: "success"
+            })
+
+        } catch (error) {
+            console.log("error while sending pr for approval", error)
+            toast({
+                title: "Failed!",
+                description: `Sending PR: ${pr_data?.name} for approval failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
     return (
         <>
             <div className={`${section === "pr-summary" ? "flex-1 space-y-2 md:space-y-4" : ""}`}>
@@ -175,6 +240,20 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 <span className="text-red-500 text-2xl max-md:text-xl">PR-{pr_no}</span>
                             </div>
                             <div className="flex gap-4 items-center">
+                                {pr_data?.workflow_state === "Pending" && (
+                                    <HoverCard>
+                                        <HoverCardTrigger>
+                                            <Button disabled={updateLoading} onClick={handleMarkDraftPR}>{updateLoading ? <TailSpin width={20} height={16} color="white" /> : "Edit"}</Button>
+                                        </HoverCardTrigger>
+                                        <HoverCardContent className="bg-gray-800 text-white rounded-md shadow-lg text-center">
+                                            Mark as <span className="text-primary underline">Draft</span> and Edit!
+                                        </HoverCardContent>
+                                    </HoverCard>
+                                )}
+
+                                {pr_data?.workflow_state === "Draft" && (
+                                    <Button disabled={updateLoading} onClick={handleSendForAppr}>{updateLoading ? <TailSpin width={20} height={16} color="white" /> : "Send for Approval"}</Button>
+                                )}
                                 {
                                     ["Rejected", "Pending", role === "Nirmaan Project Lead Profile" ? "Approved" : ""].includes(pr_data?.workflow_state) && (
                                         <AlertDialog>
@@ -206,7 +285,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                         </AlertDialog>
                                     )
                                 }
-                                {pr_data.workflow_state === "Rejected" && (
+                                {pr_data?.workflow_state === "Rejected" && (
 
                                     <Button className="flex items-center gap-1" onClick={() => setSection("resolve-pr")}>
                                         <Settings2 className="h-4 w-4" />
@@ -214,13 +293,21 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 )}
                             </div>
                         </div>
+                        {/* {pr_data?.workflow_state === "Pending" && (
+                            <div>
+                                <Alert variant="warning" className="">
+                                    <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
+                                    <AlertDescription>This PR can be edited by marking the same as draft by clicking on the "Mark as Draft" button which will show the edit button!</AlertDescription>
+                                </Alert>
+                            </div>
+                        )} */}
                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                             <Card className="w-full">
                                 <CardHeader>
                                     <CardTitle className="text-xl text-red-600 flex items-center justify-between">
                                         PR Details
-                                        <Badge variant={`${["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "orange" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "green" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "green" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "orange" : pr_data.workflow_state === "Rejected" ? "red" : "yellow"}`}>
-                                            {["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(pr_data?.workflow_state) ? "In Progress" : ["Partially Approved", "Vendor Approved"].includes(pr_data?.workflow_state) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data?.workflow_state) && checkPoToPr(pr_data?.name)) ? "Ordered" : (["Delayed", "Sent Back"].includes(pr_data.workflow_state) && !checkPoToPr(pr_data.name)) ? "In Progress" : pr_data.workflow_state === "Pending" ? "Approval Pending" : pr_data.workflow_state}
+                                        <Badge variant={`${pr_data?.workflow_state === "Rejected" ? "red" : pr_data?.workflow_state === "Pending" ? "yellow" : pr_data?.workflow_state === "Draft" ? "indigo" : statusRender(pr_data?.workflow_state) === "Open PR" ? "orange" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "green" : undefined}`}>
+                                            {pr_data?.workflow_state === "Rejected" ? "Rejected" : pr_data?.workflow_state === "Pending" ? "Approval Pending" : pr_data?.workflow_state === "Draft" ? "Draft" : statusRender(pr_data?.workflow_state) === "Open PR" ? "In Progress" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "Ordered" : ""}
                                         </Badge>
                                     </CardTitle>
                                 </CardHeader>
@@ -366,7 +453,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                     </>
                 )}
 
-                {section === "resolve-pr" && <NewPRPage project={project} rejected_pr_data={orderData} setSection={setSection} />}
+                {(section === "resolve-pr" || section === "edit-pr" )&& <NewPRPage project={project} rejected_pr_data={orderData} setSection={setSection} section={section} />}
 
             </div>
         </>

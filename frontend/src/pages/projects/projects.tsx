@@ -5,16 +5,25 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowLeft, CirclePlus, HardHat } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { TailSpin } from "react-loader-spinner";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
+import { useUserData } from "@/hooks/useUserData";
+import { Badge } from "@/components/ui/badge";
 
 
 export default function Projects() {
     const navigate = useNavigate()
+    const { role } = useUserData()
+
+    const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<ProjectsType>("Projects", {
+        fields: ["name", "project_name", "project_type", "project_city", "project_state", "creation", "status"],
+        limit: 1000,
+        orderBy: { field: 'creation', order: 'desc' }
+    })
 
     const { data: projectTypesList, isLoading: projectTypesListLoading } = useFrappeGetDocList("Project Types", {
         fields: ["*"],
@@ -23,9 +32,80 @@ export default function Projects() {
         "Project Types"
     )
 
+    const [prToProjectData, setPrToProjectData] = useState({})
+    const [projectStatusCounts, setProjectStatusCounts] = useState({});
+
+    const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList("Procurement Requests", {
+        fields: ["*"],
+        limit: 2000
+      })
+    
+      const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
+        fields: ["*"],
+        filters: [["status", "!=", "PO Approved"]],
+        limit: 1000,
+        orderBy: { field: "creation", order: "desc" }
+      })
+
     const projectTypeOptions = projectTypesList?.map((pt) => ({ label: pt.name, value: pt.name }))
 
     // console.log("projecttype", projectTypeOptions)
+
+    useEffect(() => {
+        if (pr_data) {
+            const groupedData = pr_data.reduce((acc, pr) => {
+                const projectKey = pr?.project;
+                if (projectKey) {
+                    if (!acc[projectKey]) {
+                        acc[projectKey] = [];
+                    }
+                    acc[projectKey].push(pr);
+                }
+                return acc;
+            }, {});
+    
+            setPrToProjectData(groupedData);
+        }
+    }, [pr_data]);
+
+    // console.log("prToProjectData", prToProjectData)
+
+    const getItemStatus = (item: any, filteredPOs: any[]) => {
+        return filteredPOs.some(po =>
+          po?.order_list?.list.some(poItem => poItem?.name === item.name)
+        );
+      };
+    
+    const statusRender = (status: string, procurementRequest : any) => {
+
+      const itemList = procurementRequest?.procurement_list?.list || [];
+
+      if (["Pending", "Approved", "Rejected"].includes(status)) {
+        return "New PR";
+      }
+
+      const filteredPOs = po_data?.filter(po => po?.procurement_request === procurementRequest?.name) || [];
+      const allItemsApproved = itemList.every(item => { return getItemStatus(item, filteredPOs); });
+
+      return allItemsApproved ? "Approved PO" : "Open PR";
+    };
+
+      useEffect(() => {
+        if (prToProjectData && po_data) {
+            const statusCounts = {};
+
+            for (const [project, prs] of Object.entries(prToProjectData)) {
+                statusCounts[project] = { "New PR": 0, "Open PR": 0, "Approved PO": 0 };
+            
+                prs?.forEach(pr => {
+                    const status = statusRender(pr?.workflow_state, pr);
+                    statusCounts[project][status] += 1;
+                });
+            }
+        
+            setProjectStatusCounts(statusCounts);
+        }
+    }, [prToProjectData, po_data]);
 
     const columns: ColumnDef<ProjectsType>[] = useMemo(
         () => [
@@ -42,6 +122,21 @@ export default function Projects() {
                             <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
                                 {row.getValue("name")?.slice(-4)}
                             </Link>
+                        </div>
+                    )
+                }
+            },
+            {
+                accessorKey: "status",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Status" />
+                    )
+                },
+                cell: ({ row }) => {
+                    return (
+                        <div className="font-medium">
+                            <Badge>{row.getValue("status")}</Badge>
                         </div>
                     )
                 }
@@ -99,22 +194,47 @@ export default function Projects() {
             },
             {
                 id: "location",
-                accessorFn: row => `${row.project_city}, ${row.project_state}`,
+                accessorFn: row => `${row.project_city},${row.project_state}`,
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Location" />
                     )
                 },
-            }
+            },
+            {
+                accessorKey: "name",
+                id: "statusCount",
+                header: ({ column }) => {
+                    return (
+                        <DataTableColumnHeader column={column} title="Status Count" />
+                    )
+                },
+                cell: ({ row }) => {
+                    const projectName = row.getValue("name");
+                    const statusCounts = projectStatusCounts[projectName] || {};
+    
+                    return (
+                        <div className="font-medium flex flex-col gap-1">
+                            {/* {Object.entries(statusCounts).map(([status, count]) => ( */}
+                                <Badge className="flex justify-between">
+                                    <span>New PR:</span> <span>{statusCounts["New PR"] || 0}</span>
+                                </Badge>
+                                <Badge variant={"yellow"} className="flex justify-between">
+                                    <span>Open PR:</span> <span>{statusCounts["Open PR"] || 0}</span>
+                                </Badge>
+                                <Badge variant={"green"} className="flex justify-between">
+                                    <span>Apprd PO:</span> <span>{statusCounts["Approved PO"] || 0}</span>
+                                </Badge>
+                            {/* ))} */}
+                        </div>
+                    );
+                }
+            },
         ],
-        []
+        [projectStatusCounts]
     )
 
-    const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList<ProjectsType>("Projects", {
-        fields: ["name", "project_name", "project_type", "project_city", "project_state", "creation"],
-        limit: 1000,
-        orderBy: { field: 'creation', order: 'desc' }
-    })
+    // console.log("projectStatusCounts", projectStatusCounts)
 
     return (
         <div className="flex-1 md:space-y-4">
@@ -136,9 +256,9 @@ export default function Projects() {
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
                 </div>
 
-                <Button asChild data-cy="add-project-button">
+                {role === "Nirmaan Admin Profile" && <Button asChild data-cy="add-project-button">
                     <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
-                </Button>
+                </Button>}
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2 cursor-pointer">
                 <Card className="hover:animate-shadow-drop-center" onClick={() => {

@@ -16,7 +16,7 @@ async function handleNotification(db, event, add_new_notification) {
                 sender: newNotificationData?.sender,
                 title: newNotificationData.title,
                 type: newNotificationData.type,
-                work_package: newNotificationData.work_package,
+                work_package: newNotificationData?.work_package,
                 action_url: newNotificationData?.action_url,
             });
             console.log("Updated notifications state with new data", newNotificationData);
@@ -64,5 +64,15 @@ export const handlePONewEvent = async (db, event, add_new_notification) => {
 };
 
 export const handleSBNewEvent = async (db, event, add_new_notification) => {
+    await handleNotification(db, event, add_new_notification);
+};
+
+
+
+export const handleSRVendorSelectedEvent = async (db, event, add_new_notification) => {
+    await handleNotification(db, event, add_new_notification);
+};
+
+export const handleSRApprovedEvent = async (db, event, add_new_notification) => {
     await handleNotification(db, event, add_new_notification);
 };

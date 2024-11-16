@@ -680,22 +680,32 @@
   "work_package": "Electrical Work"
  },
  {
-  "category_name": "Controllers",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/controller.jpg",
-  "modified": "2024-09-07 12:40:46.009771",
-  "name": "Controllers",
-  "tax": "18",
-  "work_package": "Access Control System"
- },
- {
   "category_name": "Reader",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/reader.jpg",
   "modified": "2024-09-07 12:41:02.774636",
   "name": "Reader",
+  "tax": "18",
+  "work_package": "Access Control System"
+ },
+ {
+  "category_name": "UPS Batteries",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-11-13 20:13:57.045725",
+  "name": "UPS Batteries",
+  "tax": "28",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Controllers",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.cloud.google.com/nirmaan-public-bucket1/cropped access/controller.jpg",
+  "modified": "2024-09-07 12:40:46.009771",
+  "name": "Controllers",
   "tax": "18",
   "work_package": "Access Control System"
  }

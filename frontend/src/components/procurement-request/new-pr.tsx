@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle } from "../ui/card";
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import { CheckCheck, ListChecks, MessageCircleMore, PackagePlus, Replace, Settings2, Trash2, Undo } from "lucide-react";
+import { CheckCheck, ListChecks, MessageCircleMore, MessageCircleWarning, PackagePlus, Replace, Settings2, Trash2, Undo } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { ArrowLeft } from 'lucide-react';
@@ -21,6 +21,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card"
 import { formatDate } from "@/utils/FormatDate";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { TailSpin } from "react-loader-spinner";
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 
 const NewPR = () => {
 
@@ -40,13 +41,16 @@ interface NewPRPageProps {
     project?: ProjectsType | undefined
     rejected_pr_data?: any
     setSection?: any
+    section?: string | undefined
 }
 
-export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, setSection }: NewPRPageProps) => {
+export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, setSection, section }: NewPRPageProps) => {
 
     const navigate = useNavigate();
     const userData = useUserData()
     const { toast } = useToast()
+
+    console.log("section", section)
 
     const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["*"],
@@ -114,7 +118,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         filters: [["reference_name", "=", rejected_pr_data?.name]],
         orderBy: { field: "creation", order: "desc" }
     },
-        rejected_pr_data ? ("Comment,filters(reference_name=" + rejected_pr_data.name + ")") : null
+        rejected_pr_data ? undefined : null
     )
 
     const { data: wp_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Procurement Packages",
@@ -123,12 +127,14 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
             orderBy: { field: 'work_package_name', order: 'asc' },
             limit: 100
         });
+        
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package', 'image_url', 'tax'],
             orderBy: { field: 'category_name', order: 'asc' },
             limit: 1000
         });
+        
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
@@ -137,7 +143,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         });
 
     const { createDoc: createDoc, loading: createLoading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    const { updateDoc, error: update_error } = useFrappeUpdateDoc()
+    const { updateDoc, loading: updateLoading ,error: update_error } = useFrappeUpdateDoc()
 
     useEffect(() => {
         const newCategories = [];
@@ -348,33 +354,76 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 await createDoc("Nirmaan Comments", {
                     comment_type: "Comment",
                     reference_doctype: "Procurement Requests",
-                    reference_name: orderData.name,
+                    reference_name: orderData?.name,
                     comment_by: userData?.user_id,
                     content: universalComment,
-                    subject: "resolving pr"
+                    subject: section === "edit-pr" ? "editing pr" : "resolving pr"
                 })
             }
             // console.log("newPR", res)
             await mutate("Procurement Requests,orderBy(creation-desc)")
             await mutate("Procurement Orders")
-            await mutate(`Procurement Requests ${orderData.name}`)
+            await mutate(`Procurement Requests ${orderData?.name}`)
+            await mutate(`Nirmaan Comments ${orderData?.name}`)
 
             document.getElementById("dialogCloseforNewPR")?.click()
             toast({
                 title: "Success!",
-                description: `PR: ${orderData?.name} Resolved successfully and Sent for Approval!`,
+                description: `PR: ${orderData?.name} ${section === "edit-pr" ? "Updated" : "Resolved"} successfully and Sent for Approval!`,
                 variant: "success"
             })
             setSection("pr-summary")
         } catch (error) {
-            console.log("Error while resolving Rejected PR", error, update_error)
+            console.log(`Error while ${section === "edit-pr" ? "updating Draft PR" : "resolving Rejected PR"}`, error, update_error)
             toast({
                 title: "Failed!",
-                description: `Resolving PR: ${orderData.name} Failed!`,
+                description: `${section === "edit-pr" ? "Updating" : "Resolving"} PR: ${orderData.name} Failed!`,
                 variant: "destructive"
             })
         }
     }
+
+    // const handleEditPR = async () => {
+    //     try {
+    //         const res = await updateDoc("Procurement Requests", orderData.name, {
+    //             category_list: orderData.category_list,
+    //             procurement_list: orderData.procurement_list,
+    //             workflow_state: "Pending"
+    //         })
+
+    //         if (universalComment) {
+    //             await createDoc("Nirmaan Comments", {
+    //                 comment_type: "Comment",
+    //                 reference_doctype: "Procurement Requests",
+    //                 reference_name: orderData.name,
+    //                 comment_by: userData?.user_id,
+    //                 content: universalComment,
+    //                 subject: "resolving pr"
+    //             })
+    //         }
+    //         // console.log("newPR", res)
+    //         await mutate("Procurement Requests,orderBy(creation-desc)")
+    //         await mutate("Procurement Orders")
+    //         await mutate(`Procurement Requests ${orderData.name}`)
+
+    //         document.getElementById("dialogCloseforNewPR")?.click()
+    //         toast({
+    //             title: "Success!",
+    //             description: `PR: ${orderData?.name} Resolved successfully and Sent for Approval!`,
+    //             variant: "success"
+    //         })
+    //         setSection("pr-summary")
+    //     } catch (error) {
+    //         console.log("Error while resolving Rejected PR", error, update_error)
+    //         toast({
+    //             title: "Failed!",
+    //             description: `Resolving PR: ${orderData.name} Failed!`,
+    //             variant: "destructive"
+    //         })
+    //     }
+    // }
+
+
     const handleAddItem = () => {
         const itemData = {
             category: curCategory,
@@ -458,11 +507,38 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         setStack([...stack]);
     };
 
+    const handleCancelDraft = async () => {
+        try {
+            await updateDoc("Procurement Requests", orderData?.name, {
+                workflow_state : "Pending"
+            })
+
+            await mutate(`Procurement Requests ${orderData?.name}`)
+
+            setSection("pr-summary")
+
+            toast({
+                title: "Success!",
+                description: `PR: ${pr_data?.name} Draft Cancelled!`,
+                variant: "success"
+            })
+
+        } catch (error) {
+            console.log("error while cancelling pr draft", error)
+            toast({
+                title: "Failed!",
+                description: `PR: ${pr_data?.name} Draft Cancellation failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
     // console.log("userData", userData)
 
     return (
         <>
-            {(page == 'wplist' && !rejected_pr_data) && <div className="flex-1 md:space-y-4">
+            {(page == 'wplist' && !rejected_pr_data) && 
+            <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                     <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
@@ -545,12 +621,24 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     }
                     {
                         rejected_pr_data ? (
-                            <h2 className="text-2xl max-md:text-xl font-semibold flex items-center gap-1"> Resolve PR: <span className="text-primary">{rejected_pr_data.name}</span></h2>
+                            <div className="flex items-center justify-between w-full">
+                                <h2 className="text-2xl max-md:text-xl font-semibold flex items-center gap-1">{section === "edit-pr" ? "Edit PR:" : "Resolve PR:"} <span className="text-primary">{rejected_pr_data.name}</span></h2>
+                                <Button disabled={updateLoading} onClick={handleCancelDraft}>{updateLoading ? <TailSpin width={20} height={16} color="white" /> : "Cancel Draft"}</Button>
+                            </div>
                         ) : (
                             <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
                         )
                     }
                 </div>
+
+                {section === "edit-pr" && (
+                            <div>
+                                <Alert variant="warning" className="">
+                                    <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
+                                    <AlertDescription className="py-2 px-4">This PR is now marked as "Draft", please either cancel or update!</AlertDescription>
+                                </Alert>
+                            </div>
+                    )}
                 <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40">
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
@@ -576,11 +664,11 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         <ReactSelect value={{ value: curItem, label: `${curItem}${make ? "-" + make : ""}` }} options={item_options} onChange={handleChange} />
                     </div>
                     <div className="flex-1">
-                        <h5 className="text-xs text-gray-400">UOM</h5>
+                        <h5 className="text-xs text-gray-400">UOM<sup className="text-xs text-sm text-red-600">*</sup></h5>
                         <input className="h-[37px] w-[60%] border p-2 rounded-lg" disabled={true} type="text" placeholder={unit || "Unit"} value={unit} />
                     </div>
                     <div className="flex-1">
-                        <h5 className="text-xs text-gray-400">Qty</h5>
+                        <h5 className="text-xs text-gray-400">Qty<sup className="text-xs text-sm text-red-600">*</sup></h5>
                         <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value === "" ? null : parseInt(e.target.value))} value={quantity} type="number" />
                     </div>
                 </div>
@@ -711,7 +799,29 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         <div className="py-4 w-full flex flex-col gap-2">
                             {/* <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
                             <span className="relative left-[15%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span> */}
-                            {
+                            { section === "edit-pr" ? (
+                                universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && comment.subject === "creating pr")).map((cmt) => (
+                                    <>
+                                        <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                                            <Avatar>
+                                                <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
+                                                <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
+                                            </Avatar>
+                                            <div className="flex-1">
+                                                <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
+                                                <div className="flex justify-between items-center mt-2">
+                                                    <p className="text-sm text-gray-500">
+                                                        {cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}
+                                                    </p>
+                                                    <p className="text-xs text-gray-400">
+                                                        {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </>
+                                ))
+                            ) : (
                                 universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && comment.subject === "rejecting pr")).map((cmt) => (
                                     <>
                                         <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
@@ -731,35 +841,22 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                 </div>
                                             </div>
                                         </div>
-                                        {/* <div className="flex flex-col px-3 py-1 shadow-sm rounded-lg">
-                                        <p className="font-semibold text-[15px] mb-1">{cmt.content}</p>
-                                        <div className="flex justify-between items-center text-sm text-gray-600 italic">
-                                                {cmt.comment_by === "Administrator" ? (
-                                                  <span>- Administrator</span>
-                                                ) : (
-                                                  <span>- {getFullName(cmt.comment_by)}</span>
-                                                )}
-
-                                                <span className="text-xs text-gray-500">
-                                                  {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
-                                                </span>
-                                        </div>
-                                    </div> */}
                                     </>
-                                ))}
+                                ))
+                            )}
                         </div>
                     )}
-                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder={`${rejected_pr_data ? "Write Resolving Comments here..." : "Write comments here..."}`} value={universalComment || ""} onChange={(e) => handleCommentChange(e)} />
+                    <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder={`${rejected_pr_data ? (section === "edit-pr" ? "Write Editing Comments here..." : "Write Resolving Comments here...") : "Write comments here..."}`} value={universalComment || ""} onChange={(e) => handleCommentChange(e)} />
                 </Card>
                 <Dialog>
                     <DialogTrigger asChild>
-                        <Button disabled={!orderData.procurement_list.list.length ? true : false} variant={`${!orderData.procurement_list.list.length ? "secondary" : "destructive"}`} className="h-8 mt-4 w-full">{!rejected_pr_data ? (<div className="flex items-center gap-1"><ListChecks className="h-4 w-4" />Submit</div>) : (<div className="flex items-center gap-1"><Settings2 className="h-4 w-4" />Resolve PR</div>)}</Button>
+                        <Button disabled={!orderData.procurement_list.list.length ? true : false} variant={`${!orderData.procurement_list.list.length ? "secondary" : "destructive"}`} className="h-8 mt-4 w-full">{!rejected_pr_data ? (<div className="flex items-center gap-1"><ListChecks className="h-4 w-4" />Submit</div>) : section === "edit-pr" ? (<div className="flex items-center gap-1"><ListChecks className="h-4 w-4" />Update PR</div>) : (<div className="flex items-center gap-1"><Settings2 className="h-4 w-4" />Resolve PR</div>)}</Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
                             <DialogTitle>Are you Sure?</DialogTitle>
                             <DialogDescription>
-                                {!rejected_pr_data ? "If there is any pending PR created by you with the same Project & Package, then the older PRs will be merged with this PR. Are you sure you want to continue?" : "Click on Confirm to resolve and send the PR for Approval"}
+                                {!rejected_pr_data ? "If there is any pending PR created by you with the same Project & Package, then the older PRs will be merged with this PR. Are you sure you want to continue?" : (section === "edit-pr" ? "Click on Confirm to update and send the PR for Approval" : "Click on Confirm to resolve and send the PR for Approval")}
                             </DialogDescription>
                         </DialogHeader>
                         <DialogDescription className="flex justify-center">
@@ -769,7 +866,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm</Button>
                             ) : (
-                                createLoading ? <TailSpin width={60} color={"red"}  /> :
+                                    (createLoading || updateLoading) ? <TailSpin width={60} color={"red"}  /> :
                                 <Button onClick={handleResolvePR} className="flex items-center gap-1">
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm</Button>
@@ -800,7 +897,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                             </div>
                         </button>
                     </div>
-                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
+                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="pl-1 text-sm text-red-600">*</sup></label>
                     <Input
                         type="text"
                         id="itemName"
@@ -808,7 +905,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         onChange={(e) => setCurItem(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
-                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(N/A)</label>
+                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700 mt-2">Make Name(N/A)</label>
                     <Input
                         type="text"
                         id="makeName"
@@ -820,7 +917,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     />
                 </div>
                 <div className="mb-4">
-                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
+                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="pl-1 text-sm text-red-600">*</sup></label>
                     <Select onValueChange={(value) => setUnit(value)}>
                         <SelectTrigger className="w-[180px]">
                             <SelectValue className="text-gray-200" placeholder="Select Unit" />

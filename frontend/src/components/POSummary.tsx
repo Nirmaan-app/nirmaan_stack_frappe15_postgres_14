@@ -64,6 +64,8 @@ interface POSummaryPageProps {
 
 const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
 
+  console.log("po_data", po_data)
+
   const itemsOrderList = JSON.parse(po_data?.order_list)?.list;
   const navigate = useNavigate();
 
@@ -93,7 +95,7 @@ const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
     fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
   }));
 
-  console.log("po_data", itemsOrderList)
+  // console.log("po_data", itemsOrderList)
 
   return (
     <div className="flex flex-col gap-4">
@@ -155,12 +157,24 @@ const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
           <CardContent>
             <div className="space-y-2">
               <div className="flex justify-between">
-                <span>Total (without GST):</span>
+                <span>Total (Excl. GST):</span>
                 <span className="font-semibold">{formatToIndianRupee(overallTotal.withoutGst)}</span>
               </div>
+              {parseFloat(po_data?.loading_charges) > 0 && (
+                  <div className="flex justify-between">
+                    <span>Loading Charges (Inc. GST):</span>
+                    <span className="font-semibold">{formatToIndianRupee(po_data?.loading_charges * 1.18)}</span>
+                  </div>
+              )}
+              {parseFloat(po_data?.freight_charges) > 0 && (
+                  <div className="flex justify-between">
+                    <span>Freight Charges (Inc. GST):</span>
+                    <span className="font-semibold">{formatToIndianRupee(po_data?.freight_charges * 1.18)}</span>
+                  </div>
+              )}
               <div className="flex justify-between">
-                <span>Total (with GST):</span>
-                <span className="font-semibold">{formatToIndianRupee(overallTotal.withGst)}</span>
+                <span>Total (Incl. GST):</span>
+                <span className="font-semibold">{formatToIndianRupee(overallTotal.withGst + po_data?.loading_charges * 1.18 + po_data?.freight_charges * 1.18)}</span>
               </div>
             </div>
           </CardContent>
@@ -192,7 +206,7 @@ const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
                       <TableHead className="w-[30%] text-red-700 font-extrabold">{categoryName}</TableHead>
                       <TableHead className="w-[15%]">Qty</TableHead>
                       <TableHead className="w-[15%]">UOM</TableHead>
-                      <TableHead className="w-[15%]">Amount</TableHead>
+                      <TableHead className="w-[15%]">Amount(Excl. GST)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -201,7 +215,7 @@ const POSummaryPage = ({ po_data, vendorAddress }: POSummaryPageProps) => {
                         <TableCell>{item.item}</TableCell>
                         <TableCell>{item.quantity}</TableCell>
                         <TableCell>{item.unit}</TableCell>
-                        <TableCell>{formatToIndianRupee((item.quantity * item.quote) + (item.quantity * item.quote * (item.tax / 100)))}</TableCell>
+                        <TableCell>{formatToIndianRupee((item.quantity * item.quote))}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
