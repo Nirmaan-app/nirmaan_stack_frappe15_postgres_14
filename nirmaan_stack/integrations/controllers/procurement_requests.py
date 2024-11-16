@@ -297,6 +297,10 @@ def on_trash(doc, method):
     frappe.db.delete("Nirmaan Comments", {
         "reference_name" : ("=", doc.name)
     })
+    frappe.db.delete("Cateory BOQ Attachments", {
+        "procurement_request" : ("=", doc.name)
+    })
+    
     print(f"flagged for delete pr document: {doc} {doc.modified_by} {doc.owner}")
     notifications = frappe.db.get_all("Nirmaan Notifications", 
                                       filters={"docname": doc.name},

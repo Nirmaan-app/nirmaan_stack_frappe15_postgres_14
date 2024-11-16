@@ -275,6 +275,10 @@ export const NavBar = () => {
         await handleSRApprovedEvent(db, event, add_new_notification);
     })
 
+    useFrappeEventListener("sr:delete", (event) => {
+        handlePRDeleteEvent(event, delete_notification);
+    });
+
     // useFrappeEventListener("pr:statusChanged", async (event) => { // not working
     //     await handlePRStatusChangedEvent(role, user_id);
     // });
