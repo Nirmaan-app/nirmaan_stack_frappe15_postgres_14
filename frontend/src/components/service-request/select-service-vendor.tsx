@@ -87,7 +87,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     const [vendorOptions, setVendorOptions] = useState<{ label: string; value: string }[]>([]);
     const [selectedVendor, setSelectedvendor] = useState()
     const [amounts, setAmounts] = useState<{ [key: string]: string }>({}); // New state for amounts
-    const [order, setOrder] = useState(JSON.parse(sr_data?.service_order_list).list);
+    const [order, setOrder] = useState(sr_data && JSON.parse(sr_data?.service_order_list)?.list);
     const [isNextEnabled, setIsNextEnabled] = useState(false);
     const [expandedRowKeys, setExpandedRowKeys] = useState([]);
 
@@ -379,7 +379,12 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                 description: `SR: ${sr_data?.name} successfully resolved and sent for approval`,
                 variant: "success",
             });
-            setPage("Summary")
+
+            if(resolve) {
+                setPage("Summary")
+            } else {
+                navigate("/select-service-vendor");
+            }
 
         } catch (error) {
             toast({
