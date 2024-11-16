@@ -14,6 +14,7 @@ import { Button, Layout } from 'antd';
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { toast } from "../ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
+import {Button as ShadButton} from "../ui/button"
 
 const { Sider, Content } = Layout;
 
@@ -152,10 +153,10 @@ export const ApprovedSR = () => {
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                     <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
                 </div>
-                <Button className='flex items-center gap-2' onClick={handlePrint}>
+                <ShadButton className='flex items-center gap-2' onClick={handlePrint}>
                     <Printer className='h-4 w-4' />
                     Print
-                </Button>
+                </ShadButton>
             </div>
             <Layout>
                 <Sider theme='light' collapsedWidth={0} width={400} trigger={null} collapsible collapsed={collapsed}>
@@ -280,8 +281,8 @@ export const ApprovedSR = () => {
                                     <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th>
                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Description</th>
                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
-                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
-                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
+                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
+                                    <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                 </tr>
@@ -289,14 +290,14 @@ export const ApprovedSR = () => {
                             <tbody className={`bg-white`}>
                                 {orderData && JSON.parse(orderData?.service_order_list)?.list?.map((item, index) => (
                                     <tr key={item.id} className={`${index === (orderData && JSON.parse(orderData?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
-                                        <td className="py-2 text-sm whitespace-nowrap w-[5%]">{index + 1}.</td>
-                                        <td className="py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.category}</td>
+                                        <td className="py-2 text-sm whitespace-nowrap">{index + 1}.</td>
+                                        <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
-                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
-                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate)}</td>
-                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">18%</td>
-                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate * item.quantity)}</td>
+                                        <td className=" py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
+                                        <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate * item.quantity)}</td>
                                     </tr>
                                 ))}
                                 {/* {[...Array(20)].map((_, index) => (

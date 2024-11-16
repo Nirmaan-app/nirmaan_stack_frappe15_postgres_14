@@ -19,6 +19,7 @@ import type { TableColumnsType, TableProps } from 'antd';
 import { toast } from '../ui/use-toast';
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
+import { TailSpin } from 'react-loader-spinner';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -142,7 +143,7 @@ export const SentBackSelectVendor = () => {
             fields: ['item_id', 'quote'],
             limit: 2000
         });
-    const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+    const { updateDoc: updateDoc, loading: update_loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
 
     const [page, setPage] = useState<string>('updatequotation')
     const [orderData, setOrderData] = useState({
@@ -301,7 +302,6 @@ export const SentBackSelectVendor = () => {
     };
 
     const handleSubmit = () => {
-        // console.log("submit orderData", orderData)
         quotation_request_list?.map((item) => {
             if (selectedVendors[item.item] === item.vendor && orderData?.procurement_request === item.procurement_task) {
                 updateDoc('Quotation Requests', item.name, {
@@ -319,8 +319,6 @@ export const SentBackSelectVendor = () => {
             item_list: orderData.item_list,
         })
             .then(() => {
-                console.log("item", id)
-
                 toast({
                     title: "Success!",
                     description: `Sent Back: ${id} sent for Approval!`,
@@ -330,10 +328,10 @@ export const SentBackSelectVendor = () => {
             }).catch((error) => {
                 toast({
                     title: "Failed!",
-                    description: `Failed to send Sent Back: ${id} for Approval`,
+                    description: `Failed to send Sent Back: ${id} for Approval.`,
                     variant: "destructive"
                 })
-                console.log("submit_error", submit_error)
+                console.log("submit_error", submit_error, error)
             })
     }
 
@@ -392,7 +390,7 @@ export const SentBackSelectVendor = () => {
     //     return procurement_request_list?.find(item => item.name === name)?.work_package;
     // }
 
-    console.log('quotationrequestlist', quotation_request_list)
+    // console.log('quotationrequestlist', quotation_request_list)
 
     const getLeadTime = (vendor: string, category: string) => {
         const item = filtered_quotation_data?.find(item => item.vendor === vendor && item.category === category)
@@ -465,7 +463,6 @@ export const SentBackSelectVendor = () => {
         })
         return total
     }
-    let count: number = 0;
 
     return (
         <>
@@ -741,27 +738,22 @@ export const SentBackSelectVendor = () => {
                                 <DialogHeader>
                                     <DialogTitle>Have you cross-checked your quote selections?</DialogTitle>
                                     <DialogDescription>
-                                        {/* {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
-                                            <span>You can click on confirm to send it for approval</span>
-                                            :
-                                            <span>No item status should be delayed. Go Back and rectify delayed Items with quotes</span>
-                                        } */}
                                         <span>You can click on confirm to send it for approval</span>
                                     </DialogDescription>
                                 </DialogHeader>
                                 <DialogDescription className='flex items-center justify-center gap-2'>
-                                    <Button variant={"secondary"} onClick={() => setPage("updatequotation")} className="flex items-center gap-1">
-                                        <Undo2 className="h-4 w-4" />
-                                        Go Back</Button>
-                                    {/* {console.log("filter:", orderData.item_list?.list.filter((item) => item.vendor === undefined).length)} */}
-                                    {/* {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
-                                        <Button onClick={() => handleSubmit()}>Confirm</Button>
-                                        :
-                                        <Button variant="secondary" disabled={true}>Confirm</Button>
-                                    } */}
-                                    <Button onClick={() => handleSubmit()} className="flex items-center gap-1">
-                                        <CheckCheck className="h-4 w-4" />
-                                        Confirm</Button>
+                                    {update_loading ? (<TailSpin width={80} color='red' />) : (
+                                        <>
+                                        <Button variant={"secondary"} onClick={() => setPage("updatequotation")} className="flex items-center gap-1">
+                                            <Undo2 className="h-4 w-4" />
+                                            Go Back
+                                        </Button>
+                                        <Button onClick={() => handleSubmit()} className="flex items-center gap-1">
+                                            <CheckCheck className="h-4 w-4" />
+                                            Confirm
+                                        </Button>
+                                    </>
+                                    )}
                                 </DialogDescription>
                             </DialogContent>
                         </Dialog>

@@ -173,7 +173,6 @@ interface ApproveSentBackPageProps {
 const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
     // const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
-    const [clicked, setClicked] = useState(false)
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
@@ -340,7 +339,6 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
     const userData = useUserData()
 
     const newHandleApprove = async () => {
-        setClicked(true)
         try {
             setIsLoading('newHandleApprove');
             const filteredData = selectedItems?.filter(item => {
@@ -453,6 +451,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             if (filteredList.length === 0) {
                 navigate("/approve-sent-back")
             }
+
+            document.getElementById("ApproveAlertClose")?.click()
         } catch (error) {
             console.log("error in newHandleApprove", error)
             toast({
@@ -462,13 +462,11 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             });
         } finally {
             setIsLoading(null);
-            setClicked(false)
         }
 
     }
 
     const newHandleSentBack = async () => {
-        setClicked(true)
         try {
             setIsLoading('newHandleSentBack');
             const filteredData = selectedItems?.filter(item => {
@@ -580,6 +578,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             if (filteredList.length === 0) {
                 navigate("/approve-sent-back")
             }
+
+            document.getElementById("SendBackAlertClose")?.click()
         } catch (error) {
             console.log("error in newHandleSentBack", error)
             toast({
@@ -590,7 +590,6 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
         } finally {
             setComment('');
             setIsLoading(null);
-            setClicked(false)
         }
     }
 
@@ -642,7 +641,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             <div className="flex" >
                 <div className="flex-1 md:space-y-4">
                     <div className="flex items-center pt-1 pb-4">
-                        <ArrowLeft onClick={() => { navigate('/approve-sent-back') }} />
+                        <ArrowLeft className='cursor-pointer' onClick={() => { navigate('/approve-sent-back') }} />
                         <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">{orderData?.type} SB-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
                     <Card className="flex flex-wrap lg:grid lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
@@ -666,150 +665,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Procurement by</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-
-                        {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR Number</p>
-                                <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
                     </Card>
-                    {/* <div className="w-full">
-                        <div className="font-bold text-xl py-2">{orderData?.category}</div>
-                        <Card className="flex w-1/2 shadow-none border border-grey-500" >
-                            <CardHeader className="w-full">
-                                <CardTitle>
-                                    
-                                    <div className="flex justify-between border-b">
-                                        <div className="font-bold text-lg py-2 border-gray-200">Total</div>
-                                        <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
-                                    </div>
-                                </CardTitle>
-                                {orderData.item_list?.list.map((item) => {
-                                    const price = item.quote;
-                                    if (count === 2) { return }
-                                    count++;
-                                    return <div className="flex justify-between py-2">
-                                        <div className="text-sm">{item.item}</div>
-                                        <div className="text-sm">{price * item.quantity}</div>
-                                    </div>
-
-                                })}
-                                <Dialog>
-                                    <DialogTrigger asChild>
-                                        <div className="text-sm text-blue-500 cursor-pointer">View All</div>
-                                    </DialogTrigger>
-                                    <DialogContent className="sm:max-w-[425px] md:max-w-[725px]">
-                                        <DialogHeader>
-                                            <DialogTitle>Items List</DialogTitle>
-                                            <DialogDescription>
-                                                <div className="grid grid-cols-10 font-medium text-black justify-between">
-                                                    <div className="text-sm col-span-2 border p-2">Items</div>
-                                                    <div className="text-sm border p-2">Unit</div>
-                                                    <div className="text-sm border p-2">Qty</div>
-                                                    <div className="text-sm border p-2">Rate</div>
-                                                    <div className="text-sm border p-2">Amount</div>
-                                                    <div className="text-sm col-span-2 border p-2">Selected Vendor</div>
-                                                    <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
-                                                </div>
-                                                {orderData.item_list?.list.map((item) => {
-                                                    const price = item.quote;
-                                                    const quotesForItem = quote_data
-                                                        ?.filter(value => value.item_id === item.name && value.quote != null)
-                                                        ?.map(value => value.quote);
-                                                    let minQuote;
-                                                    if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-
-                                                    return <div className="grid grid-cols-10">
-                                                        <div className="text-sm col-span-2 border p-2">{item.item}</div>
-                                                        <div className="text-sm border p-2">{item.unit}</div>
-                                                        <div className="text-sm border p-2">{item.quantity}</div>
-                                                        <div className="text-sm border p-2">{price}</div>
-                                                        <div className="text-sm border p-2">{price * item.quantity}</div>
-                                                        <div className="text-sm col-span-2 border p-2">{getVendorName(item.vendor)}</div>
-                                                        <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
-                                                    </div>
-
-                                                })}
-                                            </DialogDescription>
-                                        </DialogHeader>
-                                    </DialogContent>
-                                </Dialog>
-                            </CardHeader>
-                        </Card>
-                        <div className="py-4 flex justify-between">
-                            <Sheet>
-                                <SheetTrigger className="border border-red-500 text-red-500 bg-white font-normal px-4 py-1 rounded-lg">Add Comment and Send Back</SheetTrigger>
-                                <SheetContent>
-                                    <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4">
-                                        <SheetHeader>
-                                            <SheetTitle>Enter Price</SheetTitle>
-                                            <SheetDescription>
-                                                Add Comments and Send Back
-                                                <div className="flex justify-between py-2">
-                                                    <div className="text-sm w-[45%]">Added Items</div>
-                                                    <div className="text-sm">Qty</div>
-                                                    <div className="text-sm">UOM</div>
-                                                    <div className="text-sm">Rate</div>
-                                                    <div className="text-sm w-[20%]">Last 3 months Lowest Rate</div>
-                                                </div>
-                                                <label className="text-black">
-                                                    <input
-                                                        className="botton-0 mr-2 w-4 h-4"
-                                                        type="checkbox"
-                                                        checked={selectAll}
-                                                        onChange={handleSelectAllChange}
-                                                    />
-                                                    Select All
-                                                </label>
-                                                {orderData.item_list?.list.map((item) => {
-                                                    const quotesForItem = quote_data
-                                                        ?.filter(value => value.item === item.name && value.quote != null)
-                                                        ?.map(value => value.quote);
-                                                    let minQuote;
-                                                    if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-
-                                                    return <div className="flex justify-between py-2">
-                                                        <div className="text-sm w-[45%] text-black font-semibold"><input className="botton-0 mr-2 w-4 h-4" type="checkbox" checked={selectedItem.list.some(selected => selected.name === item.name)} onChange={() => handleCheckboxChange(item.name)} />{item.item}</div>
-                                                        <div className="text-sm text-black font-semibold">{item.quantity}</div>
-                                                        <div className="text-sm text-black font-semibold">{item.unit}</div>
-                                                        <div className="text-sm text-black font-semibold">{item.quote}</div>
-                                                        <div className="text-sm text-black font-semibold w-[20%]">{minQuote ? minQuote : "N/A"}</div>
-                                                    </div>
-                                                })}
-
-                                                <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
-                                                <textarea
-                                                    id="textarea"
-                                                    className="w-full border rounded-lg p-2"
-                                                    value={comment}
-                                                    placeholder="Type your comments here"
-                                                    onChange={(e) => setComment(e.target.value)}
-                                                />
-                                                <div className="flex flex-col justify-end items-end pt-10 bottom-4 right-4">
-                                                    <SheetClose><Button onClick={() => handleSendBack(curCategory)}>Submit</Button></SheetClose>
-                                                </div>
-                                            </SheetDescription>
-                                        </SheetHeader>
-                                    </ScrollArea>
-                                </SheetContent>
-                            </Sheet>
-                            <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button>
-                                        Approve
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent className="sm:max-w-[425px]">
-                                    <DialogHeader>
-                                        <DialogTitle>Are you Sure</DialogTitle>
-                                        <DialogDescription>
-                                            Click on Confirm to Approve.
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    <Button variant="secondary" onClick={() => handleApprove(curCategory)}>Confirm</Button>
-                                </DialogContent>
-                            </Dialog>
-                        </div>
-                    </div> */}
                 </div>
             </div>
             <div className='overflow-x-auto pt-6'>
@@ -838,16 +694,11 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             {selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2 mt-2">
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" disabled={clicked}>
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
                             <SendToBack className='w-4 h-4' />
-                            {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
+                            Send Back
                         </Button>
                     </AlertDialogTrigger>
-                    {/* <AlertDialogTrigger asChild>
-                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer">
-                            {(isLoading && isLoading === "newHandleSentBack") ? "Sending Back..." : "Send Back"}
-                        </Button>
-                    </AlertDialogTrigger> */}
                     <AlertDialogContent className="sm:max-w-[425px]">
                         <AlertDialogHeader>
                             <AlertDialogTitle>Are you Sure</AlertDialogTitle>
@@ -863,32 +714,29 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                                 />
                             </AlertDialogDescription>
                         </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel className="flex items-center gap-1">
-                                <Undo2 className="h-4 w-4" />
-                                Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleSentBack()} className="flex items-center gap-1" disabled={clicked}>
-                                <CheckCheck className="h-4 w-4" />
-                                Confirm</AlertDialogAction>
-                        </AlertDialogFooter>
-                        {/* <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleSentBack()}>Send Back</AlertDialogAction>
-                        </AlertDialogFooter> */}
+                        {isLoading === "newHandleSentBack" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                            <AlertDialogFooter>
+                                <AlertDialogCancel className="flex items-center gap-1">
+                                    <Undo2 className="h-4 w-4" />
+                                    Cancel</AlertDialogCancel>
+                                <Button onClick={() => newHandleSentBack()} className="flex items-center gap-1">
+                                    <CheckCheck className="h-4 w-4" />
+                                    Confirm
+                                </Button>
+                            </AlertDialogFooter>
+                        )}
+                        <AlertDialogCancel id='SendBackAlertClose' className="hidden">
+                                Cancel
+                        </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
-                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center' disabled={clicked}>
+                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
                             <ListChecks className="h-4 w-4" />
-                            {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
+                            Approve
                         </Button>
                     </AlertDialogTrigger>
-                    {/* <AlertDialogTrigger asChild>
-                        <Button className='text-red-500 bg-white border border-red-500 hover:text-white cursor-pointer'>
-                            {(isLoading && isLoading === "newHandleApprove") ? "Approving..." : "Approve"}
-                        </Button>
-                    </AlertDialogTrigger> */}
                     <AlertDialogContent className="sm:max-w-[425px]">
                         <AlertDialogHeader>
                             <AlertDialogTitle>Are you Sure</AlertDialogTitle>
@@ -896,64 +744,22 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                                 Click on Confirm to Approve the Selected Items.
                             </AlertDialogDescription>
                         </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel className="flex items-center gap-1">
-                                <Undo2 className="h-4 w-4" />
-                                Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleApprove()} className="flex items-center gap-1" disabled={clicked}>
-                                <CheckCheck className="h-4 w-4" />
-                                Confirm</AlertDialogAction>
-                        </AlertDialogFooter>
-                        {/* <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => newHandleApprove()}>Approve</AlertDialogAction>
-                        </AlertDialogFooter> */}
+                        {isLoading === "newHandleApprove" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                            <AlertDialogFooter>
+                                <AlertDialogCancel className="flex items-center gap-1">
+                                    <Undo2 className="h-4 w-4" />
+                                    Cancel</AlertDialogCancel>
+                                <Button onClick={() => newHandleApprove()} className="flex items-center gap-1">
+                                    <CheckCheck className="h-4 w-4" />
+                                    Confirm
+                                </Button>
+                            </AlertDialogFooter>
+                        )}
+                        <AlertDialogCancel id='ApproveAlertClose' className="hidden">
+                                Cancel
+                        </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
-                {/* <Dialog>
-                    <DialogTrigger asChild>
-                        <Button className="text-red-500 bg-white border border-red-500 hover:text-white">
-                            Send Back
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                            <DialogTitle>Are you Sure</DialogTitle>
-                            <DialogDescription>
-                                Add Comments and Send Back the Selected Items.
-                                <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
-                                <textarea
-                                    id="textarea"
-                                    className="w-full border rounded-lg p-2"
-                                    value={comment}
-                                    placeholder="Type your comments here"
-                                    onChange={(e) => setComment(e.target.value)}
-                                />
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogClose>
-                            <Button className="text-white bg-red-500" onClick={() => newHandleSentBack()}>Send Back</Button>
-                        </DialogClose>
-                    </DialogContent>
-                </Dialog>
-                <Dialog>
-                    <DialogTrigger asChild>
-                        <Button>
-                            Approve
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                            <DialogTitle>Are you Sure</DialogTitle>
-                            <DialogDescription>
-                                Click on Confirm to Approve the Selected Items.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogClose>
-                            <Button className="text-white bg-red-500" onClick={() => newHandleApprove()}>Approve</Button>
-                        </DialogClose>
-                    </DialogContent>
-                </Dialog> */}
             </div>}
         </>
     )

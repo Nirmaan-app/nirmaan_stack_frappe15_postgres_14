@@ -43,7 +43,7 @@ const PRSummary = () => {
         limit: 1000,
         filters: [["reference_name", "=", id]],
         orderBy: { field: "creation", order: "desc" }
-    })
+    }, `Nirmaan Comments ${id}`)
 
     const { data: project_data, error: project_data_error, isLoading: project_data_loading } = useFrappeGetDoc<ProjectsType>("Projects", project);
 

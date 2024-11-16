@@ -5,12 +5,12 @@ import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpda
 import { formatDate } from "@/utils/FormatDate"
 import { useEffect, useMemo, useState } from "react"
 import { ConfigProvider, Table, TableColumnsType } from "antd"
-import { DataSourceItemType } from "antd/es/auto-complete"
 import formatToIndianRupee from "@/utils/FormatPrice"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog"
 import { Button } from "../ui/button"
 import { toast } from "../ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
+import { TailSpin } from "react-loader-spinner"
 
 export const ApproveServiceRequest = () => {
     const { id } = useParams<{ id: string }>()
@@ -154,6 +154,9 @@ export const ApproveServiceRequest = () => {
                 description: `SR: ${id} Approved successfully!`,
                 variant: "success",
             });
+
+            document.getElementById("ApproveSRAlertCancel")?.click()
+
             navigate("/approve-service-request");
 
         } catch (error) {
@@ -191,6 +194,9 @@ export const ApproveServiceRequest = () => {
                 description: `SR: ${id} Rejected successfully!`,
                 variant: "success",
             });
+
+            document.getElementById("RejectSRAlertCancel")?.click()
+
             navigate("/approve-service-request");
 
         } catch (error) {
@@ -317,7 +323,7 @@ export const ApproveServiceRequest = () => {
                     <AlertDialogTrigger asChild>
                         <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
                             <ListX className="h-4 w-4" />
-                            {(isLoading && isLoading === "rejectSR") ? "Rejecting..." : "Reject"}
+                            Reject
                         </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent className="sm:max-w-[425px]">
@@ -335,23 +341,28 @@ export const ApproveServiceRequest = () => {
                                 />
                             </AlertDialogDescription>
                         </AlertDialogHeader>
+                        {isLoading === "rejectSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                         <AlertDialogFooter>
                             <AlertDialogCancel className="flex items-center gap-1">
                                 <Undo2 className="h-4 w-4" />
                                 Cancel
                             </AlertDialogCancel>
-                            <AlertDialogAction onClick={handleReject} className="flex items-center gap-1">
+                            <Button onClick={handleReject} className="flex items-center gap-1">
                                 <CheckCheck className="h-4 w-4" />
                                 Confirm
-                            </AlertDialogAction>
+                            </Button>
                         </AlertDialogFooter>
+                        )}
+                        <AlertDialogCancel id='RejectSRAlertCancel' className="hidden">
+                                Cancel
+                        </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
                             <ListChecks className="h-4 w-4" />
-                            {(isLoading && isLoading === "approveSR") ? "Approving..." : "Approve"}
+                            Approve
                         </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent className="sm:max-w-[425px]">
@@ -361,14 +372,21 @@ export const ApproveServiceRequest = () => {
                                 Click on Confirm to Approve.
                             </AlertDialogDescription>
                         </AlertDialogHeader>
-                        <AlertDialogFooter>
+                        {isLoading === "approveSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                            <AlertDialogFooter>
                             <AlertDialogCancel className="flex items-center gap-1">
                                 <Undo2 className="h-4 w-4" />
-                                Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleApprove} className="flex items-center gap-1">
+                                Cancel
+                            </AlertDialogCancel>
+                            <Button onClick={handleApprove} className="flex items-center gap-1">
                                 <CheckCheck className="h-4 w-4" />
-                                Confirm</AlertDialogAction>
+                                Confirm
+                            </Button>
                         </AlertDialogFooter>
+                        )}
+                        <AlertDialogCancel id='ApproveSRAlertCancel' className="hidden">
+                                Cancel
+                        </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
             </div>

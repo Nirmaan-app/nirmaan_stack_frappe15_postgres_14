@@ -354,7 +354,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 await createDoc("Nirmaan Comments", {
                     comment_type: "Comment",
                     reference_doctype: "Procurement Requests",
-                    reference_name: orderData.name,
+                    reference_name: orderData?.name,
                     comment_by: userData?.user_id,
                     content: universalComment,
                     subject: section === "edit-pr" ? "editing pr" : "resolving pr"
@@ -363,7 +363,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
             // console.log("newPR", res)
             await mutate("Procurement Requests,orderBy(creation-desc)")
             await mutate("Procurement Orders")
-            await mutate(`Procurement Requests ${orderData.name}`)
+            await mutate(`Procurement Requests ${orderData?.name}`)
+            await mutate(`Nirmaan Comments ${orderData?.name}`)
 
             document.getElementById("dialogCloseforNewPR")?.click()
             toast({
@@ -663,11 +664,11 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         <ReactSelect value={{ value: curItem, label: `${curItem}${make ? "-" + make : ""}` }} options={item_options} onChange={handleChange} />
                     </div>
                     <div className="flex-1">
-                        <h5 className="text-xs text-gray-400">UOM</h5>
+                        <h5 className="text-xs text-gray-400">UOM<sup className="text-xs text-sm text-red-600">*</sup></h5>
                         <input className="h-[37px] w-[60%] border p-2 rounded-lg" disabled={true} type="text" placeholder={unit || "Unit"} value={unit} />
                     </div>
                     <div className="flex-1">
-                        <h5 className="text-xs text-gray-400">Qty</h5>
+                        <h5 className="text-xs text-gray-400">Qty<sup className="text-xs text-sm text-red-600">*</sup></h5>
                         <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value === "" ? null : parseInt(e.target.value))} value={quantity} type="number" />
                     </div>
                 </div>
@@ -896,7 +897,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                             </div>
                         </button>
                     </div>
-                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
+                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="pl-1 text-sm text-red-600">*</sup></label>
                     <Input
                         type="text"
                         id="itemName"
@@ -904,7 +905,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         onChange={(e) => setCurItem(e.target.value)}
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
-                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(N/A)</label>
+                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700 mt-2">Make Name(N/A)</label>
                     <Input
                         type="text"
                         id="makeName"
@@ -916,7 +917,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     />
                 </div>
                 <div className="mb-4">
-                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
+                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="pl-1 text-sm text-red-600">*</sup></label>
                     <Select onValueChange={(value) => setUnit(value)}>
                         <SelectTrigger className="w-[180px]">
                             <SelectValue className="text-gray-200" placeholder="Select Unit" />

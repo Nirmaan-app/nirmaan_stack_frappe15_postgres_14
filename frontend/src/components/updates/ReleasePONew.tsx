@@ -310,6 +310,9 @@ export const ReleasePONew = ({ not }) => {
                     subject: "creating sent-back(cancelled)"
                 })
             }
+
+            document.getElementById("CancelPOAlertCancel")?.click()
+            
             toast({
                 title: "Success!",
                 description: `Cancelled Po & New Sent Back: ${newSentBack.name} created successfully!`,
@@ -345,6 +348,8 @@ export const ReleasePONew = ({ not }) => {
                     subject: "updating po(amendment)"
                 })
             }
+
+            document.getElementById("AmendPOAlertCancel")?.click()
             toast({
                 title: "Success!",
                 description: `${orderId} amended and sent to Project Lead!`,
@@ -377,6 +382,9 @@ export const ReleasePONew = ({ not }) => {
                 })
             }
             await mutate()
+
+            document.getElementById("MarkDispatchedAlertClose")?.click()
+
             toast({
                 title: "Success!",
                 description: `PO: ${orderId} status updated to 'Dispatched' successfully!`,
@@ -407,9 +415,6 @@ export const ReleasePONew = ({ not }) => {
                     console.error(`Error while merging PO(s)`, error);
                     return { po, success: false }; // Deletion failed
                 }
-                finally {
-                    setClicked(false)
-                }
             })
         );
 
@@ -437,6 +442,7 @@ export const ReleasePONew = ({ not }) => {
             });
             setMergeablePOs([])
             await mutate();
+            document.getElementById("MergePOsAlertCancel")?.click()
         } catch (error) {
             console.log("Error while updating the PO's order list", error);
             toast({
@@ -444,6 +450,8 @@ export const ReleasePONew = ({ not }) => {
                 description: `Unable to Merge PO(s)`,
                 variant: "destructive",
             });
+        } finally {
+            setClicked(false)
         }
     };
 
@@ -459,6 +467,7 @@ export const ReleasePONew = ({ not }) => {
                 description: `PO: ${orderId} status updated to 'PO Sent' successfully!`,
                 variant: "success"
             })
+            document.getElementById("SendPODialogClose")?.click()
             navigate(-1)
         } catch (error) {
             console.log("error while updating the status of the PO to PO Sent", error)
@@ -606,7 +615,6 @@ export const ReleasePONew = ({ not }) => {
             </div>
         </div>
     );
-
 
     return (
         <div className='flex-1 md:space-y-4'>
@@ -876,14 +884,14 @@ export const ReleasePONew = ({ not }) => {
                                                                 Preview
                                                             </Button>
                                                             <AlertDialog>
-                                                                <AlertDialogTrigger>
-                                                                    <Button
+                                                                <AlertDialogTrigger disabled={!mergedItems.length}>
+                                                                    <ShadButton
                                                                         className='flex items-center gap-1'
-                                                                        disabled={!mergedItems.length || clicked}
+                                                                        disabled={!mergedItems.length}
                                                                     >
                                                                         <CheckCheck className="h-4 w-4" />
                                                                         Confirm
-                                                                    </Button>
+                                                                    </ShadButton>
                                                                 </AlertDialogTrigger>
                                                                 <AlertDialogContent>
                                                                     <AlertDialogHeader>
@@ -899,16 +907,21 @@ export const ReleasePONew = ({ not }) => {
                                                                         </ul>
                                                                         <p className='mt-2 font-semibold text-base'>Continue?</p>
                                                                     </AlertDialogDescription>
+                                                                {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                                                                     <AlertDialogDescription className='flex gap-2 items-center justify-center'>
                                                                         <AlertDialogCancel className="flex items-center gap-1" >
                                                                             <Undo2 className="h-4 w-4" />
-                                                                            Cancel </AlertDialogCancel>
-                                                                        <AlertDialogAction onClick={handleMergePOs} disabled={clicked}>
-                                                                            <ShadButton className='flex gap-1 items-center' >
+                                                                            Cancel 
+                                                                        </AlertDialogCancel>
+                                                                            <ShadButton onClick={handleMergePOs} className='flex gap-1 items-center' >
                                                                                 <CheckCheck className="h-4 w-4" />
-                                                                                Confirm </ShadButton>
-                                                                        </AlertDialogAction>
+                                                                                Confirm 
+                                                                            </ShadButton>
                                                                     </AlertDialogDescription>
+                                                                )}
+                                                                    <AlertDialogCancel className='hidden' id='MergePOsAlertCancel'>
+                                                                        Cancel
+                                                                    </AlertDialogCancel>
                                                                 </AlertDialogContent>
                                                             </AlertDialog>
                                                         </div>
@@ -1358,7 +1371,7 @@ export const ReleasePONew = ({ not }) => {
                                                 </ShadButton>
                                                 <Dialog>
                                                     <DialogTrigger asChild>
-                                                        <ShadButton variant="default" className="bg-yellow-500 hover:bg-yellow-600" disabled={clicked}>
+                                                        <ShadButton variant="default" className="bg-yellow-500 hover:bg-yellow-600">
                                                             <Send className='h-4 w-4 mr-2' />
                                                             Mark PO Sent
                                                         </ShadButton>
@@ -1370,16 +1383,23 @@ export const ReleasePONew = ({ not }) => {
                                                                 This action will set the status of this PO to "PO Sent". Are you sure you want to proceed?
                                                             </DialogDescription>
                                                         </DialogHeader>
+                                                    {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                                                         <DialogFooter>
-                                                            <ShadButton variant="outline">
-                                                                <Undo2 className="h-4 w-4 mr-2" />
-                                                                Cancel
-                                                            </ShadButton>
-                                                            <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600" disabled={clicked}>
+                                                            <DialogClose>
+                                                                <ShadButton variant="outline" className='flex items-center gap-1'>
+                                                                    <Undo2 className="h-4 w-4 mr-2" />
+                                                                    Cancel
+                                                                </ShadButton>
+                                                            </DialogClose>
+                                                            <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600">
                                                                 <CheckCheck className="h-4 w-4 mr-2" />
                                                                 Confirm
                                                             </ShadButton>
                                                         </DialogFooter>
+                                                    )}
+                                                        <DialogClose id='SendPODialogClose' className='hidden'>
+                                                            close
+                                                        </DialogClose>
                                                     </DialogContent>
                                                 </Dialog>
                                             </div>
@@ -1451,7 +1471,7 @@ export const ReleasePONew = ({ not }) => {
                                                     <div className='flex justify-end mt-4'>
                                                         <AlertDialog>
                                                             <AlertDialogTrigger asChild>
-                                                                <ShadButton className='bg-green-500 text-white hover:bg-green-600' disabled={clicked}>
+                                                                <ShadButton className='bg-green-500 text-white hover:bg-green-600'>
                                                                     <ListChecks className="h-4 w-4 mr-2" />
                                                                     Mark Dispatched
                                                                 </ShadButton>
@@ -1463,16 +1483,21 @@ export const ReleasePONew = ({ not }) => {
                                                                         This action will create a delivery note for the project manager on site. Are you sure you want to continue?
                                                                     </AlertDialogDescription>
                                                                 </AlertDialogHeader>
+                                                            {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                                                                 <AlertDialogFooter>
                                                                     <AlertDialogCancel className="flex items-center">
                                                                         <Undo2 className="h-4 w-4 mr-2" />
                                                                         Cancel
                                                                     </AlertDialogCancel>
-                                                                    <ShadButton onClick={handleDispatchPO} className='bg-green-500 text-white hover:bg-green-600' disabled={clicked}>
+                                                                    <ShadButton onClick={handleDispatchPO} className='bg-green-500 text-white hover:bg-green-600'>
                                                                         <CheckCheck className="h-4 w-4 mr-2" />
                                                                         Confirm
                                                                     </ShadButton>
                                                                 </AlertDialogFooter>
+                                                            )}
+                                                            <AlertDialogCancel className='hidden' id='MarkDispatchedAlertClose'>
+                                                                Cancl
+                                                            </AlertDialogCancel>
                                                             </AlertDialogContent>
                                                         </AlertDialog>
                                                     </div>
@@ -1687,18 +1712,21 @@ export const ReleasePONew = ({ not }) => {
                                                                                     <div className='flex flex-col gap-2 mt-2'>
                                                                                         <TextArea placeholder='input the reason for amending this PO...' value={comment} onChange={(e) => setComment(e.target.value)} />
                                                                                     </div>
+                                                                            {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                                                                                     <div className='flex gap-2 items-center justify-center pt-2'>
                                                                                         <AlertDialogCancel className="flex items-center gap-1">
                                                                                             <Undo2 className="h-4 w-4" />
-                                                                                            Cancel</AlertDialogCancel>
-                                                                                        <AlertDialogAction onClick={handleAmendPo} disabled={clicked}>
-                                                                                            <ShadButton className='flex items-center gap-1'>
-                                                                                                <CheckCheck className="h-4 w-4" />
-                                                                                                Confirm</ShadButton>
-                                                                                        </AlertDialogAction>
+                                                                                            Cancel
+                                                                                        </AlertDialogCancel>
+                                                                                        <ShadButton onClick={handleAmendPo} className='flex items-center gap-1'>
+                                                                                            <CheckCheck className="h-4 w-4" />
+                                                                                            Confirm
+                                                                                        </ShadButton>
                                                                                     </div>
+                                                                            )}
                                                                                 </AlertDialogDescription>
                                                                             </AlertDialogHeader>
+                                                                            <AlertDialogCancel className='hidden' id='AmendPOAlertCancel'>Close</AlertDialogCancel>
                                                                         </AlertDialogContent>
                                                                     </AlertDialog>
                                                                 }
@@ -1796,18 +1824,21 @@ export const ReleasePONew = ({ not }) => {
                                                                 <div className='flex flex-col gap-2 mt-2'>
                                                                     <TextArea placeholder='input the reason for cancelling...' value={comment} onChange={(e) => setComment(e.target.value)} />
                                                                 </div>
+                                                            {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                                                                 <div className='flex gap-2 items-center justify-center pt-2'>
                                                                     <AlertDialogCancel className="flex items-center gap-1">
                                                                         <Undo2 className="h-4 w-4" />
-                                                                        Cancel</AlertDialogCancel>
-                                                                    <AlertDialogAction onClick={handleCancelPo} disabled={clicked}>
-                                                                        <ShadButton className='flex items-center gap-1'>
-                                                                            <CheckCheck className="h-4 w-4" />
-                                                                            Confirm</ShadButton>
-                                                                    </AlertDialogAction>
+                                                                        Cancel
+                                                                    </AlertDialogCancel>
+                                                                    <ShadButton onClick={handleCancelPo} className='flex items-center gap-1'>
+                                                                        <CheckCheck className="h-4 w-4" />
+                                                                        Confirm
+                                                                    </ShadButton>
                                                                 </div>
+                                                            )}
                                                             </AlertDialogDescription>
                                                         </AlertDialogHeader>
+                                                        <AlertDialogCancel className='hidden' id='CancelPOAlertCancel'>Close</AlertDialogCancel>
                                                     </AlertDialogContent>
                                                 </AlertDialog>
                                             </div>

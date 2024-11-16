@@ -83,8 +83,7 @@ const getVendorFormSchema = (service: boolean) => {
       ? z.string()
       .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
         message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-    })
-      .optional()  // GST is optional when `service` is true
+    }).optional()
       : z.string()
           .min(1, { message: "Vendor GST Required" })
           .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
@@ -101,6 +100,8 @@ interface SelectOption {
 }
 
 export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined, prData = undefined, service = false }) => {
+
+    console.log("service", service)
 
     const navigate = useNavigate()
     const VendorFormSchema = getVendorFormSchema(service);
@@ -359,7 +360,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         name="vendor_gst"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">GST Number<sup className="text-sm text-red-600">*</sup></FormLabel>
+                                <FormLabel className="flex">GST Number{!service && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
                                 <FormControl>
                                     <Input placeholder="enter gst..." {...field} />
                                 </FormControl>

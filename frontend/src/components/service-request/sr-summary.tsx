@@ -403,7 +403,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Description</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
-                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
+                                                    <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                                 </tr>
@@ -411,14 +411,14 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                             <tbody className={`bg-white`}>
                                                 {sr_data && JSON.parse(sr_data?.service_order_list)?.list?.map((item, index) => (
                                                     <tr key={item.id} className={`${index === (sr_data && JSON.parse(sr_data?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
-                                                        <td className="py-2 text-sm whitespace-nowrap w-[5%]">{index + 1}.</td>
-                                                        <td className="py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.category}</td>
+                                                        <td className="py-2 text-sm whitespace-nowrap">{index + 1}.</td>
+                                                        <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate)}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">18%</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate * item.quantity)}</td>
+                                                        <td className="py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
+                                                        <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate * item.quantity)}</td>
                                                     </tr>
                                                 ))}
                                                 <tr className="">

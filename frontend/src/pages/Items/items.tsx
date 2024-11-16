@@ -172,12 +172,12 @@ export default function Items() {
         createDoc('Items', itemData)
             .then(() => {
                 console.log(itemData)
-                document.getElementById("dialogCloseItem")?.click()
                 toast({
                     title: "Success!",
                     description: `Item: ${curItem} created successfully!`,
                     variant: "success"
                 })
+                document.getElementById("dialogCloseItem")?.click()
                 setUnit('')
                 setCurItem('')
                 setCategory('')
@@ -215,18 +215,32 @@ export default function Items() {
                         <DialogHeader>
                             <DialogTitle className="mb-2">Add New Item</DialogTitle>
                             <div className="flex flex-col gap-4 ">
+                            <div className="flex flex-col items-start">
+                                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                                    <Select onValueChange={(value) => setCategory(value)}>
+                                        <SelectTrigger className="">
+                                            <SelectValue className="text-gray-200" placeholder="Select Category" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {category_list?.map((cat) => {
+                                                return <SelectItem value={cat.category_name}>{cat.category_name}-({cat.work_package})</SelectItem>
+                                            })}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                                 <div className="flex flex-col items-start">
-                                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name</label>
+                                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="pl-1 text-sm text-red-600">*</sup></label>
                                     <Input
                                         type="text"
                                         id="itemName"
+                                        placeholder="Enter name..."
                                         value={curItem}
                                         onChange={(e) => setCurItem(e.target.value)}
                                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                     />
                                 </div>
                                 <div className="flex flex-col items-start">
-                                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name</label>
+                                    <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(optional)</label>
                                     <Input
                                         type="text"
                                         id="makeName"
@@ -236,7 +250,7 @@ export default function Items() {
                                     />
                                 </div>
                                 <div className="flex flex-col items-start">
-                                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
+                                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="pl-1 text-sm text-red-600">*</sup></label>
                                     <Select onValueChange={(value) => setUnit(value)}>
                                         <SelectTrigger className="">
                                             <SelectValue className="text-gray-200" placeholder="Select Unit" />
@@ -258,22 +272,9 @@ export default function Items() {
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="flex flex-col items-start">
-                                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category</label>
-                                    <Select onValueChange={(value) => setCategory(value)}>
-                                        <SelectTrigger className="">
-                                            <SelectValue className="text-gray-200" placeholder="Select Category" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {category_list?.map((cat) => {
-                                                return <SelectItem value={cat.category_name}>{cat.category_name}-({cat.work_package})</SelectItem>
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
                             </div>
                         </DialogHeader>
-                        <Button onClick={() => handleAddItem()} className="flex items-center gap-1">
+                        <Button onClick={() => handleAddItem()} disabled={loading || !curItem || !unit || !category} className="flex items-center gap-1">
                             <ListChecks className="h-4 w-4" />
                             Submit</Button>
                         <DialogClose className="hidden" id="dialogCloseItem">

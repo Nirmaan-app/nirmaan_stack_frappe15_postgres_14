@@ -133,12 +133,6 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [actionType, setActionType] = useState<'approve' | 'revert'>('approve');
 
-    const [clicked, setClicked] = useState(false)
-
-    const extractOrderListFromVersions = () => {
-
-    }
-
     useEffect(() => {
         if (versionsData) {
             const orderChange = versionsData[0];
@@ -169,13 +163,12 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
 
     // console.log("comment", comment)
 
-    const { updateDoc } = useFrappeUpdateDoc()
-    const { createDoc } = useFrappeCreateDoc()
+    const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()
+    const { createDoc, loading: create_loading } = useFrappeCreateDoc()
 
     const { toast } = useToast();
 
     const handleAction = async () => {
-        setClicked(true)
         try {
             if (actionType === 'approve') {
                 await updateDoc("Procurement Orders", po_data.name, {
@@ -221,8 +214,6 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                 description: "An error occurred. Please try again.",
                 variant: "destructive"
             });
-        } finally {
-            setClicked(false)
         }
     };
 
@@ -349,7 +340,6 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                         setIsDialogOpen(true);
                     }}
                     className="flex items-center space-x-2"
-                    disabled={clicked}
                 >
                     <Undo2 className="mr-2" /> Revert to Original
                 </Button>
@@ -359,7 +349,6 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                         setIsDialogOpen(true);
                     }}
                     className="flex items-center space-x-2"
-                    disabled={clicked}
                 >
                     <CheckCheck className="mr-2" /> Approve Amendments
                 </Button>
@@ -378,17 +367,18 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                         onChange={(e) => setComment(e.target.value)}
                         placeholder="Add a comment (optional)"
                     />
-                    <div className="flex justify-end mt-4">
-                        <Button variant="outline" className="flex gap-1 items-center" onClick={() => setIsDialogOpen(false)}>
-                            <X className="h-4 w-4" />
-                            Cancel
-                        </Button>
+                    {(update_loading || create_loading) ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                        <div className="flex justify-end mt-4">
+                            <Button variant="outline" className="flex gap-1 items-center" onClick={() => setIsDialogOpen(false)}>
+                                <X className="h-4 w-4" />
+                                Cancel
+                            </Button>
 
-
-                        <Button onClick={handleAction} className="ml-2 flex gap-1 items-center" disabled={clicked}>
-                            {actionType === 'approve' ? (<div className="flex gap-1 items-center"><CheckCheck className="h-4 w-4" /> Approve</div>) : (<div className="flex gap-1 items-center"><Undo2 className="h-4 w-4" /> Revert</div>)}
-                        </Button>
-                    </div>
+                            <Button onClick={handleAction} className="ml-2 flex gap-1 items-center">
+                                {actionType === 'approve' ? (<div className="flex gap-1 items-center"><CheckCheck className="h-4 w-4" /> Approve</div>) : (<div className="flex gap-1 items-center"><Undo2 className="h-4 w-4" /> Revert</div>)}
+                            </Button>
+                        </div>
+                    )}
                 </DialogContent>
             </Dialog>
         </div>
