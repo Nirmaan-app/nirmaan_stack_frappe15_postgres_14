@@ -143,8 +143,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: usersList, isLoading: usersListLoading, mutate: usersListMutate } = useFrappeGetDocList("Nirmaan Users", {
     fields: ["*"],
     limit: 1000
-  },
-    "Nirmaan Users"
+  }
   )
 
   const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList("Procurement Requests", {
@@ -454,11 +453,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   };
 
   useEffect(() => {
-    if(pr_data) {
+    if (pr_data) {
       const statusCounts = { "New PR": 0, "Open PR": 0, "Approved PO": 0 };
       pr_data?.forEach((pr) => {
-        const status = statusRender(pr?.workflow_state ,pr?.name)
-          statusCounts[status] += 1
+        const status = statusRender(pr?.workflow_state, pr?.name)
+        statusCounts[status] += 1
 
       })
       setStatusCounts(statusCounts)
@@ -569,94 +568,94 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     let total: number = 0;
     const orderData = allServiceRequestsData?.find(item => item.name === order_id)?.service_order_list;
     orderData?.list.map((item) => {
-        const price = item.rate * item.quantity;
-        total += price ? parseFloat(price) : 0
+      const price = item.rate * item.quantity;
+      total += price ? parseFloat(price) : 0
     })
     return total;
-}
+  }
 
   const srSummaryColumns = useMemo(
     () => [
-        {
-            accessorKey: "name",
-            header: ({ column }) => {
-                return (
-                    <DataTableColumnHeader column={column} title="SR Number" />
-                )
-            },
-            cell: ({ row }) => {
-                const srId = row.getValue("name")
-                return (
-                      <div className="font-medium">
-                        {srId?.slice(-5)}
-                      </div>
-                )
-            }
+      {
+        accessorKey: "name",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="SR Number" />
+          )
         },
-        {
-            accessorKey: "creation",
-            header: ({ column }) => {
-                return (
-                    <DataTableColumnHeader column={column} title="Date" />
-                )
-            },
-            cell: ({ row }) => {
-                return (
-                    <div className="font-medium">
-                        {formatDate(row.getValue("creation")?.split(" ")[0])}
-                    </div>
-                )
-            }
-        },
-        {
-          accessorKey: "status",
-          header: ({ column }) => {
-              return (
-                  <DataTableColumnHeader column={column} title="Status" />
-              )
-          },
-          cell: ({ row }) => {
-              return (
-                  <div className="font-medium">
-                      {row.getValue("status")}
-                  </div>
-              )
-          }
-      },
-        {
-            accessorKey: "service_category_list",
-            header: ({ column }) => {
-                return (
-                    <DataTableColumnHeader column={column} title="Categories" />
-                )
-            },
-            cell: ({ row }) => {
-                return (
-                    <div className="flex flex-col gap-1 items-start justify-center">
-                        {row.getValue("service_category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
-                    </div>
-                )
-            }
-        },
-        {
-            id: "total",
-            header: ({ column }) => {
-                return (
-                    <DataTableColumnHeader column={column} title="Estimated Price" />
-                )
-            },
-            cell: ({ row }) => {
-                return (
-                    <div className="font-medium">
-                        {formatToIndianRupee(getSRTotal(row.getValue("name")))}
-                    </div>
-                )
-            }
+        cell: ({ row }) => {
+          const srId = row.getValue("name")
+          return (
+            <div className="font-medium">
+              {srId?.slice(-5)}
+            </div>
+          )
         }
+      },
+      {
+        accessorKey: "creation",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Date" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="font-medium">
+              {formatDate(row.getValue("creation")?.split(" ")[0])}
+            </div>
+          )
+        }
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Status" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="font-medium">
+              {row.getValue("status")}
+            </div>
+          )
+        }
+      },
+      {
+        accessorKey: "service_category_list",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Categories" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="flex flex-col gap-1 items-start justify-center">
+              {row.getValue("service_category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+            </div>
+          )
+        }
+      },
+      {
+        id: "total",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Estimated Price" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="font-medium">
+              {formatToIndianRupee(getSRTotal(row.getValue("name")))}
+            </div>
+          )
+        }
+      }
 
     ],
     [projectId, allServiceRequestsData]
-)
+  )
 
   const [current, setCurrent] = useState('overview')
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState({});
@@ -847,20 +846,20 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const [options, setOptions] = useState(null)
 
   useEffect(() => {
-    if(data) {
+    if (data) {
       const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
       const options = []
-      options.push({label : "All", value : "All"})
-       workPackages?.forEach((wp) => {
-        const option = {label : wp?.work_package_name, value : wp?.work_package_name}
+      options.push({ label: "All", value: "All" })
+      workPackages?.forEach((wp) => {
+        const option = { label: wp?.work_package_name, value: wp?.work_package_name }
         options?.push(option)
-       })
+      })
 
-       options?.push({label : "Tool & Equipments", value : "Tool & Equipments"})
-       options?.push({label : "Services", value : "Services"})
+      options?.push({ label: "Tool & Equipments", value: "Tool & Equipments" })
+      options?.push({ label: "Services", value: "Services" })
 
-       setOptions(options)
-       setSelectedPackage("All")
+      setOptions(options)
+      setSelectedPackage("All")
     }
   }, [data])
 
@@ -895,12 +894,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
         const estimateItem = servicesEstimates?.filter((i) => i?.category === category)
 
-        const estimate_total = estimateItem?.reduce((acc, i) =>  acc + (i?.quantity_estimate * i?.rate_estimate), 0)
+        const estimate_total = estimateItem?.reduce((acc, i) => acc + (i?.quantity_estimate * i?.rate_estimate), 0)
 
         if (existingCategory) {
           existingCategory[category].quantity += parseFloat(quantity);
           existingCategory[category].amount += amount;
-          existingCategory[category].children.push({...item, amount : amount})
+          existingCategory[category].children.push({ ...item, amount: amount })
         } else {
           result.push({
             [category]: {
@@ -908,7 +907,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               unit: uom,
               quantity: parseFloat(quantity),
               amount: amount,
-              children : [{...item, amount : amount}],
+              children: [{ ...item, amount: amount }],
               estimate_total: estimate_total
             }
           });
@@ -1254,44 +1253,44 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         current === "procurementSummary" && (
           <div>
             <Card className="flex border border-gray-100 rounded-lg p-4">
-                <CardContent className="w-full flex flex-row items-center justify-around">
-                  {/* <CardHeader className=" w-full"> */}
-                    {Object.entries(statusCounts)?.map(([status, count]) => (
-                      <div className="flex items-center gap-1 pt-3">
-                        <h3 className="font-semibold">{status}: </h3>
-                        <p className="italic">{count}</p>
-                      </div>
-                    ))}
-                  {/* </CardHeader> */}
-                </CardContent>
+              <CardContent className="w-full flex flex-row items-center justify-around">
+                {/* <CardHeader className=" w-full"> */}
+                {Object.entries(statusCounts)?.map(([status, count]) => (
+                  <div className="flex items-center gap-1 pt-3">
+                    <h3 className="font-semibold">{status}: </h3>
+                    <p className="italic">{count}</p>
+                  </div>
+                ))}
+                {/* </CardHeader> */}
+              </CardContent>
             </Card>
-          {prData_loading ? (<TableSkeleton />) :
-            <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} />
-          }
+            {prData_loading ? (<TableSkeleton />) :
+              <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} />
+            }
           </div>
         )
       }
 
       {current === "POSummary" && (
         <>
-        {
-          options && (
-            <Radio.Group
-            block
-            options={options}
-            defaultValue="All"
-            optionType="button"
-            buttonStyle="solid"
-            onChange={(e) => setSelectedPackage(e.target.value)}
-          />
-          )
-        }
+          {
+            options && (
+              <Radio.Group
+                block
+                options={options}
+                defaultValue="All"
+                optionType="button"
+                buttonStyle="solid"
+                onChange={(e) => setSelectedPackage(e.target.value)}
+              />
+            )
+          }
           {/* <div className="w-full flex flex-col gap-2">
             <div className="flex gap-2 items-center">
               <h2 className="font-semibold text-gray-500">Work Packages</h2>
               <ArrowDown className="w-4 h-4" />
             </div> */}
-            {/* {selectedPackage && (
+          {/* {selectedPackage && (
               <Select
                 value={selectedPackage}
                 onValueChange={(value) => setSelectedPackage(value)}
@@ -1315,45 +1314,45 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             )} */}
           {/* </div> */}
           {(selectedPackage && !["All", "Services"].includes(selectedPackage)) && (
-            <CategoryAccordion  categorizedData={categorizedData} selectedPackage={selectedPackage} projectEstimates={project_estimates?.filter((i) => i?.work_package === selectedPackage) || []} />
+            <CategoryAccordion categorizedData={categorizedData} selectedPackage={selectedPackage} projectEstimates={project_estimates?.filter((i) => i?.work_package === selectedPackage) || []} />
           )}
 
           {selectedPackage === "All" && (
             <>
-            <div>
-              <div className="flex gap-2 items-center">
-              <h2 className="font-semibold text-gray-500">Work Packages</h2>
-              <ArrowDown className="w-4 h-4" />
-            </div> 
-            {JSON.parse(data?.project_work_packages)?.work_packages?.map((wp) => (
-              <div key={wp?.work_package_name}>
-                <h3 className="text-sm font-semibold py-4">{wp?.work_package_name}</h3>
-                <CategoryAccordion  categorizedData={categorizedData} selectedPackage={wp?.work_package_name} projectEstimates={project_estimates?.filter((i) => i?.work_package === wp?.work_package_name) || []} />
-              </div>
-            ))}
-            </div>
-            <Separator />
-            <div>
-              <div className="flex gap-2 items-center mb-4">
-                <h2 className="font-semibold text-gray-500">Tools & Equipments</h2>
-                <ArrowDown className="w-4 h-4" />
-              </div>
               <div>
-                <ToolandEquipementAccordion projectEstimates={project_estimates} categorizedData={categorizedData} />
+                <div className="flex gap-2 items-center">
+                  <h2 className="font-semibold text-gray-500">Work Packages</h2>
+                  <ArrowDown className="w-4 h-4" />
+                </div>
+                {JSON.parse(data?.project_work_packages)?.work_packages?.map((wp) => (
+                  <div key={wp?.work_package_name}>
+                    <h3 className="text-sm font-semibold py-4">{wp?.work_package_name}</h3>
+                    <CategoryAccordion categorizedData={categorizedData} selectedPackage={wp?.work_package_name} projectEstimates={project_estimates?.filter((i) => i?.work_package === wp?.work_package_name) || []} />
+                  </div>
+                ))}
               </div>
-            </div>
+              <Separator />
+              <div>
+                <div className="flex gap-2 items-center mb-4">
+                  <h2 className="font-semibold text-gray-500">Tools & Equipments</h2>
+                  <ArrowDown className="w-4 h-4" />
+                </div>
+                <div>
+                  <ToolandEquipementAccordion projectEstimates={project_estimates} categorizedData={categorizedData} />
+                </div>
+              </div>
               <Separator />
             </>
           )}
 
           {["All", "Services"].includes(selectedPackage) && (
-              <div>
-                {selectedPackage === "All" && (
-                  <div className="flex gap-2 items-center mb-4">
+            <div>
+              {selectedPackage === "All" && (
+                <div className="flex gap-2 items-center mb-4">
                   <h2 className="font-semibold text-gray-500">Service Requests</h2>
                   <ArrowDown className="w-4 h-4" />
                 </div>
-                )}
+              )}
               <div>
                 <ServiceRequestsAccordion projectEstimates={project_estimates} segregatedData={segregatedServiceOrderData} />
               </div>
@@ -1363,7 +1362,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       )}
 
       {current === "SRSummary" && (
-        <DataTable  columns={srSummaryColumns} data={allServiceRequestsData || []} />
+        <DataTable columns={srSummaryColumns} data={allServiceRequestsData || []} />
       )}
 
       <div className="hidden">
@@ -1673,76 +1672,76 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
         <div className="flex flex-col gap-4">
           {defaultValues?.length > 0 && (
             <Accordion type="multiple" className="space-y-4" defaultValue={defaultValues || []}>
-            {Object.entries(selectedData).map(([category, items]) => {
-              const totalAmount = items.reduce((sum, item) =>
-                sum + parseFloat(item?.amount),
-                0
-              );
+              {Object.entries(selectedData).map(([category, items]) => {
+                const totalAmount = items.reduce((sum, item) =>
+                  sum + parseFloat(item?.amount),
+                  0
+                );
 
-              const categoryEstimates = projectEstimates?.filter((i) => i?.category === category)
-              const totalCategoryEstdAmt = categoryEstimates?.reduce((sum, item) =>
-                sum + parseFloat(item?.rate_estimate) * parseFloat(item?.quantity_estimate) * (1 + parseFloat(item?.item_tax) / 100),
-                0
-              )
-              return (
-                <AccordionItem key={category} value={category} defaultChecked className="border-b rounded-lg shadow">
-                  <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
-                    <div className="flex space-x-4 text-sm text-gray-600">
-                      <span className="font-semibold">{category}:</span>
-                      <span>Total Amount: ₹{totalAmount.toLocaleString()}</span>
-                      <span>Total Estd Amount: {formatToIndianRupee(totalCategoryEstdAmt)}</span>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <Table className="min-w-full text-left text-sm">
-                      <TableHeader>
-                        <TableRow className="bg-gray-100 text-gray-700">
-                          <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Actual Amt</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {items?.map((item) => {
-                          const estimateItem = projectEstimates?.find((i) => i?.item === item?.item_id);
-                          const quantityDif = item?.quantity - estimateItem?.quantity_estimate
-                          let dynamicQtyClass = null;
-
-                          if (estimateItem) {
-                            if (quantityDif > 0) {
-                              dynamicQtyClass = "text-primary"
-                            } else if (quantityDif < 0 && Math.abs(quantityDif) < 5) {
-                              dynamicQtyClass = "text-yellow-600"
-                            } else if (quantityDif === 0) {
-                              dynamicQtyClass = "text-green-500"
-                            } else {
-                              dynamicQtyClass = "text-blue-500"
-                            }
-                          }
-
-                          return <TableRow key={item.item_id}>
-                            <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
-                            <TableCell className="px-4 py-2">{item.item_name}</TableCell>
-                            <TableCell className="px-4 py-2">{item.unit}</TableCell>
-                            <TableCell className={`px-4 py-2 ${dynamicQtyClass}`}>{item.quantity}</TableCell>
-                            <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
-                            <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
-                            {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
-                            <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
+                const categoryEstimates = projectEstimates?.filter((i) => i?.category === category)
+                const totalCategoryEstdAmt = categoryEstimates?.reduce((sum, item) =>
+                  sum + parseFloat(item?.rate_estimate) * parseFloat(item?.quantity_estimate) * (1 + parseFloat(item?.item_tax) / 100),
+                  0
+                )
+                return (
+                  <AccordionItem key={category} value={category} defaultChecked className="border-b rounded-lg shadow">
+                    <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
+                      <div className="flex space-x-4 text-sm text-gray-600">
+                        <span className="font-semibold">{category}:</span>
+                        <span>Total Amount: ₹{totalAmount.toLocaleString()}</span>
+                        <span>Total Estd Amount: {formatToIndianRupee(totalCategoryEstdAmt)}</span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <Table className="min-w-full text-left text-sm">
+                        <TableHeader>
+                          <TableRow className="bg-gray-100 text-gray-700">
+                            <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Actual Amt</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
                           </TableRow>
-                        })}
-                      </TableBody>
-                    </Table>
-                  </AccordionContent>
-                </AccordionItem>
-              );
-            })}
-          </Accordion>
-           )}
+                        </TableHeader>
+                        <TableBody>
+                          {items?.map((item) => {
+                            const estimateItem = projectEstimates?.find((i) => i?.item === item?.item_id);
+                            const quantityDif = item?.quantity - estimateItem?.quantity_estimate
+                            let dynamicQtyClass = null;
+
+                            if (estimateItem) {
+                              if (quantityDif > 0) {
+                                dynamicQtyClass = "text-primary"
+                              } else if (quantityDif < 0 && Math.abs(quantityDif) < 5) {
+                                dynamicQtyClass = "text-yellow-600"
+                              } else if (quantityDif === 0) {
+                                dynamicQtyClass = "text-green-500"
+                              } else {
+                                dynamicQtyClass = "text-blue-500"
+                              }
+                            }
+
+                            return <TableRow key={item.item_id}>
+                              <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
+                              <TableCell className="px-4 py-2">{item.item_name}</TableCell>
+                              <TableCell className="px-4 py-2">{item.unit}</TableCell>
+                              <TableCell className={`px-4 py-2 ${dynamicQtyClass}`}>{item.quantity}</TableCell>
+                              <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
+                              <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
+                              {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
+                              <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
+                            </TableRow>
+                          })}
+                        </TableBody>
+                      </Table>
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          )}
         </div>
       ) : (
         <div className="h-[10vh] flex items-center justify-center">No Results.</div>
@@ -1752,7 +1751,7 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
 };
 
 
-const ToolandEquipementAccordion = ({projectEstimates,  categorizedData }) => {
+const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
 
   const selectedData = categorizedData["Tool & Equipments"] || null;
 
@@ -1841,37 +1840,37 @@ const ToolandEquipementAccordion = ({projectEstimates,  categorizedData }) => {
 };
 
 
-const ServiceRequestsAccordion = ({projectEstimates,  segregatedData }) => {
+const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) => {
   const [expandedRowKeys, setExpandedRowKeys] = useState([]);
 
   useEffect(() => {
     if (segregatedData) {
-        setExpandedRowKeys(Object.keys(segregatedData));
+      setExpandedRowKeys(Object.keys(segregatedData));
     }
-}, [segregatedData]);
+  }, [segregatedData]);
 
-   // Main table columns
-   const columns = [
+  // Main table columns
+  const columns = [
     {
-        title: "Category",
-        dataIndex: "category",
-        key: "category",
-        width: "60%",
-        render: (text) => <strong className="text-primary">{text}</strong>,
+      title: "Category",
+      dataIndex: "category",
+      key: "category",
+      width: "60%",
+      render: (text) => <strong className="text-primary">{text}</strong>,
     },
     {
-        title: "Amount",
-        dataIndex: "amount",
-        key: "amount",
-        width: "20%",
-        render : (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>
+      title: "Amount",
+      dataIndex: "amount",
+      key: "amount",
+      width: "20%",
+      render: (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>
     },
     {
       title: "Estd. Amount",
       dataIndex: "estimate_total",
       key: "estimate_total",
       width: "30%",
-      render : (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>
+      render: (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>
     },
   ];
 
@@ -1882,57 +1881,57 @@ const ServiceRequestsAccordion = ({projectEstimates,  segregatedData }) => {
       key: "description",
       width: "40%",
     },
-      {
-          title: "Unit",
-          dataIndex: "uom",
-          key: "unit",
-          width: "20%",
-      },
-      {
-          title: "Quantity",
-          dataIndex: "quantity",
-          key: "quantity",
-          width: "20%",
-      },
-      {
-          title: "Amount",
-          dataIndex: "amount",
-          key: "amount",
-          width: "20%",
-          render: (text) => <span className="italic">{text ? formatToIndianRupee(text) : "--"}</span>,
-      },
-  ]; 
+    {
+      title: "Unit",
+      dataIndex: "uom",
+      key: "unit",
+      width: "20%",
+    },
+    {
+      title: "Quantity",
+      dataIndex: "quantity",
+      key: "quantity",
+      width: "20%",
+    },
+    {
+      title: "Amount",
+      dataIndex: "amount",
+      key: "amount",
+      width: "20%",
+      render: (text) => <span className="italic">{text ? formatToIndianRupee(text) : "--"}</span>,
+    },
+  ];
 
   return (
     <div className="w-full">
       {segregatedData?.length > 0 ? (
         <div className="pt-6 overflow-x-auto">
-      <ConfigProvider>
-        <AntTable
-          dataSource={segregatedData.map((key) => ({
-            key : Object.values(key)[0]?.key,
-            amount: Object.values(key)[0]?.amount,
-            estimate_total: Object.values(key)[0]?.estimate_total,
-            category: Object.keys(key)[0],
-            items: Object.values(key)[0]?.children,
-        }))}
-          columns={columns}
-          expandable={{
-            expandedRowKeys,
-            onExpandedRowsChange: setExpandedRowKeys,
-            expandedRowRender: (record) => (
-              <AntTable
-                dataSource={record.items}
-                columns={innerColumns}
-                pagination={false}
-                rowKey={(item) => item.id || uuidv4()}
-              />
-            ),
-          }}
-          rowKey="key"
-        />
-      </ConfigProvider>
-    </div>
+          <ConfigProvider>
+            <AntTable
+              dataSource={segregatedData.map((key) => ({
+                key: Object.values(key)[0]?.key,
+                amount: Object.values(key)[0]?.amount,
+                estimate_total: Object.values(key)[0]?.estimate_total,
+                category: Object.keys(key)[0],
+                items: Object.values(key)[0]?.children,
+              }))}
+              columns={columns}
+              expandable={{
+                expandedRowKeys,
+                onExpandedRowsChange: setExpandedRowKeys,
+                expandedRowRender: (record) => (
+                  <AntTable
+                    dataSource={record.items}
+                    columns={innerColumns}
+                    pagination={false}
+                    rowKey={(item) => item.id || uuidv4()}
+                  />
+                ),
+              }}
+              rowKey="key"
+            />
+          </ConfigProvider>
+        </div>
       ) : (<div className="h-[10vh] flex items-center justify-center">No Results.</div>)}
     </div>
   );

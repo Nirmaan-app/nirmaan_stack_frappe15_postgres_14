@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle } from "../ui/card";
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import { CheckCheck, ListChecks, MessageCircleMore, MessageCircleWarning, PackagePlus, Replace, Settings2, Trash2, Undo } from "lucide-react";
+import { CheckCheck, CircleX, ListChecks, MessageCircleMore, MessageCircleWarning, PackagePlus, Replace, Settings2, Trash2, Undo } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { ArrowLeft } from 'lucide-react';
@@ -127,14 +127,14 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
             orderBy: { field: 'work_package_name', order: 'asc' },
             limit: 100
         });
-        
+
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package', 'image_url', 'tax'],
             orderBy: { field: 'category_name', order: 'asc' },
             limit: 1000
         });
-        
+
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
@@ -143,7 +143,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         });
 
     const { createDoc: createDoc, loading: createLoading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    const { updateDoc, loading: updateLoading ,error: update_error } = useFrappeUpdateDoc()
+    const { updateDoc, loading: updateLoading, error: update_error } = useFrappeUpdateDoc()
 
     useEffect(() => {
         const newCategories = [];
@@ -510,7 +510,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     const handleCancelDraft = async () => {
         try {
             await updateDoc("Procurement Requests", orderData?.name, {
-                workflow_state : "Pending"
+                workflow_state: "Pending"
             })
 
             await mutate(`Procurement Requests ${orderData?.name}`)
@@ -537,29 +537,29 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
 
     return (
         <>
-            {(page == 'wplist' && !rejected_pr_data) && 
-            <div className="flex-1 md:space-y-4">
-                <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-                    <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {wp_list?.filter((item) => {
-                        let wp_arr = JSON.parse(project.project_work_packages).work_packages.map((item) => item.work_package_name)
-                        if (item.work_package_name === "Tool & Equipments" || wp_arr.includes(item.work_package_name)) return true
-                    }).map((item) => (
-                        <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
-                            <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
-                                <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
-                                    <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.work_package_image === null ? imageUrl : item.work_package_image} alt="Project" />
-                                    <span>{item.work_package_name}</span>
-                                </CardTitle>
-                                {/* {console.log("FROM WP:", item.work_package_image)} */}
-                            </CardHeader>
-                        </Card>
-                    ))}
-                </div>
-            </div>}
+            {(page == 'wplist' && !rejected_pr_data) &&
+                <div className="flex-1 md:space-y-4">
+                    <div className="flex items-center pt-1 pb-4">
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                        <h3 className="text-base pl-2 font-bold tracking-tight">Select Procurement Package</h3>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        {wp_list?.filter((item) => {
+                            let wp_arr = JSON.parse(project.project_work_packages).work_packages.map((item) => item.work_package_name)
+                            if (item.work_package_name === "Tool & Equipments" || wp_arr.includes(item.work_package_name)) return true
+                        }).map((item) => (
+                            <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
+                                <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
+                                    <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
+                                        <img className="h-32 md:h-36 w-32 md:w-36 rounded-lg p-0" src={item.work_package_image === null ? imageUrl : item.work_package_image} alt="Project" />
+                                        <span>{item.work_package_name}</span>
+                                    </CardTitle>
+                                    {/* {console.log("FROM WP:", item.work_package_image)} */}
+                                </CardHeader>
+                            </Card>
+                        ))}
+                    </div>
+                </div>}
             {page == 'categorylist' && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
                     {!rejected_pr_data && (
@@ -623,7 +623,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         rejected_pr_data ? (
                             <div className="flex items-center justify-between w-full">
                                 <h2 className="text-2xl max-md:text-xl font-semibold flex items-center gap-1">{section === "edit-pr" ? "Edit PR:" : "Resolve PR:"} <span className="text-primary">{rejected_pr_data.name}</span></h2>
-                                <Button disabled={updateLoading} onClick={handleCancelDraft}>{updateLoading ? <TailSpin width={20} height={16} color="white" /> : "Cancel Draft"}</Button>
+                                {section === "edit-pr" ? <Button disabled={updateLoading} onClick={handleCancelDraft} className="flex items-center gap-2">{updateLoading ? <TailSpin width={20} height={16} color="white" /> : <><CircleX className="w-4 h-4" /><span>Cancel Draft</span></>}</Button> : null}
                             </div>
                         ) : (
                             <h2 className="text-base pl-2 font-bold tracking-tight">Add Items</h2>
@@ -632,13 +632,13 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 </div>
 
                 {section === "edit-pr" && (
-                            <div>
-                                <Alert variant="warning" className="">
-                                    <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
-                                    <AlertDescription className="py-2 px-4">This PR is now marked as "Draft", please either cancel or update!</AlertDescription>
-                                </Alert>
-                            </div>
-                    )}
+                    <div>
+                        <Alert variant="warning" className="">
+                            <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
+                            <AlertDescription className="py-2 px-4">This PR is now marked as "Draft", please either cancel or update!</AlertDescription>
+                        </Alert>
+                    </div>
+                )}
                 <div className="flex justify-between max-md:pr-10 md:justify-normal md:space-x-40">
                     <div className="">
                         <h5 className="text-gray-500 text-xs md:test-base">Project</h5>
@@ -799,7 +799,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         <div className="py-4 w-full flex flex-col gap-2">
                             {/* <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
                             <span className="relative left-[15%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span> */}
-                            { section === "edit-pr" ? (
+                            {section === "edit-pr" ? (
                                 universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) || (comment.comment_by === "Administrator" && comment.subject === "creating pr")).map((cmt) => (
                                     <>
                                         <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
@@ -861,15 +861,15 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         </DialogHeader>
                         <DialogDescription className="flex justify-center">
                             {!rejected_pr_data ? (
-                                createLoading ? <TailSpin width={60} color={"red"}  /> : 
-                                <Button onClick={handleSubmit} className="flex items-center gap-1">
-                                    <CheckCheck className="h-4 w-4" />
-                                    Confirm</Button>
+                                createLoading ? <TailSpin width={60} color={"red"} /> :
+                                    <Button onClick={handleSubmit} className="flex items-center gap-1">
+                                        <CheckCheck className="h-4 w-4" />
+                                        Confirm</Button>
                             ) : (
-                                    (createLoading || updateLoading) ? <TailSpin width={60} color={"red"}  /> :
-                                <Button onClick={handleResolvePR} className="flex items-center gap-1">
-                                    <CheckCheck className="h-4 w-4" />
-                                    Confirm</Button>
+                                (createLoading || updateLoading) ? <TailSpin width={60} color={"red"} /> :
+                                    <Button onClick={handleResolvePR} className="flex items-center gap-1">
+                                        <CheckCheck className="h-4 w-4" />
+                                        Confirm</Button>
                             )}
                         </DialogDescription>
 
