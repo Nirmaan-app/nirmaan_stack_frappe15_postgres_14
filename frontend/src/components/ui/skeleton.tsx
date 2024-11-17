@@ -17,16 +17,16 @@ function Skeleton({
 }
 
 export const TableSkeleton = () => {
-  return  (
+  return (
     <>
-    <div className="flex items-center justify-between pt-8">
-      <div className="flex gap-2 w-full">
-        <Skeleton className="p-4 w-1/4" />
+      <div className="flex items-center justify-between pt-8">
+        <div className="flex gap-2 w-full">
+          <Skeleton className="p-4 w-1/4" />
+          <Skeleton className="p-4 w-[10%]" />
+        </div>
         <Skeleton className="p-4 w-[10%]" />
       </div>
-      <Skeleton className="p-4 w-[10%]" />
-    </div>
-    <div className="space-y-4 mt-10 p-4 border rounded-md border-gray-200">
+      <div className="space-y-4 mt-10 p-4 border rounded-md border-gray-200">
         {/* Skeleton for Table Header */}
         <div className="flex flex-col space-y-2">
           {/* Simulating multiple header rows */}
@@ -57,7 +57,7 @@ export const TableSkeleton = () => {
           ))}
         </div>
       </div>
-      </>
+    </>
   )
 }
 
@@ -73,17 +73,17 @@ export const WPSkeleton = () => {
       </div>
       <div className="mt-4 space-y-2">
         <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <Skeleton className="w-2/3 h-20 rounded-md" />
-        <div className="flex items-center space-x-2">
-          <Skeleton className="w-8 h-8 rounded-full" />
+          <Skeleton className="w-2/3 h-20 rounded-md" />
+          <div className="flex items-center space-x-2">
+            <Skeleton className="w-8 h-8 rounded-full" />
+          </div>
         </div>
-      </div>
-      <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <Skeleton className="w-2/3 h-20 rounded-md" />
-        <div className="flex items-center space-x-2">
-          <Skeleton className="w-8 h-8 rounded-full" />
+        <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <Skeleton className="w-2/3 h-20 rounded-md" />
+          <div className="flex items-center space-x-2">
+            <Skeleton className="w-8 h-8 rounded-full" />
+          </div>
         </div>
-      </div>
       </div>
     </div>
   )
@@ -105,7 +105,7 @@ export const ProjectSkeleton = () => {
           <Skeleton className="h-10 w-24 rounded-md" />
         </div>
       </div>
-      
+
       {/* Grid Skeleton */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
         {/* Project Details Card Skeleton */}
@@ -139,7 +139,7 @@ export const ProjectSkeleton = () => {
             </Card>
           </CardContent>
         </Card>
-      
+
         {/* Work Package Card Skeleton */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -152,7 +152,7 @@ export const ProjectSkeleton = () => {
             ))}
           </CardContent>
         </Card>
-      
+
         {/* Status Card Skeleton */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -164,7 +164,7 @@ export const ProjectSkeleton = () => {
             <Skeleton className="h-4 w-1/2 rounded-md" />
           </CardContent>
         </Card>
-      
+
         {/* Health Score Card Skeleton */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -174,6 +174,104 @@ export const ProjectSkeleton = () => {
           <CardContent>
             <Skeleton className="h-6 w-3/4 rounded-md" />
             <Skeleton className="h-4 w-1/2 rounded-md" />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+export const FormSkeleton = () => {
+  return (
+    <div className="p-4 space-y-4">
+      {/* Header Section Skeleton */}
+      <div className="flex items-center justify-between space-y-2">
+        <div className="flex items-center space-x-2">
+          <Skeleton className="h-6 w-6 rounded-full" />
+          <Skeleton className="h-8 w-1/3 rounded-md" />
+        </div>
+        <div className="flex space-x-2">
+          <Skeleton className="h-10 px-4 rounded-md" />
+          <Skeleton className="h-10 px-4 rounded-md" />
+          <Skeleton className="h-10 w-24 rounded-md" />
+        </div>
+      </div>
+
+      {/* Grid Skeleton */}
+      <div className="grid gap-4 grid-cols-1">
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <Skeleton className="h-8 w-1/2 rounded-md" />
+            <Skeleton className="h-6 w-6 rounded-full" />
+          </CardHeader>
+          <CardContent>
+            <Card>
+              <CardContent>
+                <div className="flex flex-row">
+                  <div className="basis-1/2 flex flex-col space-y-4">
+                    {[...Array(3)].map((_, index) => (
+                      <div key={index} className="flex flex-col pt-2 pb-2">
+                        <Skeleton className="h-4 w-2/3 rounded-md" />
+                        <Skeleton className="h-6 w-full rounded-md" />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="basis-1/2 flex flex-col space-y-4">
+                    {[...Array(3)].map((_, index) => (
+                      <div key={index} className="flex flex-col pt-2 pb-2">
+                        <Skeleton className="h-4 w-2/3 rounded-md" />
+                        <Skeleton className="h-6 w-full rounded-md" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent>
+                <div className="flex flex-row">
+                  <div className="basis-1/2 flex flex-col space-y-4">
+                    {[...Array(3)].map((_, index) => (
+                      <div key={index} className="flex flex-col pt-2 pb-2">
+                        <Skeleton className="h-4 w-2/3 rounded-md" />
+                        <Skeleton className="h-6 w-full rounded-md" />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="basis-1/2 flex flex-col space-y-4">
+                    {[...Array(3)].map((_, index) => (
+                      <div key={index} className="flex flex-col pt-2 pb-2">
+                        <Skeleton className="h-4 w-2/3 rounded-md" />
+                        <Skeleton className="h-6 w-full rounded-md" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent>
+                <div className="flex flex-row">
+                  <div className="basis-1/2 flex flex-col space-y-4">
+                    {[...Array(3)].map((_, index) => (
+                      <div key={index} className="flex flex-col pt-2 pb-2">
+                        <Skeleton className="h-4 w-2/3 rounded-md" />
+                        <Skeleton className="h-6 w-full rounded-md" />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="basis-1/2 flex flex-col space-y-4">
+                    {[...Array(3)].map((_, index) => (
+                      <div key={index} className="flex flex-col pt-2 pb-2">
+                        <Skeleton className="h-4 w-2/3 rounded-md" />
+                        <Skeleton className="h-6 w-full rounded-md" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </CardContent>
         </Card>
       </div>
@@ -264,49 +362,49 @@ export const OverviewSkeleton = () => {
           </CardTitle>
         </CardHeader>
         <CardContent className="flex max-lg:flex-col max-lg:gap-10">
-                <div className="space-y-4 lg:w-[50%]">
-                  <CardDescription className="space-y-2">
-                    <Skeleton className="h-4 w-16 bg-gray-200" />
-                    <Skeleton className="bg-gray-200 h-5 w-20" />
-                  </CardDescription>
+          <div className="space-y-4 lg:w-[50%]">
+            <CardDescription className="space-y-2">
+              <Skeleton className="h-4 w-16 bg-gray-200" />
+              <Skeleton className="bg-gray-200 h-5 w-20" />
+            </CardDescription>
 
-                  <CardDescription className="space-y-2">
-                  <Skeleton className="bg-gray-200 h-4 w-16" />
-                    <Skeleton className="bg-gray-200 h-5 w-32" />
-                  </CardDescription>
+            <CardDescription className="space-y-2">
+              <Skeleton className="bg-gray-200 h-4 w-16" />
+              <Skeleton className="bg-gray-200 h-5 w-32" />
+            </CardDescription>
 
-                  <CardDescription className="space-y-2">
-                  <Skeleton className="bg-gray-200 h-4 w-16" />
-                    <Skeleton className="bg-gray-200 h-5 w-24" /> 
-                  </CardDescription>
+            <CardDescription className="space-y-2">
+              <Skeleton className="bg-gray-200 h-4 w-16" />
+              <Skeleton className="bg-gray-200 h-5 w-24" />
+            </CardDescription>
 
-                  <CardDescription className="space-y-2">
-                  <Skeleton className="bg-gray-200 h-4 w-16" />
-                    <Skeleton className="bg-gray-200 h-5 w-40" /> 
-                  </CardDescription>
-                </div>
+            <CardDescription className="space-y-2">
+              <Skeleton className="bg-gray-200 h-4 w-16" />
+              <Skeleton className="bg-gray-200 h-5 w-40" />
+            </CardDescription>
+          </div>
 
-                <div className="space-y-4">
-                  <CardDescription className="space-y-2">
-                  <Skeleton className="bg-gray-200 h-4 w-16" />
-                    <Skeleton className="bg-gray-200 h-5 w-64" /> 
-                  </CardDescription>
+          <div className="space-y-4">
+            <CardDescription className="space-y-2">
+              <Skeleton className="bg-gray-200 h-4 w-16" />
+              <Skeleton className="bg-gray-200 h-5 w-64" />
+            </CardDescription>
 
-                  <CardDescription className="space-y-2">
-                  <Skeleton className="bg-gray-200 h-4 w-16" />
-                    <Skeleton className="bg-gray-200 h-5 w-24" /> 
-                  </CardDescription>
+            <CardDescription className="space-y-2">
+              <Skeleton className="bg-gray-200 h-4 w-16" />
+              <Skeleton className="bg-gray-200 h-5 w-24" />
+            </CardDescription>
 
-                  <CardDescription className="space-y-2">
-                  <Skeleton className="bg-gray-200 h-4 w-16" />
-                    <Skeleton className="bg-gray-200 h-5 w-24" /> 
-                  </CardDescription>
+            <CardDescription className="space-y-2">
+              <Skeleton className="bg-gray-200 h-4 w-16" />
+              <Skeleton className="bg-gray-200 h-5 w-24" />
+            </CardDescription>
 
-                  <CardDescription className="space-y-2">
-                  <Skeleton className="bg-gray-200 h-4 w-16" />
-                    <Skeleton className="bg-gray-200 h-5 w-40" /> 
-                  </CardDescription>
-                </div>
+            <CardDescription className="space-y-2">
+              <Skeleton className="bg-gray-200 h-4 w-16" />
+              <Skeleton className="bg-gray-200 h-5 w-40" />
+            </CardDescription>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -513,80 +611,80 @@ export const ProcurementRequestsSkeleton = () => {
 export const PRSummarySkeleton = () => {
   return (
     <div className="flex-1 md:space-y-4">
-  <div className="flex items-center pt-1">
-    <Skeleton className="w-6 h-6 mb-3" /> {/* For ArrowLeft */}
-    <Skeleton className="h-6 w-1/3 ml-2" /> {/* For Summary */}
-    <Skeleton className="h-6 w-1/4 ml-2" /> {/* For PR Number */}
-  </div>
-  
-  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-    {/* PR Details Card Skeleton */}
-    <Card className="w-full">
-      <CardHeader>
-        <Skeleton className="h-6 w-1/4" /> {/* PR Details Title */}
-      </CardHeader>
-      <CardContent className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <div className="space-y-1">
-          <Skeleton className="h-4 w-1/3" /> {/* Label */}
-          <Skeleton className="h-4 w-2/3" /> {/* Project Name */}
-        </div>
-        <div className="space-y-1">
-          <Skeleton className="h-4 w-1/3" /> {/* Label */}
-          <Skeleton className="h-4 w-2/3" /> {/* Package */}
-        </div>
-        <div className="space-y-1">
-          <Skeleton className="h-4 w-1/3" /> {/* Label */}
-          <Skeleton className="h-4 w-2/3" /> {/* Date Created */}
-        </div>
-      </CardContent>
-    </Card>
-
-    {/* Order Details Card Skeleton */}
-    <Card className="w-full">
-      <CardHeader>
-        <Skeleton className="h-6 w-1/4" /> {/* Order Details Title */}
-      </CardHeader>
-      <div className="overflow-x-auto">
-        <div className="min-w-full inline-block align-middle">
-          {/* Categories */}
-          <div className="p-5">
-            <Skeleton className="h-5 w-1/3 mb-4" /> {/* Category Name */}
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-red-100">
-                  <TableHead>
-                    <Skeleton className="h-4 w-full" /> {/* Table Head */}
-                  </TableHead>
-                  <TableHead>
-                    <Skeleton className="h-4 w-full" /> {/* Table Head */}
-                  </TableHead>
-                  <TableHead>
-                    <Skeleton className="h-4 w-full" /> {/* Table Head */}
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {[...Array(7)].map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell>
-                      <Skeleton className="h-4 w-full" /> {/* Item */}
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-full" /> {/* UOM */}
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-full" /> {/* Qty */}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
+      <div className="flex items-center pt-1">
+        <Skeleton className="w-6 h-6 mb-3" /> {/* For ArrowLeft */}
+        <Skeleton className="h-6 w-1/3 ml-2" /> {/* For Summary */}
+        <Skeleton className="h-6 w-1/4 ml-2" /> {/* For PR Number */}
       </div>
-    </Card>
-  </div>
-</div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* PR Details Card Skeleton */}
+        <Card className="w-full">
+          <CardHeader>
+            <Skeleton className="h-6 w-1/4" /> {/* PR Details Title */}
+          </CardHeader>
+          <CardContent className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-1">
+              <Skeleton className="h-4 w-1/3" /> {/* Label */}
+              <Skeleton className="h-4 w-2/3" /> {/* Project Name */}
+            </div>
+            <div className="space-y-1">
+              <Skeleton className="h-4 w-1/3" /> {/* Label */}
+              <Skeleton className="h-4 w-2/3" /> {/* Package */}
+            </div>
+            <div className="space-y-1">
+              <Skeleton className="h-4 w-1/3" /> {/* Label */}
+              <Skeleton className="h-4 w-2/3" /> {/* Date Created */}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Order Details Card Skeleton */}
+        <Card className="w-full">
+          <CardHeader>
+            <Skeleton className="h-6 w-1/4" /> {/* Order Details Title */}
+          </CardHeader>
+          <div className="overflow-x-auto">
+            <div className="min-w-full inline-block align-middle">
+              {/* Categories */}
+              <div className="p-5">
+                <Skeleton className="h-5 w-1/3 mb-4" /> {/* Category Name */}
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-red-100">
+                      <TableHead>
+                        <Skeleton className="h-4 w-full" /> {/* Table Head */}
+                      </TableHead>
+                      <TableHead>
+                        <Skeleton className="h-4 w-full" /> {/* Table Head */}
+                      </TableHead>
+                      <TableHead>
+                        <Skeleton className="h-4 w-full" /> {/* Table Head */}
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[...Array(7)].map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell>
+                          <Skeleton className="h-4 w-full" /> {/* Item */}
+                        </TableCell>
+                        <TableCell>
+                          <Skeleton className="h-4 w-full" /> {/* UOM */}
+                        </TableCell>
+                        <TableCell>
+                          <Skeleton className="h-4 w-full" /> {/* Qty */}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+    </div>
 
   )
 }
@@ -595,18 +693,18 @@ export const PRSummarySkeleton = () => {
 export const NewPRSkeleton = () => {
   return (
     <div className="flex-1 md:space-y-4">
-       <div className="flex items-center pt-1">
+      <div className="flex items-center pt-1">
         <Skeleton className="w-6 h-6" />
         <Skeleton className="h-6 w-1/3 ml-2" />
       </div>
-  
+
       <div className="flex gap-4">
-      {[...Array(5)].map((_, i) => (
-        <div className="flex flex-col gap-4 p-4 border border-gray-300 rounded-xl">
-          <Skeleton className="w-28 h-32" />
-          <Skeleton className="w-28 h-4" />
-        </div>
-      ))}
+        {[...Array(5)].map((_, i) => (
+          <div className="flex flex-col gap-4 p-4 border border-gray-300 rounded-xl">
+            <Skeleton className="w-28 h-32" />
+            <Skeleton className="w-28 h-4" />
+          </div>
+        ))}
       </div>
     </div>
   )

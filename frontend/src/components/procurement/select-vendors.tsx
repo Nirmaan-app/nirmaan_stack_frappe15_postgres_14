@@ -114,7 +114,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text === "Delayed" ? text : formatToIndianRupee(text)}
+                {(text === "Delayed" || text === "N/A") ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -125,7 +125,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text === "N/A" ? text : formatToIndianRupee(text)}
+                {(text === "N/A" || text === "Delayed") ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -136,6 +136,30 @@ export const SelectVendors = () => {
     const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate()
 
+    const [page, setPage] = useState<string>('updatequotation')
+    const [orderData, setOrderData] = useState({
+        project: '',
+        work_package: '',
+        procurement_list: {
+            list: []
+        },
+        category_list: {
+            list: []
+        }
+    })
+
+    const [selectedVendors, setSelectedVendors] = useState({})
+    const [selectedCategories, setSelectedCategories] = useState({})
+    const userData = useUserData()
+
+    const [data, setData] = useState<DataType>([])
+    const [comment, setComment] = useState('')
+    const [delayedItems, setDelayedItems] = useState({})
+
+    const [priceMap, setPriceMap] = useState(new Map<string, string>());
+
+    const [submitClicked, setSubmitClicked] = useState(false)
+
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'procurement_executive'],
@@ -144,7 +168,8 @@ export const SelectVendors = () => {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address'],
+            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type'],
+            filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
@@ -158,20 +183,10 @@ export const SelectVendors = () => {
             fields: ['item_id', 'quote'],
             limit: 2000
         });
-    const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
+    const { createDoc: createDoc, loading: create_loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
 
-    const [page, setPage] = useState<string>('updatequotation')
-    const [orderData, setOrderData] = useState({
-        project: '',
-        work_package: '',
-        procurement_list: {
-            list: []
-        },
-        category_list: {
-            list: []
-        }
-    })
+
     if (!orderData.project) {
         procurement_request_list?.map(item => {
             if (item.name === orderId) {
@@ -179,13 +194,7 @@ export const SelectVendors = () => {
             }
         })
     }
-    const [selectedVendors, setSelectedVendors] = useState({})
-    const [selectedCategories, setSelectedCategories] = useState({})
-    const userData = useUserData()
 
-    const [data, setData] = useState<DataType>([])
-    const [comment, setComment] = useState('')
-    const [delayedItems, setDelayedItems] = useState({})
 
     const delayedItemsCheck = () => {
         let delayedItems = {};
@@ -237,8 +246,8 @@ export const SelectVendors = () => {
                             rate: selectedVendors[item.name] ? price : "Delayed",
                             amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
                             selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
-                            lowest2: getLowest2(item.name) ? getLowest2(item.name) * item.quantity : "Delayed",
-                            lowest3: minQuote ? minQuote : "N/A",
+                            lowest2: selectedVendors[item.name] ? (getLowest2(item.name) ? getLowest2(item.name) * item.quantity : "N/A") : "Delayed",
+                            lowest3: selectedVendors[item.name] ? (minQuote ? minQuote : "N/A") : "Delayed",
                         });
                     }
                 });
@@ -408,6 +417,7 @@ export const SelectVendors = () => {
     // }
 
     const handleSubmit = async () => {
+        setSubmitClicked(true)
         try {
             const delayedItems: string[] = [];
 
@@ -531,15 +541,18 @@ export const SelectVendors = () => {
         } catch (error) {
             console.log("handleSubmit error", error);
         }
+        finally {
+            setSubmitClicked(false)
+        }
     };
 
-    console.log('data', data)
+    // console.log('data', data)
     const { toast } = useToast()
 
     const generateVendorItemKey = (vendor: string, item: string): string => {
         return `${vendor}-${item}`;
     };
-    const [priceMap, setPriceMap] = useState(new Map<string, string>());
+
 
     const getPrice = (vendor: string, item: string): string | undefined => {
         const key = generateVendorItemKey(vendor, item);
@@ -646,7 +659,7 @@ export const SelectVendors = () => {
     //     return percentDiff.toFixed(2);
     // }
 
-    if(procurement_request_list_loading || quotation_request_list_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+    if (procurement_request_list_loading || quotation_request_list_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
 
     return (
         <>
@@ -992,7 +1005,7 @@ export const SelectVendors = () => {
                     <div className="flex flex-col justify-end items-end mr-2 mb-4 mt-4">
                         <Dialog>
                             <DialogTrigger asChild>
-                                <Button className="flex items-center gap-1">
+                                <Button className="flex items-center gap-1" disabled={submitClicked}>
                                     <ArrowBigUpDash className="" />
                                     Send for Approval
                                 </Button>
@@ -1013,12 +1026,16 @@ export const SelectVendors = () => {
                                     </DialogDescription>
                                 </DialogHeader>
                                 <DialogDescription className='flex items-center justify-center gap-2'>
-                                    <DialogClose><Button variant="secondary" className="flex items-center gap-1">
+                                    {(update_loading || create_loading) ? <TailSpin width={60} color={"red"}  /> : (
+                                        <>
+                                        <DialogClose><Button variant="secondary" className="flex items-center gap-1">
                                         <Undo2 className="h-4 w-4" />
                                         Cancel</Button></DialogClose>
-                                    <Button variant="default" onClick={() => handleSubmit()} className="flex items-center gap-1">
+                                    <Button variant="default" onClick={() => handleSubmit()} disabled={submitClicked} className="flex items-center gap-1">
                                         <CheckCheck className="h-4 w-4" />
                                         Confirm</Button>
+                                        </>
+                                    )}
                                 </DialogDescription>
                             </DialogContent>
                         </Dialog>

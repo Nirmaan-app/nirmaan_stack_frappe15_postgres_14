@@ -19,6 +19,7 @@ import type { TableColumnsType, TableProps } from 'antd';
 import { toast } from '../ui/use-toast';
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
+import { TailSpin } from 'react-loader-spinner';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -121,7 +122,8 @@ export const SentBackSelectVendor = () => {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address'],
+            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type'],
+            filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
@@ -141,12 +143,19 @@ export const SentBackSelectVendor = () => {
             fields: ['item_id', 'quote'],
             limit: 2000
         });
-    const { updateDoc: updateDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+    const { updateDoc: updateDoc, loading: update_loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
 
     const [page, setPage] = useState<string>('updatequotation')
     const [orderData, setOrderData] = useState({
         project: ''
     })
+
+    const {data: filtered_quotation_data} = useFrappeGetDocList("Quotation Requests", {
+        fields: ["*"],
+        filters: [["procurement_task", "=", orderData?.procurement_request]],
+        limit: 2000
+    })
+
     if (!orderData.project) {
         sent_back_list?.map(item => {
             if (item.name === id) {
@@ -200,8 +209,8 @@ export const SentBackSelectVendor = () => {
         setDelayedItems(delayedItems);
     };
 
-    console.log("data", data)
-    console.log("delayedItems", delayedItems)
+    // console.log("data", data)
+    // console.log("delayedItems", delayedItems)
 
     // console.log("orderData", orderData)
     useEffect(() => {
@@ -293,7 +302,6 @@ export const SentBackSelectVendor = () => {
     };
 
     const handleSubmit = () => {
-        // console.log("submit orderData", orderData)
         quotation_request_list?.map((item) => {
             if (selectedVendors[item.item] === item.vendor && orderData?.procurement_request === item.procurement_task) {
                 updateDoc('Quotation Requests', item.name, {
@@ -311,8 +319,6 @@ export const SentBackSelectVendor = () => {
             item_list: orderData.item_list,
         })
             .then(() => {
-                console.log("item", id)
-
                 toast({
                     title: "Success!",
                     description: `Sent Back: ${id} sent for Approval!`,
@@ -322,10 +328,10 @@ export const SentBackSelectVendor = () => {
             }).catch((error) => {
                 toast({
                     title: "Failed!",
-                    description: `Failed to send Sent Back: ${id} for Approval`,
+                    description: `Failed to send Sent Back: ${id} for Approval.`,
                     variant: "destructive"
                 })
-                console.log("submit_error", submit_error)
+                console.log("submit_error", submit_error, error)
             })
     }
 
@@ -380,12 +386,14 @@ export const SentBackSelectVendor = () => {
         setPriceMap(newPriceMap);
     }, [quotation_request_list, orderData]);
 
-    const getPackage = (name: string) => {
-        return procurement_request_list?.find(item => item.name === name)?.work_package;
-    }
+    // const getPackage = (name: string) => {
+    //     return procurement_request_list?.find(item => item.name === name)?.work_package;
+    // }
+
+    // console.log('quotationrequestlist', quotation_request_list)
 
     const getLeadTime = (vendor: string, category: string) => {
-        const item = quotation_request_list?.find(item => item.vendor === vendor && item.category === category && item.procurement_task === orderData?.procurement_request)
+        const item = filtered_quotation_data?.find(item => item.vendor === vendor && item.category === category)
         return item?.lead_time;
     }
     const getSelectedVendor = (item: string) => {
@@ -455,7 +463,6 @@ export const SentBackSelectVendor = () => {
         })
         return total
     }
-    let count: number = 0;
 
     return (
         <>
@@ -731,27 +738,22 @@ export const SentBackSelectVendor = () => {
                                 <DialogHeader>
                                     <DialogTitle>Have you cross-checked your quote selections?</DialogTitle>
                                     <DialogDescription>
-                                        {/* {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
-                                            <span>You can click on confirm to send it for approval</span>
-                                            :
-                                            <span>No item status should be delayed. Go Back and rectify delayed Items with quotes</span>
-                                        } */}
                                         <span>You can click on confirm to send it for approval</span>
                                     </DialogDescription>
                                 </DialogHeader>
                                 <DialogDescription className='flex items-center justify-center gap-2'>
-                                    <Button variant={"secondary"} onClick={() => setPage("updatequotation")} className="flex items-center gap-1">
-                                        <Undo2 className="h-4 w-4" />
-                                        Go Back</Button>
-                                    {/* {console.log("filter:", orderData.item_list?.list.filter((item) => item.vendor === undefined).length)} */}
-                                    {/* {orderData.item_list?.list.filter((item) => item.vendor === undefined).length === 0 ?
-                                        <Button onClick={() => handleSubmit()}>Confirm</Button>
-                                        :
-                                        <Button variant="secondary" disabled={true}>Confirm</Button>
-                                    } */}
-                                    <Button onClick={() => handleSubmit()} className="flex items-center gap-1">
-                                        <CheckCheck className="h-4 w-4" />
-                                        Confirm</Button>
+                                    {update_loading ? (<TailSpin width={80} color='red' />) : (
+                                        <>
+                                        <Button variant={"secondary"} onClick={() => setPage("updatequotation")} className="flex items-center gap-1">
+                                            <Undo2 className="h-4 w-4" />
+                                            Go Back
+                                        </Button>
+                                        <Button onClick={() => handleSubmit()} className="flex items-center gap-1">
+                                            <CheckCheck className="h-4 w-4" />
+                                            Confirm
+                                        </Button>
+                                    </>
+                                    )}
                                 </DialogDescription>
                             </DialogContent>
                         </Dialog>

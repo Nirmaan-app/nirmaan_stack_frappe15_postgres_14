@@ -43,6 +43,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ["*"],
+            filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         },
         "Vendors"
@@ -138,6 +139,44 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         }));
     };
 
+    // console.log("orderData", orderData)
+
+    // console.log("quotation", quotation_request_list)
+
+    // console.log("quotationData", quotationData)
+
+    const handleDeliveryTimeChange = () => {
+      if(orderData && quotation_request_list) {
+        const filteredQuotationList = quotation_request_list?.filter((i) => orderData?.item_list?.list?.some((j) => j?.name === i?.item))
+      
+        const updatedList = filteredQuotationList.map(q => {
+          const existingItem = quotationData.list.find(item => item.qr_id === q.name);
+  
+          // If the item already exists in quotationData, update its lead_time
+          if (existingItem) {
+              return {
+                  ...existingItem
+              };
+          }
+  
+          // If the item is not in quotationData, add it with the new lead_time
+          return {
+              qr_id: q.name,
+              price: parseFloat(q.quote),
+          };
+      });
+  
+      setQuotationData(prevState => ({
+          ...prevState,
+          list: updatedList,
+      }));
+      }
+  };
+
+  useEffect(() => {
+    handleDeliveryTimeChange()
+  }, [deliveryTime])
+
     const handleFileChange = (event) => {
         setSelectedFile(event.target.files[0]);
     };
@@ -157,9 +196,9 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
 
     const {mutate} = useSWRConfig()
+
     const handleSubmit = async () => {
         try {
-          // Update quotation requests for each item in the list.
           await Promise.all(
             quotationData.list.map(async (item) => {
               try {

@@ -125,3 +125,32 @@ def on_update(doc, method):
                 )
         else:
             print("No project leads or admins found with push notifications enabled.")
+
+def on_trash(doc, method):
+    frappe.db.delete("Nirmaan Comments", {
+        "reference_name" : ("=", doc.name)
+    })
+    print(f"flagged for delete pr document: {doc} {doc.modified_by} {doc.owner}")
+    notifications = frappe.db.get_all("Nirmaan Notifications", 
+                                      filters={"docname": doc.name},
+                                      fields={"name", "recipient"}
+                                      )
+    # THIS NOTIFICATION IS NOT USED IN THE UI
+    if notifications:
+        for notification in notifications:
+            print(f"running delete notification event for user: {notification['recipient']} with {notification['name']}")
+            message = {
+            "title": _("SB Deleted"),
+            "description": _(f"SB: {doc.name} has been deleted."),
+            "docname": doc.name,
+            "sender": frappe.session.user,
+            "notificationId" : notification["name"]
+            }
+            frappe.publish_realtime(
+                event="sb:delete",
+                message=message,
+                user=notification["recipient"]
+            )
+    frappe.db.delete("Nirmaan Notifications", {
+        "docname": ("=", doc.name)
+    })

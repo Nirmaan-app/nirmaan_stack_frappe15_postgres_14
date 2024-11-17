@@ -25,7 +25,8 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
-            fields: ['name', 'vendor_name', 'vendor_address'],
+            fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type'],
+            filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
     const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",

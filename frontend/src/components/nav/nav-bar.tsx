@@ -11,6 +11,7 @@ import {
     SendToBack,
     Shapes,
     ShoppingCart,
+    SquareSquare,
 } from "lucide-react";
 import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
@@ -24,7 +25,7 @@ import { getToken } from "firebase/messaging";
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { handlePRDeleteEvent, handlePRNewEvent, handlePRVendorSelectedEvent, handleSBVendorSelectedEvent, handlePOAmendedEvent, handlePRApproveNewEvent, handlePONewEvent, handleSBNewEvent } from "@/zustand/eventListeners";
+import { handlePRDeleteEvent, handlePRNewEvent, handlePRVendorSelectedEvent, handleSBVendorSelectedEvent, handlePOAmendedEvent, handlePRApproveNewEvent, handlePONewEvent, handleSBNewEvent, handleSRVendorSelectedEvent, handleSRApprovedEvent } from "@/zustand/eventListeners";
 
 export const NavBar = () => {
     const [collapsed, setCollapsed] = useState(false);
@@ -40,7 +41,7 @@ export const NavBar = () => {
     const {
         pendingPRCount, approvePRCount, adminApprovePRCount, adminPendingPRCount, updatePRCounts, updateSBCounts, newSBApproveCount, 
         adminNewApproveSBCount, amendPOCount, adminAmendPOCount, updatePOCounts, adminApprovedPRCount, approvedPRCount, newPOCount, 
-        adminNewPOCount, adminNewSBCounts, newSBCounts} = useDocCountStore()
+        adminNewPOCount, adminNewSBCounts, newSBCounts, updateSRCounts, adminSelectedSRCount, selectedSRCount, approvedSRCount, adminApprovedSRCount} = useDocCountStore()
     const { notifications, add_new_notification, delete_notification } = useNotificationStore();
     const { db } = useContext(FrappeContext) as FrappeConfig
 
@@ -138,6 +139,23 @@ export const NavBar = () => {
         user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
     )
 
+
+    const { data: srData, mutate: srDataMutate } = useFrappeGetDocList("Service Requests", {
+        fields: ["status", "project", "vendor"],
+        filters: [["project", "in", permissionsList || []]],
+        limit: 1000
+    },
+        (user_id === "Administrator" || !permissionsList) ? null : undefined
+    )
+
+    const { data: adminSRData, mutate: adminSRDataMutate } = useFrappeGetDocList("Service Requests", {
+        fields: ["status", "project", "vendor"],
+        limit: 1000
+    },
+
+        user_id === "Administrator" || role === "Nirmaan Admin Profile" ? undefined : null
+    )
+
     useEffect(() => {
         if ((user_id === "Administrator" || role === "Nirmaan Admin Profile") && adminPOData) {
             updatePOCounts(adminPOData, true)
@@ -161,6 +179,14 @@ export const NavBar = () => {
             updatePRCounts(prData, false)
         }
     }, [prData, adminPrData])
+
+    useEffect(() => {
+        if ((user_id === "Administrator" || role === "Nirmaan Admin Profile") && adminSRData) {
+            updateSRCounts(adminSRData, true)
+        } else if(srData) {
+            updateSRCounts(srData, false)
+        }
+    }, [srData, adminSRData])
 
 
     //  ***** PR Events *****
@@ -239,6 +265,19 @@ export const NavBar = () => {
             await poDataMutate()
         }
     })
+
+    //  ***** SR Events *****
+    useFrappeEventListener("sr:vendorSelected", async (event) => {
+        await handleSRVendorSelectedEvent(db, event, add_new_notification);
+    })
+
+    useFrappeEventListener("sr:approved", async (event) => {
+        await handleSRApprovedEvent(db, event, add_new_notification);
+    })
+
+    useFrappeEventListener("sr:delete", (event) => {
+        handlePRDeleteEvent(event, delete_notification);
+    });
 
     // useFrappeEventListener("pr:statusChanged", async (event) => { // not working
     //     await handlePRStatusChangedEvent(role, user_id);
@@ -471,6 +510,28 @@ export const NavBar = () => {
                             ),
 
                         },
+                        { key: '/approve-service-request', label: (
+                            <div className="flex justify-between items-center relative">
+                                Approve SR
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminSelectedSRCount && adminSelectedSRCount !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminSelectedSRCount}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (selectedSRCount && selectedSRCount !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {selectedSRCount}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+                        ),
+
+                    },
                     ],
                 }
             ]
@@ -504,8 +565,40 @@ export const NavBar = () => {
 
                         )},
                         { key: '/update-quote', label: 'Update Quote' },
-                        { key: '/select-vendor-list', label: 'Choose Vendor' }
+                        { key: '/select-vendor-list', label: 'Choose Vendor' },
+                        // {key: '/service-request', label: 'Service Requests'}
                     ],
+                },
+                {
+                    key: 'pe-sr-actions',
+                    icon: <SquareSquare className="h-4 w-4" />,
+                    label: "Service Requests",
+                    children: [
+                        {key: '/service-request', label : 'View/Create SR'},
+                        {key: '/select-service-vendor', label : 'Select Service Vendor'},
+                        {key: '/approved-sr', label: (
+                            <div className="flex justify-between items-center relative">
+                                Approved SR
+                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedSRCount && adminApprovedSRCount !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminApprovedSRCount}
+                                    </span>
+                                </div>
+                                ) : (
+                                    (approvedSRCount && approvedSRCount !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                        {approvedSRCount}
+                                    </span>
+                                </div>
+                                    ) : ""
+                                )}
+                            </div>
+                        ),
+
+                    },
+                    ]
                 },
                 {
                     key : 'pe-po-actions',
@@ -608,7 +701,6 @@ export const NavBar = () => {
                                     ) : ""
                                 )}
                             </div>
-
                         )}
                     ]
                 }
@@ -620,14 +712,16 @@ export const NavBar = () => {
         "projects", "users", "items", "vendors", "customers",
         "prs&milestones", "approve-order", "approve-vendor",
         "approve-sent-back", "approve-amended-po", "procure-request", "update-quote",
-        "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb"
+        "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
+        "service-request", "approve-service-request", "select-service-vendor", "approved-sr"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
     const openKey = ["prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po"].includes(selectedKeys) ? "pl-actions" : ["procure-request", "update-quote",
-            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ""
+        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["service-request", "procure-request", "update-quote",
+            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
+            ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
 
     if (user_id !== "Administrator" && !role) {
         return (<div>loading...</div>)
@@ -662,7 +756,7 @@ export const NavBar = () => {
                         <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70, dropdownWidth: 220 } } }}>
                             <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                 ...item,
-                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                 children: item.children?.map((child) => ({
                                     ...child,
                                     label: <Link to={child.key}>{child.label}</Link>
@@ -681,7 +775,7 @@ export const NavBar = () => {
                                     <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                         ...item,
                                         onClick: () => setIsMobileSidebarOpen(false),
-                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                         children: item.children?.map((child) => ({
                                             ...child,
                                             label: <Link to={child.key}>{child.label}</Link>

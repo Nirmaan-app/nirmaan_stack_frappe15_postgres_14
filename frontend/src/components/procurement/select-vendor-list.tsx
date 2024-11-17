@@ -190,35 +190,6 @@ export const SelectVendorList = () => {
             {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
             )}
-
-            {/* <div className="overflow-x-auto">
-                        <table className="min-w-full divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PR number</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Package</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimated Price</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {procurement_request_list?.map(item => (
-                                    <tr key={item.name}>
-                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/procure-request/quote-update/select-vendors/${item.name}`}>{item.name.slice(-4)}</Link></td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            {item.creation.split(" ")[0]}
-                                        </td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.project}</td>
-                                        <td className="px-6 py-4 text-sm whitespace-nowrap">{item.work_package}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            N/A
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div> */}
         </div>
     )
 }

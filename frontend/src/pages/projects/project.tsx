@@ -1,28 +1,13 @@
-// import { DataTable } from "@/components/data-table/data-table"
-// import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
-// import { Badge } from "@/components/ui/badge"
-// import { Button } from "@/components/ui/button"
-// import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-// import { Projects } from "@/types/NirmaanStack/Projects"
-// import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
-// import { ArrowLeft, HardHat } from "lucide-react"
-// import { useMemo } from "react"
-// import { Link, useNavigate, useParams } from "react-router-dom"
-// import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
-// import React from 'react';
-// import { ProjectSkeleton, TableSkeleton } from "@/components/ui/skeleton"
-// import { useToast } from "@/components/ui/use-toast"
-
 import { ColumnDef } from "@tanstack/react-table"
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OverviewSkeleton, OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
-import { ConfigProvider, Menu, MenuProps } from "antd"
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall } from "frappe-react-sdk"
-import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, Download, FilePenLine, ListChecks, UserCheckIcon } from "lucide-react"
+import { ConfigProvider, Menu, MenuProps, Radio, Tree, Table as AntTable } from "antd"
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall, useFrappeUpdateDoc } from "frappe-react-sdk"
+import { ArrowDown, ArrowLeft, Check, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDown, CircleCheckBig, CirclePlus, CornerRightDown, Download, FilePenLine, HardHat, ListChecks, OctagonMinus, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
@@ -42,14 +27,26 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { Pie, PieChart, Label, BarChart, CartesianGrid, XAxis, YAxis, Legend, Bar, Tooltip } from "recharts";
+import { useUserData } from "@/hooks/useUserData"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { CommandGroup, CommandItem, Command, CommandEmpty, CommandList } from "@/components/ui/command"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { Separator } from "@/components/ui/separator"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { DownOutlined } from '@ant-design/icons';
+import { v4 as uuidv4 } from 'uuid';
+
+const projectStatuses = [
+  { value: 'WIP', label: 'WIP', color: 'text-yellow-500', icon: HardHat },
+  { value: 'Completed', label: 'Completed', color: 'text-green-500', icon: CircleCheckBig },
+  { value: 'Halted', label: 'Halted', color: 'text-red-500', icon: OctagonMinus }
+]
 
 const Project = () => {
 
   const { projectId } = useParams<{ projectId: string }>()
 
-  const { data, isLoading } = useFrappeGetDoc("Projects", projectId, `Projects ${projectId}`, {
-    revalidateIfStale: false
-  })
+  const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc("Projects", projectId)
 
   const { data: projectCustomer, isLoading: projectCustomerLoading } = useFrappeGetDoc("Customers", data?.customer, `Customers ${data?.customer}`)
 
@@ -58,7 +55,7 @@ const Project = () => {
   return (
     <div>
       {(isLoading || projectCustomerLoading || po_item_loading) && <Skeleton className="w-[30%] h-10" />}
-      {data && <ProjectView projectId={projectId} data={data} projectCustomer={projectCustomer} po_item_data={po_item_data?.message?.po_items} />}
+      {data && <ProjectView projectId={projectId} data={data} project_mutate={project_mutate} projectCustomer={projectCustomer} po_item_data={po_item_data?.message?.po_items} />}
     </div>
   )
 }
@@ -67,6 +64,7 @@ const Project = () => {
 interface ProjectViewProps {
   projectId: string | undefined
   data: any
+  project_mutate: any
   //mile_data?: any
   projectCustomer: any
   //projectAssignees?: any
@@ -96,15 +94,23 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: ProjectViewProps) => {
+const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
 
+  const { role } = useUserData()
   const [selectedUser, setSelectedUser] = useState(null)
   const [userOptions, setUserOptions] = useState([])
+
+  const [newStatus, setNewStatus] = useState<string>("")
+  const [open, setOpen] = useState(false)
+  const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false)
+
   const { createDoc, loading: createDocLoading } = useFrappeCreateDoc()
+  const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc()
+  const [statusCounts, setStatusCounts] = useState({})
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList("Project Work Milestones", {
     fields: ["*"],
-    filters: [["project", "=", `${projectId}`]],
+    filters: [["project", "=", projectId]],
     limit: 1000,
     orderBy: { field: "start_date", order: "asc" }
   },
@@ -113,6 +119,12 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
       revalidateIfStale: false
     }
   )
+
+  const { data: project_estimates, isLoading: project_estimates_loading, error: project_estimates_error } = useFrappeGetDocList("Project Estimates", {
+    fields: ["*"],
+    filters: [["project", "=", projectId]],
+    limit: 1000
+  })
 
   const [selectedPackage, setSelectedPackage] = useState("");
 
@@ -131,8 +143,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
   const { data: usersList, isLoading: usersListLoading, mutate: usersListMutate } = useFrappeGetDocList("Nirmaan Users", {
     fields: ["*"],
     limit: 1000
-  },
-    "Nirmaan Users"
+  }
   )
 
   const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList("Procurement Requests", {
@@ -142,7 +153,6 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
   },
     `Procurement Requests ${projectId}`
   )
-
 
   const getUserFullName = (id) => {
     if (id === "Administrator") return id
@@ -160,6 +170,17 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
     `Procurement Orders ${projectId}`
   )
 
+  const { data: allServiceRequestsData, isLoading: allServiceRequestsDataLoading } = useFrappeGetDocList("Service Requests", {
+    fields: ["*"],
+    filters: [["project", "=", projectId]],
+    limit: 1000
+  })
+
+  const { data: serviceRequestsData, isLoading: sRloading } = useFrappeGetDocList("Service Requests", {
+    fields: ["*"],
+    filters: [["status", "=", "Approved"], ["project", "=", projectId]],
+    limit: 1000
+  })
 
   useEffect(() => {
     if (usersList && projectAssignees) {
@@ -185,7 +206,8 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
           const poTotal = po.order_list.list.reduce((itemAcc, item) => {
             const baseAmount = item.quote * item.quantity
             const taxAmount = baseAmount * (item.tax / 100)
-            return itemAcc + (baseAmount + taxAmount);
+            // return itemAcc + (baseAmount + taxAmount);
+            return itemAcc + baseAmount;
           }, 0);
           return acc + poTotal;
         }
@@ -266,18 +288,22 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
       label: 'Overview',
       key: 'overview',
     },
-    {
+    role === "Nirmaan Admin Profile" ? {
       label: 'Project Tracking',
       key: 'projectTracking',
-    },
+    } : null,
     {
       label: 'Procurement Summary',
       key: 'procurementSummary',
     },
     {
+      label: 'SR Summary',
+      key: 'SRSummary',
+    },
+    role === "Nirmaan Admin Profile" ? {
       label: 'PO Summary',
       key: 'POSummary',
-    },
+    } : null,
   ];
 
   const [areaNames, setAreaNames] = useState(null)
@@ -365,30 +391,49 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
     return [...staticColumns, ...dynamicColumns];
   }, [mile_data]);
 
-  const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
+  const { data: quote_data } = useFrappeGetDocList("Quotation Requests",
     {
-      fields: ['item_id', 'quote'],
+      fields: ['name', 'item', 'quote'],
       limit: 10000
     });
 
   const getTotal = (order_id) => {
-    let total: number = 0;
-    const orderData = pr_data?.find(item => item.name === order_id)?.procurement_list;
-    // console.log("orderData", orderData)
-    orderData?.list.map((item: any) => {
-      const quotesForItem = quote_data
-        ?.filter(value => value.item_id === item.name && value.quote != null)
-        ?.map(value => value.quote);
-      let minQuote;
-      if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
-      total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
-    })
+    let total = 0;
+
+    const procurementRequest = pr_data?.find(item => item.name === order_id);
+    const orderData = procurementRequest?.procurement_list;
+
+    const status = statusRender(procurementRequest?.status, order_id);
+
+    if (status === "Approved PO") {
+      const filteredPOs = po_data?.filter(po => po.procurement_request === order_id) || [];
+
+      filteredPOs.forEach(po => {
+        po.order_list?.list.forEach(item => {
+          if (item.quote && item.quantity) {
+            total += parseFloat(item.quote) * item.quantity;
+          }
+        });
+      });
+    } else {
+      orderData?.list.forEach(item => {
+        const quotesForItem = quote_data
+          ?.filter(value => value.item === item.name && value.quote != null)
+          ?.map(value => value.quote);
+
+        let minQuote;
+        if (quotesForItem && quotesForItem.length) minQuote = Math.min(...quotesForItem);
+        total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+      });
+    }
+
     return total || "N/A";
-  }
+  };
+
 
   const getItemStatus = (item: any, filteredPOs: any[]) => {
     return filteredPOs.some(po =>
-      po.order_list?.list.some(poItem => poItem.name === item.name)
+      po?.order_list?.list.some(poItem => poItem?.name === item.name)
     );
   };
 
@@ -401,11 +446,23 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
       return "New PR";
     }
 
-    const filteredPOs = po_data?.filter(po => po.procurement_request === prId) || [];
+    const filteredPOs = po_data?.filter(po => po?.procurement_request === prId) || [];
     const allItemsApproved = itemList.every(item => { return getItemStatus(item, filteredPOs); });
 
     return allItemsApproved ? "Approved PO" : "Open PR";
   };
+
+  useEffect(() => {
+    if (pr_data) {
+      const statusCounts = { "New PR": 0, "Open PR": 0, "Approved PO": 0 };
+      pr_data?.forEach((pr) => {
+        const status = statusRender(pr?.workflow_state, pr?.name)
+        statusCounts[status] += 1
+
+      })
+      setStatusCounts(statusCounts)
+    }
+  }, [pr_data])
 
   const statusOptions = [
     { label: "New PR", value: "New PR" },
@@ -507,7 +564,101 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
     }
   ]
 
+  const getSRTotal = (order_id: string) => {
+    let total: number = 0;
+    const orderData = allServiceRequestsData?.find(item => item.name === order_id)?.service_order_list;
+    orderData?.list.map((item) => {
+      const price = item.rate * item.quantity;
+      total += price ? parseFloat(price) : 0
+    })
+    return total;
+  }
+
+  const srSummaryColumns = useMemo(
+    () => [
+      {
+        accessorKey: "name",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="SR Number" />
+          )
+        },
+        cell: ({ row }) => {
+          const srId = row.getValue("name")
+          return (
+            <div className="font-medium">
+              {srId?.slice(-5)}
+            </div>
+          )
+        }
+      },
+      {
+        accessorKey: "creation",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Date" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="font-medium">
+              {formatDate(row.getValue("creation")?.split(" ")[0])}
+            </div>
+          )
+        }
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Status" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="font-medium">
+              {row.getValue("status")}
+            </div>
+          )
+        }
+      },
+      {
+        accessorKey: "service_category_list",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Categories" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="flex flex-col gap-1 items-start justify-center">
+              {row.getValue("service_category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+            </div>
+          )
+        }
+      },
+      {
+        id: "total",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Estimated Price" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="font-medium">
+              {formatToIndianRupee(getSRTotal(row.getValue("name")))}
+            </div>
+          )
+        }
+      }
+
+    ],
+    [projectId, allServiceRequestsData]
+  )
+
   const [current, setCurrent] = useState('overview')
+  const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState({});
 
   const onClick: MenuProps['onClick'] = (e) => {
     setCurrent(e.key);
@@ -558,14 +709,14 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
       document.getElementById("assignUserDialogClose")?.click()
       toast({
         title: "Success!",
-        description: `Successfully assigned ${getUserFullName(selectedUser)}`,
+        description: `Successfully assigned ${getUserFullName(selectedUser)}.`,
         variant: "success"
       })
     } catch (error) {
       console.log("error", error)
       toast({
         title: "Failed!",
-        description: `Failed to assign ${getUserFullName(selectedUser)}`,
+        description: `Failed to assign ${getUserFullName(selectedUser)}.`,
         variant: "destructive"
       })
     } finally {
@@ -574,15 +725,24 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
   }
 
   const groupItemsByWorkPackageAndCategory = (items) => {
-    return items?.reduce((acc, item) => {
+    const totals = {};
+
+    const groupedData = items?.reduce((acc, item) => {
       const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
       const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
-      const amountWithTax = baseAmount + taxAmount;
+      const amountPlusTax = baseAmount + taxAmount;
+
+      if (totals[item.work_package]) {
+        const { amountWithTax, amountWithoutTax } = totals[item.work_package]
+        totals[item.work_package] = { amountWithTax: amountPlusTax + amountWithTax, amountWithoutTax: amountWithoutTax + baseAmount }
+      } else {
+        totals[item.work_package] = { amountWithTax: amountPlusTax, amountWithoutTax: baseAmount }
+        // totals[item.work_package] = amountWithTax;
+      }
 
       if (!acc[item.work_package]) {
         acc[item.work_package] = {};
       }
-
       if (!acc[item.work_package][item.category]) {
         acc[item.work_package][item.category] = [];
       }
@@ -593,20 +753,32 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
 
       if (existingItem) {
         existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
-        existingItem.amount += amountWithTax;
+        existingItem.amount += baseAmount;
+        existingItem.amountWithTax += amountPlusTax
       } else {
         acc[item.work_package][item.category].push({
           ...item,
-          amount: amountWithTax
+          amount: baseAmount,
+          amountWithTax: amountPlusTax,
         });
       }
 
       return acc;
     }, {});
+
+    return { groupedData, totals };
   };
 
-  // Usage
-  const categorizedData = groupItemsByWorkPackageAndCategory(po_item_data);
+  useEffect(() => {
+    const { totals } = groupItemsByWorkPackageAndCategory(po_item_data);
+    setWorkPackageTotalAmounts(totals);
+  }, [po_item_data]);
+
+  const { groupedData: categorizedData } = groupItemsByWorkPackageAndCategory(po_item_data);
+
+  // console.log("workPackageTotals", workPackageTotalAmounts)
+
+  // console.log("groupeddata", categorizedData)
 
   // const categoryTotals = po_item_data?.reduce((acc, item) => {
   //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
@@ -661,14 +833,194 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
 
   // const chartData = getChartData(po_item_data); // Now ready for use in Recharts
 
-  const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
+  const [popOverOpen, setPopOverOpen] = useState(false)
+
+  const setPopOverStatus = () => {
+    setPopOverOpen(prevState => !prevState)
+  }
+
+  // const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
+
+  // workPackages.push({work_package_name : "Tool & Equipments"})
+
+  const [options, setOptions] = useState(null)
+
+  useEffect(() => {
+    if (data) {
+      const workPackages = JSON.parse(data?.project_work_packages)?.work_packages || [];
+      const options = []
+      options.push({ label: "All", value: "All" })
+      workPackages?.forEach((wp) => {
+        const option = { label: wp?.work_package_name, value: wp?.work_package_name }
+        options?.push(option)
+      })
+
+      options?.push({ label: "Tool & Equipments", value: "Tool & Equipments" })
+      options?.push({ label: "Services", value: "Services" })
+
+      setOptions(options)
+      setSelectedPackage("All")
+    }
+  }, [data])
+
+  // useEffect(() => {
+  //   if (workPackages) {
+  //     setSelectedPackage(workPackages[0]?.work_package_name)
+  //   }
+  // }, [])
+
+
+  const handleStatusChange = (value: string) => {
+    if (value === data?.status) {
+      setPopOverStatus()
+      return
+    }
+    if (projectStatuses.some(s => s.value === value)) {
+      setNewStatus(value)
+      setShowStatusChangeDialog(true)
+    }
+  }
+
+  const segregateServiceOrderData = (serviceRequestsData) => {
+    const result = [];
+    const servicesEstimates = project_estimates?.filter((p) => p?.work_package === "Services")
+
+    serviceRequestsData?.forEach(serviceRequest => {
+      serviceRequest.service_order_list.list?.forEach(item => {
+        const { category, uom, quantity, rate } = item;
+        const amount = parseFloat(quantity) * parseFloat(rate);
+
+        const existingCategory = result.find((entry) => entry[category]);
+
+        const estimateItem = servicesEstimates?.filter((i) => i?.category === category)
+
+        const estimate_total = estimateItem?.reduce((acc, i) => acc + (i?.quantity_estimate * i?.rate_estimate), 0)
+
+        if (existingCategory) {
+          existingCategory[category].quantity += parseFloat(quantity);
+          existingCategory[category].amount += amount;
+          existingCategory[category].children.push({ ...item, amount: amount })
+        } else {
+          result.push({
+            [category]: {
+              key: uuidv4(),
+              unit: uom,
+              quantity: parseFloat(quantity),
+              amount: amount,
+              children: [{ ...item, amount: amount }],
+              estimate_total: estimate_total
+            }
+          });
+        }
+      });
+    });
+
+    return result;
+  };
+
+  const segregatedServiceOrderData = useMemo(() => segregateServiceOrderData(serviceRequestsData), [serviceRequestsData]);
+
+  const totalServiceOrdersAmt = segregatedServiceOrderData?.reduce((acc, item) => {
+    const category = Object.keys(item)[0];
+    const { amount } = item[category];
+    return acc + parseFloat(amount)
+  }, 0)
+
+  // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt)
+
+
+  // console.log("service requests", serviceRequestsData)
+
+  // console.log("segregatedServicedata", segregatedServiceOrderData)
+
+  const handleConfirmStatus = async () => {
+    try {
+      await updateDoc("Projects", data?.name, { status: newStatus })
+      await project_mutate()
+      toast({
+        title: "Success!",
+        description: `Successfully changed status to ${newStatus}.`,
+        variant: "success"
+      })
+    } catch (error) {
+      console.log("error", error)
+      toast({
+        title: "Failed!",
+        description: `Failed to change status to ${newStatus}.`,
+        variant: "destructive"
+      })
+    } finally {
+      setShowStatusChangeDialog(false)
+    }
+  }
+
+  const handleCancelStatus = () => {
+    setNewStatus("")
+    setShowStatusChangeDialog(false)
+  }
+
+  const statusIcon = projectStatuses.find((s) => s.value === data?.status)?.icon
+
+  // console.log("options", options)
+
+  // console.log("selectedPackage", selectedPackage)
+
+  // console.log("projectEstimates", project_estimates)
 
   return (
     <div className="flex-1 space-y-4">
-      <div className="flex items-center">
-        <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-        <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
-        <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
+      <div className="flex items-center justify-between max-md:flex-col max-md:gap-4 max-md:items-start">
+        <div className="flex items-center">
+          <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
+          <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
+          {role === "Nirmaan Admin Profile" && <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />}
+        </div>
+        <div className="flex max-sm:text-xs max-md:text-sm items-center max-md:justify-between max-md:w-full">
+          {role === "Nirmaan Admin Profile" &&
+            (
+              <>
+                <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
+                  <PopoverTrigger asChild>
+                    <Button variant='outline' role="combobox" aria-expanded={open} className="w-48 flex justify-between">
+                      <span className="font-bold text-md">Status: </span>
+                      <div className={`flex items-center gap-2 ${projectStatuses.find((s) => s.value === data?.status)?.color || "text-gray-500"}`}>{statusIcon && React.createElement(statusIcon, { className: 'h-4 w-4' })}{projectStatuses.find((s) => s.value === data?.status)?.label || "Not Set"}</div>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-40 p-0">
+                    <Command>
+                      <CommandList>
+                        <CommandGroup>
+                          {projectStatuses.map((s) => (
+                            <CommandItem key={s.value} value={s.value} onSelect={() => handleStatusChange(s.value)}>
+                              {/* <Check className={cn("mr-2 h-4 w-4", status === s.value ? "opacity-100" : "opacity-0")} /> */}
+                              {s.label}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                <AlertDialog open={showStatusChangeDialog} onOpenChange={setShowStatusChangeDialog}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action will change the status from "
+                        {data.status} "
+                        to "{projectStatuses.find((s) => s.value === newStatus)?.label || "Unknown"}".
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel onClick={handleCancelStatus}>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleConfirmStatus}>Continue</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>)}
+          <CustomHoverCard totalPosRaised={totalPosRaised} totalServiceOrdersAmt={totalServiceOrdersAmt} categorizedData={categorizedData} workPackageTotalAmounts={workPackageTotalAmounts} />
+        </div>
       </div>
       <div className="flex justify-between items-center">
         <div className="w-full">
@@ -688,11 +1040,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
         </div>
 
         {/* {totalPosRaised && ( */}
-        <div className="flex max-sm:text-xs max-md:text-sm max-sm:flex-wrap">
-          <span className=" whitespace-nowrap">Total PO's raised</span>
-          <span>: </span>
-          <span className="max-sm:text-end max-sm:w-full text-primary">{formatToIndianRupee(totalPosRaised())}</span>
-        </div>
+
         {/* )} */}
       </div>
 
@@ -703,7 +1051,10 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
           <Card>
             <CardHeader>
               <CardTitle>
-                {data?.project_name}
+                <div className="flex justify-between items-center">
+                  {data?.project_name}
+                  <Button onClick={() => navigate('add-estimates')}><CirclePlus className="h-4 w-4 mr-2" /> Add Project Estimates</Button>
+                </div>
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-10 w-full">
@@ -775,7 +1126,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">Assignees
-                <Dialog>
+                {role === "Nirmaan Admin Profile" && <Dialog>
                   <DialogTrigger asChild>
                     <Button asChild>
                       <div className="cursor-pointer"><CirclePlus className="w-5 h-5 mt- pr-1 " />Assign User</div>
@@ -823,7 +1174,7 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
                       close
                     </DialogClose>
                   </DialogContent>
-                </Dialog>
+                </Dialog>}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -900,35 +1251,118 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
 
       {
         current === "procurementSummary" && (
-          prData_loading ? (<TableSkeleton />) :
-            <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} />
+          <div>
+            <Card className="flex border border-gray-100 rounded-lg p-4">
+              <CardContent className="w-full flex flex-row items-center justify-around">
+                {/* <CardHeader className=" w-full"> */}
+                {Object.entries(statusCounts)?.map(([status, count]) => (
+                  <div className="flex items-center gap-1 pt-3">
+                    <h3 className="font-semibold">{status}: </h3>
+                    <p className="italic">{count}</p>
+                  </div>
+                ))}
+                {/* </CardHeader> */}
+              </CardContent>
+            </Card>
+            {prData_loading ? (<TableSkeleton />) :
+              <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} />
+            }
+          </div>
         )
       }
 
       {current === "POSummary" && (
         <>
-          <div className="w-full">
-            <Select
-              value={selectedPackage}
-              onValueChange={(value) => setSelectedPackage(value)}
-            >
-              <SelectTrigger id="work-package-dropdown" className="w-full">
-                <SelectValue placeholder="Choose a work package" />
-              </SelectTrigger>
+          {
+            options && (
+              <Radio.Group
+                block
+                options={options}
+                defaultValue="All"
+                optionType="button"
+                buttonStyle="solid"
+                onChange={(e) => setSelectedPackage(e.target.value)}
+              />
+            )
+          }
+          {/* <div className="w-full flex flex-col gap-2">
+            <div className="flex gap-2 items-center">
+              <h2 className="font-semibold text-gray-500">Work Packages</h2>
+              <ArrowDown className="w-4 h-4" />
+            </div> */}
+          {/* {selectedPackage && (
+              <Select
+                value={selectedPackage}
+                onValueChange={(value) => setSelectedPackage(value)}
+              >
+                <SelectTrigger id="work-package-dropdown" className="w-full">
+                  <SelectValue placeholder="Choose a work package" />
+                </SelectTrigger>
 
-              <SelectContent>
-                {workPackages.map((packageItem, index) => (
-                  <SelectItem key={index} value={packageItem.work_package_name}>
-                    {packageItem.work_package_name}
-                  </SelectItem>
+                <SelectContent>
+                  {workPackages.map((packageItem, index) => (
+                    <SelectItem key={index} value={packageItem.work_package_name}>
+                      {packageItem.work_package_name}
+                      <div className="flex space-x-4 text-sm text-gray-600">
+                        <span className="font-semibold">{packageItem.work_package_name}:</span>
+                        <span>Total Amount: {formatToIndianRupee(workPackageTotalAmounts?.[packageItem.work_package_name]?.amountWithoutTax)}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )} */}
+          {/* </div> */}
+          {(selectedPackage && !["All", "Services"].includes(selectedPackage)) && (
+            <CategoryAccordion categorizedData={categorizedData} selectedPackage={selectedPackage} projectEstimates={project_estimates?.filter((i) => i?.work_package === selectedPackage) || []} />
+          )}
+
+          {selectedPackage === "All" && (
+            <>
+              <div>
+                <div className="flex gap-2 items-center">
+                  <h2 className="font-semibold text-gray-500">Work Packages</h2>
+                  <ArrowDown className="w-4 h-4" />
+                </div>
+                {JSON.parse(data?.project_work_packages)?.work_packages?.map((wp) => (
+                  <div key={wp?.work_package_name}>
+                    <h3 className="text-sm font-semibold py-4">{wp?.work_package_name}</h3>
+                    <CategoryAccordion categorizedData={categorizedData} selectedPackage={wp?.work_package_name} projectEstimates={project_estimates?.filter((i) => i?.work_package === wp?.work_package_name) || []} />
+                  </div>
                 ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {selectedPackage ? (
-            <CategoryAccordion categorizedData={categorizedData} selectedPackage={selectedPackage} />
-          ) : <div className="h-[40vh] flex items-center justify-center"> Please select a Work Package</div>}
+              </div>
+              <Separator />
+              <div>
+                <div className="flex gap-2 items-center mb-4">
+                  <h2 className="font-semibold text-gray-500">Tools & Equipments</h2>
+                  <ArrowDown className="w-4 h-4" />
+                </div>
+                <div>
+                  <ToolandEquipementAccordion projectEstimates={project_estimates} categorizedData={categorizedData} />
+                </div>
+              </div>
+              <Separator />
+            </>
+          )}
+
+          {["All", "Services"].includes(selectedPackage) && (
+            <div>
+              {selectedPackage === "All" && (
+                <div className="flex gap-2 items-center mb-4">
+                  <h2 className="font-semibold text-gray-500">Service Requests</h2>
+                  <ArrowDown className="w-4 h-4" />
+                </div>
+              )}
+              <div>
+                <ServiceRequestsAccordion projectEstimates={project_estimates} segregatedData={segregatedServiceOrderData} />
+              </div>
+            </div>
+          )}
         </>
+      )}
+
+      {current === "SRSummary" && (
+        <DataTable columns={srSummaryColumns} data={allServiceRequestsData || []} />
       )}
 
       <div className="hidden">
@@ -1214,7 +1648,6 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
                   </tr>
                 )}
               </tbody>
-
             </table>
           </div>
         </div>
@@ -1225,9 +1658,104 @@ const ProjectView = ({ projectId, data, projectCustomer, po_item_data }: Project
 }
 
 
-const CategoryAccordion = ({ categorizedData, selectedPackage }) => {
+const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates }) => {
 
   const selectedData = categorizedData[selectedPackage] || null;
+
+  const defaultValues = selectedData && Object.keys(selectedData)
+
+  // console.log("defaultValues", defaultValues)
+
+  return (
+    <div className="w-full">
+      {selectedData ? (
+        <div className="flex flex-col gap-4">
+          {defaultValues?.length > 0 && (
+            <Accordion type="multiple" className="space-y-4" defaultValue={defaultValues || []}>
+              {Object.entries(selectedData).map(([category, items]) => {
+                const totalAmount = items.reduce((sum, item) =>
+                  sum + parseFloat(item?.amount),
+                  0
+                );
+
+                const categoryEstimates = projectEstimates?.filter((i) => i?.category === category)
+                const totalCategoryEstdAmt = categoryEstimates?.reduce((sum, item) =>
+                  sum + parseFloat(item?.rate_estimate) * parseFloat(item?.quantity_estimate) * (1 + parseFloat(item?.item_tax) / 100),
+                  0
+                )
+                return (
+                  <AccordionItem key={category} value={category} defaultChecked className="border-b rounded-lg shadow">
+                    <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
+                      <div className="flex space-x-4 text-sm text-gray-600">
+                        <span className="font-semibold">{category}:</span>
+                        <span>Total Amount: ₹{totalAmount.toLocaleString()}</span>
+                        <span>Total Estd Amount: {formatToIndianRupee(totalCategoryEstdAmt)}</span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <Table className="min-w-full text-left text-sm">
+                        <TableHeader>
+                          <TableRow className="bg-gray-100 text-gray-700">
+                            <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Actual Amt</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {items?.map((item) => {
+                            const estimateItem = projectEstimates?.find((i) => i?.item === item?.item_id);
+                            const quantityDif = item?.quantity - estimateItem?.quantity_estimate
+                            let dynamicQtyClass = null;
+
+                            if (estimateItem) {
+                              if (quantityDif > 0) {
+                                dynamicQtyClass = "text-primary"
+                              } else if (quantityDif < 0 && Math.abs(quantityDif) < 5) {
+                                dynamicQtyClass = "text-yellow-600"
+                              } else if (quantityDif === 0) {
+                                dynamicQtyClass = "text-green-500"
+                              } else {
+                                dynamicQtyClass = "text-blue-500"
+                              }
+                            }
+
+                            return <TableRow key={item.item_id}>
+                              <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
+                              <TableCell className="px-4 py-2">{item.item_name}</TableCell>
+                              <TableCell className="px-4 py-2">{item.unit}</TableCell>
+                              <TableCell className={`px-4 py-2 ${dynamicQtyClass}`}>{item.quantity}</TableCell>
+                              <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
+                              <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
+                              {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
+                              <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
+                            </TableRow>
+                          })}
+                        </TableBody>
+                      </Table>
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          )}
+        </div>
+      ) : (
+        <div className="h-[10vh] flex items-center justify-center">No Results.</div>
+      )}
+    </div>
+  );
+};
+
+
+const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
+
+  const selectedData = categorizedData["Tool & Equipments"] || null;
+
+  const toolandEquipEstimates = projectEstimates?.filter((p) => p?.work_package === "Tool & Equipments")
 
   return (
     <div className="w-full">
@@ -1236,15 +1764,22 @@ const CategoryAccordion = ({ categorizedData, selectedPackage }) => {
           <Accordion type="multiple" className="space-y-4">
             {Object.entries(selectedData).map(([category, items]) => {
               const totalAmount = items.reduce((sum, item) =>
-                sum + parseFloat(item.quote) * parseFloat(item.quantity) * (1 + parseFloat(item.tax) / 100),
+                sum + parseFloat(item?.amount),
                 0
               );
+
+              // const categoryEstimates = projectEstimates?.filter((i) => i?.category === category)
+              // const totalCategoryEstdAmt = categoryEstimates?.reduce((sum, item) => 
+              //   sum + parseFloat(item?.rate_estimate) * parseFloat(item?.quantity_estimate) * (1 + parseFloat(item?.item_tax) / 100),
+              // 0
+              // )
               return (
                 <AccordionItem key={category} value={category} className="border-b rounded-lg shadow">
                   <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
                     <div className="flex space-x-4 text-sm text-gray-600">
                       <span className="font-semibold">{category}:</span>
                       <span>Total Amount: ₹{totalAmount.toLocaleString()}</span>
+                      {/* <span>Total Estd Amount: {formatToIndianRupee(totalCategoryEstdAmt)}</span> */}
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>
@@ -1253,21 +1788,42 @@ const CategoryAccordion = ({ categorizedData, selectedPackage }) => {
                         <TableRow className="bg-gray-100 text-gray-700">
                           <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
                           <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Qty</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {items?.map((item) => (
-                          <TableRow key={item.item_id}>
+                        {items?.map((item) => {
+                          const estimateItem = toolandEquipEstimates?.find((i) => i?.item === item?.item_id);
+                          // const quantityDif = item?.quantity - estimateItem?.quantity_estimate
+                          // let dynamicQtyClass = null;
+
+                          // if(estimateItem) {
+                          //   if(quantityDif > 0) {
+                          //     dynamicQtyClass = "text-primary"
+                          //   } else if (quantityDif < 0 && Math.abs(quantityDif) < 5) {
+                          //     dynamicQtyClass = "text-yellow-600"
+                          //   } else if(quantityDif === 0) {
+                          //     dynamicQtyClass = "text-green-500"
+                          //   } else {
+                          //     dynamicQtyClass = "text-blue-500"
+                          //   }
+                          // }
+
+                          // console.log("estimateItme", estimateItem)
+                          return <TableRow key={item.item_id}>
                             <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
                             <TableCell className="px-4 py-2">{item.item_name}</TableCell>
-                            <TableCell className="px-4 py-2">{item.quantity}</TableCell>
                             <TableCell className="px-4 py-2">{item.unit}</TableCell>
+                            <TableCell className={`px-4 py-2`}>{item.quantity}</TableCell>
+                            <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
                             <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
+                            <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
                           </TableRow>
-                        ))}
+                        })}
                       </TableBody>
                     </Table>
                   </AccordionContent>
@@ -1277,11 +1833,168 @@ const CategoryAccordion = ({ categorizedData, selectedPackage }) => {
           </Accordion>
         </div>
       ) : (
-        <div className="h-[60vh] flex items-center justify-center">No Results.</div>
+        <div className="h-[10vh] flex items-center justify-center">No Results.</div>
       )}
     </div>
   );
 };
 
 
+const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) => {
+  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
 
+  useEffect(() => {
+    if (segregatedData) {
+      setExpandedRowKeys(Object.keys(segregatedData));
+    }
+  }, [segregatedData]);
+
+  // Main table columns
+  const columns = [
+    {
+      title: "Category",
+      dataIndex: "category",
+      key: "category",
+      width: "60%",
+      render: (text) => <strong className="text-primary">{text}</strong>,
+    },
+    {
+      title: "Amount",
+      dataIndex: "amount",
+      key: "amount",
+      width: "20%",
+      render: (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>
+    },
+    {
+      title: "Estd. Amount",
+      dataIndex: "estimate_total",
+      key: "estimate_total",
+      width: "30%",
+      render: (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>
+    },
+  ];
+
+  const innerColumns = [
+    {
+      title: "Description",
+      dataIndex: "description",
+      key: "description",
+      width: "40%",
+    },
+    {
+      title: "Unit",
+      dataIndex: "uom",
+      key: "unit",
+      width: "20%",
+    },
+    {
+      title: "Quantity",
+      dataIndex: "quantity",
+      key: "quantity",
+      width: "20%",
+    },
+    {
+      title: "Amount",
+      dataIndex: "amount",
+      key: "amount",
+      width: "20%",
+      render: (text) => <span className="italic">{text ? formatToIndianRupee(text) : "--"}</span>,
+    },
+  ];
+
+  return (
+    <div className="w-full">
+      {segregatedData?.length > 0 ? (
+        <div className="pt-6 overflow-x-auto">
+          <ConfigProvider>
+            <AntTable
+              dataSource={segregatedData.map((key) => ({
+                key: Object.values(key)[0]?.key,
+                amount: Object.values(key)[0]?.amount,
+                estimate_total: Object.values(key)[0]?.estimate_total,
+                category: Object.keys(key)[0],
+                items: Object.values(key)[0]?.children,
+              }))}
+              columns={columns}
+              expandable={{
+                expandedRowKeys,
+                onExpandedRowsChange: setExpandedRowKeys,
+                expandedRowRender: (record) => (
+                  <AntTable
+                    dataSource={record.items}
+                    columns={innerColumns}
+                    pagination={false}
+                    rowKey={(item) => item.id || uuidv4()}
+                  />
+                ),
+              }}
+              rowKey="key"
+            />
+          </ConfigProvider>
+        </div>
+      ) : (<div className="h-[10vh] flex items-center justify-center">No Results.</div>)}
+    </div>
+  );
+};
+
+
+
+const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedData, workPackageTotalAmounts }) => {
+  // Generate tree data for the Tree component
+  const generateTreeData = () => {
+    const treeData = categorizedData && Object.entries(categorizedData)?.map(([workPackage, categories]) => {
+      // Children for each category in the work package
+      const categoryNodes = Object.entries(categories).map(([category, items]) => {
+        const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+        const totalAmountWithTax = items.reduce((sum, item) => sum + item.amountWithTax, 0);
+
+        return {
+          title: `${category}: ₹${parseFloat(totalAmountWithTax).toLocaleString()} (Base: ₹${parseFloat(totalAmount).toLocaleString()})`,
+          key: `${workPackage}-${category}`,
+          children: items.map((item, index) => ({
+            title: `${item.item_name} - Qty: ${item.quantity}`,
+            key: `${workPackage}-${category}-${index}`,
+          })),
+        };
+      });
+
+      return {
+        title: `${workPackage} - Total: ₹${parseFloat(workPackageTotalAmounts[workPackage]?.amountWithoutTax).toLocaleString()}`,
+        key: workPackage,
+        children: categoryNodes,
+      };
+    });
+
+    // Add service requests total as a standalone item
+    treeData?.push({
+      title: `Service Requests Total: ₹${parseFloat(totalServiceOrdersAmt).toLocaleString()}`,
+      key: 'service-requests-total',
+    });
+
+    return treeData;
+  };
+
+  return (
+    <HoverCard>
+      <HoverCardTrigger>
+        <div className="ml-2 underline">
+          <span className="whitespace-nowrap">Total Spent: </span>
+          <span className="max-sm:text-end max-sm:w-full text-primary">
+            {formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}
+          </span>
+        </div>
+      </HoverCardTrigger>
+      <HoverCardContent>
+        <div className="">
+          <h3 className="font-semibold text-lg mb-2">Total Spent Breakdown</h3>
+          <Tree
+            showLine
+            switcherIcon={<DownOutlined />}
+            defaultExpandedKeys={['0-0']}
+            treeData={generateTreeData()}
+          />
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  );
+};

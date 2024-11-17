@@ -1,0 +1,133 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-11-04 17:24:04.333052",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "service_request_links_section",
+  "project",
+  "vendor",
+  "service_request_details_section",
+  "service_order_list",
+  "service_category_list",
+  "status",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "service_request_links_section",
+   "fieldtype": "Section Break",
+   "label": "Service Request Links"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "service_request_details_section",
+   "fieldtype": "Section Break",
+   "label": "Service Request Details"
+  },
+  {
+   "fieldname": "service_order_list",
+   "fieldtype": "JSON",
+   "label": "Service Order List"
+  },
+  {
+   "fieldname": "service_category_list",
+   "fieldtype": "JSON",
+   "label": "Service Category List"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "JSON",
+   "label": "Notes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-11-13 18:01:23.763817",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Service Requests",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

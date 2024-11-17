@@ -55,7 +55,7 @@ export default function Vendors() {
                     return (
                         <div className="font-medium">
                             <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/vendors/${row.getValue("name")}`}>
-                                {row.getValue("name").slice(-4)}
+                                {row.getValue("vendor_type") === "Material" ? "M" : "S"}-{row.getValue("name").slice(-4)}
                             </Link>
                         </div>
                     )

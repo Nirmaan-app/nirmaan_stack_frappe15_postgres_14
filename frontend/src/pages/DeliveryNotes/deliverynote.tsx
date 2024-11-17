@@ -457,10 +457,10 @@ import { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Check, ArrowLeft, X, ArrowUp, ArrowDown, Printer, Pencil, ListChecks, Undo2, CheckCheck } from "lucide-react";
+import { Check, ArrowLeft, X, ArrowUp, ArrowDown, Printer, Pencil, ListChecks, Undo2, CheckCheck, Paperclip } from "lucide-react";
 import { Badge } from '@/components/ui/badge';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from 'frappe-react-sdk';
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from 'frappe-react-sdk';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 // import { z } from "zod";
 import { useToast } from '@/components/ui/use-toast';
@@ -478,10 +478,12 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { useUserData } from '@/hooks/useUserData';
 
 
 export default function DeliveryNote() {
     const { id } = useParams();
+    const userData = useUserData();
     const poId = id?.replaceAll("&=", "/");
     const { data, isLoading, mutate: poMutate } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
     const [order, setOrder] = useState(null);
@@ -501,12 +503,17 @@ export default function DeliveryNote() {
     const [projectAddress, setProjectAddress] = useState()
     const [vendorAddress, setVendorAddress] = useState()
     const [show, setShow] = useState(false)
+    const [selectedFile, setSelectedFile] = useState(null);
+
+    const { call, loading : callLoading } = useFrappePostCall('frappe.client.set_value');
+    const  {createDoc} = useFrappeCreateDoc()
+    const { upload } = useFrappeFileUpload()
 
     useEffect(() => {
         if (data) {
             const parsedOrder = JSON.parse(data.order_list);
             setOrder(parsedOrder);
-            setModifiedOrder(parsedOrder); // Set a copy for user input tracking
+            setModifiedOrder(parsedOrder);
         }
     }, [data]);
 
@@ -539,6 +546,7 @@ export default function DeliveryNote() {
             const allDelivered = modifiedOrder.list.every(item => item.received === item.quantity);
 
             const noValueItems = modifiedOrder.list.filter(item => !item.received || item.received === 0);
+
             if (noValueItems.length > 0) {
                 document.getElementById("alertDialogOpen")?.click()
             } else {
@@ -546,6 +554,30 @@ export default function DeliveryNote() {
                     order_list: JSON.stringify(modifiedOrder),
                     status: allDelivered ? "Delivered" : "Partially Delivered",
                 });
+
+                if(selectedFile) {
+                    const doc = await createDoc("Delivery Note Attachments", {
+                        delivery_note: data?.name,
+                        project: data?.project,
+                    });
+    
+                    const fileArgs = {
+                        doctype: "Delivery Note Attachments",
+                        docname: doc.name,
+                        fieldname: "image",
+                        isPrivate: true
+                    };
+    
+                    const uploadResult = await upload(selectedFile, fileArgs);
+                    await call({
+                        doctype: "Delivery Note Attachments",
+                        name: doc.name,
+                        fieldname: "image",
+                        value: uploadResult.file_url
+                    });
+                    setSelectedFile(null)
+                }
+
                 await poMutate()
                 setShow(false)
                 toast({
@@ -580,6 +612,29 @@ export default function DeliveryNote() {
                 order_list: JSON.stringify(updatedOrder),
                 status: allDelivered ? "Delivered" : "Partially Delivered",
             });
+
+            if(selectedFile) {
+                const doc = await createDoc("Delivery Note Attachments", {
+                    delivery_note: data?.name,
+                    project: data?.project,
+                });
+
+                const fileArgs = {
+                    doctype: "Delivery Note Attachments",
+                    docname: doc.name,
+                    fieldname: "image",
+                    isPrivate: true
+                };
+
+                const uploadResult = await upload(selectedFile, fileArgs);
+                await call({
+                    doctype: "Delivery Note Attachments",
+                    name: doc.name,
+                    fieldname: "image",
+                    value: uploadResult.file_url
+                });
+                setSelectedFile(null)
+            }
             await poMutate()
             setShow(false)
             toast({
@@ -603,6 +658,10 @@ export default function DeliveryNote() {
         content: () => componentRef.current,
         documentTitle: `${(data?.name)?.toUpperCase().replace("PO", "DN")}_${data?.vendor_name}`
     });
+
+    const handleFileChange = (event) => {
+        setSelectedFile(event.target.files[0]);
+    };
 
     if (isLoading) return <div>...loading</div>;
 
@@ -647,9 +706,38 @@ export default function DeliveryNote() {
             <Card>
                 <CardHeader className='flex flex-row items-center justify-between'>
                     <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Item List</CardTitle>
-                    {!show && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)} className="flex items-center gap-1">
-                        <Pencil className="h-4 w-4" />
-                        Edit</Button>)}
+                    {["Nirmaan Project Manager Profile", "Nirmaan Admin Profile"].includes(userData?.role) &&
+                        (!show && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)} className="flex items-center gap-1">
+                            <Pencil className="h-4 w-4" />
+                            Edit</Button>))}
+                    {show && data?.status !== "Delivered" && (
+                        <div className="flex flex-col gap-2">
+                            <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-1 ${selectedFile && "opacity-50 cursor-not-allowed"}`}
+                                 onClick={() => document.getElementById("file-upload")?.click()}
+                            >
+                                <Paperclip size="15px" />
+                                <span className="p-0 text-sm">Attach</span>
+                                <input
+                                    type="file"
+                                    id={`file-upload`}
+                                    className="hidden"
+                                    onChange={handleFileChange}
+                                    disabled={selectedFile}
+                                />
+                            </div>
+                            {(selectedFile) && (
+                                <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
+                                    <span className="text-sm">{typeof(selectedFile) === "object" ? selectedFile.name : selectedFile}</span>
+                                    <button
+                                        className="ml-1 text-red-500"
+                                        onClick={() => setSelectedFile(null)}
+                                    >
+                                        ✖
+                                    </button>
+                                </div>
+                            )}
+                    </div>
+                    )}
                 </CardHeader>
                 <CardContent>
                     {show &&
@@ -689,7 +777,6 @@ export default function DeliveryNote() {
                                                     </span>
                                                 </div>
                                             )
-
                                         ) : (
                                             item.received !== item.quantity ? (
                                                 <div>
@@ -699,7 +786,6 @@ export default function DeliveryNote() {
                                                         onChange={(e) => handleReceivedChange(item.item, e.target.value)}
                                                         placeholder="Qty"
                                                     />
-
                                                     {/* <span className='text-sm font-light text-red-500'>{validateMessage[item.item]}</span> */}
                                                 </div>
                                             ) : (
@@ -751,7 +837,7 @@ export default function DeliveryNote() {
                                                 <div className="text-sm font-medium text-gray-900 max-w-[280px] truncate text-left">{data?.vendor_name}</div>
                                                 <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{vendorAddress}</div>
                                                 <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {data?.vendor_gst}</div>
-                                                
+
                                             </div>
                                             <div>
                                                 <div>

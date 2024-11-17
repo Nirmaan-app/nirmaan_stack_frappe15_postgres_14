@@ -6,7 +6,13 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-	plugins: [react(), VitePWA({registerType: 'autoUpdate'})],
+	plugins: [react(), VitePWA({
+		registerType: 'autoUpdate',
+		// injectRegister: 'auto',
+		// workbox: {
+		// 	sourcemap: true
+		// }
+	})],
 	optimizeDeps: {
 		include: ['@radix-ui/react-radio-group'],
 		exclude: ['chunk-OZV37PLF.js?v=193dfd67']
@@ -25,6 +31,7 @@ export default defineConfig({
 		outDir: '../nirmaan_stack/public/frontend',
 		emptyOutDir: true,
 		target: 'es2015',
+		// sourcemap: true,
 		rollupOptions: {
 			onwarn(warning, warn) {
 				if (warning.code === 'MODULE_LEVEL_DIRECTIVE') {

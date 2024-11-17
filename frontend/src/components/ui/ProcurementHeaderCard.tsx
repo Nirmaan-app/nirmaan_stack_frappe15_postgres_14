@@ -3,17 +3,25 @@ import { Card } from "./card"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
 import { useEffect, useState } from "react"
 import { useFrappeGetDoc } from "frappe-react-sdk"
+import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests"
+import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests"
 
-export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false }) => {
-  const [projectName, setProjectName] = useState(null)
-  const [userName, setUserName] = useState(null)
+interface ProcurementHeaderCardProps {
+  orderData?: any
+  sentBack?: boolean
+  sr?: boolean
+}
+
+export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false, sr = false }: ProcurementHeaderCardProps) => {
+  const [projectName, setProjectName] = useState<string | undefined>("")
+  const [userName, setUserName] = useState<string | undefined>("")
 
   const { data: projectData } = useFrappeGetDoc("Projects", projectName, projectName ? `Projects ${projectName}` : null)
   const { data: userData } = useFrappeGetDoc("Nirmaan Users", userName, (userName !== "Administrator") ? `Nirmaan Users ${userName}` : null)
 
-  function capitalizeFirstLetter(string) {
+  function capitalizeFirstLetter(string: string) {
     return string?.charAt(0).toUpperCase() + string?.slice(1).toLowerCase();
-}
+  }
 
   useEffect(() => {
     if (orderData) {
@@ -43,8 +51,8 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false 
             <h3 className="text-lg font-semibold text-gray-800 mb-2">Project Overview</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col">
-                <span className="text-sm text-gray-500">Project ID:</span>
-                <p className="text-base font-medium tracking-tight text-black">{projectData?.name?.split("-").splice(2).join()}</p>
+                <span className="text-sm text-gray-500">Project Name:</span>
+                <p className="text-base font-medium tracking-tight text-black">{projectData?.project_name}</p>
               </div>
               <div className="flex flex-col">
                 <span className="text-sm text-gray-500">Customer:</span>
@@ -90,15 +98,15 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false 
       </div>
       {!sentBack && (
         <div className="border-0 flex flex-col justify-center">
-        <p className="text-left py-1 font-light text-sm text-red-700">Package</p>
-        <p className="text-left font-bold py-1 text-base text-black">{orderData?.work_package}</p>
-      </div>
+          <p className="text-left py-1 font-light text-sm text-red-700">Package</p>
+          <p className="text-left font-bold py-1 text-base text-black">{sr ? "Services" : orderData?.work_package}</p>
+        </div>
       )}
       {sentBack && (
         <div className="border-0 flex flex-col justify-center">
-        <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
-        <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
-    </div>
+          <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
+          <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
+        </div>
       )}
       <div className="border-0 flex flex-col justify-center max-sm:hidden">
         <p className="text-left py-1 font-light text-sm text-red-700">{sentBack ? `${orderData?.type} By` : "Project Lead"}</p>

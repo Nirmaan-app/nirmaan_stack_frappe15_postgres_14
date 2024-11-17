@@ -62,9 +62,9 @@ const ApproveAmendPO = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (po_error || project_error || owner_error || versionsError) return <h1>Error</h1>
-    if(po_data?.status !== "PO Amendment") return (
+    if (po_data?.status !== "PO Amendment") return (
         <div className="flex items-center justify-center h-full">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
@@ -129,10 +129,9 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
 
     const [previousOrderList, setPreviousOrderList] = useState<any[]>([])
     const [amendedOrderList, setAmendedOrderList] = useState<any[]>([])
-
-    const extractOrderListFromVersions = () => {
-
-    }
+    const [comment, setComment] = useState('');
+    const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [actionType, setActionType] = useState<'approve' | 'revert'>('approve');
 
     useEffect(() => {
         if (versionsData) {
@@ -161,14 +160,11 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
 
     // console.log("previousOrderList", previousOrderList)
 
-    const [comment, setComment] = useState('');
-    const [isDialogOpen, setIsDialogOpen] = useState(false);
-    const [actionType, setActionType] = useState<'approve' | 'revert'>('approve');
 
     // console.log("comment", comment)
 
-    const { updateDoc } = useFrappeUpdateDoc()
-    const { createDoc } = useFrappeCreateDoc()
+    const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()
+    const { createDoc, loading: create_loading } = useFrappeCreateDoc()
 
     const { toast } = useToast();
 
@@ -371,17 +367,18 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                         onChange={(e) => setComment(e.target.value)}
                         placeholder="Add a comment (optional)"
                     />
-                    <div className="flex justify-end mt-4">
-                        <Button variant="outline" className="flex gap-1 items-center" onClick={() => setIsDialogOpen(false)}>
-                            <X className="h-4 w-4" />
-                            Cancel
-                        </Button>
+                    {(update_loading || create_loading) ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                        <div className="flex justify-end mt-4">
+                            <Button variant="outline" className="flex gap-1 items-center" onClick={() => setIsDialogOpen(false)}>
+                                <X className="h-4 w-4" />
+                                Cancel
+                            </Button>
 
-
-                        <Button onClick={handleAction} className="ml-2 flex gap-1 items-center">
-                            {actionType === 'approve' ? (<div className="flex gap-1 items-center"><CheckCheck className="h-4 w-4" /> Approve</div>) : (<div className="flex gap-1 items-center"><Undo2 className="h-4 w-4" /> Revert</div>)}
-                        </Button>
-                    </div>
+                            <Button onClick={handleAction} className="ml-2 flex gap-1 items-center">
+                                {actionType === 'approve' ? (<div className="flex gap-1 items-center"><CheckCheck className="h-4 w-4" /> Approve</div>) : (<div className="flex gap-1 items-center"><Undo2 className="h-4 w-4" /> Revert</div>)}
+                            </Button>
+                        </div>
+                    )}
                 </DialogContent>
             </Dialog>
         </div>
