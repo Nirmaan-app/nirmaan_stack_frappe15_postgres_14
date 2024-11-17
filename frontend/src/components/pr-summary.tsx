@@ -1,6 +1,6 @@
 import { useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ListChecks, MessageCircleMore, MessageCircleWarning, Settings2, Trash2, Undo2 } from 'lucide-react';
+import { ArrowLeft, FileSliders, ListChecks, MessageCircleMore, MessageCircleWarning, Settings2, Trash2, Undo2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { ProcurementRequests as ProcurementRequestsType } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
@@ -106,21 +106,21 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
 
     const getPOItemStatus = (item: any, filteredPOs: any[]) => {
         return filteredPOs.some(po =>
-          po.order_list?.list.some(poItem => poItem.name === item.name)
+            po.order_list?.list.some(poItem => poItem.name === item.name)
         );
-      };
-    
+    };
+
     const statusRender = (status: string) => {
 
-      const itemList = pr_data?.procurement_list?.list || [];
+        const itemList = pr_data?.procurement_list?.list || [];
 
-      if (["Approved", "RFQ Generated", "Quote Updated", "Vendor Selected"].includes(status)) {
-        return "Open PR";
-      }
+        if (["Approved", "RFQ Generated", "Quote Updated", "Vendor Selected"].includes(status)) {
+            return "Open PR";
+        }
 
-      const allItemsApproved = itemList.every(item => { return getPOItemStatus(item, po_data); });
+        const allItemsApproved = itemList.every(item => { return getPOItemStatus(item, po_data); });
 
-      return allItemsApproved ? "Approved PO" : "Open PR";
+        return allItemsApproved ? "Approved PO" : "Open PR";
     };
 
     const itemsTimelineList = universalComments?.map((cmt: any) => ({
@@ -145,7 +145,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
             cmt.subject ? (cmt.subject === "creating pr" ? "green" : cmt.subject === "rejecting pr" ? "red" : "blue") : 'gray'
     }))
 
-    const {updateDoc, loading: updateLoading} = useFrappeUpdateDoc()
+    const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc()
     const { mutate } = useSWRConfig()
 
     const handleDeletePr = async () => {
@@ -190,9 +190,9 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
     const handleMarkDraftPR = async () => {
         try {
             await updateDoc("Procurement Requests", pr_data?.name, {
-                workflow_state : "Draft"
+                workflow_state: "Draft"
             })
-            
+
             await pr_data_mutate()
             setSection("edit-pr")
         } catch (error) {
@@ -208,7 +208,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
     const handleSendForAppr = async () => {
         try {
             await updateDoc("Procurement Requests", pr_data?.name, {
-                workflow_state : "Pending"
+                workflow_state: "Pending"
             })
             await pr_data_mutate()
 
@@ -243,7 +243,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 {pr_data?.workflow_state === "Pending" && (
                                     <HoverCard>
                                         <HoverCardTrigger>
-                                            <Button disabled={updateLoading} onClick={handleMarkDraftPR}>{updateLoading ? <TailSpin width={20} height={16} color="white" /> : "Edit"}</Button>
+                                            <Button disabled={updateLoading} onClick={handleMarkDraftPR} className="items-center gap-2 flex" variant="secondary">{updateLoading ? <TailSpin width={20} height={16} color="white" /> : <><FileSliders className="w-4 h-4" /><span>Edit</span></>}</Button>
                                         </HoverCardTrigger>
                                         <HoverCardContent className="bg-gray-800 text-white rounded-md shadow-lg text-center">
                                             Mark as <span className="text-primary underline">Draft</span> and Edit!
@@ -453,7 +453,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                     </>
                 )}
 
-                {(section === "resolve-pr" || section === "edit-pr" )&& <NewPRPage project={project} rejected_pr_data={orderData} setSection={setSection} section={section} />}
+                {(section === "resolve-pr" || section === "edit-pr") && <NewPRPage project={project} rejected_pr_data={orderData} setSection={setSection} section={section} />}
 
             </div>
         </>
