@@ -243,6 +243,7 @@ const router = createBrowserRouter(
 					<Route path="debug">
 						{/* <Route index element={<Debug />} /> */}
 						<Route index element={<ApprovedQuotationsTable />} />
+						<Route path=':id' element={<POSummary />} />
 					</Route>
 
 					{/* Other routes */}

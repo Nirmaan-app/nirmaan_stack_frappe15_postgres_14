@@ -47,12 +47,13 @@ interface DataTableProps<TData, TValue> {
     statusOptions?: any
     totalPOsRaised?: any
     itemSearch?: boolean
-
+    approvedQuotesVendors?: any
+    itemOptions?: any
 }
 
 
 
-export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined, itemSearch = false }: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined, itemSearch = false, approvedQuotesVendors = undefined, itemOptions = undefined }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([
         {
             id: "creation",
@@ -199,6 +200,26 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                                                                     column={table.getColumn("vendor_name")}
                                                                     title={"Vendor"}
                                                                     options={vendorOptions || []}
+                                                                />
+                                                            ) : null
+                                                        )}
+
+                                                        {(approvedQuotesVendors && header.id === table.getColumn("vendor")?.id) && (
+                                                            table.getColumn("vendor") ? (
+                                                                <DataTableFacetedFilter
+                                                                    column={table.getColumn("vendor")}
+                                                                    title={"Vendor"}
+                                                                    options={approvedQuotesVendors || []}
+                                                                />
+                                                            ) : null
+                                                        )}
+
+                                                        {(itemOptions && header.id === table.getColumn("item_name")?.id) && (
+                                                            table.getColumn("item_name") ? (
+                                                                <DataTableFacetedFilter
+                                                                    column={table.getColumn("item_name")}
+                                                                    title={"Item"}
+                                                                    options={itemOptions || []}
                                                                 />
                                                             ) : null
                                                         )}
