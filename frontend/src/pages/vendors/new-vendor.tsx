@@ -13,6 +13,7 @@ import { Link, useNavigate } from "react-router-dom"
 import { ArrowLeft, ListChecks, ListRestart, Undo2 } from "lucide-react"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const getVendorFormSchema = (service: boolean) => {
     return z.object({
@@ -101,10 +102,9 @@ interface SelectOption {
 
 export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCategorySelection = true, sentBackData = undefined, prData = undefined, service = false }) => {
 
-    console.log("service", service)
-
     const navigate = useNavigate()
-    const VendorFormSchema = getVendorFormSchema(service);
+    const [vendorType, setVendorType] = useState(null)
+    const VendorFormSchema = getVendorFormSchema(vendorType === "Service");
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
         defaultValues: {},
@@ -186,7 +186,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 // Create the vendor document using the address document reference
                 const vendorDoc = await createDoc('Vendors', {
                     vendor_name: values.vendor_name,
-                    vendor_type: service ? "Service" : "Material",
+                    vendor_type: vendorType,
                     vendor_address: addressDoc.name,
                     vendor_city: addressDoc.city,
                     vendor_state: addressDoc.state,
@@ -194,7 +194,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                     vendor_mobile: values.vendor_mobile,
                     vendor_email: values.vendor_email,
                     vendor_gst: values.vendor_gst,
-                    vendor_category: service ? { categories: ["Electrical Services", "HVAC Services", "Data & Networking Services", "Fire Fighting Services", "FA Services", "PA Services", "Access Control Services", "CCTV Services"] }
+                    vendor_category: vendorType === "Service" ? { categories: ["Electrical Services", "HVAC Services", "Data & Networking Services", "Fire Fighting Services", "FA Services", "PA Services", "Access Control Services", "CCTV Services"] }
                         :
                         {
                             categories: (!renderCategorySelection && dynamicCategories.length)
@@ -291,6 +291,14 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     )
 
     useEffect(() => {
+        if(service) {
+            setVendorType("Service")
+        } else {
+            setVendorType("Material")
+        }
+    }, [service])
+
+    useEffect(() => {
         if (pincode.length >= 6 && !pincode_data) {
             form.setValue("vendor_city", "Not Found")
             form.setValue("vendor_state", "Not Found")
@@ -307,6 +315,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
     }
 
     return (
+        <>
         <div className={`flex-1 space-x-2 ${navigation ? "flex-1 md:space-y-4" : ""} `}>
             {navigation && (
                 <div className="flex gap-1">
@@ -320,6 +329,20 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 </div>
             )}
 
+            <div className="flex flex-col items-start mt-2 px-6 max-md:px-2 space-y-2">
+                <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Vendor_Type<sup className="text-sm text-red-600">*</sup></label>
+                <Select onValueChange={(value) => setVendorType(value)} defaultValue={service ? "Service" : "Material"}>
+                    <SelectTrigger className="">
+                        <SelectValue className="text-gray-200" placeholder="Select Vendor Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="Material">Material</SelectItem>
+                        <SelectItem value="Service">Service</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+        {vendorType && (
+            <>
             <Separator className="my-6 max-md:my-2" />
             <Form {...form}>
                 <form onSubmit={(event) => {
@@ -360,7 +383,7 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                         name="vendor_gst"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel className="flex">GST Number{!service && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
+                                <FormLabel className="flex">GST Number{vendorType === "Material" && <sup className="text-sm text-red-600">*</sup>}</FormLabel>
                                 <FormControl>
                                     <Input placeholder="enter gst..." {...field} />
                                 </FormControl>
@@ -496,6 +519,9 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                     )}
                 </form>
             </Form>
+            </>
+        )}
         </div>
+        </>
     )
 }

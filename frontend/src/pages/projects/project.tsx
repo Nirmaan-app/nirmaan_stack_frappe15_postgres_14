@@ -1984,8 +1984,11 @@ const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedDat
           </span>
         </div>
       </HoverCardTrigger>
-      <HoverCardContent>
-        <div className="">
+      <HoverCardContent className="overflow-y-auto max-h-[80vh]">
+      {/* {[...Array(20)].map((_, index) => (
+        <div>We plugged in the entire chancejs API surface in the $tweak. namespace that enables a myriad of use cases! You can literally pick any method directly from the chancejs API!</div>
+      ))} */}
+        <div>
           <h3 className="font-semibold text-lg mb-2">Total Spent Breakdown</h3>
           <Tree
             showLine

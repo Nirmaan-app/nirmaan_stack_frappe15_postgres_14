@@ -215,7 +215,7 @@ export default function Items() {
                         <DialogHeader>
                             <DialogTitle className="mb-2">Add New Item</DialogTitle>
                             <div className="flex flex-col gap-4 ">
-                            <div className="flex flex-col items-start">
+                                <div className="flex flex-col items-start">
                                     <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category<sup className="pl-1 text-sm text-red-600">*</sup></label>
                                     <Select onValueChange={(value) => setCategory(value)}>
                                         <SelectTrigger className="">
