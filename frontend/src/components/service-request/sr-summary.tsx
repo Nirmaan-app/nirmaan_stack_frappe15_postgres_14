@@ -170,7 +170,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
         documentTitle: `${sr_data?.name}_${sr_data?.vendor}`
     });
 
-    console.log('gstEnabled', gstEnabled)
+    // console.log('gstEnabled', gstEnabled)
 
     const getTotal = () => {
         let total: number = 0;

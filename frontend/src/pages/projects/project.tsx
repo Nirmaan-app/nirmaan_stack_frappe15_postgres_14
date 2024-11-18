@@ -755,14 +755,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
         existingItem.amount += baseAmount;
         existingItem.amountWithTax += amountPlusTax
+        existingItem.averageRate = Math.floor((parseFloat(existingItem.averageRate) + parseFloat(item.quote)) / 2)
       } else {
         acc[item.work_package][item.category].push({
           ...item,
           amount: baseAmount,
           amountWithTax: amountPlusTax,
+          averageRate: item.quote
         });
       }
-
       return acc;
     }, {});
 
@@ -775,6 +776,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [po_item_data]);
 
   const { groupedData: categorizedData } = groupItemsByWorkPackageAndCategory(po_item_data);
+
+  console.log("categorizedData", categorizedData)
 
   // console.log("workPackageTotals", workPackageTotalAmounts)
 
@@ -1703,6 +1706,7 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                             <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
                             <TableHead className="px-4 py-2 font-semibold">Actual Amt</TableHead>
                             <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Updated Estd. Amt</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1732,6 +1736,7 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                               <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
                               {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
                               <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
+                              <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.quantity_estimate - item?.quantity) * item?.averageRate)}</TableCell>
                             </TableRow>
                           })}
                         </TableBody>
@@ -1793,6 +1798,7 @@ const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
                           <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Updated Estd. Amt</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1822,6 +1828,7 @@ const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
                             <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
                             <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
                             <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
+                            <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.quantity_estimate - item?.quantity) * item?.averageRate)}</TableCell>
                           </TableRow>
                         })}
                       </TableBody>
