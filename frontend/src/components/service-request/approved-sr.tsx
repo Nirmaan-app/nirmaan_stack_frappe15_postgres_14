@@ -15,6 +15,10 @@ import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { toast } from "../ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
 import { Button as ShadButton } from "../ui/button"
+import { Separator } from "../ui/separator";
+import { RadioGroup, RadioGroupItem } from "../ui/radiogroup";
+import { Label } from "../ui/label";
+import { Switch } from "../ui/switch";
 
 const { Sider, Content } = Layout;
 
@@ -32,6 +36,7 @@ export const ApprovedSR = () => {
     const [notes, setNotes] = useState([])
     const [curNote, setCurNote] = useState(null)
     const [collapsed, setCollapsed] = useState(true);
+    const [gstEnabled, setGstEnabled] = useState(true)
 
     const { data: service_vendor, isLoading: service_vendor_loading, error: service_vendor_error, mutate: service_vendor_mutate } = useFrappeGetDoc("Vendors", orderData?.vendor, orderData?.vendor ? `Vendors ${orderData?.vendor}` : null)
 
@@ -170,9 +175,9 @@ export const ApprovedSR = () => {
                             onChange={(e) => setCurNote(e.target.value)}
                         />
                         <Button onClick={handleAddNote}
-                            className="w-16 h-12 flex gap-2 items-center"
+                            className="w-20"
                             disabled={!curNote}>
-                            {editingIndex === null ? <><CirclePlus className="w-4 h-4" /><span>Add</span></> : <><Edit className="w-4 h-4" /><span>Update</span></>}
+                            {editingIndex === null ? <div className="flex gap-1 items-center"><CirclePlus className="w-4 h-4" /><span>Add</span></div> : <div className="flex gap-1 items-center"><Edit className="w-4 h-4" /><span>Update</span></div>}
                         </Button>
                     </div>
 
@@ -210,8 +215,14 @@ export const ApprovedSR = () => {
                     )}
 
                     {(notes?.length > 0 || (service_request?.notes !== undefined && JSON.parse(service_request?.notes)?.list?.length > 0)) && (
-                        <Button disabled={update_loading} onClick={handleNotesSave} className="w-full mt-4 items-center flex gap-2">{update_loading ? <TailSpin width={20} height={20} color="red" /> : <><Save className="w-4 h-4" /> <span>Save</span></>}</Button>
+                        <Button disabled={update_loading} onClick={handleNotesSave} className="w-full mt-4 items-center flex gap-2">{update_loading ? <TailSpin width={20} height={20} color="red" /> : <div className="flex items-center gap-1"><Save className="w-4 h-4" /> <span>Save</span></div>}</Button>
                     )}
+                    <Separator className="my-6" />
+
+                    <div className="flex flex-col gap-2">
+                        <p className="font-semibold">Enable/Disable Tax Calculation</p>
+                        <Switch id="hello" defaultChecked={true} onCheckedChange={(e) => setGstEnabled(e)}  /> 
+                    </div>
                 </Sider>
                 <Layout className='bg-white'>
                     <div className="flex">
@@ -244,7 +255,7 @@ export const ApprovedSR = () => {
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Service Order No.</div>
+                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No.</div>
                                                                 <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>
@@ -283,7 +294,7 @@ export const ApprovedSR = () => {
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
                                                     <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
-                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
+                                                    {gstEnabled && <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>}
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                                 </tr>
                                             </thead>
@@ -296,7 +307,7 @@ export const ApprovedSR = () => {
                                                         <td className="px-2 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
                                                         <td className=" py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
+                                                        {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>}
                                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate * item.quantity)}</td>
                                                     </tr>
                                                 ))}
@@ -320,7 +331,7 @@ export const ApprovedSR = () => {
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                                    {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal())}</td>
                                                 </tr>
@@ -329,18 +340,18 @@ export const ApprovedSR = () => {
                                                     <td></td>
                                                     <td></td>
                                                     <td></td>
-                                                    <td></td>
+                                                    {gstEnabled && <td></td>}
                                                     <td></td>
                                                     <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
-                                                        <div>Total Tax(GST):</div>
+                                                        {gstEnabled && <div>Total Tax(GST):</div>}
                                                         <div>Round Off:</div>
                                                         <div>Total:</div>
                                                     </td>
 
                                                     <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                                        <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div>
-                                                        <div className="ml-4">- {formatToIndianRupee((getTotal() * 1.18).toFixed(2) - Math.floor(getTotal() * 1.18))}</div>
-                                                        <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * 1.18))}</div>
+                                                        {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div> }
+                                                        <div className="ml-4">- {formatToIndianRupee((getTotal() * (gstEnabled ? 1.18 : 1)).toFixed(2) - Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
+                                                        <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
                                                     </td>
 
                                                 </tr>

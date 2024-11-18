@@ -156,12 +156,21 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
         }
     }
 
+    const [gstEnabled, setGstEnabled] = useState(true)
+
     const componentRef = useRef<HTMLDivElement>(null);
+
+    const handlePDFPrint = (enable) => {
+        setGstEnabled(enable)
+        setTimeout(() => handlePrint(), 1000)
+    }
 
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
         documentTitle: `${sr_data?.name}_${sr_data?.vendor}`
     });
+
+    console.log('gstEnabled', gstEnabled)
 
     const getTotal = () => {
         let total: number = 0;
@@ -189,10 +198,18 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 </div>
                             </div>
                             <div className="flex gap-4 items-center">
-                                {sr_data?.status === "Approved" && <Button className='flex items-center gap-2' onClick={handlePrint}>
-                                    <Printer className='h-4 w-4' />
-                                    Print
-                                </Button>}
+                                {sr_data?.status === "Approved" && 
+                                <div className="flex gap-2 items-center">
+                                    <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(true)}>
+                                        <Printer className='h-4 w-4' />
+                                        Print inc. Tax
+                                    </Button>
+                                    <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(false)}>
+                                        <Printer className='h-4 w-4' />
+                                        Print exc. Tax
+                                    </Button>
+                                </div>
+                                }
                                 {sr_data?.status === "Rejected" && (
                                     <Button onClick={() => setPage("Resolve")} className="flex items-center gap-1">
                                         <Settings2 className="h-4 w-4" />
@@ -365,7 +382,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Service Order No.</div>
+                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No.</div>
                                                                 <div className="text-lg font-semibold text-black">{(sr_data?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>
@@ -404,7 +421,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
                                                     <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
-                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
+                                                    {gstEnabled && <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>}
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                                 </tr>
                                             </thead>
@@ -417,7 +434,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
                                                         <td className="py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
+                                                        {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>}
                                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate * item.quantity)}</td>
                                                     </tr>
                                                 ))}
@@ -427,7 +444,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                                    {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal())}</td>
                                                 </tr>
@@ -436,18 +453,18 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     <td></td>
                                                     <td></td>
                                                     <td></td>
-                                                    <td></td>
+                                                    {gstEnabled && <td></td>}
                                                     <td></td>
                                                     <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
-                                                        <div>Total Tax(GST):</div>
+                                                    {gstEnabled && <div>Total Tax(GST):</div>}
                                                         <div>Round Off:</div>
                                                         <div>Total:</div>
                                                     </td>
 
                                                     <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                                        <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div>
-                                                        <div className="ml-4">- {formatToIndianRupee((getTotal() * 1.18).toFixed(2) - Math.floor(getTotal() * 1.18))}</div>
-                                                        <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * 1.18))}</div>
+                                                    {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div> }
+                                                    <div className="ml-4">- {formatToIndianRupee((getTotal() * (gstEnabled ? 1.18 : 1)).toFixed(2) - Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
+                                                    <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
                                                     </td>
 
                                                 </tr>
