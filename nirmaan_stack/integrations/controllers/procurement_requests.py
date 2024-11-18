@@ -297,7 +297,7 @@ def on_trash(doc, method):
     frappe.db.delete("Nirmaan Comments", {
         "reference_name" : ("=", doc.name)
     })
-    frappe.db.delete("Cateory BOQ Attachments", {
+    frappe.db.delete("Category BOQ Attachments", {
         "procurement_request" : ("=", doc.name)
     })
     
