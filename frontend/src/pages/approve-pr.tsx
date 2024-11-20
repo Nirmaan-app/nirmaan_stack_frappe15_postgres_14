@@ -200,7 +200,7 @@ export const ApprovePR = () => {
                     return (
                         <HoverCard>
                             <HoverCardTrigger>
-                            <div className="font-medium">
+                            <div className="font-medium underline">
                                 {total === "N/A" ? "N/A" : formatToIndianRupee(total)}
                             </div>
                             </HoverCardTrigger>
