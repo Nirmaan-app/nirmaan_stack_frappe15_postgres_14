@@ -8,14 +8,13 @@ export function MainNav({
 }: React.HTMLAttributes<HTMLElement>) {
     return (
         <nav
-            className={cn("flex items-center space-x-4 lg:space-x-6", className)}
+            className={cn(className)}
             {...props}
         >
             <Link
                 to="/"
-                className="text-sm font-medium transition-colors hover:text-primary"
             >
-                <img className="col-span-2 max-h-8 md:max-h-12 w-36 md:w-full object-contain lg:col-span-1 ml-0 md:ml-0" src={logo} alt="" width="158" height="48" />
+                <img src={logo} alt="Nirmaan" width="158" height="48" />
             </Link>
 
         </nav>

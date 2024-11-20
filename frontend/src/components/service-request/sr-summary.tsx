@@ -145,7 +145,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                 description: `SR: ${sr_data?.name} deleted successfully!`,
                 variant: "success"
             })
-            await navigate("/service-request")
+            navigate("/service-request")
         } catch (error) {
             console.log("error while deleting SR", error)
             toast({
@@ -184,6 +184,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
         return total;
     }
 
+    console.log("sr_data", sr_data)
+
     return (
         <div className="flex-1 space-y-2 md:space-y-4">
             {
@@ -199,7 +201,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                             </div>
                             <div className="flex gap-4 items-center">
                                 {sr_data?.status === "Approved" && 
-                                <div className="flex gap-2 items-center">
+                                <div className="flex max-sm:flex-col gap-2 items-center">
                                     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(true)}>
                                         <Printer className='h-4 w-4' />
                                         Print inc. Tax
@@ -274,6 +276,18 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                             <p className="font-semibold">{new Date(sr_data?.creation).toDateString()}</p>
                                         </div>
                                     </div>
+                                    {sr_data?.status === "Approved" && (
+                                        <>
+                                            <div className="space-y-1">
+                                                <Label className="text-slim text-red-300">Vendor Name:</Label>
+                                                <p className="font-semibold">{service_vendor?.vendor_name}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-slim text-red-300">Vendor Address:</Label>
+                                                <p className="font-semibold">{vendorAddress}</p>
+                                            </div>
+                                        </>
+                                        )}
 
                                     <div className="space-y-1 flex flex-col items-start justify-start">
                                         <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
@@ -471,17 +485,21 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
                                                 <tr className="end-of-page page-break-inside-avoid" >
                                                     <td colSpan={6}>
-                                                        {/* {notes !== "" && (
-                                                            <>
-                                                                <div className="text-gray-400 text-sm py-2">Note</div>
-                                                                <div className="text-sm text-gray-900">{"Placeholder"}</div>
-                                                            </>
+                                                        {sr_data?.notes && JSON.parse(sr_data?.notes)?.list?.length > 0 && (
+                                                            <div className="mb-2">
+                                                                <div className="text-gray-400 text-sm py-2">Notes</div>
+                                                                <ul className="list-[number]">
+                                                                    {JSON.parse(sr_data?.notes)?.list?.map((note) => (
+                                                                        <li key={note?.id} className="text-sm text-gray-900 ml-4">{note?.note}</li>
+                                                                    ))}
+                                                                </ul>
+                                                            </div>
                                                         )}
+
                                                         <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                                         <div className="text-sm text-gray-900">
-                                                            Placeholder
-                                                            {advance}% advance {advance === 100 ? "" : `and remaining ${100 - advance}% on material readiness before delivery of material to site`}
-                                                        </div> */}
+                                                            {parseFloat(sr_data?.advance || 0)}% advance {parseFloat(sr_data?.advance || 0) === 100 ? "" : `and remaining ${100 - parseFloat(sr_data?.advance || 0)}% on material readiness before delivery of material to site`}
+                                                        </div>
 
                                                         <img src={Seal} className="w-24 h-24" />
                                                         <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
@@ -504,7 +522,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Service Order No. :</div>
+                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No. :</div>
                                                                 <div className="text-lg font-semibold text-black">{(sr_data?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>

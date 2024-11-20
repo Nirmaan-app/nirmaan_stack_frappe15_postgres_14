@@ -512,7 +512,7 @@ export const NavBar = () => {
                         },
                         { key: '/approve-service-request', label: (
                             <div className="flex justify-between items-center relative">
-                                Approve SR
+                                Approve Service Order
                                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminSelectedSRCount && adminSelectedSRCount !== 0 ? (
                                 <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                     <span className="text-white text-xs font-bold">
@@ -738,7 +738,7 @@ export const NavBar = () => {
                                 {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                             </Button>
                         )}
-                        <MainNav className="mx-2 md:mx-6" />
+                        <MainNav className="mx-2 md:mx-4" />
                     </div>
                     <div className="ml-auto flex items-center space-x-4">
                         <ModeToggle />

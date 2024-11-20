@@ -586,9 +586,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           const srId = row.getValue("name")
           return (
-            <div className="font-medium">
+            <Link className="text-blue-500 underline" to={`/service-request/${srId}`}>
               {srId?.slice(-5)}
-            </div>
+            </Link>
           )
         }
       },
