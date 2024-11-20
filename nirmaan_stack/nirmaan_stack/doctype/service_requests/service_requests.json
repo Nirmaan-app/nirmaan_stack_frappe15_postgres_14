@@ -12,7 +12,9 @@
   "service_order_list",
   "service_category_list",
   "status",
-  "notes"
+  "notes",
+  "gst",
+  "advance"
  ],
  "fields": [
   {
@@ -56,11 +58,22 @@
    "fieldname": "notes",
    "fieldtype": "JSON",
    "label": "Notes"
+  },
+  {
+   "default": "true",
+   "fieldname": "gst",
+   "fieldtype": "Data",
+   "label": "GST"
+  },
+  {
+   "fieldname": "advance",
+   "fieldtype": "Data",
+   "label": "Advance"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-11-13 18:01:23.763817",
+ "modified": "2024-11-20 18:03:22.836122",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",

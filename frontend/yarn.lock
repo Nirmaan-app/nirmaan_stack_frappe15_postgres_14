@@ -18,7 +18,7 @@
     ag-charts-types "10.3.3"
     tslib "^2.3.0"
 
-"@ag-grid-community/csv-export@32.3.3":
+"@ag-grid-community/csv-export@32.3.3", "@ag-grid-community/csv-export@^32.3.3":
   version "32.3.3"
   resolved "https://registry.yarnpkg.com/@ag-grid-community/csv-export/-/csv-export-32.3.3.tgz#67790794e7392290d92eab6a142a4391ad36fd46"
   integrity sha512-uu5BdegnQCpoySFbhd7n0/yK9mMoepZMN6o36DblPydLXCOLEqOuroIPqQv008slDOK676Pe/O6bMszY3/MUlQ==

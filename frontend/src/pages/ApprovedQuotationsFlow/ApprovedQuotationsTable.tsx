@@ -1,6 +1,7 @@
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { ClientSideRowModelModule } from "@ag-grid-community/client-side-row-model";
 import {
+    ChartToolPanelsDef,
   type ColDef,
   type GetRowIdFunc,
   type GetRowIdParams,
@@ -10,19 +11,19 @@ import {
 import { ModuleRegistry } from "@ag-grid-community/core";
 import { AgGridReact } from "@ag-grid-community/react";
 import "@ag-grid-community/styles/ag-grid.css";
-import "@ag-grid-community/styles/ag-theme-quartz.css";
-import { AdvancedFilterModule } from "@ag-grid-enterprise/advanced-filter";
-import { GridChartsModule } from "@ag-grid-enterprise/charts-enterprise";
-import { ColumnsToolPanelModule } from "@ag-grid-enterprise/column-tool-panel";
-import { ExcelExportModule } from "@ag-grid-enterprise/excel-export";
-import { FiltersToolPanelModule } from "@ag-grid-enterprise/filter-tool-panel";
-import { MenuModule } from "@ag-grid-enterprise/menu";
-import { RangeSelectionModule } from "@ag-grid-enterprise/range-selection";
-import { RichSelectModule } from "@ag-grid-enterprise/rich-select";
-import { RowGroupingModule } from "@ag-grid-enterprise/row-grouping";
-import { SetFilterModule } from "@ag-grid-enterprise/set-filter";
-import { SparklinesModule } from "@ag-grid-enterprise/sparklines";
-import { StatusBarModule } from "@ag-grid-enterprise/status-bar";
+import "@ag-grid-community/styles/ag-theme-material.css";
+// import { AdvancedFilterModule } from "@ag-grid-enterprise/advanced-filter";
+// import { GridChartsModule } from "@ag-grid-enterprise/charts-enterprise";
+// import { ColumnsToolPanelModule } from "@ag-grid-enterprise/column-tool-panel";
+// import { ExcelExportModule } from "@ag-grid-enterprise/excel-export";
+// import { FiltersToolPanelModule } from "@ag-grid-enterprise/filter-tool-panel";
+// import { MenuModule } from "@ag-grid-enterprise/menu";
+// import { RangeSelectionModule } from "@ag-grid-enterprise/range-selection";
+// import { RichSelectModule } from "@ag-grid-enterprise/rich-select";
+// import { RowGroupingModule } from "@ag-grid-enterprise/row-grouping";
+// import { SetFilterModule } from "@ag-grid-enterprise/set-filter";
+// import { SparklinesModule } from "@ag-grid-enterprise/sparklines";
+// import { StatusBarModule } from "@ag-grid-enterprise/status-bar";
 import React, {
   useCallback,
   useEffect,
@@ -39,6 +40,8 @@ import { DataTable } from "@/components/data-table/data-table";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Separator } from "@/components/ui/separator";
+import { CsvExportModule } from "@ag-grid-community/csv-export";
+import { Button } from "@/components/ui/button";
 
 interface Props {
     gridTheme?: string;
@@ -47,23 +50,24 @@ interface Props {
 
   ModuleRegistry.registerModules([
     ClientSideRowModelModule,
-    AdvancedFilterModule,
-    ColumnsToolPanelModule,
-    ExcelExportModule,
-    FiltersToolPanelModule,
-    GridChartsModule,
-    MenuModule,
-    RangeSelectionModule,
-    RowGroupingModule,
-    SetFilterModule,
-    RichSelectModule,
-    StatusBarModule,
-    SparklinesModule,
+    CsvExportModule
+    // AdvancedFilterModule,
+    // ColumnsToolPanelModule,
+    // ExcelExportModule,
+    // FiltersToolPanelModule,
+    // GridChartsModule,
+    // MenuModule,
+    // RangeSelectionModule,
+    // RowGroupingModule,
+    // SetFilterModule,
+    // RichSelectModule,
+    // StatusBarModule,
+    // SparklinesModule,
   ]);
   
 
 export const ApprovedQuotationsTable: React.FC<Props> = ({
-    gridTheme = "ag-theme-quartz",
+    gridTheme = "ag-theme-material",
     isDarkMode = false,
   }) => {
 
@@ -241,16 +245,25 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
       {
         field: "name",
         headerName: "Quote ID",
+        chartDataType: "category",
         minWidth: 100,
+        editable: true,
+        // cellEditor: "agSelectCellEditor",
+        // cellEditorParams: {
+        //     values: ['Tesla', 'Ford', 'Toyota'],
+        // },
+        // cellRenderer: "agGroupCellRenderer"
       },
       {
         headerName: "Creation",
+        chartDataType: "category",
         cellDataType: "text",
         valueGetter: ({data} : ValueGetterParams) => data && formatDate(data?.creation), 
         minWidth: 120,
       },
       {
         field: "item_name",
+        chartDataType: "category",
         headerName: "Item",
         cellDataType: "text",
         minWidth: 300,
@@ -259,26 +272,32 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
       },
     {
         field: "unit",
+        chartDataType: "category",
         cellDataType: "text",
         // type: "rightAligned",
         minWidth: 100,
       },
       {
         field: "quote",
-        cellDataType: "text",
+        chartDataType: "series",
         // type: "rightAligned",
         minWidth: 100,
-        // valueGetter: ({data} : ValueGetterParams) => data && formatToIndianRupee(data?.quote)
+        valueGetter: ({data} : ValueGetterParams) => data && parseFloat(data?.quote),
+        valueFormatter: params => "₹" + params?.value?.toLocaleString(),
       },
       {
         headerName: "Vendor",
         // type: "rightAligned",
+        chartDataType: "category",
         cellDataType: "text",
         valueGetter: ({data} : ValueGetterParams) => data && findVendorName(data?.vendor),
-        minWidth: 200
+        minWidth: 200,
+        // filter: true,
+        // floatingFilter: true
       },
       {
         headerName: "PO",
+        chartDataType: "category",
         field: "procurement_order",
         cellDataType: "text",
         // type: "rightAligned",
@@ -295,11 +314,17 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
     () => ({
       flex: 1,
       filter: true,
-      enableRowGroup: true,
-      enableValue: true,
+    //   enableRowGroup: true,
+    //   enableValue: true,
     }),
     []
   );
+
+  const chartToolPanelsDef = useMemo<ChartToolPanelsDef>(() => {
+    return {
+      defaultToolPanel: "settings",
+    };
+  }, []);
 
   const getRowId = useCallback<GetRowIdFunc>(
     ({ data: { name } }: GetRowIdParams) => name,
@@ -319,6 +344,20 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
     []
   );
 
+    const pagination = true;
+    const paginationPageSize = 50;
+    const paginationPageSizeSelector = [50, 100, 500];
+
+  const rowSelection = useMemo(() => { 
+	return {
+      mode: 'multiRow',
+    };
+}, []);
+
+const onBtnExport = useCallback(() => {
+    gridRef.current!.api.exportDataAsCsv();
+}, []);
+
   const themeClass = `${gridTheme}${isDarkMode ? "-dark" : ""}`;
 
   return (
@@ -336,6 +375,7 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
         <Separator className="my-6" />
     <div className={styles.wrapper}>
     <h2 className="font-semibold text-lg py-4 text-primary">AG Grid Table (inc. Enterprise, Recommended for flexible, dynamic and robust interface)</h2>
+    <Button onClick={onBtnExport}>Download CSV export file</Button>
       <div className={styles.container}>
         <div className={`${themeClass} ${styles.grid}`}>
           <AgGridReact
@@ -344,13 +384,19 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
             rowData={rowData}
             columnDefs={colDefs}
             defaultColDef={defaultColDef}
-            cellSelection = {true}
-            enableCharts
-            rowSelection={"multiple"}
+            // cellSelection = {true}
+            // enableCharts={true}
+            chartToolPanelsDef={chartToolPanelsDef}
+            rowSelection={rowSelection}
             rowGroupPanelShow={"always"}
             suppressAggFuncInHeader
             groupDefaultExpanded={-1}
-            statusBar={statusBar}
+            // statusBar={statusBar}
+            pagination={pagination}
+            paginationPageSize={paginationPageSize}
+            paginationPageSizeSelector={paginationPageSizeSelector}
+            onCellValueChanged={(e) => console.log("New Cell Value: ", e)} // when editing a column value, we can track that using this event
+            // masterDetail
           />
         </div>
       </div>
