@@ -777,7 +777,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const { groupedData: categorizedData } = groupItemsByWorkPackageAndCategory(po_item_data);
 
-  console.log("categorizedData", categorizedData)
+  // console.log("categorizedData", categorizedData)
 
   // console.log("workPackageTotals", workPackageTotalAmounts)
 
@@ -1992,7 +1992,7 @@ const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedDat
         </div>
       </HoverCardTrigger>
       <HoverCardContent className="overflow-y-auto max-h-[80vh]">
-      {/* {[...Array(20)].map((_, index) => (
+        {/* {[...Array(20)].map((_, index) => (
         <div>We plugged in the entire chancejs API surface in the $tweak. namespace that enables a myriad of use cases! You can literally pick any method directly from the chancejs API!</div>
       ))} */}
         <div>

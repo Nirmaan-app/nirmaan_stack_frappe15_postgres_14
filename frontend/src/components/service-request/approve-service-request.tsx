@@ -75,7 +75,7 @@ export const ApproveServiceRequest = () => {
         }
     }, [groupedData]);
 
-    console.log("groupedData", groupedData)
+    // console.log("groupedData", groupedData)
 
     // Main table columns
     const columns = [
@@ -342,19 +342,19 @@ export const ApproveServiceRequest = () => {
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         {isLoading === "rejectSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                        <AlertDialogFooter>
-                            <AlertDialogCancel className="flex items-center gap-1">
-                                <Undo2 className="h-4 w-4" />
-                                Cancel
-                            </AlertDialogCancel>
-                            <Button onClick={handleReject} className="flex items-center gap-1">
-                                <CheckCheck className="h-4 w-4" />
-                                Confirm
-                            </Button>
-                        </AlertDialogFooter>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel className="flex items-center gap-1">
+                                    <Undo2 className="h-4 w-4" />
+                                    Cancel
+                                </AlertDialogCancel>
+                                <Button onClick={handleReject} className="flex items-center gap-1">
+                                    <CheckCheck className="h-4 w-4" />
+                                    Confirm
+                                </Button>
+                            </AlertDialogFooter>
                         )}
                         <AlertDialogCancel id='RejectSRAlertCancel' className="hidden">
-                                Cancel
+                            Cancel
                         </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
@@ -374,18 +374,18 @@ export const ApproveServiceRequest = () => {
                         </AlertDialogHeader>
                         {isLoading === "approveSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                             <AlertDialogFooter>
-                            <AlertDialogCancel className="flex items-center gap-1">
-                                <Undo2 className="h-4 w-4" />
-                                Cancel
-                            </AlertDialogCancel>
-                            <Button onClick={handleApprove} className="flex items-center gap-1">
-                                <CheckCheck className="h-4 w-4" />
-                                Confirm
-                            </Button>
-                        </AlertDialogFooter>
+                                <AlertDialogCancel className="flex items-center gap-1">
+                                    <Undo2 className="h-4 w-4" />
+                                    Cancel
+                                </AlertDialogCancel>
+                                <Button onClick={handleApprove} className="flex items-center gap-1">
+                                    <CheckCheck className="h-4 w-4" />
+                                    Confirm
+                                </Button>
+                            </AlertDialogFooter>
                         )}
                         <AlertDialogCancel id='ApproveSRAlertCancel' className="hidden">
-                                Cancel
+                            Cancel
                         </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>

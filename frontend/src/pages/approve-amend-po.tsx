@@ -125,7 +125,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
         filters: [["reference_name", "=", po_data?.name], ["subject", "=", "updating po(amendment)"]]
     })
 
-    console.log("amendmentComment", amendmentComment)
+    // console.log("amendmentComment", amendmentComment)
 
     const [previousOrderList, setPreviousOrderList] = useState<any[]>([])
     const [amendedOrderList, setAmendedOrderList] = useState<any[]>([])

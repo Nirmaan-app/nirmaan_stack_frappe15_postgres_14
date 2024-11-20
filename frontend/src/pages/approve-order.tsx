@@ -62,7 +62,7 @@ const ApprovePRList = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (pr_loading || project_loading || owner_loading || usersListLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+    if (pr_loading || project_loading || owner_loading || usersListLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (pr_error || project_error || owner_error || usersListError) return <h1>Error</h1>
     if (pr?.workflow_state !== "Pending") {
         return (
@@ -146,7 +146,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
 
     // console.log("universalCOmment", universalComments)
 
-    const { createDoc: createDoc, error: update_error, loading : createLoading } = useFrappeCreateDoc()
+    const { createDoc: createDoc, error: update_error, loading: createLoading } = useFrappeCreateDoc()
 
 
     interface Category {
@@ -176,7 +176,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         }
     }, [usersList])
 
-    console.log("usersList", usersList)
+    // console.log("usersList", usersList)
     // const fileInputRefs = useRef({});
 
     const getFullName = (id) => {
@@ -303,7 +303,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     }, [orderData.procurement_list]);
 
     const handleChange = (selectedItem) => {
-        console.log('Selected item:', selectedItem);
+        // console.log('Selected item:', selectedItem);
         setCurItem(selectedItem.value)
         item_list?.map((item) => {
             if (item.item_name == selectedItem.value) {
@@ -433,7 +433,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const { toast } = useToast()
     const { updateDoc: updateDoc, loading: updateLoading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
     const { upload } = useFrappeFileUpload()
-    const { call, loading : callLoading } = useFrappePostCall('frappe.client.set_value');
+    const { call, loading: callLoading } = useFrappePostCall('frappe.client.set_value');
     const { deleteDoc } = useFrappeDeleteDoc()
     const { mutate } = useSWRConfig()
 
@@ -491,7 +491,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 })
             }
 
-            console.log("orderData2", res);
+            // console.log("orderData2", res);
             document.getElementById("dialogCloseforApproveOrder")?.click()
             toast({
                 title: "Success!",
@@ -535,7 +535,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 })
             }
             await mutate("ApprovePR,PRListMutate")
-            
+
             document.getElementById("dialogCloseforApproveOrder")?.click()
             toast({
                 title: "Success!",
@@ -572,10 +572,10 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             item_name: curItem,
             make_name: make
         }
-        console.log("itemData", itemData)
+        // console.log("itemData", itemData)
         createDoc('Items', itemData)
             .then(() => {
-                console.log(itemData)
+                // console.log(itemData)
                 setUnit('')
                 setCurItem('')
                 setMake('')
@@ -1170,15 +1170,15 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                 <DialogDescription className="flex items-center justify-center">
                                     {
                                         dynamicPage === "reject" ? (
-                                            createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"}  /> :
-                                            <Button variant="default" onClick={() => handleReject()} className="flex items-center gap-1">
-                                                <CheckCheck />
-                                                Confirm</Button>
+                                            createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"} /> :
+                                                <Button variant="default" onClick={() => handleReject()} className="flex items-center gap-1">
+                                                    <CheckCheck />
+                                                    Confirm</Button>
                                         ) : (
-                                            createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"}  /> :
-                                            <Button variant="default" onClick={() => handleApprove()} className="flex items-center gap-1">
-                                                <CheckCheck />
-                                                Confirm</Button>
+                                            createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"} /> :
+                                                <Button variant="default" onClick={() => handleApprove()} className="flex items-center gap-1">
+                                                    <CheckCheck />
+                                                    Confirm</Button>
                                         )
                                     }
                                 </DialogDescription>

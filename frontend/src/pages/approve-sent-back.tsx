@@ -284,7 +284,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
 
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
-            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+            // console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
             setSelectedItems(selectedRows)
         },
         onSelect: (record, selected, selectedRows) => {
@@ -364,7 +364,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                 }
 
             })
-            console.log("vendorItems", vendorItems)
+            // console.log("vendorItems", vendorItems)
             const docs = Object.entries(vendorItems)?.flatMap(([key, value]) => {
 
                 const newProcurementOrder = {
@@ -472,7 +472,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             const filteredData = selectedItems?.filter(item => {
                 return item.unit !== null && item.quantity !== null
             });
-            console.log(filteredData)
+            // console.log(filteredData)
 
             const itemList = [];
             filteredData?.map((value) => {
@@ -726,7 +726,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                             </AlertDialogFooter>
                         )}
                         <AlertDialogCancel id='SendBackAlertClose' className="hidden">
-                                Cancel
+                            Cancel
                         </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
@@ -756,7 +756,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                             </AlertDialogFooter>
                         )}
                         <AlertDialogCancel id='ApproveAlertClose' className="hidden">
-                                Cancel
+                            Cancel
                         </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
