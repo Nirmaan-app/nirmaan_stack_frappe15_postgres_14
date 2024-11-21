@@ -38,10 +38,10 @@ def generate_po_summary(project_id: str):
             po.procurement_request = pr.name,
         jsonb_array_elements(po.order_list::jsonb->'list') AS item
         WHERE
-            po.project = %(project_id)s
-            AND po.status != 'PO Approved';
+            po.project = %(project_id)s;
     """, values=arguments, as_dict=1)
 
+    #removed AND po.status != 'PO Approved'; from WHERE statement
 
     return {
             "po_items": po_items
