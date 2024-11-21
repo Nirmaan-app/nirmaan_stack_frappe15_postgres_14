@@ -1730,10 +1730,10 @@ export const ReleasePONew = ({ not }) => {
                                                                     <DialogDescription>
                                                                         You are seeing this because of some validation checks from the payment terms inputs are not fulfilled,
                                                                         please go the editing section and do the needful to proceed with printing!
-                                                                    </DialogDescription>
-                                                                </DialogHeader>
-                                                            </DialogContent>
-                                                        </Dialog>
+                                                                    </DialogDescription >
+                                                                </DialogHeader >
+                                                            </DialogContent >
+                                                        </Dialog >
                                                     ) : (
                                                         <ShadButton variant="outline" onClick={() => { onSubmit(control._formValues); handlePrint(); }}>
                                                             <Printer className='h-4 w-4 mr-2' />
@@ -1805,10 +1805,10 @@ export const ReleasePONew = ({ not }) => {
                                                         </DialogClose>
                                                     </DialogContent>
                                                 </Dialog>
-                                            </div>
-                                        </CardFooter>
+                                            </div >
+                                        </CardFooter >
 
-                                    </Card>
+                                    </Card >
                                 )}
                             {
                                 orderData?.status === "PO Sent" && (
@@ -1912,87 +1912,89 @@ export const ReleasePONew = ({ not }) => {
                                     </Card>
                                 )
                             }
-                            {(orderData?.status === "PO Approved" && orderData?.merged === "true") && (
-                                <Card className="border-indigo-500 shadow-lg overflow-hidden">
-                                    <CardHeader className="bg-indigo-500/10 border-b border-indigo-500/20">
-                                        <CardTitle className="text-2xl text-indigo-500 flex items-center">
-                                            <Split className="w-6 h-6 mr-2" />
-                                            Unmerge PO
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent className='p-6'>
-                                        <CardDescription>
-                                            <div className="space-y-6">
-                                                <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
-                                                    <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
-                                                        <List className="w-5 h-5 mr-2" />
-                                                        Associated Merged PO's
-                                                    </h3>
-                                                    <Tree treeData={treeData} defaultExpandedKeys={["mainPO"]} />
-                                                </div>
-                                                <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
-                                                    <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
-                                                        <AlertTriangle className="w-5 h-5 mr-2" />
-                                                        Important Notes
-                                                    </h3>
-                                                    <ul className="list-disc list-inside space-y-1 text-sm text-indigo-500/80">
-                                                        <li>If you need to <span className='italic text-primary font-bold'>Amend / Cancel</span>, You should proceed with this option.</li>
-                                                        <li>This action will delete the current PO, unmerge all <span className="text-primary font-semibold">the above listed merged PO(s)</span> and make them available in the table!</li>
-                                                    </ul>
-                                                </div>
+                            {
+                                (orderData?.status === "PO Approved" && orderData?.merged === "true") && (
+                                    <Card className="border-indigo-500 shadow-lg overflow-hidden">
+                                        <CardHeader className="bg-indigo-500/10 border-b border-indigo-500/20">
+                                            <CardTitle className="text-2xl text-indigo-500 flex items-center">
+                                                <Split className="w-6 h-6 mr-2" />
+                                                Unmerge PO
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent className='p-6'>
+                                            <CardDescription>
+                                                <div className="space-y-6">
+                                                    <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
+                                                        <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
+                                                            <List className="w-5 h-5 mr-2" />
+                                                            Associated Merged PO's
+                                                        </h3>
+                                                        <Tree treeData={treeData} defaultExpandedKeys={["mainPO"]} />
+                                                    </div>
+                                                    <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
+                                                        <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
+                                                            <AlertTriangle className="w-5 h-5 mr-2" />
+                                                            Important Notes
+                                                        </h3>
+                                                        <ul className="list-disc list-inside space-y-1 text-sm text-indigo-500/80">
+                                                            <li>If you need to <span className='italic text-primary font-bold'>Amend / Cancel</span>, You should proceed with this option.</li>
+                                                            <li>This action will delete the current PO, unmerge all <span className="text-primary font-semibold">the above listed merged PO(s)</span> and make them available in the table!</li>
+                                                        </ul>
+                                                    </div>
 
-                                                <div className="flex justify-end">
-                                                    <AlertDialog>
-                                                        <AlertDialogTrigger asChild>
-                                                            <ShadButton
-                                                                variant={"outline"}
-                                                                className="flex border-primary items-center gap-1"
-                                                            >
-                                                                <Split className="h-4 w-4 mr-1" />
-                                                                Unmerge
-                                                            </ShadButton>
-                                                        </AlertDialogTrigger>
-                                                        <AlertDialogContent>
-                                                            <AlertDialogHeader>
-                                                                <AlertDialogTitle>
-                                                                    Are you sure?
-                                                                </AlertDialogTitle>
-                                                            </AlertDialogHeader>
-                                                            <AlertDialogDescription className='space-y-2'>
-                                                                <div>
-                                                                    Please be informed that, the following are the PO(s) that are going to be unmerged and be available in the table, it is advised to note these PO numbers!
-                                                                </div>
+                                                    <div className="flex justify-end">
+                                                        <AlertDialog>
+                                                            <AlertDialogTrigger asChild>
+                                                                <ShadButton
+                                                                    variant={"outline"}
+                                                                    className="flex border-primary items-center gap-1"
+                                                                >
+                                                                    <Split className="h-4 w-4 mr-1" />
+                                                                    Unmerge
+                                                                </ShadButton>
+                                                            </AlertDialogTrigger>
+                                                            <AlertDialogContent>
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle>
+                                                                        Are you sure?
+                                                                    </AlertDialogTitle>
+                                                                </AlertDialogHeader>
+                                                                <AlertDialogDescription className='space-y-2'>
+                                                                    <div>
+                                                                        Please be informed that, the following are the PO(s) that are going to be unmerged and be available in the table, it is advised to note these PO numbers!
+                                                                    </div>
 
-                                                                <ul className='list-disc list-inside'>
-                                                                    {prevMergedPOs?.map((po) => (
-                                                                        <li key={po?.name}>{po?.name}</li>
-                                                                    ))}
-                                                                </ul>
+                                                                    <ul className='list-disc list-inside'>
+                                                                        {prevMergedPOs?.map((po) => (
+                                                                            <li key={po?.name}>{po?.name}</li>
+                                                                        ))}
+                                                                    </ul>
 
-                                                                <p className=''>Click on confirm to proceed with unmerging!</p>
-                                                            </AlertDialogDescription>
-                                                            {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                                                <div className='flex justify-end items-center gap-2'>
-                                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                    <AlertDialogAction asChild>
-                                                                        <ShadButton
-                                                                            onClick={handleUnmergePOs}
-                                                                            className="flex items-center gap-1"
-                                                                        >
-                                                                            <Split className="h-4 w-4 mr-1" />
-                                                                            Confirm
-                                                                        </ShadButton>
-                                                                    </AlertDialogAction>
-                                                                </div>
-                                                            )}
-                                                        </AlertDialogContent>
-                                                    </AlertDialog>
+                                                                    <p className=''>Click on confirm to proceed with unmerging!</p>
+                                                                </AlertDialogDescription>
+                                                                {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                                                                    <div className='flex justify-end items-center gap-2'>
+                                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                        <AlertDialogAction asChild>
+                                                                            <ShadButton
+                                                                                onClick={handleUnmergePOs}
+                                                                                className="flex items-center gap-1"
+                                                                            >
+                                                                                <Split className="h-4 w-4 mr-1" />
+                                                                                Confirm
+                                                                            </ShadButton>
+                                                                        </AlertDialogAction>
+                                                                    </div>
+                                                                )}
+                                                            </AlertDialogContent>
+                                                        </AlertDialog>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        </CardDescription>
-                                    </CardContent>
-                                </Card>
-                            )}
+                                            </CardDescription>
+                                        </CardContent>
+                                    </Card>
+                                )
+                            }
                             <Card className="border-primary shadow-lg overflow-hidden">
                                 <CardHeader className="bg-primary/10 border-b border-primary/20">
                                     <CardTitle className="text-2xl text-primary flex items-center">
@@ -2338,10 +2340,10 @@ export const ReleasePONew = ({ not }) => {
                                     </CardDescription>
                                 </CardContent>
                             </Card>
-                        </Content>
-                    </div>
-                </Layout>
-            </Layout>
+                        </Content >
+                    </div >
+                </Layout >
+            </Layout >
         </div >
     );
 };

@@ -121,7 +121,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
     const handleGlobalFilterChange = React.useCallback(
         debounce((value: string) => {
             // setGlobalFilter(value);
-    
+
             if (value) {
                 setSearchParams({ ...Object.fromEntries(searchParams), search: value });
             } else {
@@ -206,7 +206,6 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                     </div>
                 )}
             </div>
-
             <div className="rounded-md border max-h-[70vh] overflow-y-auto">
                 <Table>
                     <TableHeader>
