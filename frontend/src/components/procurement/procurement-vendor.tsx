@@ -159,9 +159,9 @@ export const ProcurementOrder = () => {
     }, [category_data]);
 
     const getVendorAddr = (name) => {
-        if(vendor_list) {
+        if (vendor_list) {
             const vendor = vendor_list?.find((ven) => ven?.vendor_name === name)
-            return {city : vendor?.vendor_city, state : vendor?.vendor_state}
+            return { city: vendor?.vendor_city, state: vendor?.vendor_state }
         }
     }
 
@@ -234,8 +234,8 @@ export const ProcurementOrder = () => {
             },
             {
                 id: "vendor_address",
-                header: ({column}) => <DataTableColumnHeader column={column} title="Address" />,
-                cell: ({row}) => {
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Address" />,
+                cell: ({ row }) => {
                     const id = row.getValue("vendor_name")
                     const address = getVendorAddr(id)
                     return (
@@ -251,7 +251,7 @@ export const ProcurementOrder = () => {
     )
 
     useEffect(() => {
-        if(vendor_category_list && vendor_list) {
+        if (vendor_category_list && vendor_list) {
             const updatedCategories = { ...categories };
 
             vendor_category_list?.forEach((item) => {
@@ -273,7 +273,7 @@ export const ProcurementOrder = () => {
                     });
                 }
             });
-    
+
             setCategories(updatedCategories);
         }
     }, [vendor_category_list, vendor_list]);
@@ -366,7 +366,7 @@ export const ProcurementOrder = () => {
 
     // console.log("orderdata", orderData)
 
-    if(vendor_category_list_loading || vendor_list_loading || procurement_request_list_loading || category_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"}  /> </div>
+    if (vendor_category_list_loading || vendor_list_loading || procurement_request_list_loading || category_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
     if (orderData?.workflow_state !== "Approved") {
         return (
@@ -501,7 +501,7 @@ export const ProcurementOrder = () => {
                     <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2">
                         {comments?.length !== 0 ? (
                             comments?.map((comment) => (
-                            <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                                <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
                                     <Avatar>
                                         <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment?.comment_by}`} />
                                         <AvatarFallback>{comment?.comment_by[0]}</AvatarFallback>
@@ -523,7 +523,7 @@ export const ProcurementOrder = () => {
                             <span className="text-xs font-semibold">No Comments Found</span>
                         )
                         }
-                        </div>
+                    </div>
                     <div className="flex flex-col justify-end items-end max-md:mt-4">
                         <Button onClick={() => setPage('vendors')} className="flex items-center gap-1">
                             Select Vendors
@@ -587,12 +587,12 @@ export const ProcurementOrder = () => {
                                 </Sheet>
                             </div>
                             <Select options={getCategoryByName(cat.name)} onChange={handleChange(cat.name)}
-                             isMulti 
-                             components={{
-                                SingleValue: CustomSingleValue,
-                                Option: CustomOption,
-                             }}
-                             />
+                                isMulti
+                                components={{
+                                    SingleValue: CustomSingleValue,
+                                    Option: CustomOption,
+                                }}
+                            />
                         </div>
                     })}
                     <div className="flex flex-col justify-end items-end max-md:py-6 pb-10">

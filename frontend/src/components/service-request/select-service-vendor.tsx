@@ -188,9 +188,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
         if (vendor_list) {
             const currOptions = vendor_list?.map((item) => ({
                 value: item.name,
-                vendor_name: item.vendor_name,
-                city: item?.vendor_city,
-                state: item?.vendor_state,
+                label: item.vendor_name + ` (${item?.vendor_city}, ${item?.vendor_state})`
             }))
             setVendorOptions(currOptions);
         }
