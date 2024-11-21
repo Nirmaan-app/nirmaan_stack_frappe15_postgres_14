@@ -196,7 +196,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     fields: ["vendor_name", 'vendor_type'],
     filters: [["vendor_type", "=", "Material"]],
     limit: 1000
-    }
+  }
   )
 
   const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
@@ -469,7 +469,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       return "New PR";
     }
 
-    if(itemList?.some((i) => i?.status === "Deleted")) {
+    if (itemList?.some((i) => i?.status === "Deleted")) {
       return "Open PR"
     }
 
@@ -713,7 +713,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }
 
   const wpOptions = data && JSON.parse(data?.project_work_packages)?.work_packages?.map((wp) => ({
-    label : wp?.work_package_name,
+    label: wp?.work_package_name,
     value: wp?.work_package_name
   }))
 
@@ -1479,7 +1479,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               </CardContent>
             </Card> */}
             {po_data_for_posummary_loading ? (<TableSkeleton />) :
-              <DataTable columns={poColumns} data={po_data_for_posummary || []} vendorOptions={vendorOptions} itemSearch={true} wpOptions={[...wpOptions, {label : "Tool & Equipments", value : "Tool & Equipments"}] || []} />
+              <DataTable columns={poColumns} data={po_data_for_posummary || []} vendorOptions={vendorOptions} itemSearch={true} wpOptions={[...wpOptions, { label: "Tool & Equipments", value: "Tool & Equipments" }] || []} />
               // <p>RESOLVE PO TABLE</p>
             }
           </div>
@@ -1539,7 +1539,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   <h2 className="font-semibold text-gray-500">Work Packages</h2>
                   <ArrowDown className="w-4 h-4" />
                 </div>
-                {JSON.parse(data?.project_work_packages)?.work_packages?.sort((a,b) => a?.work_package_name?.localeCompare(b?.work_package_name))?.map((wp) => (
+                {JSON.parse(data?.project_work_packages)?.work_packages?.sort((a, b) => a?.work_package_name?.localeCompare(b?.work_package_name))?.map((wp) => (
                   <div key={wp?.work_package_name}>
                     <h3 className="text-sm font-semibold py-4">{wp?.work_package_name}</h3>
                     <CategoryAccordion categorizedData={categorizedData} selectedPackage={wp?.work_package_name} projectEstimates={project_estimates?.filter((i) => i?.work_package === wp?.work_package_name) || []} />
@@ -2138,7 +2138,7 @@ export const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) =
         <div className="pt-6 overflow-x-auto">
           <ConfigProvider>
             <AntTable
-              dataSource={segregatedData?.sort((a,b) => Object.keys(a)[0]?.localeCompare(Object.keys(b)[0]))?.map((key) => ({
+              dataSource={segregatedData?.sort((a, b) => Object.keys(a)[0]?.localeCompare(Object.keys(b)[0]))?.map((key) => ({
                 key: Object.values(key)[0]?.key,
                 amount: Object.values(key)[0]?.amount,
                 estimate_total: Object.values(key)[0]?.estimate_total,

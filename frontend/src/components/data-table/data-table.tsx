@@ -55,7 +55,7 @@ interface DataTableProps<TData, TValue> {
 
 
 
-export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined, itemSearch = false, approvedQuotesVendors = undefined, itemOptions = undefined, wpOptions  = undefined}: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined, itemSearch = false, approvedQuotesVendors = undefined, itemOptions = undefined, wpOptions = undefined }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([
         {
             id: "creation",
@@ -157,10 +157,10 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                     </div>
                 )}
             </div>
- 
-            <div className="rounded-md border max-h-[70vh] overflow-y-auto relative">
-                <Table className="min-w-full">
-                    <TableHeader className="sticky top-0 bg-white z-10">
+
+            <div className="rounded-md border max-h-[70vh] overflow-y-auto">
+                <Table>
+                    <TableHeader>
                         {table.getHeaderGroups().map((headerGroup) => (
                             <TableRow key={headerGroup.id}>
                                 <DataTableViewOptions table={table} />

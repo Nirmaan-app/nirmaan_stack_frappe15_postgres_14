@@ -61,6 +61,7 @@ import { ManPowerReport } from './components/ManPowerReport'
 import ForgotPassword from './pages/auth/forgot-password'
 import { SidebarProvider } from './components/ui/sidebar'
 import { SentBackSummary } from './components/procurement/sent-back-summary'
+import { ManPowerReport } from './components/ManPowerReport'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
