@@ -92,7 +92,7 @@ export function DataTable<TData, TValue>({
     []
   );
   const [columnVisibility, setColumnVisibility] =
-    React.useState<VisibilityState>({type: false,});
+    React.useState<VisibilityState>({ type: false, });
 
   const [rowSelection, setRowSelection] = React.useState({});
 
@@ -159,9 +159,8 @@ export function DataTable<TData, TValue>({
     const vendorName = row.getValue("vendor_name");
     const orderList = row.getValue("order_list");
 
-    const combinedString = `${name || ""} ${vendorName || ""} ${
-      JSON.stringify(orderList) || ""
-    }`.toLowerCase();
+    const combinedString = `${name || ""} ${vendorName || ""} ${JSON.stringify(orderList) || ""
+      }`.toLowerCase();
 
     return combinedString.includes(filterValue.toLowerCase());
   };
@@ -243,7 +242,7 @@ export function DataTable<TData, TValue>({
                         <div className="flex items-center gap-2">
                           {statusOptions &&
                             header.id ===
-                              table.getColumn("workflow_state")?.id &&
+                            table.getColumn("workflow_state")?.id &&
                             (table.getColumn("workflow_state") ? (
                               <DataTableFacetedFilter
                                 column={table.getColumn("workflow_state")}
@@ -273,32 +272,32 @@ export function DataTable<TData, TValue>({
                             ) : null)}
 
                           {category_options &&
-                          table
-                            .getAllColumns()
-                            .map((item) => item.id)
-                            .find((id) => id === "vendor_category") !==
+                            table
+                              .getAllColumns()
+                              .map((item) => item.id)
+                              .find((id) => id === "vendor_category") !==
                             undefined
                             ? header.id ===
-                                table.getColumn("vendor_category")?.id && (
-                                <DataTableFacetedFilter
-                                  column={table.getColumn("vendor_category")}
-                                  title={"Category"}
-                                  options={category_options || []}
-                                />
-                              )
+                            table.getColumn("vendor_category")?.id && (
+                              <DataTableFacetedFilter
+                                column={table.getColumn("vendor_category")}
+                                title={"Category"}
+                                options={category_options || []}
+                              />
+                            )
                             : category_options &&
                               table
                                 .getAllColumns()
                                 .map((item) => item.id)
                                 .find((id) => id === "category") !== undefined
-                            ? header.id === table.getColumn("category")?.id && (
+                              ? header.id === table.getColumn("category")?.id && (
                                 <DataTableFacetedFilter
                                   column={table.getColumn("category")}
                                   title={"Category"}
                                   options={category_options || []}
                                 />
                               )
-                            : null}
+                              : null}
 
                           {vendorOptions &&
                             header.id === table.getColumn("vendor_name")?.id &&
