@@ -144,14 +144,14 @@ export const ApprovedSR = () => {
             updatedData = {...updatedData, gst : gstEnabled?.toString()}
         }
 
-        if(parseFloat(service_request?.advance || 0) !== advance) {
-            updatedData = {...updatedData, advance: advance}
-        }
+        // if(parseFloat(service_request?.advance || 0) !== advance) {
+        //     updatedData = {...updatedData, advance: advance}
+        // }
 
         try {
             const data = await updateDoc("Service Requests", orderData?.name, updatedData)
 
-            console.log("updatedData", data)
+            // console.log("updatedData", data)
 
             await service_request_mutate()
 
@@ -198,7 +198,7 @@ export const ApprovedSR = () => {
                         <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)}  /> 
                     </div>
                     )}
-                    <div className="flex-1 py-6 border-b border-gray-200">
+                    {/* <div className="flex-1 py-6 border-b border-gray-200">
                                 <Label className="font-semibold">Advance (in %)</Label>
                                             <RadioGroup
                                                 onValueChange={(value) => {
@@ -207,7 +207,6 @@ export const ApprovedSR = () => {
                                                 }}
                                                 className="flex flex-col space-y-2 mt-2"
                                             >
-                                                {/* Radio options */}
                                                 <div className="flex gap-4 items-center">
                                                     <RadioGroupItem value="25" id="advance-25" />
                                                     <Label htmlFor="advance-25" className="font-medium text-gray-700">25%</Label>
@@ -225,7 +224,6 @@ export const ApprovedSR = () => {
                                                     <Label htmlFor="advance-other" className="font-medium text-gray-700">Other</Label>
                                                 </div>
 
-                                                {/* Conditional rendering for custom input */}
                                                 {customAdvance && (
                                                     <div className="mt-4">
                                                         <Label htmlFor="custom-advance">Enter Custom Advance %</Label>
@@ -253,7 +251,7 @@ export const ApprovedSR = () => {
                                                     </div>
                                                 )}
                                 </RadioGroup>
-                    </div>            
+                    </div>             */}
                     <div className="flex flex-col pt-4 gap-2">
                         <h3 className="text-sm font-semibold">Create Note Points</h3>
                         <div className="flex max-md:flex-col gap-4 md:items-center">
@@ -454,10 +452,10 @@ export const ApprovedSR = () => {
                                                             </div>
                                                         )}
 
-                                                        <div className="text-gray-400 text-sm py-2">Payment Terms</div>
+                                                        {/* <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                                         <div className="text-sm text-gray-900">
                                                             {advance}% advance {advance === 100 ? "" : `and remaining ${100 - advance}% on material readiness before delivery of material to site`}
-                                                        </div>
+                                                        </div> */}
 
                                                         <img src={Seal} className="w-24 h-24" />
                                                         <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>

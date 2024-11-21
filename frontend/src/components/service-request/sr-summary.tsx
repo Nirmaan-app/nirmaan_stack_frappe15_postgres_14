@@ -494,10 +494,10 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                             </div>
                                                         )}
 
-                                                        <div className="text-gray-400 text-sm py-2">Payment Terms</div>
+                                                        {/* <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                                         <div className="text-sm text-gray-900">
                                                             {parseFloat(sr_data?.advance || 0)}% advance {parseFloat(sr_data?.advance || 0) === 100 ? "" : `and remaining ${100 - parseFloat(sr_data?.advance || 0)}% on material readiness before delivery of material to site`}
-                                                        </div>
+                                                        </div> */}
 
                                                         <img src={Seal} className="w-24 h-24" />
                                                         <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>

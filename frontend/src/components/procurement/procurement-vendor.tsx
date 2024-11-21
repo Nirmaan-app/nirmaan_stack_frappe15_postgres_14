@@ -247,30 +247,33 @@ export const ProcurementOrder = () => {
                 }
             }
         ],
-        []
+        [vendor_list]
     )
 
     useEffect(() => {
-        const updatedCategories = { ...categories };
+        if(vendor_category_list && vendor_list) {
+            const updatedCategories = { ...categories };
 
-        vendor_category_list?.forEach((item) => {
-            const fieldName = `${item.category}`;
-            if (!Array.isArray(updatedCategories[fieldName])) {
-                updatedCategories[fieldName] = [];
-            }
-            const exists = updatedCategories[fieldName].some(
-                (entry) => entry.value === item.vendor
-            );
-            if (!exists) {
-                updatedCategories[fieldName].push({
-                    value: item.vendor,
-                    label: item.vendor_name,
-                });
-            }
-        });
-
-        setCategories(updatedCategories);
-    }, [vendor_category_list]);
+            vendor_category_list?.forEach((item) => {
+                const fieldName = `${item.category}`;
+                if (!Array.isArray(updatedCategories[fieldName])) {
+                    updatedCategories[fieldName] = [];
+                }
+                const exists = updatedCategories[fieldName].some(
+                    (entry) => entry.value === item.vendor
+                );
+                if (!exists) {
+                    const venAddr = getVendorAddr(item.vendor_name)
+                    updatedCategories[fieldName].push({
+                        value: item.vendor,
+                        label: item.vendor_name + ` (${venAddr?.city}, ${venAddr?.state})`,
+                    });
+                }
+            });
+    
+            setCategories(updatedCategories);
+        }
+    }, [vendor_category_list, vendor_list]);
 
     const handleChange = (category) => (selectedOptions) => {
         console.log("selectedOptions", selectedOptions)
