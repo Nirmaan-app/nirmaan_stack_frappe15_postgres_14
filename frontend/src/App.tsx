@@ -59,6 +59,7 @@ import { ApprovedSRList } from './components/service-request/approved-sr-list'
 import { ApprovedSR } from './components/service-request/approved-sr'
 import { SidebarProvider } from './components/ui/sidebar'
 import { SentBackSummary } from './components/procurement/sent-back-summary'
+import { ManPowerReport } from './components/ManPowerReport'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -89,6 +90,7 @@ const router = createBrowserRouter(
 							<Route index element={<DeliveryNotes />} />
 							<Route path=":id" element={<DeliveryNote />} />
 						</Route>
+						<Route path='man-power-report' element={<ManPowerReport />} />
 					</Route>
 
 					{/* Service Requests Paths */}
@@ -319,11 +321,11 @@ const App: FC = () => {
 			siteName={getSiteName()}>
 			<UserProvider>
 				<SidebarProvider>
-				{/* <QueryClientProvider client={queryClient}> */}
-				<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-					<RouterProvider router={router} />
-				</ThemeProvider>
-				{/* </QueryClientProvider> */}
+					{/* <QueryClientProvider client={queryClient}> */}
+					<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+						<RouterProvider router={router} />
+					</ThemeProvider>
+					{/* </QueryClientProvider> */}
 				</SidebarProvider>
 			</UserProvider>
 		</FrappeProvider>

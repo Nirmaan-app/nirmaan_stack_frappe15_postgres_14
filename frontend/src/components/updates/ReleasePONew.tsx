@@ -54,6 +54,10 @@ export const ReleasePONew = ({ not }) => {
     const [sheetOpen, setSheetOpen] = useState(false)
 
     const [advance, setAdvance] = useState(0)
+    const [materialReadiness, setMaterialReadiness] = useState(0)
+    const [afterDelivery, setAfterDelivery] = useState(0)
+    const [xDaysAfterDelivery, setXDaysAfterDelivery] = useState(0)
+
     const [loadingCharges, setLoadingCharges] = useState(0)
     const [freightCharges, setFreightCharges] = useState(0)
     const [notes, setNotes] = useState("")
@@ -192,6 +196,9 @@ export const ReleasePONew = ({ not }) => {
     const { control, handleSubmit, reset } = useForm({
         defaultValues: {
             advance: 0,
+            materialReadiness: 0,
+            afterDelivery: 0,
+            xDaysAfterDelivery: 0,
             loadingCharges: 0,
             freightCharges: 0,
             notes: ""
@@ -208,14 +215,21 @@ export const ReleasePONew = ({ not }) => {
             }
             if (curOrder) {
                 setOrderData(curOrder);
+                const chargesArray = curOrder?.advance?.split(", ")
                 reset({
-                    advance: parseInt(curOrder.advance || 0),
+                    advance: parseInt(chargesArray[0] || 0),
+                    materialReadiness: parseInt(chargesArray[1] || 0),
+                    afterDelivery: parseInt(chargesArray[2] || 0),
+                    xDaysAfterDelivery: parseInt(chargesArray[3] || 0),
                     loadingCharges: parseInt(curOrder.loading_charges || 0),
                     freightCharges: parseInt(curOrder.freight_charges || 0),
                     notes: curOrder.notes || ""
                     // afterDelivery: calculateAfterDelivery(curOrder) // Assuming you have a function to calculate this
                 });
-                setAdvance(parseInt(curOrder.advance || 0))
+                setAdvance(parseInt(chargesArray[0] || 0))
+                setMaterialReadiness(parseInt(chargesArray[1] || 0))
+                setAfterDelivery(parseInt(chargesArray[2] || 0))
+                setXDaysAfterDelivery(parseInt(chargesArray[3] || 0))
                 setLoadingCharges(parseInt(curOrder.loading_charges || 0))
                 setFreightCharges(parseInt(curOrder.freight_charges || 0))
                 setNotes(curOrder.notes || "")
@@ -232,7 +246,7 @@ export const ReleasePONew = ({ not }) => {
 
     const onSubmit = (data: any) => {
         const updateData = {
-            advance: data.advance !== "" ? parseInt(data.advance) : 0,
+            advance: `${data.advance !== "" ? parseInt(data.advance) : 0}, ${data.materialReadiness !== "" ? parseInt(data.materialReadiness) : 0}, ${data.afterDelivery !== "" ? parseInt(data.afterDelivery) : 0}, ${data.xDaysAfterDelivery !== "" ? parseInt(data.xDaysAfterDelivery) : 0}`,
             loading_charges: data.loadingCharges !== "" ? parseInt(data.loadingCharges) : 0,
             freight_charges: data.freightCharges !== "" ? parseInt(data.freightCharges) : 0,
             notes: data.notes || ""
@@ -579,6 +593,10 @@ export const ReleasePONew = ({ not }) => {
         }
     }
 
+    const checkPrintDisabled = (advance > 100 || advance < 0 || materialReadiness > 100 || materialReadiness < 0 || afterDelivery > 100 || afterDelivery < 0 || xDaysAfterDelivery > 100 || xDaysAfterDelivery < 0 || ![100, 0].includes((advance + materialReadiness + afterDelivery + xDaysAfterDelivery)))
+
+    console.log("checkPrintDisabled", checkPrintDisabled)
+
     // console.log("advance", control.)
     // console.log("values", contactPerson)
 
@@ -641,7 +659,7 @@ export const ReleasePONew = ({ not }) => {
                                     )}
                                 />
                             </div>
-                            <div className="flex-1 mt-2">
+                            <div className="flex-1 mt-2 border-b border-gray-400 pb-4">
                                 <Label>Freight Charges</Label>
                                 <Controller
                                     control={control}
@@ -656,20 +674,9 @@ export const ReleasePONew = ({ not }) => {
                                 />
                             </div>
                             <h3 className="font-semibold text-lg mt-4">Terms and Other Description</h3>
-                            <div className="flex-1 mt-2">
-                                <Label>Advance (in %)</Label>
+                            <div className="flex-1 py-2">
+                                <Label>Payments (in %)</Label>
                                 {/* <Controller
-                                    control={control}
-                                    name="advance"
-                                    render={({ field }) => (
-                                        <Input type="radio" {...field} onChange={(e) => {
-                                            const value = e.target.value
-                                            field.onChange(e);
-                                            setAdvance(value !== "" ? parseInt(value) : 0);
-                                        }} className="w-full" />
-                                    )}
-                                /> */}
-                                <Controller
                                     control={control}
                                     name="advance"
                                     render={({ field }) => (
@@ -682,7 +689,6 @@ export const ReleasePONew = ({ not }) => {
                                                 }}
                                                 className="flex flex-col space-y-2 mt-2"
                                             >
-                                                {/* Radio options */}
                                                 <div className="flex gap-4 items-center">
                                                     <RadioGroupItem value="25" id="advance-25" />
                                                     <Label htmlFor="advance-25" className="font-medium text-gray-700">25%</Label>
@@ -700,7 +706,6 @@ export const ReleasePONew = ({ not }) => {
                                                     <Label htmlFor="advance-other" className="font-medium text-gray-700">Other</Label>
                                                 </div>
 
-                                                {/* Conditional rendering for custom input */}
                                                 {customAdvance && (
                                                     <div className="mt-4">
                                                         <Label htmlFor="custom-advance">Enter Custom Advance %</Label>
@@ -723,7 +728,80 @@ export const ReleasePONew = ({ not }) => {
                                             </RadioGroup>
                                         </>
                                     )}
+                                /> */}
+
+                                <div className='flex gap-8 py-4 ml-2'>
+                                    <div className='flex flex-col gap-8'>
+                                        <p>1. Advance:</p>
+                                        <p>2. Material Readiness:</p>
+                                        <p>3. After Delivery:</p>
+                                        <p>4. After X days of delivery:</p>
+                                    </div>
+                                <div className='flex flex-col gap-4'>
+                                <Controller
+                                    control={control}
+                                    name="advance"
+                                    render={({ field }) => (
+                                        <Input {...field} className="w-full" onChange={(e) => {
+                                            const value = e.target.value
+                                            field.onChange(e);
+                                            setAdvance(value !== "" ? parseInt(value) : 0);
+                                        }} />
+                                    )}
                                 />
+                                <Controller
+                                    control={control}
+                                    name="materialReadiness"
+                                    render={({ field }) => (
+                                        <Input {...field} className="w-full" onChange={(e) => {
+                                            const value = e.target.value
+                                            field.onChange(e);
+                                            setMaterialReadiness(value !== "" ? parseInt(value) : 0);
+                                        }} />
+                                    )}
+                                />
+                                <Controller
+                                    control={control}
+                                    name="afterDelivery"
+                                    render={({ field }) => (
+                                        <Input {...field} className="w-full" onChange={(e) => {
+                                            const value = e.target.value
+                                            field.onChange(e);
+                                            setAfterDelivery(value !== "" ? parseInt(value) : 0);
+                                        }} />
+                                    )}
+                                />
+                                <Controller
+                                    control={control}
+                                    name="xDaysAfterDelivery"
+                                    render={({ field }) => (
+                                        <Input {...field} className="w-full" onChange={(e) => {
+                                            const value = e.target.value
+                                            field.onChange(e);
+                                            setXDaysAfterDelivery(value !== "" ? parseInt(value) : 0);
+                                        }} />
+                                    )}
+                                />
+                                    </div>
+                                    {/* <div className='ml-4 flex justify-between items-center'>
+                                            <p>Advance:</p>
+                                            <Input  />
+                                    </div>
+                                    <div className='ml-4 flex justify-between items-center'>
+                                            <p>Material Readiness:</p>
+                                            <Input  />
+                                    </div>
+                                    <div className='ml-4 flex justify-between items-center'>
+                                            <p>After Delivery:</p>
+                                            <Input  />
+                                    </div>
+                                    <div className='ml-4 flex justify-between items-center'>
+                                            <p>X days after delivery:</p>
+                                            <Input  />
+                                    </div> */}
+                                </div>
+                            <p className='ml-2'><Badge variant={"gray"}>Total agregated percentages: </Badge> {advance + materialReadiness + afterDelivery + xDaysAfterDelivery} %</p>
+                            <p className='ml-2 my-2'><Badge variant={"red"}>Note:</Badge> <strong>Total agregated percentage must sum up to 100% in order to enable save button!</strong> </p>
                             </div>
                             <div className="flex-1 mt-2">
                                 <Label>Add Notes</Label>
@@ -740,7 +818,7 @@ export const ReleasePONew = ({ not }) => {
                                 />
                             </div>
                             <div className="mt-2 flex items-center justify-center">
-                                <ShadButton type='submit' className='flex items-center gap-1'  disabled={advance > 100 || advance < 0} >
+                                <ShadButton type='submit' className='flex items-center gap-1'  disabled={checkPrintDisabled} >
                                     <ListChecks className="h-4 w-4" />
                                     {update_loading ? "Saving..." : "Save"}
                                 </ShadButton>
@@ -767,13 +845,35 @@ export const ReleasePONew = ({ not }) => {
                             <div className='absolute right-0 -top-14 flex items-center gap-4'>
                                 <Badge variant={orderData?.status === "PO Approved" ? "default" : orderData?.status === "PO Sent" ? "yellow" : orderData?.status === "Dispatched" ? "orange" : "green"}>{orderData?.status === "Partially Delivered" ? "Delivered" : orderData?.status}</Badge>
                                 {!["PO Sent", "PO Approved"].includes(orderData?.status) && (
-                                    <ShadButton className='flex items-center gap-1' disabled={advance > 100 || advance < 0} onClick={() => {
-                                        onSubmit(control._formValues)
-                                        handlePrint()
-                                    }}>
-                                    <Printer className='h-4 w-4' />
-                                    Print
-                                </ShadButton>
+                                    checkPrintDisabled === true ? (
+                                    <Dialog>
+                                        <DialogTrigger>
+                                        <ShadButton className='flex items-center gap-1'>
+                                            <Printer className='h-4 w-4' />
+                                            Print
+                                        </ShadButton>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                            <DialogHeader>
+                                                <DialogTitle>
+                                                    Important!
+                                                </DialogTitle>
+                                                <DialogDescription>
+                                                    You are seeing this because of some validation checks from the payment terms inputs are not fulfilled, 
+                                                    please go the editing section and do the needful to proceed with printing!
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                        </DialogContent>
+                                    </Dialog>
+                                    ) : (
+                                        <ShadButton className='flex items-center gap-1' onClick={() => {
+                                            onSubmit(control._formValues)
+                                            handlePrint()
+                                        }}>
+                                        <Printer className='h-4 w-4' />
+                                        Print
+                                    </ShadButton>
+                                    )
                                 )}
                             </div>
 
@@ -1106,7 +1206,7 @@ export const ReleasePONew = ({ not }) => {
                                                         )}
                                                         <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                                         <div className="text-sm text-gray-900">
-                                                            {advance}% advance {advance === 100 ? "" : `and remaining ${100 - advance}% on material readiness before delivery of material to site`}
+                                                            {advance}% advance {advance === 100 ? "" : `, ${materialReadiness}% on material readiness, ${afterDelivery}% after delivery to the site and ${xDaysAfterDelivery}% after 30 days of delivering the material(s)!`}
                                                         </div>
 
                                                         <img src={Seal} className="w-24 h-24" />
@@ -1262,13 +1362,37 @@ export const ReleasePONew = ({ not }) => {
                                                                                 </DialogDescription>
                                                                             </DialogHeader>
                                                                             <div className="flex justify-center space-x-4">
-                                                                                <ShadButton disabled={advance > 100 || advance < 0} onClick={() => {
-                                                                                    onSubmit(control._formValues)
-                                                                                    handlePrint()
-                                                                                }} variant="outline">
-                                                                                    <Download className="h-4 w-4 mr-2" />
-                                                                                    Download PO
-                                                                                </ShadButton>
+                                                                            {
+                                                                                checkPrintDisabled === true ? (
+                                                                                    <Dialog>
+                                                                                        <DialogTrigger>
+                                                                                        <ShadButton variant="outline">
+                                                                                            <Download className="h-4 w-4 mr-2" />
+                                                                                            Download PO
+                                                                                        </ShadButton>
+                                                                                        </DialogTrigger>
+                                                                                        <DialogContent>
+                                                                                            <DialogHeader>
+                                                                                                <DialogTitle>
+                                                                                                    Important!
+                                                                                                </DialogTitle>
+                                                                                                <DialogDescription>
+                                                                                                    You are seeing this because of some validation checks from the payment terms inputs are not fulfilled, 
+                                                                                                    please go the editing section and do the needful to proceed with printing!
+                                                                                                </DialogDescription>
+                                                                                            </DialogHeader>
+                                                                                        </DialogContent>
+                                                                                    </Dialog>
+                                                                                ) : (
+                                                                                    <ShadButton onClick={() => {
+                                                                                        onSubmit(control._formValues)
+                                                                                        handlePrint()
+                                                                                    }} variant="outline">
+                                                                                        <Download className="h-4 w-4 mr-2" />
+                                                                                        Download PO
+                                                                                    </ShadButton>
+                                                                                )      
+                                                                            }
                                                                                 <ShadButton onClick={() => window.open(`https://wa.me/${phoneNumber}`)} className="bg-green-600 hover:bg-green-700">
                                                                                     <CheckCheck className="h-4 w-4 mr-2" />
                                                                                     Open WhatsApp
@@ -1338,13 +1462,37 @@ export const ReleasePONew = ({ not }) => {
                                                                                 </div>
                                                                             </div>
                                                                             <DialogFooter>
-                                                                                <ShadButton disabled={advance > 100 || advance < 0} onClick={() => {
-                                                                                    onSubmit(control._formValues)
-                                                                                    handlePrint()
-                                                                                }} variant="outline">
-                                                                                    <Download className="h-4 w-4 mr-2" />
-                                                                                    Download PO
-                                                                                </ShadButton>
+                                                                            {
+                                                                                checkPrintDisabled === true ? (
+                                                                                    <Dialog>
+                                                                                        <DialogTrigger>
+                                                                                        <ShadButton variant="outline">
+                                                                                            <Download className="h-4 w-4 mr-2" />
+                                                                                            Download PO
+                                                                                        </ShadButton>
+                                                                                        </DialogTrigger>
+                                                                                        <DialogContent>
+                                                                                            <DialogHeader>
+                                                                                                <DialogTitle>
+                                                                                                    Important!
+                                                                                                </DialogTitle>
+                                                                                                <DialogDescription>
+                                                                                                    You are seeing this because of some validation checks from the payment terms inputs are not fulfilled, 
+                                                                                                    please go the editing section and do the needful to proceed with printing!
+                                                                                                </DialogDescription>
+                                                                                            </DialogHeader>
+                                                                                        </DialogContent>
+                                                                                    </Dialog>
+                                                                                ) : (
+                                                                                    <ShadButton onClick={() => {
+                                                                                        onSubmit(control._formValues)
+                                                                                        handlePrint()
+                                                                                    }} variant="outline">
+                                                                                        <Download className="h-4 w-4 mr-2" />
+                                                                                        Download PO
+                                                                                    </ShadButton>
+                                                                                )      
+                                                                            }
                                                                                 <ShadButton onClick={() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`)} className="bg-blue-600 hover:bg-blue-700">
                                                                                     <CheckCheck className="h-4 w-4 mr-2" />
                                                                                     Send Email
@@ -1365,10 +1513,34 @@ export const ReleasePONew = ({ not }) => {
                                         <CardFooter className="bg-gray-50 flex justify-between p-4">
                                             <p className="text-sm text-gray-600 italic">Check all details before sending this PO.</p>
                                             <div className="space-x-2">
-                                                <ShadButton variant="outline" onClick={() => { onSubmit(control._formValues); handlePrint(); }}>
-                                                    <Printer className='h-4 w-4 mr-2' />
-                                                    Print
-                                                </ShadButton>
+                                                {
+                                                    checkPrintDisabled === true ? (
+                                                        <Dialog>
+                                                            <DialogTrigger>
+                                                            <ShadButton variant="outline">
+                                                                <Printer className='h-4 w-4 mr-2' />
+                                                                Print
+                                                            </ShadButton>
+                                                            </DialogTrigger>
+                                                            <DialogContent>
+                                                                <DialogHeader>
+                                                                    <DialogTitle>
+                                                                        Important!
+                                                                    </DialogTitle>
+                                                                    <DialogDescription>
+                                                                        You are seeing this because of some validation checks from the payment terms inputs are not fulfilled, 
+                                                                        please go the editing section and do the needful to proceed with printing!
+                                                                    </DialogDescription>
+                                                                </DialogHeader>
+                                                            </DialogContent>
+                                                        </Dialog>
+                                                    ) : (
+                                                        <ShadButton variant="outline" onClick={() => { onSubmit(control._formValues); handlePrint(); }}>
+                                                            <Printer className='h-4 w-4 mr-2' />
+                                                            Print
+                                                        </ShadButton>
+                                                    )      
+                                                }
                                                 <Dialog>
                                                     <DialogTrigger asChild>
                                                         <ShadButton variant="default" className="bg-yellow-500 hover:bg-yellow-600">
