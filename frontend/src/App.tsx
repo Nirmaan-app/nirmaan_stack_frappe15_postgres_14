@@ -59,13 +59,12 @@ import { ApprovedSRList } from './components/service-request/approved-sr-list'
 import { ApprovedSR } from './components/service-request/approved-sr'
 import { ManPowerReport } from './components/ManPowerReport'
 import ForgotPassword from './pages/auth/forgot-password'
-import { SidebarProvider } from './components/ui/sidebar'
 import { SentBackSummary } from './components/procurement/sent-back-summary'
-import { ManPowerReport } from './components/ManPowerReport'
 import { NotificationsPage } from './components/nav/notifications'
 import { NewProcurementRequest } from './components/procurement-request/new-new-pr'
 import { WPSelection } from './components/procurement-request/wp_selection'
 import { SelectServiceVendorPage } from '@/components/service-request/select-service-vendor'
+import { SidebarProvider } from './components/ui/sidebar'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
