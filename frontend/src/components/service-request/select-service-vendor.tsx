@@ -181,11 +181,14 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
         "Vendors"
     );
 
+
+    // console.log("vendor_list", vendor_list)
+
     useEffect(() => {
         if (vendor_list) {
             const currOptions = vendor_list?.map((item) => ({
                 value: item.name,
-                label: item.vendor_name
+                label: item.vendor_name + ` (${item?.vendor_city}, ${item?.vendor_state})`
             }))
             setVendorOptions(currOptions);
         }
