@@ -30,13 +30,14 @@ export const ManPowerReport = () => {
     const handleCopy = () => {
         const total = manpowerDetails.reduce((sum, item) => sum + item.count, 0);
         const message = `
+*Manpower Report*
+
 Project - ${data?.project_name}
 Date - ${new Date().toLocaleDateString()}
 
-Manpower Aligned...
 ${manpowerDetails
-            .map((item, index) => `${index + 1}. ${item.role} - ${item.count.toString().padStart(2, '0')} Nos.`)
-            .join("\n")}
+                .map((item, index) => `${index + 1}. ${item.role} - ${item.count.toString().padStart(2, '0')} Nos.`)
+                .join("\n")}
   
 Total - ${total.toString().padStart(2, '0')} Nos.
         `.trim();
@@ -44,15 +45,15 @@ Total - ${total.toString().padStart(2, '0')} Nos.
         toast({
             title: "Success!",
             description: "Message copied to clipboard!",
-            variant : "success"
+            variant: "success"
         })
     };
 
     return (
         <div className="flex-1 space-y-2 md:space-y-4">
             <div className="flex items-center ">
-                    <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
-                    <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">Man Power Details</h2>
+                <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
+                <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">Man Power Details</h2>
             </div>
             <ProjectSelect onChange={handleChange} />
             {project && (
