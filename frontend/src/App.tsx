@@ -64,6 +64,7 @@ import { ProjectPaymentsList } from './pages/ProjectPayments/project-payments-li
 import OrderPaymentSummary from './pages/ProjectPayments/order-payment-summary'
 import { ProcurementRequests } from './components/procurement/procurement-requests'
 import { RenderProcurementRequest } from './components/procurement/render-procurement-request'
+import { SidebarProvider } from './components/ui/sidebar'
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -397,11 +398,13 @@ const App: FC = () => {
       //@ts-ignore
       siteName={getSiteName()}>
       <UserProvider>
-        {/* <QueryClientProvider client={queryClient}> */}
-        <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-          <RouterProvider router={router} />
-        </ThemeProvider>
-        {/* </QueryClientProvider> */}
+        <SidebarProvider>
+          {/* <QueryClientProvider client={queryClient}> */}
+          <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+            <RouterProvider router={router} />
+          </ThemeProvider>
+          {/* </QueryClientProvider> */}
+        </SidebarProvider>
       </UserProvider>
     </FrappeProvider>
   )
