@@ -229,7 +229,7 @@ const Sidebar = React.forwardRef<
             "group-data-[side=right]:rotate-180",
             variant === "floating" || variant === "inset"
               ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]"
-              : "group-data-[collapsible=icon]:w-20"
+              : "group-data-[collapsible=icon]:w-[--sidebar-width-icon]"
           )}
         />
         <div
@@ -241,7 +241,7 @@ const Sidebar = React.forwardRef<
             // Adjust the padding for floating and inset variants.
             variant === "floating" || variant === "inset"
               ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
-              : "group-data-[collapsible=icon]:w-16 group-data-[side=left]:border-r group-data-[side=right]:border-l",
+              : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
             className
           )}
           {...props}
@@ -263,7 +263,7 @@ const SidebarTrigger = React.forwardRef<
   React.ElementRef<typeof Button>,
   React.ComponentProps<typeof Button>
 >(({ className, onClick, ...props }, ref) => {
-  const { toggleSidebar, state } = useSidebar()
+  const { toggleSidebar } = useSidebar()
 
   return (
     <Button
@@ -271,7 +271,7 @@ const SidebarTrigger = React.forwardRef<
       data-sidebar="trigger"
       variant="ghost"
       size="icon"
-      className={cn("h-7 w-7 mt-1 flex items-center justify-center", className)}
+      className={cn("h-7 w-7", className)}
       onClick={(event) => {
         onClick?.(event)
         toggleSidebar()
@@ -279,13 +279,7 @@ const SidebarTrigger = React.forwardRef<
       {...props}
     >
       {/* <ViewVerticalIcon /> */}
-      {/* {state === "collapsed" ? (
-        <MenuUnfoldOutlined  />
-      ) : (
-        <MenuFoldOutlined  />
-      )} */}
-      {/* <PanelLeft className={`${state === "collapsed"}`} /> */}
-      <Menu />
+      <PanelLeft />
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   )
@@ -528,9 +522,9 @@ const sidebarMenuButtonVariants = cva(
           "bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
       },
       size: {
-        default: "h-8 text-sm group-data-[collapsible=icon]:ml-2",
+        default: "h-8 text-sm",
         sm: "h-7 text-xs",
-        lg: "h-12 text-sm group-data-[collapsible=icon]:!p-0 group-data-[collapsible=icon]:ml-2",
+        lg: "h-12 text-sm group-data-[collapsible=icon]:!p-0",
       },
     },
     defaultVariants: {
@@ -545,8 +539,7 @@ const SidebarMenuButton = React.forwardRef<
   React.ComponentProps<"button"> & {
     asChild?: boolean
     isActive?: boolean
-    tooltip?: string | React.ComponentProps<typeof TooltipContent> | any
-    selectedKeys?: any
+    tooltip?: string | React.ComponentProps<typeof TooltipContent>
   } & VariantProps<typeof sidebarMenuButtonVariants>
 >(
   (
@@ -557,7 +550,6 @@ const SidebarMenuButton = React.forwardRef<
       size = "default",
       tooltip,
       className,
-      selectedKeys,
       ...props
     },
     ref
@@ -587,48 +579,15 @@ const SidebarMenuButton = React.forwardRef<
     }
 
     return (
-      // <Tooltip>
-      //   <TooltipTrigger asChild>{button}</TooltipTrigger>
-      //   <TooltipContent
-      //     side="right"
-      //     align="center"
-      //     hidden={state !== "collapsed" || isMobile}
-      //     {...tooltip}
-      //   />
-      // </Tooltip>
       <Tooltip>
-    <TooltipTrigger asChild>{button}</TooltipTrigger>
-    <TooltipContent
-      side="right"
-      align="start"
-      hidden={state !== "collapsed" || isMobile}
-      className="w-60"
-    >
-      {Array.isArray(tooltip) ? (
-        <SidebarMenu className="space-y-1">
-          {tooltip.map((subitem) => (
-            <SidebarMenuItem className="relative" key={subitem.key}>
-              <SidebarMenuButton
-                className={`${
-                  `/${selectedKeys}` === subitem.key
-                    ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
-                    : ""
-                } rounded-md w-54`}
-                asChild
-              >
-                <Link to={subitem.key}>
-                  <span className="text-xs text-sidebar-foreground">{subitem.label}</span>
-                </Link>
-              </SidebarMenuButton>
-              <SidebarMenuBadge>{subitem?.count}</SidebarMenuBadge>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
-      ) : (
-        <p className={`${!selectedKeys ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} rounded-md px-2 py-1`}><Link to="/">{tooltip.children}</Link></p>
-      )}
-    </TooltipContent>
-  </Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent
+          side="right"
+          align="center"
+          hidden={state !== "collapsed" || isMobile}
+          {...tooltip}
+        />
+      </Tooltip>
     )
   }
 )
@@ -656,7 +615,7 @@ const SidebarMenuAction = React.forwardRef<
         "peer-data-[size=lg]/menu-button:top-2.5",
         "group-data-[collapsible=icon]:hidden",
         showOnHover &&
-          "group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 peer-data-[active=true]/menu-button:text-sidebar-accent-foreground md:opacity-0",
+        "group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 peer-data-[active=true]/menu-button:text-sidebar-accent-foreground md:opacity-0",
         className
       )}
       {...props}
