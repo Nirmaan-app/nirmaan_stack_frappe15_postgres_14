@@ -1787,15 +1787,15 @@ export const ReleasePONew = ({ not }) => {
                                                             </DialogDescription>
                                                         </DialogHeader>
                                                         {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                                            <DialogFooter className='flex flex-row items-center justify-end'>
+                                                            <DialogFooter>
                                                                 <DialogClose>
                                                                     <ShadButton variant="outline" className='flex items-center gap-1'>
-                                                                        <Undo2 className="h-4 w-4" />
+                                                                        <Undo2 className="h-4 w-4 mr-2" />
                                                                         Cancel
                                                                     </ShadButton>
                                                                 </DialogClose>
-                                                                <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600 flex items-center gap-1">
-                                                                    <CheckCheck className="h-4 w-4" />
+                                                                <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600">
+                                                                    <CheckCheck className="h-4 w-4 mr-2" />
                                                                     Confirm
                                                                 </ShadButton>
                                                             </DialogFooter>
