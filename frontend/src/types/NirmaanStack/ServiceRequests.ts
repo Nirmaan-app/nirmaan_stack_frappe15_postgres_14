@@ -20,4 +20,10 @@ export interface ServiceRequests{
 	service_category_list?: any
 	/**	Status : Data	*/
 	status?: string
+	/**	Notes : JSON	*/
+	notes?: any
+	/**	GST : Data	*/
+	gst?: string
+	/**	Advance : Data	*/
+	advance?: string
 }
