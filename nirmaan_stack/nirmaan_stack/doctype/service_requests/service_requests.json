@@ -73,7 +73,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-11-20 18:03:22.836122",
+ "modified": "2024-11-22 15:03:40.621257",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",
@@ -142,5 +142,6 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

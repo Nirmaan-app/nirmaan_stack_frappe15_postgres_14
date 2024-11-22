@@ -41,7 +41,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-11-21 20:48:16.384237",
+ "modified": "2024-11-22 15:03:28.160834",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Manpower Reports",
@@ -110,5 +110,6 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

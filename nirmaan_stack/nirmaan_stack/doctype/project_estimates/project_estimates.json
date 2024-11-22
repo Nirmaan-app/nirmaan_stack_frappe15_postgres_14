@@ -81,7 +81,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-11-12 12:39:46.809357",
+ "modified": "2024-11-22 15:03:52.045179",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Estimates",
@@ -102,5 +102,6 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }
