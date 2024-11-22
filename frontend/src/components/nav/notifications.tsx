@@ -5,13 +5,16 @@ import { useContext, useState } from "react";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
 import { format, isToday, isYesterday } from "date-fns";
+import { SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, useSidebar } from "../ui/sidebar";
 
-export function Notifications() {
+export function Notifications({isMobileMain = false}) {
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const navigate = useNavigate();
 
     const { notifications, notificationsCount, mark_seen_notification } = useNotificationStore();
     const [isDropdownOpen, setDropdownOpen] = useState(false);
+
+    const { isMobile, state, toggleSidebar} = useSidebar()
 
     const {data : usersList} = useFrappeGetDocList("Nirmaan Users", {
         fields: ["full_name", "name"],
@@ -30,6 +33,9 @@ export function Notifications() {
                 mark_seen_notification(db, notification);
             }
             setDropdownOpen(false);
+            if(isMobile && !isMobileMain) {
+                toggleSidebar()
+            }
             navigate(`/${url}`);
         }
     };
@@ -48,17 +54,39 @@ export function Notifications() {
 
     return (
         <DropdownMenu open={isDropdownOpen} onOpenChange={setDropdownOpen}>
-            <DropdownMenuTrigger>
-                <div className="relative">
+            <DropdownMenuTrigger asChild>
+                {!isMobileMain ? (
+                    <SidebarMenuButton
+                    size="lg"
+                    className={`data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground ${isMobile ? "pr-32" : "pr-28"}`}
+                    >
+                        <div className="flex gap-4 ml-1 items-center">
+                            <Bell className="relative max-md:w-5 max-md:h-5" />
+                            <span className="font-medium">Notifications</span>
+                        </div>
+                        {state === "collapsed" && (
+                                <span className="absolute -top-1 -right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
+                                    {notificationsCount}
+                                </span>
+                            )}
+                            <SidebarMenuBadge>{notificationsCount}</SidebarMenuBadge>
+                    </SidebarMenuButton>
+                ) : (
+
+                <div className="relative mt-1 cursor-pointer">
                     <Bell className="h-6 w-6" />
-                    {notificationsCount !== 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full h-4 w-4 flex items-center justify-center text-xs">
-                            {notificationsCount}
-                        </span>
-                    )}
+                    <span className="absolute -top-1 -right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
+                        {notificationsCount}
+                    </span>
                 </div>
+                )}
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-80 overflow-y-auto max-h-[36rem]" align="end" forceMount>
+            <DropdownMenuContent
+            className="w-80 overflow-y-auto max-h-[36rem] min-w-56 rounded-lg"
+            side={isMobile ? "bottom" : "right"}
+            align="end"
+            sideOffset={4}
+            >
                 <DropdownMenuLabel className="font-normal">
                     {notifications.length !== 0 ? (
                         <div className="space-y-4">

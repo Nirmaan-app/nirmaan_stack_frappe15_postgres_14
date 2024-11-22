@@ -57,6 +57,7 @@ import { ApproveServiceRequest } from './components/service-request/approve-serv
 import { SelectServiceVendorList } from './components/service-request/select-service-vendor-list'
 import { ApprovedSRList } from './components/service-request/approved-sr-list'
 import { ApprovedSR } from './components/service-request/approved-sr'
+import { SidebarProvider } from './components/ui/sidebar'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -301,11 +302,13 @@ const App: FC = () => {
 			//@ts-ignore
 			siteName={getSiteName()}>
 			<UserProvider>
+				<SidebarProvider>
 				{/* <QueryClientProvider client={queryClient}> */}
 				<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
 					<RouterProvider router={router} />
 				</ThemeProvider>
 				{/* </QueryClientProvider> */}
+				</SidebarProvider>
 			</UserProvider>
 		</FrappeProvider>
 	)
