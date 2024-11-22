@@ -1204,10 +1204,14 @@ export const ReleasePONew = ({ not }) => {
                                                                 <div className="text-sm text-gray-900">{notes}</div>
                                                             </>
                                                         )}
-                                                        <div className="text-gray-400 text-sm py-2">Payment Terms</div>
-                                                        <div className="text-sm text-gray-900">
-                                                            {advance}% advance {advance === 100 ? "" : `, ${materialReadiness}% on material readiness, ${afterDelivery}% after delivery to the site and ${xDaysAfterDelivery}% after 30 days of delivering the material(s)!`}
-                                                        </div>
+                                                        {(advance || materialReadiness || afterDelivery || xDaysAfterDelivery) ? (
+                                                            <>
+                                                            <div className="text-gray-400 text-sm py-2">Payment Terms</div>
+                                                            <div className="text-sm text-gray-900">
+                                                                {advance}% advance {advance === 100 ? "" : `, ${materialReadiness}% on material readiness, ${afterDelivery}% after delivery to the site and ${xDaysAfterDelivery}% after 30 days of delivering the material(s)!`}
+                                                            </div>
+                                                            </>
+                                                        ) : ""}
 
                                                         <img src={Seal} className="w-24 h-24" />
                                                         <div className="text-sm text-gray-900 py-6">For, Stratos Infra Technologies Pvt. Ltd.</div>
