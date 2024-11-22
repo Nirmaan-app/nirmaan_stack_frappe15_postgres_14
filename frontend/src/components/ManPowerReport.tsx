@@ -1,19 +1,27 @@
 import { useEffect, useState } from "react";
 import ProjectSelect from "./custom-select/project-select";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Button } from "./ui/button";
 import { toast } from "./ui/use-toast";
 import { Link } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Copy, Trash } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Badge } from "./ui/badge";
 import { formatDate } from "@/utils/FormatDate";
+import { TailSpin } from "react-loader-spinner";
+import { Pencil2Icon } from "@radix-ui/react-icons";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
 
 export const ManPowerReport = () => {
     const [project, setProject] = useState(null);
     const { data: projectData, isLoading: projectLoading, error: projectError } = useFrappeGetDoc("Projects", project, project ? undefined : null);
-    const { createDoc } = useFrappeCreateDoc()
+    const { createDoc, loading: createLoading } = useFrappeCreateDoc()
+    const [editReport, setEditReport] = useState(null)
+
+    const {updateDoc, loading: updateLoading} = useFrappeUpdateDoc()
+
+    const {deleteDoc, loading: deleteLoading} = useFrappeDeleteDoc()
 
     const fullManpowerDetails = [
         { role: "MEP Engineer", count: 0, key: "always" },
@@ -35,7 +43,6 @@ export const ManPowerReport = () => {
     }, project ? undefined : null)
 
     useEffect(() => {
-        manpowerMutate()
         if (projectData?.project_work_packages) {
             const selectedWorkPackages = JSON.parse(projectData.project_work_packages).work_packages.map(
                 (wp: any) => wp.work_package_name
@@ -58,6 +65,8 @@ export const ManPowerReport = () => {
         }
     }, [projectData]);
 
+    // console.log("manpowerDetails", manpowerDetails)
+
     const handleChange = (selectedItem: any) => {
         setProject(selectedItem ? selectedItem.value : null);
         sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
@@ -69,7 +78,40 @@ export const ManPowerReport = () => {
         setManpowerDetails(updatedDetails);
     };
 
-    const handleCopy = async () => {
+
+    const handleCopy = (id) => {
+
+    let filteredDetails;
+    if(id) {
+        filteredDetails = manpowerData?.find((i) => i?.name === id)?.report?.data
+    } else {
+        filteredDetails = manpowerDetails.filter(item => item.count > 0);
+    }
+
+        const total = filteredDetails.reduce((sum, item) => sum + item.count, 0);
+        const message = `
+*Manpower Report*
+
+Project - ${projectData?.project_name}
+Date - ${new Date().toLocaleDateString()}
+
+${filteredDetails
+                .map((item, index) => `${index + 1}. ${item.role} - ${item.count.toString().padStart(2, '0')} Nos.`)
+                .join("\n")}
+
+Total - ${total.toString().padStart(2, '0')} Nos.
+    `.trim();
+        navigator.clipboard.writeText(message);
+        if(id) {
+            toast({
+                title: "Success!",
+                description: "Report copied to clipboard!",
+                variant: "success"
+            })
+        }
+    }
+
+    const handleSave = async () => {
         try {
 
             const filteredDetails = manpowerDetails.filter(item => item.count > 0);
@@ -83,22 +125,7 @@ export const ManPowerReport = () => {
                 }))
             };
 
-            console.log("Manpower Details JSON:", manpowerJSON);
-
-            const total = filteredDetails.reduce((sum, item) => sum + item.count, 0);
-            const message = `
-*Manpower Report*
-
-Project - ${projectData?.project_name}
-Date - ${new Date().toLocaleDateString()}
-
-${filteredDetails
-                    .map((item, index) => `${index + 1}. ${item.role} - ${item.count.toString().padStart(2, '0')} Nos.`)
-                    .join("\n")}
-  
-Total - ${total.toString().padStart(2, '0')} Nos.
-        `.trim();
-            navigator.clipboard.writeText(message);
+            handleCopy(undefined)
 
             await createDoc("Manpower Reports", {
                 project: project,
@@ -106,18 +133,77 @@ Total - ${total.toString().padStart(2, '0')} Nos.
                 report: { data: manpowerJSON?.manpower }
             })
 
+            await manpowerMutate()
+
             toast({
                 title: "Success!",
-                description: "Message saved and copied to clipboard!",
+                description: "Report saved and copied to clipboard!",
                 variant: "success"
             })
 
         } catch (error) {
             console.log(error)
+            toast({
+                title: "Failed!",
+                description: "Error while saving or copying the report!",
+                variant: "destructive"
+            })
         } finally {
             setPage('list')
         }
     };
+
+    const handleEditReport = async () => {
+        const filteredDetails = editReport?.report?.data?.filter(item => item.count > 0);
+
+        try {
+            await updateDoc("Manpower Reports", editReport?.name, {
+                report: {data : filteredDetails}
+            })
+
+            await manpowerMutate()
+
+            toast({
+                title: "Success!",
+                description: "Report updated successfully!",
+                variant: "success"
+            })
+
+            document.getElementById("updateReportClose")?.click()
+
+        } catch (error) {
+            console.log("error while updating manpower report", error)
+            toast({
+                title: "Failed!",
+                description: "Error while udpating the report!",
+                variant: "destructive"
+            })
+        }
+    }
+
+    const handleDeleteReport = async (id) => {
+        try {
+            await deleteDoc("Manpower Reports", id)
+
+            await manpowerMutate()
+
+            toast({
+                title: "Success!",
+                description: "Report deleted successfully!",
+                variant: "success"
+            })
+        } catch (error) {
+            console.log("error while deleting report", error)
+            toast({
+                title: "Failed!",
+                description: "Error while deleting the report!",
+                variant: "destructive"
+            })
+        }
+    }
+
+    // console.log("editReport", editReport)
+
     if (projectLoading || manpowerLoading) return <h1>Loading</h1>
     if (projectError || manpowerError) return <h1>Error</h1>
     return (
@@ -156,63 +242,114 @@ Total - ${total.toString().padStart(2, '0')} Nos.
                                                 </div>
                                             </TableCell>
                                             <TableCell className="text-xs text-center">{formatDate(item.creation)}</TableCell>
-                                            <TableCell className="text-xs text-center">P/H</TableCell>
+                                            <TableCell className="text-xs text-center flex items-center gap-2">
+                                            <Dialog>
+                                                <DialogTrigger>
+                                                    <Pencil2Icon onClick={() => setEditReport(item)}  className="w-6 h-6 hover:text-blue-500" />
+                                                </DialogTrigger>
+                                                <DialogContent>
+                                                    <DialogHeader>
+                                                        <DialogTitle>
+                                                            Edit <span className="text-primary">{item.project_name}</span> {formatDate(item?.creation)}'s Report
+                                                        </DialogTitle>
+                                                    </DialogHeader>
+                                                    <DialogDescription className="flex flex-col gap-4 w-full">
+                                                    {manpowerDetails?.map((item, index) => {
+                                                        const addedItem = editReport?.report?.data?.find((i) => i?.role === item?.role)
+                                                        return (
+                                                            <div key={index} className="flex items-center gap-4">
+                                                            <label className="w-40">{item.role}:</label>
+                                                            <input
+                                                                type="number"
+                                                                value={addedItem?.count || 0}
+                                                                onChange={(e) => {
+                                                                    const newValue = parseFloat(e.target.value);
+                                                                    setEditReport((prevState) => {
+                                                                      const existingItemIndex = prevState.report.data.findIndex(
+                                                                        (dataItem) => dataItem.role === item.role
+                                                                      );
+
+                                                                      if (existingItemIndex !== -1) {
+                                                                        const updatedData = [...prevState.report.data];
+                                                                        updatedData[existingItemIndex] = {
+                                                                          ...updatedData[existingItemIndex],
+                                                                          count: newValue,
+                                                                        };
+                                                                        return {
+                                                                          ...prevState,
+                                                                          report: {
+                                                                            ...prevState.report,
+                                                                            data: updatedData,
+                                                                          },
+                                                                        };
+                                                                      }
+                                                          
+                                                                      return {
+                                                                        ...prevState,
+                                                                        report: {
+                                                                          ...prevState.report,
+                                                                          data: [
+                                                                            ...prevState.report.data,
+                                                                            { role: item.role, count: newValue },
+                                                                          ],
+                                                                        },
+                                                                      };
+                                                                    });
+                                                                  }}
+                                                                className="border border-gray-300 rounded-md px-2 py-1"
+                                                            />
+                                                        </div>
+                                                        )
+                                                        })}
+                                                            <Button onClick={() => handleEditReport()} 
+                                                                disabled={editReport?.report?.data?.every((i) => i?.count ===  item?.report?.data?.find((j) => j?.role === i?.role)?.count )}>
+                                                                {updateLoading ? <TailSpin color={"white"} width={20} height={20} /> : "Update"}
+                                                            </Button>
+                                                            <DialogClose id="updateReportClose" className="hidden">Close</DialogClose>
+                                                        </DialogDescription>
+                                                </DialogContent>
+                                            </Dialog>
+                                            <span>|</span>
+                                                
+                                            {/* <Dialog>
+                                                <DialogTrigger>
+                                                    <Trash className="w-6 h-6 text-primary cursor-pointer" />
+                                                </DialogTrigger>
+                                                <DialogContent>
+                                                <DialogHeader>
+                                                    <DialogTitle>
+                                                        Are you sure!
+                                                    </DialogTitle>
+                                                    <DialogDescription>Click on Confirm to proceed!</DialogDescription>
+                                                    <DialogDescription className="flex items-center justify-end gap-2">
+                                                        <DialogClose>
+                                                            <Button variant={"outline"}>Cancel</Button>
+                                                        </DialogClose>
+                                                        {deleteLoading ? <TailSpin color={"red"} width={20} height={20} /> : 
+                                                            <Button onClick={() => handleDeleteReport(item?.name)}>Confirm</Button>
+                                                        }
+                                                    </DialogDescription>
+                                                </DialogHeader>
+                                                </DialogContent>
+                                            </Dialog> */}
+                                                <Copy className="cursor-pointer hover:text-blue-500"  onClick={() => handleCopy(item?.name)} />
+                                            </TableCell>
                                         </TableRow>
                                     }
                                     )}
                                 </TableBody>
                             </Table>
-                            <Button onClick={() => setPage('create')}>Create New Manpower Report</Button>
+                            <div className="flex items-center justify-end py-6">
+                                <Button disabled={manpowerData?.some((i) => formatDate(i?.creation) === formatDate(new Date()))} onClick={() => setPage('create')}>Create New Manpower Report</Button>
+                            </div>
                         </div>
-
-                        //    <Card>
-                        //        <CardHeader>
-                        //            <CardTitle className="text-primary">Fill this form to best reflect the manpower details:</CardTitle>
-                        //        </CardHeader>
-                        //        <CardContent>
-                        //            <div className="flex flex-col gap-4">
-                        //                <div>
-                        //                    <strong>Project:</strong> {projectData?.project_name}
-                        //                </div>
-                        //                <div>
-                        //                    <strong>Work Packages:</strong>
-                        //                    <div className="flex gap-1 flex-wrap">
-                        //                        {JSON.parse(projectData?.project_work_packages).work_packages?.map((item: any) => (
-                        //                            <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">{item.work_package_name}</div>
-                        //                        ))}
-                        //                    </div>
-                        //                </div>
-                        //                <div>
-                        //                    <strong>Date:</strong> {new Date().toLocaleDateString()}
-                        //                </div>
-                        //                {manpowerDetails.map((item, index) => (
-                        //                    <div key={index} className="flex items-center gap-4">
-                        //                        <label className="w-40">{item.role}:</label>
-                        //                        <input
-                        //                            type="number"
-                        //                            value={item.count}
-                        //                            onChange={(e) =>
-                        //                                handleInputChange(index, e.target.value)
-                        //                            }
-                        //                            className="border border-gray-300 rounded-md px-2 py-1"
-                        //                        />
-                        //                    </div>
-                        //                ))}
-                        //                <Button
-                        //                    onClick={handleCopy}
-                        //                >
-                        //                    Copy Message
-                        //                </Button>
-                        //            </div>
-                        //        </CardContent>
-                        //    </Card>
                     )}
                 </div>
             }
             {page === "create" &&
                 <div className="flex-1 space-y-2 md:space-y-4">
                     <div className="flex items-center ">
-                        <div onClick={() => setPage('list')} className="cusror-pointer"><ArrowLeft className="" /></div>
+                        <div onClick={() => setPage('list')} className="cursor-pointer"><ArrowLeft className="" /></div>
                         <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">CREATE NEW MANPOWER REPORT</h2>
                     </div>
                     {project && (
@@ -250,9 +387,11 @@ Total - ${total.toString().padStart(2, '0')} Nos.
                                         </div>
                                     ))}
                                     <Button
-                                        onClick={handleCopy}
+                                        onClick={handleSave}
+                                        disabled={createLoading}
+                                        className="flex items-center justify-center"
                                     >
-                                        Save & Copy Message
+                                        {createLoading ? <TailSpin width={20} height={20} color="white" /> : "Save & Copy Message"}
                                     </Button>
                                 </div>
                             </CardContent>
