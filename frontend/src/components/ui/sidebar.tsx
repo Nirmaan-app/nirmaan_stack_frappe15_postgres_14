@@ -16,6 +16,7 @@ import { ViewVerticalIcon } from "@radix-ui/react-icons"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 import { PanelLeft } from "lucide-react"
+import { Link } from "react-router-dom"
 
 const SIDEBAR_COOKIE_NAME = "sidebar:state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
@@ -537,7 +538,8 @@ const SidebarMenuButton = React.forwardRef<
   React.ComponentProps<"button"> & {
     asChild?: boolean
     isActive?: boolean
-    tooltip?: string | React.ComponentProps<typeof TooltipContent>
+    tooltip?: string | React.ComponentProps<typeof TooltipContent> | any
+    selectedKeys?: any
   } & VariantProps<typeof sidebarMenuButtonVariants>
 >(
   (
@@ -548,6 +550,7 @@ const SidebarMenuButton = React.forwardRef<
       size = "default",
       tooltip,
       className,
+      selectedKeys,
       ...props
     },
     ref
@@ -577,15 +580,48 @@ const SidebarMenuButton = React.forwardRef<
     }
 
     return (
+      // <Tooltip>
+      //   <TooltipTrigger asChild>{button}</TooltipTrigger>
+      //   <TooltipContent
+      //     side="right"
+      //     align="center"
+      //     hidden={state !== "collapsed" || isMobile}
+      //     {...tooltip}
+      //   />
+      // </Tooltip>
       <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent
-          side="right"
-          align="center"
-          hidden={state !== "collapsed" || isMobile}
-          {...tooltip}
-        />
-      </Tooltip>
+    <TooltipTrigger asChild>{button}</TooltipTrigger>
+    <TooltipContent
+      side="right"
+      align="start"
+      hidden={state !== "collapsed" || isMobile}
+      className="w-60"
+    >
+      {Array.isArray(tooltip) ? (
+        <SidebarMenu className="space-y-1">
+          {tooltip.map((subitem) => (
+            <SidebarMenuItem className="relative" key={subitem.key}>
+              <SidebarMenuButton
+                className={`${
+                  `/${selectedKeys}` === subitem.key
+                    ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
+                    : ""
+                } rounded-md w-54`}
+                asChild
+              >
+                <Link to={subitem.key}>
+                  <span className="text-xs text-sidebar-foreground">{subitem.label}</span>
+                </Link>
+              </SidebarMenuButton>
+              <SidebarMenuBadge>{subitem?.count}</SidebarMenuBadge>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      ) : (
+        tooltip.children
+      )}
+    </TooltipContent>
+  </Tooltip>
     )
   }
 )
