@@ -2,17 +2,25 @@ import { useFrappeGetDocList } from 'frappe-react-sdk';
 import { NavBar } from '../nav/nav-bar';
 import React, { useEffect } from 'react';
 import { useFrappeDataStore } from '@/zustand/useFrappeDataStore';
-import { SidebarInset, SidebarProvider, SidebarTrigger } from '../ui/sidebar';
+import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '../ui/sidebar';
 import { NewSidebar } from './NewSidebar';
 import ErrorBoundaryWithNavigationReset from '../common/ErrorBoundaryWrapper';
 import ScrollToTop from '@/hooks/ScrollToTop';
-import { Outlet } from 'react-router-dom';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { Separator } from '../ui/separator';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../ui/breadcrumb';
+import { UserNav } from '../nav/user-nav';
+import { Notifications } from '../nav/notifications';
 
 export const MainLayout = ({children} : {children : React.ReactNode}) => {
 
     const {setProcurementRequestError, setProcurementRequestList, setProcurementRequestLoading, setProjects, setProjectsError, setProjectsLoading} = useFrappeDataStore()
+
+    const location = useLocation()
+    console.log("locations", location.pathname.slice(1)?.split("/"))
+
+
+    console.log("location", location)
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
@@ -45,19 +53,45 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
         setProjectsLoading(projects_loading)
     }, [projects, projects_loading, projects_error])
 
+    const {state, isMobile} = useSidebar()
+
     return (
         <>
-            {/* <NavBar /> */}
-            {/* <SidebarProvider> */}
+            <div className='flex w-full'>
                 <NewSidebar />
-                <SidebarInset>
-                <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+            <div className='flex flex-col w-full overflow-auto'>
+                <header className="flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
                     <div className="flex items-center gap-2 px-4">
                        <SidebarTrigger className="-ml-1" />
                        <Separator orientation="vertical" className="mr-2 h-4" />
                        <Breadcrumb>
                          <BreadcrumbList>
-                           <BreadcrumbItem className="hidden md:block">
+                            {location.pathname?.slice(1)?.split("/").map((route, index) => {
+                                const arr = location.pathname?.slice(1)?.split("/")
+                                const len = arr?.length
+                                const toNavigate = arr?.slice(0, index + 1)?.join("/")
+                                console.log("toNavigate", toNavigate)
+                                return (
+                                    index + 1 !== len ? (
+                                        <>
+                                            <BreadcrumbItem>
+                                                <Link  to={`/${toNavigate}`}>
+                                                    <BreadcrumbLink>
+                                                      {route?.toUpperCase()}
+                                                    </BreadcrumbLink>
+                                                </Link>
+                                            </BreadcrumbItem>
+                                            <BreadcrumbSeparator />
+                                        </>
+                                    ) : (
+
+                                        <BreadcrumbItem>
+                                            <BreadcrumbPage>{route?.toUpperCase()}</BreadcrumbPage>
+                                        </BreadcrumbItem>
+                                    )
+                                )
+                            })}
+                           {/* <BreadcrumbItem className="hidden md:block">
                              <BreadcrumbLink>
                                Building Your Application
                              </BreadcrumbLink>
@@ -65,61 +99,27 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
                            <BreadcrumbSeparator className="hidden md:block" />
                            <BreadcrumbItem>
                              <BreadcrumbPage>Data Fetching</BreadcrumbPage>
-                           </BreadcrumbItem>
+                           </BreadcrumbItem> */}
                          </BreadcrumbList>
                        </Breadcrumb>
                     </div>
+                    {isMobile && (
+                        <div className='flex items-center space-x-4 mr-4'>
+                        <Notifications isMobileMain />
+                        <UserNav isMobileMain />
+                    </div>
+                    )}
                 </header>
                 <main 
-                    className="flex flex-1 flex-col p-4 pt-0 transition-all duration-300 ease-in-out overflow-auto"
-                    style={{ maxHeight: "100vh", maxWidth: "100vw" }}
+                    className={`flex flex-1 flex-col p-4 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
                 >
                 <ErrorBoundaryWithNavigationReset>
                     <ScrollToTop />
                     <Outlet />
                 </ErrorBoundaryWithNavigationReset>
                 </main>
-                </SidebarInset>
-            {/* </SidebarProvider> */}
-
-            {/* <Layout>
-
-            <Header>
-                <div className="border-b w-full">
-                        <div className="flex h-16 items-center px-2 md:px-4">
-                          <div className="flex items-center justify-center">
-                            <Button onClick={toggleCollapsed} >
-                                {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                            </Button>
-                            <MainNav className="mx-2 md:mx-6"/>
-                          </div>
-                            <div className="ml-auto flex items-center space-x-4">
-                                <ModeToggle />
-                                <Notifications />
-                                <UserNav />
-                            </div>
-                        </div>
-                </div>
-            </Header>
-        <Layout>
-            <Sider>
-            <Menu
-                                defaultSelectedKeys={['1']}
-                                defaultOpenKeys={['sub1', 'sub2', 'sub3']}
-                                mode="inline"
-                                theme="light"
-                                inlineCollapsed={collapsed}
-                                items={items}
-                                triggerSubMenuAction="hover"
-                            />
-            </Sider>
-
-            <Content>
-                <Outlet />
-            </Content>
-
-            </Layout>
-            </Layout> */}
+            </div>
+        </div>
         </>
     );
 };
