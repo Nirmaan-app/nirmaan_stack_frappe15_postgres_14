@@ -326,7 +326,7 @@ export const ReleasePONew = ({ not }) => {
             }
 
             document.getElementById("CancelPOAlertCancel")?.click()
-            
+
             toast({
                 title: "Success!",
                 description: `Cancelled Po & New Sent Back: ${newSentBack.name} created successfully!`,
@@ -735,53 +735,53 @@ export const ReleasePONew = ({ not }) => {
                                         <p>1. Advance:</p>
                                         <p>2. Material Readiness:</p>
                                         <p>3. After Delivery:</p>
-                                        <p>4. After X days of delivery:</p>
+                                        <p>4. After 30 days of delivery:</p>
                                     </div>
-                                <div className='flex flex-col gap-4'>
-                                <Controller
-                                    control={control}
-                                    name="advance"
-                                    render={({ field }) => (
-                                        <Input {...field} className="w-full" onChange={(e) => {
-                                            const value = e.target.value
-                                            field.onChange(e);
-                                            setAdvance(value !== "" ? parseInt(value) : 0);
-                                        }} />
-                                    )}
-                                />
-                                <Controller
-                                    control={control}
-                                    name="materialReadiness"
-                                    render={({ field }) => (
-                                        <Input {...field} className="w-full" onChange={(e) => {
-                                            const value = e.target.value
-                                            field.onChange(e);
-                                            setMaterialReadiness(value !== "" ? parseInt(value) : 0);
-                                        }} />
-                                    )}
-                                />
-                                <Controller
-                                    control={control}
-                                    name="afterDelivery"
-                                    render={({ field }) => (
-                                        <Input {...field} className="w-full" onChange={(e) => {
-                                            const value = e.target.value
-                                            field.onChange(e);
-                                            setAfterDelivery(value !== "" ? parseInt(value) : 0);
-                                        }} />
-                                    )}
-                                />
-                                <Controller
-                                    control={control}
-                                    name="xDaysAfterDelivery"
-                                    render={({ field }) => (
-                                        <Input {...field} className="w-full" onChange={(e) => {
-                                            const value = e.target.value
-                                            field.onChange(e);
-                                            setXDaysAfterDelivery(value !== "" ? parseInt(value) : 0);
-                                        }} />
-                                    )}
-                                />
+                                    <div className='flex flex-col gap-4'>
+                                        <Controller
+                                            control={control}
+                                            name="advance"
+                                            render={({ field }) => (
+                                                <Input {...field} className="w-full" onChange={(e) => {
+                                                    const value = e.target.value
+                                                    field.onChange(e);
+                                                    setAdvance(value !== "" ? parseInt(value) : 0);
+                                                }} />
+                                            )}
+                                        />
+                                        <Controller
+                                            control={control}
+                                            name="materialReadiness"
+                                            render={({ field }) => (
+                                                <Input {...field} className="w-full" onChange={(e) => {
+                                                    const value = e.target.value
+                                                    field.onChange(e);
+                                                    setMaterialReadiness(value !== "" ? parseInt(value) : 0);
+                                                }} />
+                                            )}
+                                        />
+                                        <Controller
+                                            control={control}
+                                            name="afterDelivery"
+                                            render={({ field }) => (
+                                                <Input {...field} className="w-full" onChange={(e) => {
+                                                    const value = e.target.value
+                                                    field.onChange(e);
+                                                    setAfterDelivery(value !== "" ? parseInt(value) : 0);
+                                                }} />
+                                            )}
+                                        />
+                                        <Controller
+                                            control={control}
+                                            name="xDaysAfterDelivery"
+                                            render={({ field }) => (
+                                                <Input {...field} className="w-full" onChange={(e) => {
+                                                    const value = e.target.value
+                                                    field.onChange(e);
+                                                    setXDaysAfterDelivery(value !== "" ? parseInt(value) : 0);
+                                                }} />
+                                            )}
+                                        />
                                     </div>
                                     {/* <div className='ml-4 flex justify-between items-center'>
                                             <p>Advance:</p>
@@ -800,8 +800,8 @@ export const ReleasePONew = ({ not }) => {
                                             <Input  />
                                     </div> */}
                                 </div>
-                            <p className='ml-2'><Badge variant={"gray"}>Total agregated percentages: </Badge> {advance + materialReadiness + afterDelivery + xDaysAfterDelivery} %</p>
-                            <p className='ml-2 my-2'><Badge variant={"red"}>Note:</Badge> <strong>Total agregated percentage must sum up to 100% in order to enable save button!</strong> </p>
+                                <p className='ml-2'><Badge variant={"gray"}>Total agregated percentages: </Badge> {advance + materialReadiness + afterDelivery + xDaysAfterDelivery} %</p>
+                                <p className='ml-2 my-2'><Badge variant={"red"}>Note:</Badge> <strong>Total agregated percentage must sum up to 100% in order to enable save button!</strong> </p>
                             </div>
                             <div className="flex-1 mt-2">
                                 <Label>Add Notes</Label>
@@ -818,7 +818,7 @@ export const ReleasePONew = ({ not }) => {
                                 />
                             </div>
                             <div className="mt-2 flex items-center justify-center">
-                                <ShadButton type='submit' className='flex items-center gap-1'  disabled={checkPrintDisabled} >
+                                <ShadButton type='submit' className='flex items-center gap-1' disabled={checkPrintDisabled} >
                                     <ListChecks className="h-4 w-4" />
                                     {update_loading ? "Saving..." : "Save"}
                                 </ShadButton>
@@ -846,33 +846,33 @@ export const ReleasePONew = ({ not }) => {
                                 <Badge variant={orderData?.status === "PO Approved" ? "default" : orderData?.status === "PO Sent" ? "yellow" : orderData?.status === "Dispatched" ? "orange" : "green"}>{orderData?.status === "Partially Delivered" ? "Delivered" : orderData?.status}</Badge>
                                 {!["PO Sent", "PO Approved"].includes(orderData?.status) && (
                                     checkPrintDisabled === true ? (
-                                    <Dialog>
-                                        <DialogTrigger>
-                                        <ShadButton className='flex items-center gap-1'>
-                                            <Printer className='h-4 w-4' />
-                                            Print
-                                        </ShadButton>
-                                        </DialogTrigger>
-                                        <DialogContent>
-                                            <DialogHeader>
-                                                <DialogTitle>
-                                                    Important!
-                                                </DialogTitle>
-                                                <DialogDescription>
-                                                    You are seeing this because of some validation checks from the payment terms inputs are not fulfilled, 
-                                                    please go the editing section and do the needful to proceed with printing!
-                                                </DialogDescription>
-                                            </DialogHeader>
-                                        </DialogContent>
-                                    </Dialog>
+                                        <Dialog>
+                                            <DialogTrigger>
+                                                <ShadButton className='flex items-center gap-1'>
+                                                    <Printer className='h-4 w-4' />
+                                                    Print
+                                                </ShadButton>
+                                            </DialogTrigger>
+                                            <DialogContent>
+                                                <DialogHeader>
+                                                    <DialogTitle>
+                                                        Important!
+                                                    </DialogTitle>
+                                                    <DialogDescription>
+                                                        You are seeing this because of some validation checks from the payment terms inputs are not fulfilled,
+                                                        please go the editing section and do the needful to proceed with printing!
+                                                    </DialogDescription>
+                                                </DialogHeader>
+                                            </DialogContent>
+                                        </Dialog>
                                     ) : (
                                         <ShadButton className='flex items-center gap-1' onClick={() => {
                                             onSubmit(control._formValues)
                                             handlePrint()
                                         }}>
-                                        <Printer className='h-4 w-4' />
-                                        Print
-                                    </ShadButton>
+                                            <Printer className='h-4 w-4' />
+                                            Print
+                                        </ShadButton>
                                     )
                                 )}
                             </div>
@@ -1007,18 +1007,18 @@ export const ReleasePONew = ({ not }) => {
                                                                         </ul>
                                                                         <p className='mt-2 font-semibold text-base'>Continue?</p>
                                                                     </AlertDialogDescription>
-                                                                {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                                                    <AlertDialogDescription className='flex gap-2 items-center justify-center'>
-                                                                        <AlertDialogCancel className="flex items-center gap-1" >
-                                                                            <Undo2 className="h-4 w-4" />
-                                                                            Cancel 
-                                                                        </AlertDialogCancel>
+                                                                    {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                                                                        <AlertDialogDescription className='flex gap-2 items-center justify-center'>
+                                                                            <AlertDialogCancel className="flex items-center gap-1" >
+                                                                                <Undo2 className="h-4 w-4" />
+                                                                                Cancel
+                                                                            </AlertDialogCancel>
                                                                             <ShadButton onClick={handleMergePOs} className='flex gap-1 items-center' >
                                                                                 <CheckCheck className="h-4 w-4" />
-                                                                                Confirm 
+                                                                                Confirm
                                                                             </ShadButton>
-                                                                    </AlertDialogDescription>
-                                                                )}
+                                                                        </AlertDialogDescription>
+                                                                    )}
                                                                     <AlertDialogCancel className='hidden' id='MergePOsAlertCancel'>
                                                                         Cancel
                                                                     </AlertDialogCancel>
@@ -1362,37 +1362,37 @@ export const ReleasePONew = ({ not }) => {
                                                                                 </DialogDescription>
                                                                             </DialogHeader>
                                                                             <div className="flex justify-center space-x-4">
-                                                                            {
-                                                                                checkPrintDisabled === true ? (
-                                                                                    <Dialog>
-                                                                                        <DialogTrigger>
-                                                                                        <ShadButton variant="outline">
+                                                                                {
+                                                                                    checkPrintDisabled === true ? (
+                                                                                        <Dialog>
+                                                                                            <DialogTrigger>
+                                                                                                <ShadButton variant="outline">
+                                                                                                    <Download className="h-4 w-4 mr-2" />
+                                                                                                    Download PO
+                                                                                                </ShadButton>
+                                                                                            </DialogTrigger>
+                                                                                            <DialogContent>
+                                                                                                <DialogHeader>
+                                                                                                    <DialogTitle>
+                                                                                                        Important!
+                                                                                                    </DialogTitle>
+                                                                                                    <DialogDescription>
+                                                                                                        You are seeing this because of some validation checks from the payment terms inputs are not fulfilled,
+                                                                                                        please go the editing section and do the needful to proceed with printing!
+                                                                                                    </DialogDescription>
+                                                                                                </DialogHeader>
+                                                                                            </DialogContent>
+                                                                                        </Dialog>
+                                                                                    ) : (
+                                                                                        <ShadButton onClick={() => {
+                                                                                            onSubmit(control._formValues)
+                                                                                            handlePrint()
+                                                                                        }} variant="outline">
                                                                                             <Download className="h-4 w-4 mr-2" />
                                                                                             Download PO
                                                                                         </ShadButton>
-                                                                                        </DialogTrigger>
-                                                                                        <DialogContent>
-                                                                                            <DialogHeader>
-                                                                                                <DialogTitle>
-                                                                                                    Important!
-                                                                                                </DialogTitle>
-                                                                                                <DialogDescription>
-                                                                                                    You are seeing this because of some validation checks from the payment terms inputs are not fulfilled, 
-                                                                                                    please go the editing section and do the needful to proceed with printing!
-                                                                                                </DialogDescription>
-                                                                                            </DialogHeader>
-                                                                                        </DialogContent>
-                                                                                    </Dialog>
-                                                                                ) : (
-                                                                                    <ShadButton onClick={() => {
-                                                                                        onSubmit(control._formValues)
-                                                                                        handlePrint()
-                                                                                    }} variant="outline">
-                                                                                        <Download className="h-4 w-4 mr-2" />
-                                                                                        Download PO
-                                                                                    </ShadButton>
-                                                                                )      
-                                                                            }
+                                                                                    )
+                                                                                }
                                                                                 <ShadButton onClick={() => window.open(`https://wa.me/${phoneNumber}`)} className="bg-green-600 hover:bg-green-700">
                                                                                     <CheckCheck className="h-4 w-4 mr-2" />
                                                                                     Open WhatsApp
@@ -1462,37 +1462,37 @@ export const ReleasePONew = ({ not }) => {
                                                                                 </div>
                                                                             </div>
                                                                             <DialogFooter>
-                                                                            {
-                                                                                checkPrintDisabled === true ? (
-                                                                                    <Dialog>
-                                                                                        <DialogTrigger>
-                                                                                        <ShadButton variant="outline">
+                                                                                {
+                                                                                    checkPrintDisabled === true ? (
+                                                                                        <Dialog>
+                                                                                            <DialogTrigger>
+                                                                                                <ShadButton variant="outline">
+                                                                                                    <Download className="h-4 w-4 mr-2" />
+                                                                                                    Download PO
+                                                                                                </ShadButton>
+                                                                                            </DialogTrigger>
+                                                                                            <DialogContent>
+                                                                                                <DialogHeader>
+                                                                                                    <DialogTitle>
+                                                                                                        Important!
+                                                                                                    </DialogTitle>
+                                                                                                    <DialogDescription>
+                                                                                                        You are seeing this because of some validation checks from the payment terms inputs are not fulfilled,
+                                                                                                        please go the editing section and do the needful to proceed with printing!
+                                                                                                    </DialogDescription>
+                                                                                                </DialogHeader>
+                                                                                            </DialogContent>
+                                                                                        </Dialog>
+                                                                                    ) : (
+                                                                                        <ShadButton onClick={() => {
+                                                                                            onSubmit(control._formValues)
+                                                                                            handlePrint()
+                                                                                        }} variant="outline">
                                                                                             <Download className="h-4 w-4 mr-2" />
                                                                                             Download PO
                                                                                         </ShadButton>
-                                                                                        </DialogTrigger>
-                                                                                        <DialogContent>
-                                                                                            <DialogHeader>
-                                                                                                <DialogTitle>
-                                                                                                    Important!
-                                                                                                </DialogTitle>
-                                                                                                <DialogDescription>
-                                                                                                    You are seeing this because of some validation checks from the payment terms inputs are not fulfilled, 
-                                                                                                    please go the editing section and do the needful to proceed with printing!
-                                                                                                </DialogDescription>
-                                                                                            </DialogHeader>
-                                                                                        </DialogContent>
-                                                                                    </Dialog>
-                                                                                ) : (
-                                                                                    <ShadButton onClick={() => {
-                                                                                        onSubmit(control._formValues)
-                                                                                        handlePrint()
-                                                                                    }} variant="outline">
-                                                                                        <Download className="h-4 w-4 mr-2" />
-                                                                                        Download PO
-                                                                                    </ShadButton>
-                                                                                )      
-                                                                            }
+                                                                                    )
+                                                                                }
                                                                                 <ShadButton onClick={() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`)} className="bg-blue-600 hover:bg-blue-700">
                                                                                     <CheckCheck className="h-4 w-4 mr-2" />
                                                                                     Send Email
@@ -1517,10 +1517,10 @@ export const ReleasePONew = ({ not }) => {
                                                     checkPrintDisabled === true ? (
                                                         <Dialog>
                                                             <DialogTrigger>
-                                                            <ShadButton variant="outline">
-                                                                <Printer className='h-4 w-4 mr-2' />
-                                                                Print
-                                                            </ShadButton>
+                                                                <ShadButton variant="outline">
+                                                                    <Printer className='h-4 w-4 mr-2' />
+                                                                    Print
+                                                                </ShadButton>
                                                             </DialogTrigger>
                                                             <DialogContent>
                                                                 <DialogHeader>
@@ -1528,7 +1528,7 @@ export const ReleasePONew = ({ not }) => {
                                                                         Important!
                                                                     </DialogTitle>
                                                                     <DialogDescription>
-                                                                        You are seeing this because of some validation checks from the payment terms inputs are not fulfilled, 
+                                                                        You are seeing this because of some validation checks from the payment terms inputs are not fulfilled,
                                                                         please go the editing section and do the needful to proceed with printing!
                                                                     </DialogDescription>
                                                                 </DialogHeader>
@@ -1539,7 +1539,7 @@ export const ReleasePONew = ({ not }) => {
                                                             <Printer className='h-4 w-4 mr-2' />
                                                             Print
                                                         </ShadButton>
-                                                    )      
+                                                    )
                                                 }
                                                 <Dialog>
                                                     <DialogTrigger asChild>
@@ -1555,20 +1555,20 @@ export const ReleasePONew = ({ not }) => {
                                                                 This action will set the status of this PO to "PO Sent". Are you sure you want to proceed?
                                                             </DialogDescription>
                                                         </DialogHeader>
-                                                    {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                                        <DialogFooter className='flex flex-row items-center justify-end'>
-                                                            <DialogClose>
-                                                                <ShadButton variant="outline" className='flex items-center gap-1'>
-                                                                    <Undo2 className="h-4 w-4" />
-                                                                    Cancel
+                                                        {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                                                            <DialogFooter>
+                                                                <DialogClose>
+                                                                    <ShadButton variant="outline" className='flex items-center gap-1'>
+                                                                        <Undo2 className="h-4 w-4 mr-2" />
+                                                                        Cancel
+                                                                    </ShadButton>
+                                                                </DialogClose>
+                                                                <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600">
+                                                                    <CheckCheck className="h-4 w-4 mr-2" />
+                                                                    Confirm
                                                                 </ShadButton>
-                                                            </DialogClose>
-                                                            <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600 flex items-center gap-1">
-                                                                <CheckCheck className="h-4 w-4" />
-                                                                Confirm
-                                                            </ShadButton>
-                                                        </DialogFooter>
-                                                    )}
+                                                            </DialogFooter>
+                                                        )}
                                                         <DialogClose id='SendPODialogClose' className='hidden'>
                                                             close
                                                         </DialogClose>
@@ -1655,21 +1655,21 @@ export const ReleasePONew = ({ not }) => {
                                                                         This action will create a delivery note for the project manager on site. Are you sure you want to continue?
                                                                     </AlertDialogDescription>
                                                                 </AlertDialogHeader>
-                                                            {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                                                <AlertDialogFooter>
-                                                                    <AlertDialogCancel className="flex items-center">
-                                                                        <Undo2 className="h-4 w-4 mr-2" />
-                                                                        Cancel
-                                                                    </AlertDialogCancel>
-                                                                    <ShadButton onClick={handleDispatchPO} className='bg-green-500 text-white hover:bg-green-600'>
-                                                                        <CheckCheck className="h-4 w-4 mr-2" />
-                                                                        Confirm
-                                                                    </ShadButton>
-                                                                </AlertDialogFooter>
-                                                            )}
-                                                            <AlertDialogCancel className='hidden' id='MarkDispatchedAlertClose'>
-                                                                Cancl
-                                                            </AlertDialogCancel>
+                                                                {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                                                                    <AlertDialogFooter>
+                                                                        <AlertDialogCancel className="flex items-center">
+                                                                            <Undo2 className="h-4 w-4 mr-2" />
+                                                                            Cancel
+                                                                        </AlertDialogCancel>
+                                                                        <ShadButton onClick={handleDispatchPO} className='bg-green-500 text-white hover:bg-green-600'>
+                                                                            <CheckCheck className="h-4 w-4 mr-2" />
+                                                                            Confirm
+                                                                        </ShadButton>
+                                                                    </AlertDialogFooter>
+                                                                )}
+                                                                <AlertDialogCancel className='hidden' id='MarkDispatchedAlertClose'>
+                                                                    Cancl
+                                                                </AlertDialogCancel>
                                                             </AlertDialogContent>
                                                         </AlertDialog>
                                                     </div>
@@ -1884,18 +1884,18 @@ export const ReleasePONew = ({ not }) => {
                                                                                     <div className='flex flex-col gap-2 mt-2'>
                                                                                         <TextArea placeholder='input the reason for amending this PO...' value={comment} onChange={(e) => setComment(e.target.value)} />
                                                                                     </div>
-                                                                            {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                                                                    <div className='flex gap-2 items-center justify-center pt-2'>
-                                                                                        <AlertDialogCancel className="flex items-center gap-1">
-                                                                                            <Undo2 className="h-4 w-4" />
-                                                                                            Cancel
-                                                                                        </AlertDialogCancel>
-                                                                                        <ShadButton onClick={handleAmendPo} className='flex items-center gap-1'>
-                                                                                            <CheckCheck className="h-4 w-4" />
-                                                                                            Confirm
-                                                                                        </ShadButton>
-                                                                                    </div>
-                                                                            )}
+                                                                                    {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                                                                                        <div className='flex gap-2 items-center justify-center pt-2'>
+                                                                                            <AlertDialogCancel className="flex items-center gap-1">
+                                                                                                <Undo2 className="h-4 w-4" />
+                                                                                                Cancel
+                                                                                            </AlertDialogCancel>
+                                                                                            <ShadButton onClick={handleAmendPo} className='flex items-center gap-1'>
+                                                                                                <CheckCheck className="h-4 w-4" />
+                                                                                                Confirm
+                                                                                            </ShadButton>
+                                                                                        </div>
+                                                                                    )}
                                                                                 </AlertDialogDescription>
                                                                             </AlertDialogHeader>
                                                                             <AlertDialogCancel className='hidden' id='AmendPOAlertCancel'>Close</AlertDialogCancel>
@@ -1996,18 +1996,18 @@ export const ReleasePONew = ({ not }) => {
                                                                 <div className='flex flex-col gap-2 mt-2'>
                                                                     <TextArea placeholder='input the reason for cancelling...' value={comment} onChange={(e) => setComment(e.target.value)} />
                                                                 </div>
-                                                            {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                                                <div className='flex gap-2 items-center justify-center pt-2'>
-                                                                    <AlertDialogCancel className="flex items-center gap-1">
-                                                                        <Undo2 className="h-4 w-4" />
-                                                                        Cancel
-                                                                    </AlertDialogCancel>
-                                                                    <ShadButton onClick={handleCancelPo} className='flex items-center gap-1'>
-                                                                        <CheckCheck className="h-4 w-4" />
-                                                                        Confirm
-                                                                    </ShadButton>
-                                                                </div>
-                                                            )}
+                                                                {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                                                                    <div className='flex gap-2 items-center justify-center pt-2'>
+                                                                        <AlertDialogCancel className="flex items-center gap-1">
+                                                                            <Undo2 className="h-4 w-4" />
+                                                                            Cancel
+                                                                        </AlertDialogCancel>
+                                                                        <ShadButton onClick={handleCancelPo} className='flex items-center gap-1'>
+                                                                            <CheckCheck className="h-4 w-4" />
+                                                                            Confirm
+                                                                        </ShadButton>
+                                                                    </div>
+                                                                )}
                                                             </AlertDialogDescription>
                                                         </AlertDialogHeader>
                                                         <AlertDialogCancel className='hidden' id='CancelPOAlertCancel'>Close</AlertDialogCancel>
