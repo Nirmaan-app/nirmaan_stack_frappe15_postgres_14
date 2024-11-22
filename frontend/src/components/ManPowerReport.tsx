@@ -138,9 +138,8 @@ Total - ${total.toString().padStart(2, '0')} Nos.
                             <Table>
                                 <TableHeader className="bg-red-100">
                                     <TableRow>
-                                        <TableHead className="w-[5%] text-center font-extrabold">ID</TableHead>
                                         <TableHead className="w-[35%] text-center font-extrabold">Project name</TableHead>
-                                        <TableHead className="w-[35%] text-center font-extrabold">Report</TableHead>
+                                        <TableHead className="w-[40%] text-center font-extrabold">Report</TableHead>
                                         <TableHead className="w-[20%] text-center font-extrabold">Date Created</TableHead>
                                         <TableHead className="w-[5%] text-center font-extrabold">Options</TableHead>
                                     </TableRow>
@@ -148,15 +147,6 @@ Total - ${total.toString().padStart(2, '0')} Nos.
                                 <TableBody>
                                     {manpowerData?.map((item) => {
                                         return <TableRow key={item.name}>
-                                            <TableCell className="text-xs text-center">
-                                                {/* <Link to={`${item.name}`} className="text-blue-500 underline-offset-1 relative">
-                                                {item.workflow_state === "Rejected" && isNew && (
-                                                    <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 sm:-left-10  animate-pulse" />
-                                                )}
-                                                <span onClick={() => handleRejectPRSeen(isNew)}>{item.name.slice(-4)}</span>
-                                            </Link> */}
-                                                {item.name.slice(-4)}
-                                            </TableCell>
                                             <TableCell className="text-xs text-center">{item.project_name}</TableCell>
                                             <TableCell className="text-xs text-center">
                                                 <div className="flex flex-col gap-1 items-center justify-center">
