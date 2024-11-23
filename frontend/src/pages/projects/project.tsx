@@ -1661,9 +1661,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 }
 
 
-const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates }) => {
+export const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates }) => {
 
-  const selectedData = categorizedData[selectedPackage] || null;
+  const selectedData = categorizedData?.[selectedPackage] || null;
 
   const defaultValues = selectedData && Object.keys(selectedData)
 
@@ -1756,9 +1756,9 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
 };
 
 
-const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
+export const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
 
-  const selectedData = categorizedData["Tool & Equipments"] || null;
+  const selectedData = categorizedData?.["Tool & Equipments"] || null;
 
   const toolandEquipEstimates = projectEstimates?.filter((p) => p?.work_package === "Tool & Equipments")
 
@@ -1847,7 +1847,7 @@ const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
 };
 
 
-const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) => {
+export const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) => {
   const [expandedRowKeys, setExpandedRowKeys] = useState([]);
 
   useEffect(() => {
@@ -1980,6 +1980,7 @@ const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedDat
 
     return treeData;
   };
+
 
   return (
     <HoverCard>

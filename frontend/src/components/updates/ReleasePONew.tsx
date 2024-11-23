@@ -595,8 +595,6 @@ export const ReleasePONew = ({ not }) => {
 
     const checkPrintDisabled = (advance > 100 || advance < 0 || materialReadiness > 100 || materialReadiness < 0 || afterDelivery > 100 || afterDelivery < 0 || xDaysAfterDelivery > 100 || xDaysAfterDelivery < 0 || ![100, 0].includes((advance + materialReadiness + afterDelivery + xDaysAfterDelivery)))
 
-    console.log("checkPrintDisabled", checkPrintDisabled)
-
     // console.log("advance", control.)
     // console.log("values", contactPerson)
 
@@ -1843,7 +1841,7 @@ export const ReleasePONew = ({ not }) => {
                                                             </Card>
 
                                                             <div className='flex p-2 gap-2 align-right'>
-                                                                <SheetClose>
+                                                                <SheetClose asChild>
                                                                     <ShadButton
                                                                         variant="outline"
                                                                         className="flex items-center gap-1"
@@ -1854,7 +1852,7 @@ export const ReleasePONew = ({ not }) => {
                                                                 </SheetClose>
                                                                 {stack.length === 0 ?
                                                                     <HoverCard>
-                                                                        <HoverCardTrigger>
+                                                                        <HoverCardTrigger asChild>
                                                                             <ShadButton variant="outline" disabled className="border-primary flex items-center gap-1">
                                                                                 <CheckCheck className="h-4 w-4" />
                                                                                 Confirm
@@ -1868,7 +1866,7 @@ export const ReleasePONew = ({ not }) => {
                                                                     </HoverCard>
                                                                     :
                                                                     <AlertDialog>
-                                                                        <AlertDialogTrigger>
+                                                                        <AlertDialogTrigger asChild>
                                                                             <ShadButton
                                                                                 variant="outline"
                                                                                 className="border-primary flex items-center gap-1"

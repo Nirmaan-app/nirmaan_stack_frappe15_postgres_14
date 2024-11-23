@@ -88,6 +88,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
     const { mutate } = useSWRConfig()
     const { deleteDoc } = useFrappeDeleteDoc()
+    const [gstEnabled, setGstEnabled] = useState(true)
 
     const getFullName = (id: string) => {
         return usersList?.find((user) => user.name === id)?.full_name
@@ -103,6 +104,13 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
             setVendorAddress(address2)
             // setPhoneNumber(doc2?.phone || "")
             // setEmail(doc2?.email_id || "")
+        }
+        if(sr_data) {
+            if(sr_data?.gst === "true") {
+                setGstEnabled(true)
+            } else {
+                setGstEnabled(false)
+            }
         }
         // if (orderData?.vendor) {
         //     setVendor(orderData?.vendor)
@@ -156,14 +164,12 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
         }
     }
 
-    const [gstEnabled, setGstEnabled] = useState(true)
-
     const componentRef = useRef<HTMLDivElement>(null);
 
-    const handlePDFPrint = (enable) => {
-        setGstEnabled(enable)
-        setTimeout(() => handlePrint(), 1000)
-    }
+    // const handlePDFPrint = (enable) => {
+    //     setGstEnabled(enable)
+    //     setTimeout(() => handlePrint(), 1000)
+    // }
 
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
@@ -201,16 +207,22 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                             </div>
                             <div className="flex gap-4 items-center">
                                 {sr_data?.status === "Approved" && 
-                                <div className="flex max-sm:flex-col gap-2 items-center">
-                                    <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(true)}>
-                                        <Printer className='h-4 w-4' />
-                                        Print inc. Tax
-                                    </Button>
-                                    <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(false)}>
-                                        <Printer className='h-4 w-4' />
-                                        Print exc. Tax
-                                    </Button>
+                                <div>
+                                    <Button className='flex items-center gap-2' onClick={handlePrint}>
+                                         <Printer className='h-4 w-4' />
+                                         Print
+                                     </Button>
                                 </div>
+                                // <div className="flex max-sm:flex-col gap-2 items-center">
+                                //     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(true)}>
+                                //         <Printer className='h-4 w-4' />
+                                //         Print inc. Tax
+                                //     </Button>
+                                //     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(false)}>
+                                //         <Printer className='h-4 w-4' />
+                                //         Print exc. Tax
+                                //     </Button>
+                                // </div>
                                 }
                                 {sr_data?.status === "Rejected" && (
                                     <Button onClick={() => setPage("Resolve")} className="flex items-center gap-1">
@@ -261,7 +273,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                         <Badge>{sr_data?.status}</Badge>
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent className="flex flex-col gap-4">
+                                <CardContent className="flex flex-wrap gap-4">
                                     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                                         <div className="space-y-1">
                                             <Label className="text-slim text-red-300">Project:</Label>
@@ -285,6 +297,10 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                             <div className="space-y-1">
                                                 <Label className="text-slim text-red-300">Vendor Address:</Label>
                                                 <p className="font-semibold">{vendorAddress}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-slim text-red-300">GST Information:</Label>
+                                                <p className="font-semibold">GST {sr_data?.gst === "true" ? "Enabled" : "Disabled"}</p>
                                             </div>
                                         </>
                                         )}
@@ -430,8 +446,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                 </tr>
                                                 <tr className="border-t border-black">
                                                     <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">No.</th>
-                                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th>
-                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Description</th>
+                                                    {/* <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th> */}
+                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Service Description</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
                                                     <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
@@ -442,9 +458,12 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                             <tbody className={`bg-white`}>
                                                 {sr_data && JSON.parse(sr_data?.service_order_list)?.list?.map((item, index) => (
                                                     <tr key={item.id} className={`${index === (sr_data && JSON.parse(sr_data?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
-                                                        <td className="py-2 text-sm whitespace-nowrap">{index + 1}.</td>
-                                                        <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
+                                                        <td className="py-2 text-sm whitespace-nowrap flex items-start">{index + 1}.</td>
+                                                        {/* <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td> */}
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
+                                                            <p className="font-semibold">{item?.category}</p>
+                                                            {item?.description}
+                                                        </td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
                                                         <td className="py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
@@ -457,7 +476,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                                    {/* <td className="px-4 py-2 text-sm whitespace-nowrap"></td> */}
                                                     {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal())}</td>
@@ -466,7 +485,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     <td></td>
                                                     <td></td>
                                                     <td></td>
-                                                    <td></td>
+                                                    {/* <td></td> */}
                                                     {gstEnabled && <td></td>}
                                                     <td></td>
                                                     <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">

@@ -1,5 +1,4 @@
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
 import {getMessaging, getToken} from "firebase/messaging"
 
 const firebaseConfig = {
@@ -14,7 +13,7 @@ const firebaseConfig = {
 
 
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+// const analytics = getAnalytics(app);
 export const messaging = getMessaging(app)
 export const VAPIDKEY = "BKCnCTRykNel6hGvgixZVcBs7Hyzzox6H9qZdmWV6golyHlLd3EIV9hTdyJd0AKlC0r7ZMd1Wplgpc9K190oiIQ"
 // getToken(messaging, { vapidKey: VAPIDKEY })
