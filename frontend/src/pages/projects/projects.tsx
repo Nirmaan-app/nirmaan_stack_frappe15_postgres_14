@@ -291,7 +291,7 @@ export default function Projects() {
                 </div> */}
       {/* <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
+                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
                 </div>
 

@@ -501,7 +501,7 @@ export const ProjectForm = () => {
         const fieldsToValidate = getFieldsForSection(section);
         const isValid = await form.trigger(fieldsToValidate);
 
-        if(section === "projectTimeline" && !form.getValues("project_end_date")) {
+        if (section === "projectTimeline" && !form.getValues("project_end_date")) {
             toast({
                 title: "Failed!",
                 description: "Project_End_Date Must not be empty",
@@ -915,7 +915,7 @@ export const ProjectForm = () => {
                                 <div className="flex items-center justify-end gap-2">
                                     <Button variant={"outline"} onClick={() => {
                                         setSection("projectDetails")
-                                        setCurrentStep(prevStep => prevStep-1)
+                                        setCurrentStep(prevStep => prevStep - 1)
                                     }}>Previous</Button>
                                     <Button onClick={goToNextSection}>Next</Button>
                                 </div>
@@ -1032,7 +1032,7 @@ export const ProjectForm = () => {
                                 <div className="flex items-center justify-end gap-2">
                                     <Button variant={"outline"} onClick={() => {
                                         setSection("projectAddressDetails")
-                                        setCurrentStep(prevStep => prevStep-1)
+                                        setCurrentStep(prevStep => prevStep - 1)
                                     }}>Previous</Button>
                                     <Button onClick={goToNextSection}>Next</Button>
                                 </div>
@@ -1237,7 +1237,7 @@ export const ProjectForm = () => {
                                 <div className="flex items-center justify-end gap-2">
                                     <Button variant={"outline"} onClick={() => {
                                         setSection("projectTimeline")
-                                        setCurrentStep(prevStep => prevStep-1)
+                                        setCurrentStep(prevStep => prevStep - 1)
                                     }}>Previous</Button>
                                     <Button onClick={goToNextSection}>Next</Button>
                                 </div>
@@ -1417,7 +1417,7 @@ export const ProjectForm = () => {
                                 <div className="pt-2 flex items-center justify-end gap-2">
                                     <Button variant={"outline"} onClick={() => {
                                         setSection("projectAssignees")
-                                        setCurrentStep(prevStep => prevStep-1)
+                                        setCurrentStep(prevStep => prevStep - 1)
                                     }}>Previous</Button>
                                     {(loading) ?
                                         <ButtonLoading />

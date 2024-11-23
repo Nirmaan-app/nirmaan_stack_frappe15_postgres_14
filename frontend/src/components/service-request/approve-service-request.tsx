@@ -14,7 +14,7 @@ import { TailSpin } from "react-loader-spinner"
 import { ProcurementActionsHeaderCard } from "../ui/ProcurementActionsHeaderCard"
 
 export const ApproveServiceRequest = () => {
-    const { srId : id } = useParams<{ srId: string }>()
+    const { srId: id } = useParams<{ srId: string }>()
     const navigate = useNavigate()
     const [project, setProject] = useState()
     const [owner, setOwner] = useState()
@@ -251,10 +251,10 @@ export const ApproveServiceRequest = () => {
 
     return (
         <>
-            <div className="flex-1 space-y-4">
-                <div className="flex items-center">
+            <div className="flex-1 md:space-y-4">
+                <div className="flex items-center pt-1 pb-4">
                     {/* <ArrowLeft onClick={() => { navigate('/approve-service-request') }} /> */}
-                    <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Reject</h2>
+                    <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">SR-{service_request?.name?.slice(-4)}</span></h2>
                 </div>
                 {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                     <div className="border-0 flex flex-col justify-center max-sm:hidden">

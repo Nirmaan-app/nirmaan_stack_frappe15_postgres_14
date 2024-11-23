@@ -64,8 +64,13 @@ export default function ListSR() {
 
     return (
         <div className="flex-1 space-y-4">
+<<<<<<< HEAD
             {/* <div className="flex items-center gap-1">
                 <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+=======
+            <div className="flex items-center gap-1">
+                {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
+>>>>>>> f5a5ff9 (fix: removed left arrows for the following components.)
                 <h2 className="text-xl  font-bold tracking-tight">Service Requests</h2>
             </div> */}
 

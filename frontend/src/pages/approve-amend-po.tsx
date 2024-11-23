@@ -225,9 +225,9 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
     return (
         <div className="flex-1 space-y-4">
             {/* PO Details Card */}
-            <div className="flex items-center">
+            <div className="flex items-center pt-1  pb-4">
                 {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-amended-po")} /> */}
-                <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Revert Amendments</h2>
+                <h2 className="text-base pl-2 font-bold tracking-tight">Amended PO: <span className="text-red-700">{po_data?.name}</span></h2>
             </div>
             {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                 <div className="border-0 flex flex-col justify-center max-sm:hidden">
