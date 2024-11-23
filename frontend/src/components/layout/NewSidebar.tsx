@@ -34,6 +34,8 @@ export function NewSidebar() {
     const [role, setRole] = useState(null)
     const location = useLocation();
 
+    const navigate = useNavigate()
+
     const user_id = Cookies.get('user_id') ?? ''
 
     const {toggleSidebar, isMobile, state} = useSidebar()
@@ -342,7 +344,7 @@ export function NewSidebar() {
     }, [user_id, data]);
 
     const items = [
-        // { key: '/', icon: <LayoutGrid className="h-4 w-4" />, label: 'Dashboard' },
+        { key: '/', icon: LayoutGrid, label: 'Dashboard' },
         ...(user_id == "Administrator" || role == "Nirmaan Admin Profile"
             ? [
                 {
@@ -479,15 +481,18 @@ export function NewSidebar() {
       }
     }
 
+    console.log("selectedKeys", selectedKeys)
+
+
+    console.log("openkey", openKey)
+
     return (
       <Sidebar collapsible="icon">
-      <SidebarHeader className="flex items-center justify-center relative">
+      <SidebarHeader className="flex flex-row items-center justify-center">
         {!isMobile ? (
             <Link to={"/"}>
-            {state === "expanded" ? (
+            {state === "expanded" && (
               <img src={logo} alt="Nirmaan" width="158" height="48" />
-            ) : (
-              <img src={nLogo} alt="Nirmaan" />
             )}
             </Link>
         ) : (
@@ -496,8 +501,8 @@ export function NewSidebar() {
             </Link>
 
         )}
+        <SidebarTrigger />
       </SidebarHeader>
-      <SidebarTrigger className={`absolute ${isMobile ? "hidden" : ""} ${state === "collapsed" ? "top-3.5" : "top-4"} -right-4`} />
       <Separator />
       <SidebarContent className="scrollbar-container overflow-x-hidden">
         <SidebarGroup>
@@ -509,17 +514,24 @@ export function NewSidebar() {
                 className="group/collapsible"
                 asChild
               >
-                <SidebarMenuItem>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton selectedKeys={selectedKeys} tooltip={item.children}>
-                      {item.icon && <item.icon />}
-                      <span className="font-medium">{item.label}</span>
-                      <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
+                <SidebarMenuItem className={`${(!selectedKeys && item.label === "Dashboard") ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : ""} rounded-md`}>
+                    {item?.label === "Dashboard" ? (
+                    <SidebarMenuButton onClick={() => navigate("/")} selectedKeys={selectedKeys} tooltip={item.label}>
+                        {item.icon && <item.icon />}
+                        <span className="font-medium">{item.label}</span>
+                      </SidebarMenuButton>
+                    ) : (
+                        <CollapsibleTrigger asChild>
+                        <SidebarMenuButton selectedKeys={selectedKeys} tooltip={item.children}>
+                          {item.icon && <item.icon />}
+                          <span className="font-medium">{item.label}</span>
+                          <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                    )}
                   <CollapsibleContent>
                     <SidebarMenuSub className="space-y-1">
-                      {item.children.map((subitem) => (
+                      {item?.children?.map((subitem) => (
                         <SidebarMenuSubItem className="relative" key={subitem.key}>
                           <SidebarMenuSubButton onClick={handleCloseMobile} className={`${`/${selectedKeys}` === subitem.key ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : ""} rounded-md ${isMobile ? "w-60" : "w-52"}`} asChild>
                             <Link to={subitem.key}>

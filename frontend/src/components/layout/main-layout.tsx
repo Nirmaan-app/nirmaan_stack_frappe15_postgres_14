@@ -104,14 +104,14 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
             <div className='w-full h-auto overflow-auto'>
                 <header className={`${(!isMobile && state === "collapsed") ? "mt-1" : ""} flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}>
                     <div className={`${isMobile ? "ml-2" : ""} flex items-center gap-2 px-4`}>
-                      {isMobile && (
+                      {/* {isMobile && (
                         <>
                           <Link to={`/`}>
                             <img src={nLogoBlack} alt="Nirmaan" width="24" height="25" />
                           </Link>
                           <Separator orientation="vertical" className="mr-1 h-4" />
                         </>
-                      )}
+                      )} */}
                       <ArrowLeft onClick={() => navigate(-1)} className='text-primary cursor-pointer' />
                        <Separator orientation="vertical" className="mr-1 h-4" />
                        <Breadcrumb>
@@ -164,14 +164,14 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
                       <React.Fragment key={index}>
                         <BreadcrumbItem>
                           <Link to={`/${toNavigate}`}>
-                            <BreadcrumbLink>{route?.toUpperCase()}</BreadcrumbLink>
+                            <BreadcrumbLink>{route === "release-po" ? "APPROVED-PO" : route?.toUpperCase()}</BreadcrumbLink>
                           </Link>
                         </BreadcrumbItem>
                         <BreadcrumbSeparator />
                       </React.Fragment>
                     ) : (
                       <BreadcrumbItem key={index}>
-                        <BreadcrumbPage>{route?.toUpperCase()}</BreadcrumbPage>
+                        <BreadcrumbPage>{route === "release-po" ? "APPROVED-PO" : route?.toUpperCase()}</BreadcrumbPage>
                       </BreadcrumbItem>
                     )
                   );
