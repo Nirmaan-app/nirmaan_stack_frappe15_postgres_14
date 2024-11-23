@@ -26,10 +26,11 @@ export default function ListPR() {
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: prListMutate } = useFrappeGetDocList<ProcurementRequests>("Procurement Requests",
         {
             fields: ["*"],
+            filters: [["project", "=", project]],
             orderBy: { field: "modified", order: "desc" },
             limit: 1000
         },
-        "Procurement Requests,orderBy(creation-desc)"
+        project ? `Procurement Requests ${project}` : null
     );
 
     useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
@@ -38,9 +39,10 @@ export default function ListPR() {
 
     const { data: procurementOrdersList } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
+        filters: [["project", "=", project]],
         limit: 1000
     },
-        "Procurement Orders"
+        project ? `Procurement Orders ${project}` : null
     )
 
     const checkPoToPr = (prId) => {
@@ -85,7 +87,7 @@ export default function ListPR() {
                         </TableHeader>
                         <TableBody>
                             {procurement_request_list?.map((item) => {
-                                if (item.project === project && item.owner === userData.user_id) {
+                                if (item.owner === userData.user_id) {
                                     const isNew = notifications.find(
                                         (i) => i.docname === item?.name && i.seen === "false" && i.event_id === "pr:rejected"
                                     )
@@ -123,7 +125,7 @@ export default function ListPR() {
                         </TableHeader>
                         <TableBody>
                             {procurement_request_list?.map((item) => {
-                                if (item.project === project && item.owner !== userData.user_id) {
+                                if (item.owner !== userData.user_id) {
                                     const isNew = notifications.find(
                                         (i) => i.docname === item?.name && i.seen === "false" && i.event_id === "pr:rejected"
                                     )

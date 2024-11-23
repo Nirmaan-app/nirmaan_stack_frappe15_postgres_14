@@ -371,8 +371,8 @@ export const ApprovedSR = () => {
                                                 </tr>
                                                 <tr className="border-t border-black">
                                                     <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">No.</th>
-                                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th>
-                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Description</th>
+                                                    {/* <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th> */}
+                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Service Description</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
                                                     <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
@@ -383,9 +383,12 @@ export const ApprovedSR = () => {
                                             <tbody className={`bg-white`}>
                                                 {orderData && JSON.parse(orderData?.service_order_list)?.list?.map((item, index) => (
                                                     <tr key={item.id} className={`${index === (orderData && JSON.parse(orderData?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
-                                                        <td className="py-2 text-sm whitespace-nowrap">{index + 1}.</td>
-                                                        <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
+                                                        <td className="py-2 text-sm whitespace-nowrap flex items-start">{index + 1}.</td>
+                                                        {/* <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td> */}
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
+                                                            <p className="font-semibold">{item?.category}</p>
+                                                            {item?.description}
+                                                        </td>
                                                         <td className="px-2 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
                                                         <td className=" py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
@@ -412,7 +415,7 @@ export const ApprovedSR = () => {
                                                     <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                                    {/* <td className="px-4 py-2 text-sm whitespace-nowrap"></td> */}
                                                     {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal())}</td>
@@ -421,7 +424,7 @@ export const ApprovedSR = () => {
                                                     <td></td>
                                                     <td></td>
                                                     <td></td>
-                                                    <td></td>
+                                                    {/* <td></td> */}
                                                     {gstEnabled && <td></td>}
                                                     <td></td>
                                                     <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">

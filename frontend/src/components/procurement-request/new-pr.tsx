@@ -318,8 +318,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     })
                 }
                 // console.log("newPR", res);
-                await mutate("Procurement Requests,orderBy(creation-desc)");
-                await mutate("Procurement Orders");
+                await mutate(`Procurement Requests ${orderData?.project}`);
+                await mutate(`Procurement Orders ${orderData?.project}`);
 
                 document.getElementById("dialogCloseforNewPR")?.click()
                 toast({
@@ -361,8 +361,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 })
             }
             // console.log("newPR", res)
-            await mutate("Procurement Requests,orderBy(creation-desc)")
-            await mutate("Procurement Orders")
+            await mutate(`Procurement Requests ${orderData?.project}`)
+            await mutate(`Procurement Orders ${orderData?.project}`)
             await mutate(`Procurement Requests ${orderData?.name}`)
             await mutate(`Nirmaan Comments ${orderData?.name}`)
 
