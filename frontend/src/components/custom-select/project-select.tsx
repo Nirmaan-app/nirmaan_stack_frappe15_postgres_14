@@ -15,7 +15,8 @@ interface ProjectSelectProps {
 export default function ProjectSelect({ onChange }: ProjectSelectProps) {
 
     const { data: data, isLoading: loading, error: error } = useFrappeGetDocList("Projects", {
-        fields: ['name', 'project_name', 'project_address', "project_manager"],
+        fields: ['name', 'project_name', 'project_address', "project_manager", "status"],
+        filters: [["status", "not in", ["Completed", "Halted"]]],
         limit: 1000,
         orderBy: { field: 'creation', order: 'desc' },
     });

@@ -936,6 +936,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   // console.log("segregatedServicedata", segregatedServiceOrderData)
 
+  console.log("new status", newStatus)
+
   const handleConfirmStatus = async () => {
     try {
       await updateDoc("Projects", data?.name, { status: newStatus })
