@@ -19,22 +19,22 @@ const formatNotificationDate = (creationDate) => {
     return format(date, 'MMM dd, yyyy, HH:mm');
 };
 
-export function Notifications({isMobileMain = false}) {
+export function Notifications({ isMobileMain = false }) {
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const navigate = useNavigate();
 
     const { notifications, notificationsCount, mark_seen_notification } = useNotificationStore();
     const [isDropdownOpen, setDropdownOpen] = useState(false);
 
-    const { isMobile, state, toggleSidebar} = useSidebar()
+    const { isMobile, state, toggleSidebar } = useSidebar()
 
-    const {data : usersList} = useFrappeGetDocList("Nirmaan Users", {
+    const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["full_name", "name"],
         limit: 1000
     })
 
     const getName = (name) => {
-        if(usersList) {
+        if (usersList) {
             return usersList?.find((user) => user.name === name)?.full_name
         }
     }
@@ -45,7 +45,7 @@ export function Notifications({isMobileMain = false}) {
                 mark_seen_notification(db, notification);
             }
             setDropdownOpen(false);
-            if(isMobile && !isMobileMain) {
+            if (isMobile && !isMobileMain) {
                 toggleSidebar()
             }
             navigate(`/${url}`);
@@ -57,35 +57,35 @@ export function Notifications({isMobileMain = false}) {
             <DropdownMenuTrigger asChild>
                 {!isMobileMain ? (
                     <SidebarMenuButton
-                    size="lg"
-                    className={`data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground ${isMobile ? "pr-32" : "pr-28"}`}
+                        size="lg"
+                        className={`data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground ${isMobile ? "pr-32" : "pr-28"}`}
                     >
                         <div className="flex gap-4 ml-1 items-center">
                             <Bell className="relative max-md:w-5 max-md:h-5" />
                             <span className="font-medium">Notifications</span>
                         </div>
-                        {(state === "collapsed" && !isMobile) && (
-                                <span className="absolute -top-2 right-0 bg-gray-200 text-sidebar-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs">
-                                    {notificationsCount > 10 ? "10+" : notificationsCount}
-                                </span>
-                            )}
-                            <SidebarMenuBadge className="mr-2">{notificationsCount > 10 ? "10+" : notificationsCount}</SidebarMenuBadge>
+                        {state === "collapsed" && (
+                            <span className="absolute -top-1 right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
+                                {notificationsCount}
+                            </span>
+                        )}
+                        <SidebarMenuBadge className="mr-2">{notificationsCount > 10 ? "10+" : notificationsCount}</SidebarMenuBadge>
                     </SidebarMenuButton>
                 ) : (
 
-                <div className="relative mt-1 cursor-pointer">
-                    <Bell className="h-6 w-6" />
-                    <span className="absolute -top-1 -right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
-                        {notificationsCount > 10 ? "10+" : notificationsCount}
-                    </span>
-                </div>
+                    <div className="relative mt-1 cursor-pointer">
+                        <Bell className="h-6 w-6" />
+                        <span className="absolute -top-1 -right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
+                            {notificationsCount > 10 ? "10+" : notificationsCount}
+                        </span>
+                    </div>
                 )}
             </DropdownMenuTrigger>
             <DropdownMenuContent
-            className="w-80 overflow-y-auto max-h-[36rem] min-w-56 rounded-lg"
-            side={isMobile ? "bottom" : "right"}
-            align="end"
-            sideOffset={4}
+                className="w-80 overflow-y-auto max-h-[36rem] min-w-56 rounded-lg"
+                side={isMobile ? "bottom" : "right"}
+                align="end"
+                sideOffset={4}
             >
                 <DropdownMenuLabel className="font-normal">
                     {notifications.length !== 0 ? (
@@ -136,21 +136,21 @@ export function Notifications({isMobileMain = false}) {
                                 ))}
                             </ul>
                             {notifications.length > 10 && (
-                            <div className="text-center mt-2">
-                                <button
-                                    className="text-primary font-semibold underline hover:text-blue-500"
-                                    onClick={() => {
-                                        setDropdownOpen(false);
-                                        if(isMobile && !isMobileMain) {
-                                            toggleSidebar()
-                                        }
-                                        navigate('/notifications')
-                                    }}
-                                >
-                                    Show More
-                                </button>
-                            </div>
-                        )}
+                                <div className="text-center mt-2">
+                                    <button
+                                        className="text-primary font-semibold underline hover:text-blue-500"
+                                        onClick={() => {
+                                            setDropdownOpen(false);
+                                            if (isMobile && !isMobileMain) {
+                                                toggleSidebar()
+                                            }
+                                            navigate('/notifications')
+                                        }}
+                                    >
+                                        Show More
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <h1 className="text-center text-gray-500">NO NEW NOTIFICATIONS</h1>
