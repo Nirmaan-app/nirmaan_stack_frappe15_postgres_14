@@ -22,6 +22,7 @@ import TextArea from "antd/es/input/TextArea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useUserData } from "@/hooks/useUserData";
 import { TailSpin } from "react-loader-spinner";
+import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
 
 const ApproveAmendPO = () => {
 
@@ -230,7 +231,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                 <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-amended-po")} />
                 <h2 className="text-base pl-2 font-bold tracking-tight">Amended PO: <span className="text-red-700">{po_data?.name}</span></h2>
             </div>
-            <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+            {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                 <div className="border-0 flex flex-col justify-center max-sm:hidden">
                     <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                     <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(po_data?.modified)}</p>
@@ -247,7 +248,8 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                     <p className="text-left py-1 font-light text-sm text-sm text-red-700">Amended By</p>
                     <p className="text-left font-bold py-1 font-bold text-base text-black">{po_data?.modified_by === "Administrator" ? "Administrator" : getUserName(po_data?.modified_by)}</p>
                 </div>
-            </Card>
+            </Card> */}
+            <ProcurementActionsHeaderCard orderData={po_data} amend={true} />
 
             {/* Item Comparison Table */}
             <Card className="mt-4 p-4 shadow-lg overflow-hidden">

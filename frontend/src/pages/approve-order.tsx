@@ -31,6 +31,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { TailSpin } from "react-loader-spinner";
+import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
 
 const ApprovePRList = () => {
 
@@ -673,7 +674,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             </AlertDialogContent>
                         </AlertDialog>
                     </div>
-                    <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                    {/* <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-red-700">Date:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
@@ -690,7 +691,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             <p className="text-left py-1 font-light text-sm text-red-700">Created By:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-                    </Card>
+                    </Card> */}
+                    <ProcurementActionsHeaderCard orderData={orderData} pr={true} />
 
                     {curCategory === '' && <button className="text-lg text-blue-400 flex p-2" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1" /> Add Missing Items</button>}
 
@@ -970,7 +972,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         <ArrowLeft onClick={() => setPage('itemlist')} />
                         <h2 className="text-lg pl-2 font-bold tracking-tight">Quantity Summary: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
-                    <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                    {/* <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-red-700">Date</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
@@ -987,11 +989,12 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             <p className="text-left py-1 font-light text-sm text-red-700">Created By</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-                        {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                    </Card>
+                            </div>
+                    </Card> */}
+                    <ProcurementActionsHeaderCard orderData={orderData} pr={true} />
                     <div className="overflow-x-auto">
 
                         <div className="min-w-full inline-block align-middle">

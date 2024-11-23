@@ -15,6 +15,7 @@ import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUs
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
 import { TailSpin } from 'react-loader-spinner';
+import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -644,7 +645,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                         <ArrowLeft className='cursor-pointer' onClick={() => { navigate('/approve-sent-back') }} />
                         <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">{orderData?.type} SB-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
-                    <Card className="flex flex-wrap lg:grid lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                    {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">PR ID:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.procurement_request?.slice(-4)}</p>
@@ -665,7 +666,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Procurement by</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-                    </Card>
+                    </Card> */}
+                    <ProcurementActionsHeaderCard orderData={orderData} sentBack={true} />
                 </div>
             </div>
             <div className='overflow-x-auto pt-6'>
