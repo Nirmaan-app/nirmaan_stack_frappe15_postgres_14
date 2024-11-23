@@ -558,7 +558,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                         </ConfigProvider>
                     </div> */}
 
-                    <div className="pt-6 overflow-x-auto">
+                    <div className="mt-6 overflow-x-auto">
                         <ConfigProvider
                         >
                             <AntTable

@@ -65,7 +65,7 @@ export function Notifications({isMobileMain = false}) {
                             <span className="font-medium">Notifications</span>
                         </div>
                         {state === "collapsed" && (
-                                <span className="absolute -top-1 -right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
+                                <span className="absolute -top-1 right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
                                     {notificationsCount}
                                 </span>
                             )}
