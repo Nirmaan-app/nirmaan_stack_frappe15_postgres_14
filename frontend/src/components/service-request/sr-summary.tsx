@@ -205,7 +205,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 {/* <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span> */}
                             </div>
                             <div className="flex gap-4 items-center">
-                                {sr_data?.status === "Approved" &&
+                                {
+                                    sr_data?.status === "Approved" &&
                                     <div>
                                         <Button className='flex items-center gap-2' onClick={handlePrint}>
                                             <Printer className='h-4 w-4' />
@@ -261,8 +262,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                         </AlertDialog>
                                     )
                                 }
-                            </div>
-                        </div>
+                            </div >
+                        </div >
                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                             <Card className="w-full">
                                 <CardHeader>
