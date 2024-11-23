@@ -600,7 +600,7 @@ export const ReleasePONew = ({ not }) => {
 
     // console.log("orderData", orderData?.order_list?.list)
     // console.log("mergedItems", mergedItems)
-
+    // console.log(orderData?.order_list.list.some((item) => 'po' in item))
     if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (procurement_order_list_error || address_list_error || vendor_error) return <h1>Error</h1>
     if (!not && orderData?.status !== "PO Approved") return (
@@ -1204,10 +1204,10 @@ export const ReleasePONew = ({ not }) => {
                                                         )}
                                                         {(advance || materialReadiness || afterDelivery || xDaysAfterDelivery) ? (
                                                             <>
-                                                            <div className="text-gray-400 text-sm py-2">Payment Terms</div>
-                                                            <div className="text-sm text-gray-900">
-                                                                {advance}% advance {advance === 100 ? "" : `, ${materialReadiness}% on material readiness, ${afterDelivery}% after delivery to the site and ${xDaysAfterDelivery}% after 30 days of delivering the material(s)!`}
-                                                            </div>
+                                                                <div className="text-gray-400 text-sm py-2">Payment Terms</div>
+                                                                <div className="text-sm text-gray-900">
+                                                                    {advance}% advance {advance === 100 ? "" : `, ${materialReadiness}% on material readiness, ${afterDelivery}% after delivery to the site and ${xDaysAfterDelivery}% after 30 days of delivering the material(s)!`}
+                                                                </div>
                                                             </>
                                                         ) : ""}
 
@@ -1959,9 +1959,8 @@ export const ReleasePONew = ({ not }) => {
                                             </div>
 
                                             <div className="flex justify-end">
-                                                {orderData?.status === "PO Approved" ? (
+                                                {(orderData?.status === "PO Approved" && (orderData?.order_list.list.some(item => 'po' in item) === false)) ? (
                                                     <ShadButton
-                                                        variant="outline"
                                                         onClick={() => document.getElementById("alertTrigger")?.click()}
                                                         className="border-primary flex items-center gap-1"
                                                     >
@@ -1978,7 +1977,7 @@ export const ReleasePONew = ({ not }) => {
                                                         </HoverCardTrigger>
                                                         <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
                                                             <div>
-                                                                <span className="text-primary underline">Cancellation</span> not allowed for this PO as its delivery note or status has already been updated!
+                                                                <span className="text-primary underline">Cancellation</span> not allowed for this PO. This PO might be merged or the status is not PO Approved.
                                                             </div>
                                                         </HoverCardContent>
                                                     </HoverCard>
