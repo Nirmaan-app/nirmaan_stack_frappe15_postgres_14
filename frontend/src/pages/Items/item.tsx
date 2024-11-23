@@ -98,7 +98,7 @@ const ItemView = ({ itemId }: { itemId: string }) => {
     return (
         <div className="flex-1 md:space-y-4">
             <div className="flex items-center max-md:mb-2">
-                <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate(-1)} />
+                {/* <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate(-1)} /> */}
                 {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
                     <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.item_name}</h2>}
                 <Dialog>

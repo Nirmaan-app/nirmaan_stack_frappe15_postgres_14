@@ -101,7 +101,7 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
               </div>
               )}
                 <NewSidebar />
-            <div className='w-full h-auto'>
+            <div className='w-full h-auto overflow-auto'>
                 <header className={`${(!isMobile && state === "collapsed") ? "mt-1" : ""} flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}>
                     <div className={`${isMobile ? "ml-2" : ""} flex items-center gap-2 px-4`}>
                       {isMobile && (

@@ -253,7 +253,7 @@ export const ApproveServiceRequest = () => {
         <>
             <div className="flex-1 md:space-y-4">
                 <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft onClick={() => { navigate('/approve-service-request') }} />
+                    {/* <ArrowLeft onClick={() => { navigate('/approve-service-request') }} /> */}
                     <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">SR-{service_request?.name?.slice(-4)}</span></h2>
                 </div>
                 {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">

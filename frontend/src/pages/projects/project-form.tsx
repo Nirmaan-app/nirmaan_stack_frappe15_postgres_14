@@ -525,8 +525,8 @@ export const ProjectForm = () => {
         <div className="flex-1 md:space-y-4">
             <div className="space-y-0.5">
                 <div className="flex">
-                    <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/projects")} />
-                    <h2 className="pl-2 text-2xl font-bold tracking-tight">Add New Project</h2>
+                    {/* <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/projects")} /> */}
+                    <h2 className="pl-8 text-2xl font-bold tracking-tight">Add New Project</h2>
                 </div>
             </div>
 

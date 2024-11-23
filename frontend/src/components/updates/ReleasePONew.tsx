@@ -720,8 +720,8 @@ export const ReleasePONew = ({ not }) => {
 
     // console.log("orderData", orderData?.order_list?.list)
     // console.log("mergedItems", mergedItems)
-    // console.log(orderData?.order_list.list.some((item) => 'po' in item))
-    if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
+
+    if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     if (procurement_order_list_error || address_list_error || vendor_error) return <h1>Error</h1>
     if (!not && !["PO Approved", "Merged"].includes(orderData?.status)) return (
         <div className="flex items-center justify-center h-full">
@@ -755,7 +755,7 @@ export const ReleasePONew = ({ not }) => {
     return (
         <div className='flex-1 md:space-y-4'>
             <div className="py-4 flex items-center gap-1">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
                 <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
             </div>
             <Layout>
