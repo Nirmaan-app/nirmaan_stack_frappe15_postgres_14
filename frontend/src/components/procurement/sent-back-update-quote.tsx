@@ -340,7 +340,7 @@ export const SentBackUpdateQuote = () => {
 
     const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
 
-    if (quotation_request_list_loading || sent_back_list_loading || category_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (quotation_request_list_loading || sent_back_list_loading || category_loading || vendor_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
     if (orderData?.workflow_state !== "Pending") {
         return (
@@ -379,7 +379,7 @@ export const SentBackUpdateQuote = () => {
                 <div className="flex-1 space-y-2 md:space-y-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                            {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
                         </div>
                         <Badge variant={orderData?.type === "Rejected" ? "destructive" : orderData?.type === "Delayed" ? "orange" : "gray"}>{orderData?.type}</Badge>

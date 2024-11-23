@@ -434,7 +434,7 @@
 //                                         <td colSpan={6}>
 //                                             <div className="text-gray-400 text-sm py-2">Note</div>
 //                                             <div className="text-sm text-gray-900">PlaceHolder</div>
-//                                         {/*
+//                                         {/* 
 //                                             <div className="text-gray-400 text-sm py-2">Payment Terms</div>
 //                                             <div className="text-sm text-gray-900">
 //                                                 {orderData?.advance}% advance {orderData?.advance === "100" ? "" : `and remaining ${100 - orderData?.advance}% on material readiness before delivery of material to site`}
@@ -452,49 +452,22 @@
 //   )
 // }
 
-import { useEffect, useState, useRef } from "react";
+
+import { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Check,
-  ArrowLeft,
-  X,
-  ArrowUp,
-  ArrowDown,
-  Printer,
-  Pencil,
-  ListChecks,
-  Undo2,
-  CheckCheck,
-  Paperclip,
-  MessageCircleMore,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import {
-  useFrappeCreateDoc,
-  useFrappeDeleteDoc,
-  useFrappeFileUpload,
-  useFrappeGetDoc,
-  useFrappeGetDocList,
-  useFrappePostCall,
-  useFrappeUpdateDoc,
-} from "frappe-react-sdk";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Check, ArrowLeft, X, ArrowUp, ArrowDown, Printer, Pencil, ListChecks, Undo2, CheckCheck, Paperclip, MessageCircleMore } from "lucide-react";
+import { Badge } from '@/components/ui/badge';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from 'frappe-react-sdk';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 // import { z } from "zod";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from '@/components/ui/use-toast';
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
-import redlogo from "@/assets/red-logo.png";
-import logo from "@/assets/logo-svg.svg";
-import { useReactToPrint } from "react-to-print";
+import redlogo from "@/assets/red-logo.png"
+import logo from "@/assets/logo-svg.svg"
+import { useReactToPrint } from 'react-to-print'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -505,53 +478,41 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { useUserData } from "@/hooks/useUserData";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
+} from "@/components/ui/alert-dialog"
+import { useUserData } from '@/hooks/useUserData';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+
 
 export default function DeliveryNote() {
-  const location = useLocation();
-  const { id } = useParams();
+
+  const location = useLocation()
+  const { dnId: id } = useParams();
   const userData = useUserData();
-  const poId = id?.replaceAll("&=", "/");
-  const {
-    data,
-    isLoading,
-    mutate: poMutate,
-  } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
+  const deliveryNoteId = id?.replaceAll("&=", "/");
+  const poId = deliveryNoteId?.replace("DN", "PO")
+  const { data, isLoading, mutate: poMutate } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
   const [order, setOrder] = useState(null);
   const [modifiedOrder, setModifiedOrder] = useState(null);
   // const [showAlert, setShowAlert] = useState(false);
   const { updateDoc } = useFrappeUpdateDoc();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const {
-    data: address_list,
-    isLoading: address_list_loading,
-    error: address_list_error,
-  } = useFrappeGetDocList(
-    "Address",
+  const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
     {
       fields: ["*"],
-      limit: 1000,
+      limit: 1000
     },
     "Address"
   );
 
-  const [projectAddress, setProjectAddress] = useState();
-  const [vendorAddress, setVendorAddress] = useState();
-  const [show, setShow] = useState(false);
+  const [projectAddress, setProjectAddress] = useState()
+  const [vendorAddress, setVendorAddress] = useState()
+  const [show, setShow] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null);
 
-  const { call, loading: callLoading } = useFrappePostCall(
-    "frappe.client.set_value"
-  );
-  const { createDoc } = useFrappeCreateDoc();
-  const { upload } = useFrappeFileUpload();
+  const { call } = useFrappePostCall('frappe.client.set_value');
+  const { createDoc } = useFrappeCreateDoc()
+  const { upload } = useFrappeFileUpload()
 
   useEffect(() => {
     if (data) {
@@ -563,43 +524,36 @@ export default function DeliveryNote() {
 
   useEffect(() => {
     if (data?.project_address) {
-      const doc = address_list?.find(
-        (item) => item.name == data?.project_address
-      );
-      const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`;
-      setProjectAddress(address);
-      const doc2 = address_list?.find(
-        (item) => item.name == data?.vendor_address
-      );
-      const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`;
-      setVendorAddress(address2);
+      const doc = address_list?.find(item => item.name == data?.project_address);
+      const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
+      setProjectAddress(address)
+      const doc2 = address_list?.find(item => item.name == data?.vendor_address);
+      const address2 = `${doc2?.address_line1}, ${doc2?.address_line2}, ${doc2?.city}, ${doc2?.state}-${doc2?.pincode}`
+      setVendorAddress(address2)
     }
+
   }, [data, address_list]);
 
   // Handle change in received quantity
   const handleReceivedChange = (itemName, value) => {
     const parsedValue = value !== "" ? parseInt(value) : 0;
-    setModifiedOrder((prevState) => ({
+    setModifiedOrder(prevState => ({
       ...prevState,
-      list: prevState.list.map((item) =>
+      list: prevState.list.map(item =>
         item.item === itemName ? { ...item, received: parsedValue } : item
-      ),
+      )
     }));
   };
 
   // Handle save
   const handleSave = async () => {
     try {
-      const allDelivered = modifiedOrder.list.every(
-        (item) => item.received === item.quantity
-      );
+      const allDelivered = modifiedOrder.list.every(item => item.received === item.quantity);
 
-      const noValueItems = modifiedOrder.list.filter(
-        (item) => !item.received || item.received === 0
-      );
+      const noValueItems = modifiedOrder.list.filter(item => !item.received || item.received === 0);
 
       if (noValueItems.length > 0) {
-        document.getElementById("alertDialogOpen")?.click();
+        document.getElementById("alertDialogOpen")?.click()
       } else {
         await updateDoc("Procurement Orders", poId, {
           order_list: JSON.stringify(modifiedOrder),
@@ -616,7 +570,7 @@ export default function DeliveryNote() {
             doctype: "Delivery Note Attachments",
             docname: doc.name,
             fieldname: "image",
-            isPrivate: true,
+            isPrivate: true
           };
 
           const uploadResult = await upload(selectedFile, fileArgs);
@@ -624,28 +578,25 @@ export default function DeliveryNote() {
             doctype: "Delivery Note Attachments",
             name: doc.name,
             fieldname: "image",
-            value: uploadResult.file_url,
+            value: uploadResult.file_url
           });
-          setSelectedFile(null);
+          setSelectedFile(null)
         }
 
-        await poMutate();
-        setShow(false);
+        await poMutate()
+        setShow(false)
         toast({
           title: "Success!",
-          description: `Delivery Note: ${
-            poId.split("/")[1]
-          } updated successfully`,
+          description: `Delivery Note: ${poId.split('/')[1]} updated successfully`,
           variant: "success",
         });
       }
+
     } catch (error) {
-      console.log("error while updating delivery note", error);
+      console.log("error while updating delivery note", error)
       toast({
         title: "Failed!",
-        description: `Error while updating Delivery Note: ${
-          poId.split("/")[1]
-        }`,
+        description: `Error while updating Delivery Note: ${poId.split('/')[1]}`,
         variant: "destructive",
       });
     }
@@ -653,15 +604,11 @@ export default function DeliveryNote() {
 
   const handleProceed = async () => {
     try {
-      const allDelivered = modifiedOrder.list.every(
-        (item) => item.received === item.quantity
-      );
-      const noValueItems = modifiedOrder.list.filter(
-        (item) => !item.received || item.received === 0
-      );
+      const allDelivered = modifiedOrder.list.every(item => item.received === item.quantity);
+      const noValueItems = modifiedOrder.list.filter(item => !item.received || item.received === 0);
       const updatedOrder = {
         ...modifiedOrder,
-        list: modifiedOrder.list.map((item) =>
+        list: modifiedOrder.list.map(item =>
           noValueItems.includes(item) ? { ...item, received: 0 } : item
         ),
       };
@@ -681,7 +628,7 @@ export default function DeliveryNote() {
           doctype: "Delivery Note Attachments",
           docname: doc.name,
           fieldname: "image",
-          isPrivate: true,
+          isPrivate: true
         };
 
         const uploadResult = await upload(selectedFile, fileArgs);
@@ -689,38 +636,32 @@ export default function DeliveryNote() {
           doctype: "Delivery Note Attachments",
           name: doc.name,
           fieldname: "image",
-          value: uploadResult.file_url,
+          value: uploadResult.file_url
         });
-        setSelectedFile(null);
+        setSelectedFile(null)
       }
-      await poMutate();
-      setShow(false);
+      await poMutate()
+      setShow(false)
       toast({
         title: "Success!",
-        description: `Delivery Note: ${
-          poId.split("/")[1]
-        } updated successfully`,
+        description: `Delivery Note: ${poId.split('/')[1]} updated successfully`,
         variant: "success",
       });
     } catch (error) {
-      console.log("error while updating delivery note", error);
+      console.log("error while updating delivery note", error)
       toast({
         title: "Failed!",
-        description: `Error while updating Delivery Note: ${
-          poId.split("/")[1]
-        }`,
+        description: `Error while updating Delivery Note: ${poId.split('/')[1]}`,
         variant: "destructive",
       });
     }
-  };
+  }
 
   const componentRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = useReactToPrint({
     content: () => componentRef.current,
-    documentTitle: `${data?.name?.toUpperCase().replace("PO", "DN")}_${
-      data?.vendor_name
-    }`,
+    documentTitle: `${(data?.name)?.toUpperCase().replace("PO", "DN")}_${data?.vendor_name}`
   });
 
   const handleFileChange = (event) => {
@@ -731,16 +672,10 @@ export default function DeliveryNote() {
 
   return (
     <div className="container mx-auto px-0 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center mb-4 gap-1">
-          <Button onClick={() => navigate(-1)} variant="ghost" className="p-0">
-            <ArrowLeft />
-            <span className="sr-only">Back</span>
-          </Button>
-          <h1 className="text-2xl max-md:text-xl font-bold">
-            DN-{poId.split("/")[1]}
-          </h1>
-        </div>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl max-md:text-xl font-bold ml-2">
+          DN-{poId.split("/")[1]}
+        </h1>
         <Button onClick={handlePrint} className="flex items-center gap-1">
           <Printer className="h-4 w-4" />
           Print
@@ -753,7 +688,8 @@ export default function DeliveryNote() {
               Order Details
             </CardTitle>
             <Badge
-              variant={`${data?.status === "Dispatched" ? "orange" : "green"}`}
+              variant={`${data?.status === "Dispatched" ? "orange" : "green"
+                }`}
               className=""
             >
               {data?.status}
@@ -774,7 +710,7 @@ export default function DeliveryNote() {
               onClick={() =>
                 navigate(
                   location.pathname.includes("delivery-notes")
-                    ? `/prs&milestones/procurement-request/${data?.procurement_request}`
+                    ? `/prs&milestones/procurement-requests/${data?.procurement_request}`
                     : -1
                 )
               }
@@ -782,27 +718,22 @@ export default function DeliveryNote() {
               {data?.procurement_request}
             </span>
           </p>
-          {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"]?.includes(
-            userData?.role
-          ) && (
-            <p>
-              <strong>PO:</strong>{" "}
-              <span
-                className="underline cursor-pointer"
-                onClick={() =>
-                  navigate(
-                    location.pathname.includes("delivery-notes")
-                      ? `/prs&milestones/procurement-request/${
-                          data?.procurement_request
-                        }/${data?.name.replaceAll("/", "&=")}`
-                      : -1
-                  )
-                }
-              >
-                {data?.name.replaceAll("&=", "/")}
-              </span>
-            </p>
-          )}
+          <p>
+            <strong>PO:</strong>{" "}
+            <span
+              className="underline cursor-pointer"
+              onClick={() =>
+                navigate(
+                  location.pathname.includes("delivery-notes")
+                    ? `/prs&milestones/procurement-requests/${data?.procurement_request
+                    }/${data?.name.replaceAll("/", "&=")}`
+                    : -1
+                )
+              }
+            >
+              {data?.name.replaceAll("&=", "/")}
+            </span>
+          </p>
         </CardContent>
         <CardHeader className="pb-2">
           <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">
@@ -827,7 +758,7 @@ export default function DeliveryNote() {
           {[
             "Nirmaan Project Manager Profile",
             "Nirmaan Admin Profile",
-            "Nirmaan Project Lead Profile",
+            "Nirmaan Project Lead Profile"
           ].includes(userData?.role) &&
             !show &&
             data?.status !== "Delivered" && (
@@ -842,10 +773,11 @@ export default function DeliveryNote() {
           {show && data?.status !== "Delivered" && (
             <div className="flex flex-col gap-2">
               <div
-                className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-1 ${
-                  selectedFile && "opacity-50 cursor-not-allowed"
-                }`}
-                onClick={() => document.getElementById("file-upload")?.click()}
+                className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-1 ${selectedFile && "opacity-50 cursor-not-allowed"
+                  }`}
+                onClick={() =>
+                  document.getElementById("file-upload")?.click()
+                }
               >
                 <Paperclip size="15px" />
                 <span className="p-0 text-sm">Attach</span>
@@ -897,7 +829,7 @@ export default function DeliveryNote() {
                   <TableRow key={item.name}>
                     <TableCell>
                       <div className="inline items-baseline">
-                        <span>{item.item} </span>
+                        <span>{item.item}</span>
                         {item.comment && (
                           <HoverCard>
                             <HoverCardTrigger>
@@ -1097,9 +1029,8 @@ export default function DeliveryNote() {
                       return (
                         <tr
                           key={index}
-                          className={` page-break-inside-avoid ${
-                            index >= 14 ? "page-break-before" : ""
-                          }`}
+                          className={` page-break-inside-avoid ${index >= 14 ? "page-break-before" : ""
+                            }`}
                         >
                           <td className="py-2 text-sm whitespace-nowrap w-[7%]">
                             {index + 1}.

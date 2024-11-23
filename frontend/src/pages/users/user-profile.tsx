@@ -208,7 +208,7 @@ export default function Profile() {
     return (
         <div className="flex-1 md:space-y-4 space-y-2">
             <div className="flex items-center gap-1">
-                <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6 cursor-pointer" />
+                {/* <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6 cursor-pointer" /> */}
                 <span className='text-2xl max-md:text-xl font-semibold'>User Details</span>
                 <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
                     <SheetTrigger>

@@ -362,7 +362,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     return (
         <div className="flex-1 space-y-2 md:space-y-4">
             <div className="flex items-center gap-1">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate("/vendors")} />
+                {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/vendors")} /> */}
                 {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">{data?.vendor_name}</h2>}
 

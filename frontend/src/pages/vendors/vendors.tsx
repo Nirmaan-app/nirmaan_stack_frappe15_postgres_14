@@ -199,7 +199,7 @@ export default function Vendors() {
         <div className="flex-1 space-y-2 md:space-y-4">
             <div className="flex items-center justify-between">
                 <div className="flex gap-1 items-center">
-                    <Link to="/"><ArrowLeft className="" /></Link>
+                    {/* <Link to="/"><ArrowLeft className="" /></Link> */}
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
                 </div>
 

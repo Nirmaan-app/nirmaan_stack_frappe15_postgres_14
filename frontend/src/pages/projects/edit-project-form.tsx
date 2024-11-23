@@ -124,25 +124,25 @@ const projectFormSchema = z.object({
     required_error: "An end date is required.",
   }),
   project_work_packages: z
-          .object({
-              work_packages: z.array(
-                  z.object({
-                      work_package_name: z.string(),
-                      category_list: z
-                      .object({
-                          list: z.array(
-                              z.object({
-                                  name: z.string(),
-                                  makes: z.array(z.object({
-                                      label: z.string(),
-                                      value: z.string()
-                                  }))
-                              })
-                          )
-                      })
-                  })
+    .object({
+      work_packages: z.array(
+        z.object({
+          work_package_name: z.string(),
+          category_list: z
+            .object({
+              list: z.array(
+                z.object({
+                  name: z.string(),
+                  makes: z.array(z.object({
+                    label: z.string(),
+                    value: z.string()
+                  }))
+                })
               )
-  }),
+            })
+        })
+      )
+    }),
   project_scopes: z.object({
     scopes: z.array(
       z.object({
@@ -245,13 +245,13 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
       project_work_packages: data?.project_work_packages
         ? JSON.parse(data?.project_work_packages)
         : {
-            work_packages: [],
-          },
+          work_packages: [],
+        },
       project_scopes: data?.project_scopes
         ? JSON.parse(data?.project_scopes)
         : {
-            scopes: [],
-          },
+          scopes: [],
+        },
     },
   });
 
@@ -262,9 +262,9 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
       const reformattedWorkPackages = JSON.parse(data?.project_work_packages || "{}")?.work_packages?.map((workPackage) => {
         const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
           name: category.name,
-          makes: category.makes.map((make) => ({label : make, value : make})), // Extract only the labels
+          makes: category.makes.map((make) => ({ label: make, value: make })), // Extract only the labels
         }));
-      
+
         return {
           ...workPackage,
           category_list: {
@@ -272,7 +272,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
           },
         };
       });
-      
+
       form.reset({
         project_name: data?.project_name || "",
         customer: data?.customer || "",
@@ -289,13 +289,13 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
           ? new Date(data?.project_end_date)
           : new Date(),
         project_work_packages: {
-              work_packages: reformattedWorkPackages || [],
-            },
+          work_packages: reformattedWorkPackages || [],
+        },
         project_scopes: data?.project_scopes
           ? JSON.parse(data?.project_scopes)
           : {
-              scopes: [],
-            },
+            scopes: [],
+          },
       });
 
       setPincode(project_address.pincode);
@@ -378,7 +378,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
           name: category.name,
           makes: category.makes.map((make) => make.label), // Extract only the labels
         }));
-      
+
         return {
           ...workPackage,
           category_list: {
@@ -416,7 +416,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
         project_end_date: formatted_end_date,
         project_city: city,
         project_state: state,
-        project_work_packages: {work_packages: reformattedWorkPackages},
+        project_work_packages: { work_packages: reformattedWorkPackages },
         project_scopes: values.project_scopes,
       });
 
@@ -460,8 +460,6 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
 
   // console.log("projectData", data)
   // console.log("projectvalues", form.getValues())
-
-  console.log("project workpacakges", form.getValues().project_work_packages?.work_packages)
 
   return (
     <Form {...form}>
@@ -591,7 +589,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                       <Button variant="secondary">
                         <div className="flex items-center gap-1">
                           <CirclePlus className="w-3.5 h-3.5" />
-                          <span className="text-xs">Add New Project Type</span>
+                          <span className="text-xs">New Project Type</span>
                         </div>
                       </Button>
                     </DialogTrigger>
@@ -855,9 +853,9 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
           </div>
 
           <Separator className="my-6" />
-          <p className="text-sky-600 font-semibold pb-6">
+          {/* <p className="text-sky-600 font-semibold pb-6">
             Package Specification
-          </p>
+          </p> */}
           {/* <FormField
             control={form.control}
             name="project_work_packages"
@@ -1008,7 +1006,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
 };
 
 
-const WorkPackageSelection = ({form, wp_list}) => {
+const WorkPackageSelection = ({ form, wp_list }) => {
 
   const [openValue, setOpenValue] = useState(null);
 
@@ -1056,11 +1054,11 @@ const WorkPackageSelection = ({form, wp_list}) => {
     }
   };
 
-const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
+  const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
     const updatedWorkPackages = [...workPackages];
-  
+
     let workPackage = updatedWorkPackages.find((wp) => wp.work_package_name === workPackageName);
-  
+
     if (!workPackage) {
       const associatedCategories = categoriesList
         .filter((cat) => cat.work_package === workPackageName)
@@ -1068,19 +1066,19 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
           name: cat.category_name,
           makes: [],
         }));
-  
+
       workPackage = {
         work_package_name: workPackageName,
         category_list: {
           list: associatedCategories,
         },
       };
-  
+
       updatedWorkPackages.push(workPackage);
     }
 
     const category = workPackage.category_list.list.find((cat) => cat.name === categoryName);
-  
+
     if (!category) {
       workPackage.category_list.list.push({
         name: categoryName,
@@ -1089,16 +1087,16 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
     } else {
       category.makes = selectedMakes;
     }
-  
+
     form.setValue("project_work_packages.work_packages", updatedWorkPackages);
   };
-  
 
-  if(categoriesListLoading || categoryMakeListLoading) return <div>loading..</div>
+
+  if (categoriesListLoading || categoryMakeListLoading) return <div>loading..</div>
 
   return (
     <div>
-      <p className="text-sky-600 font-semibold">Package Specification</p>
+      {/* <p className="text-sky-600 font-semibold">Package Specification</p> */}
       <FormField
         control={form.control}
         name="project_work_packages"
@@ -1106,7 +1104,7 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
           <FormItem>
             <div className="mb-4">
               <FormLabel className="text-base flex">
-                Work Package Selection<sup className="pl-1 text-sm text-red-600">*</sup>
+                Work Package Selection<sup className="text-sm text-red-600">*</sup>
               </FormLabel>
             </div>
             <Checkbox
@@ -1137,7 +1135,7 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
                               disabled={
                                 field.value.length === 1 &&
                                 field.value?.[0].work_package_name ===
-                                  item.work_package_name
+                                item.work_package_name
                               }
                               checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
                               onCheckedChange={(checked) => {
@@ -1150,9 +1148,9 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
 
                                 const updatedWorkPackages = checked
                                   ? [
-                                      ...field.value,
-                                      { work_package_name: item.work_package_name, category_list: { list: updatedCategories } },
-                                    ]
+                                    ...field.value,
+                                    { work_package_name: item.work_package_name, category_list: { list: updatedCategories } },
+                                  ]
                                   : field.value.filter((wp) => wp.work_package_name !== item.work_package_name);
 
                                 field.onChange(updatedWorkPackages);

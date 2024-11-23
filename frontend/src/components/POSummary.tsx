@@ -41,7 +41,7 @@ const chartConfig = {
 const POSummary = () => {
 
   const [address, setAddress] = useState()
-  const { id } = useParams();
+  const { poId: id } = useParams();
   const poId = id?.replaceAll("&=", "/");
 
 
@@ -83,12 +83,12 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
   const [afterDelivery, setAfterDelivery] = useState(0)
   const [xDaysAfterDelivery, setXDaysAfterDelivery] = useState(0)
 
-  const {data : mergedPOs, isLoading: mergedPOsLoading} = useFrappeGetDocList("Procurement Orders", {
+  const { data: mergedPOs, isLoading: mergedPOsLoading } = useFrappeGetDocList("Procurement Orders", {
     fields: ["name", "merged"],
     filters: [["merged", "=", po_data?.name]],
   })
 
-  const {data : poPayments, isLoading: poPaymentsLoading} = useFrappeGetDocList("Project Payments", {
+  const { data: poPayments, isLoading: poPaymentsLoading } = useFrappeGetDocList("Project Payments", {
     fields: ["amount"],
     filters: [["document_name", "=", po_data?.name]],
   })
@@ -170,18 +170,11 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-1 flex-wrap">
-          <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-          <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
-          <span className="text-red-500 text-2xl max-md:text-xl"> {po_data?.name}</span>
-        </div>
-
-        <Button onClick={handlePrint} className='flex items-center gap-1'>
-          <Printer className='h-4 w-4' />
-          Print
-        </Button>
-      </div>
+      {/* <div className="flex items-center gap-1 flex-wrap">
+        <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+        <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
+        <span className="text-red-500 text-2xl max-md:text-xl"> {po_data?.name}</span>
+      </div> */}
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="w-full">
@@ -225,31 +218,31 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
             </div>
             {po_data?.status === "Merged" && (
               <>
-            <div className="flex items-center gap-2">
-              <Label className="font-light text-red-700">Master PO:</Label>
-              <span>{po_data?.merged}</span>
-            </div>
+                <div className="flex items-center gap-2">
+                  <Label className="font-light text-red-700">Master PO:</Label>
+                  <span>{po_data?.merged}</span>
+                </div>
               </>
             )}
 
-          {po_data?.merged === "true" && (
-            <>
-            <div className="flex items-center gap-2">
-              <Label className="font-light text-red-700">Master PO:</Label>
-              <span>Yes</span>
-            </div>
-            <div className="flex gap-2">
-              <Label className="font-light text-red-700 mt-2">Child PO(s):</Label>
-              <ul className="list-disc pl-5">
-              {mergedPOs?.length > 0 ? (
-                mergedPOs?.map((po) => (
-                  <li>{po?.name}</li>
-                ))
-              ) : "--"}
-              </ul>
-            </div>
-            </>
-          )}
+            {po_data?.merged === "true" && (
+              <>
+                <div className="flex items-center gap-2">
+                  <Label className="font-light text-red-700">Master PO:</Label>
+                  <span>Yes</span>
+                </div>
+                <div className="flex gap-2">
+                  <Label className="font-light text-red-700 mt-2">Child PO(s):</Label>
+                  <ul className="list-disc pl-5">
+                    {mergedPOs?.length > 0 ? (
+                      mergedPOs?.map((po) => (
+                        <li>{po?.name}</li>
+                      ))
+                    ) : "--"}
+                  </ul>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -322,15 +315,15 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                     {items.map((item) => (
                       <TableRow key={item.name}>
                         <TableCell>
-                        <span>{item.item} - <span className="text-xs italic font-semibold text-gray-500">{item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</span></span>
-                    {item.comment && (
-                      <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
-                        <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
-                        <div className="text-xs ">
-                          {item.comment}
-                        </div>
-                      </div>
-                    )}
+                          <span>{item.item} - <span className="text-xs italic font-semibold text-gray-500">{item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</span></span>
+                          {item.comment && (
+                            <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
+                              <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                              <div className="text-xs ">
+                                {item.comment}
+                              </div>
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>{item.quantity}</TableCell>
                         <TableCell>{formatToIndianRupee(item.quote)}</TableCell>
@@ -479,8 +472,8 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                     <tr key={index} className={`${(!parseFloat(po_data?.loading_charges) && !parseFloat(po_data?.freight_charges) && index === length - 1) && "border-b border-black"} page-break-inside-avoid ${index === 15 ? 'page-break-before' : ''}`}>
                       <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
                       <td className="py-2 text-sm whitespace-nowrap text-wrap">
-                      {item.item}
-                         <p className="text-xs italic font-semibold text-gray-500"> - {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
+                        {item.item}
+                        <p className="text-xs italic font-semibold text-gray-500"> - {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
                       </td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>

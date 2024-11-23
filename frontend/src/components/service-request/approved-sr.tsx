@@ -29,7 +29,7 @@ import { Dialog, DialogContent, DialogTrigger } from "../ui/dialog";
 
 export const ApprovedSR = () => {
 
-    const { id } = useParams()
+    const { srId: id } = useParams()
 
     const navigate = useNavigate()
 
@@ -348,10 +348,10 @@ export const ApprovedSR = () => {
         // </div>
 
         <div className="flex-1 space-y-4">
-            <div className=" flex items-center gap-1">
+            {/* <div className=" flex items-center gap-1">
                 <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                 <p className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</p>
-            </div>
+            </div> */}
             <div className="grid gap-6 grid-cols-1 md:grid-cols-5">
                 <Card className="rounded-sm shadow-m md:col-span-2 overflow-x-auto">
                     <CardHeader>

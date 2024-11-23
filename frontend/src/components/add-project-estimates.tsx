@@ -47,7 +47,7 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 
-const AddProjectEstimates = ({projectTab = false}) => {
+const AddProjectEstimates = ({ projectTab = false }) => {
     const { projectId } = useParams()
     const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", projectId)
     const { data: estimates_data, isLoading: estimates_loading, error: estimates_error, mutate: estimates_data_mutate } = useFrappeGetDocList<ProjectEstimatesType>("Project Estimates", {
@@ -111,24 +111,24 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     const [selectedPackage, setSelectedPackage] = useState(searchParams.get("eTab") || "All")
 
     const updateURL = (key, value) => {
-      const url = new URL(window.location);
-      url.searchParams.set(key, value);
-      window.history.pushState({}, "", url);
+        const url = new URL(window.location);
+        url.searchParams.set(key, value);
+        window.history.pushState({}, "", url);
     };
 
     const handleSetSelectedPackage = (value) => {
-      if(selectedPackage === value) return
-      setSelectedPackage(value)
-      setCurCategory({[value] : null})
-      setSelectedItem({[value] : null})
-      updateURL("eTab", value)
+        if (selectedPackage === value) return
+        setSelectedPackage(value)
+        setCurCategory({ [value]: null })
+        setSelectedItem({ [value]: null })
+        updateURL("eTab", value)
     }
 
     useEffect(() => {
         const currentTab = searchParams.get("eTab") || "All";
         setSelectedPackage(currentTab);
         updateURL("eTab", currentTab)
-      }, []);
+    }, []);
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -257,7 +257,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                 if (a.label === "All") return -1;
                 if (b.label === "All") return 1;
                 return a.label.localeCompare(b.label);
-              });
+            });
 
             //   options?.push({ label: "Tool & Equipments", value: "Tool & Equipments" })
             //   options?.push({ label: "Services", value: "Services" })
@@ -662,13 +662,13 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     return (
         <>
             <div className="flex-1 md:space-y-4 pb-10">
-                {!projectTab && <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${project_data?.name}`)} />
+                <div className="flex items-center pt-1 max-md:pb-4">
+                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${project_data?.name}`)} /> */}
                     <h3 className="text-base pl-2 font-bold tracking-tight">
                         {/* <span className="text-primary">{project_data?.project_name}</span>  */} Estimations Overview</h3>
-                </div>}
+                </div>
                 <div className="space-y-4">
-                {!projectTab && <Card className="flex flex-col"> 
+                    {!projectTab && <Card className="flex flex-col">
                         <CardHeader>
                             <CardTitle>
                                 <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
@@ -1030,7 +1030,7 @@ export const CategoryWiseEstimateCard = ({ selectedPackage, categorizedData, col
                     }}
                 >
                     <Table
-                        dataSource={((categorizedData[selectedPackage] && Object.keys(categorizedData[selectedPackage])?.sort((a,b) => a?.localeCompare(b)) ) || []).map((key) => ({
+                        dataSource={((categorizedData[selectedPackage] && Object.keys(categorizedData[selectedPackage])?.sort((a, b) => a?.localeCompare(b))) || []).map((key) => ({
                             key,
                             category: key,
                             items: categorizedData[selectedPackage][key],
@@ -1193,52 +1193,52 @@ export const CategoryWiseEstimateCard = ({ selectedPackage, categorizedData, col
     )
 }
 
-export const AllTab = ({allWorkPackages,  workPackageTotals, handleSetSelectedPackage}) => {
-    
+export const AllTab = ({ allWorkPackages, workPackageTotals, handleSetSelectedPackage }) => {
+
     const columns = [
-      {
-        title: "Work Package",
-        dataIndex: "work_package",
-        key: "work_package",
-        width: "40%",
-        render: (text) => <strong onClick={() => handleSetSelectedPackage(text)} className="text-primary underline cursor-pointer">{text}</strong>,
-      },
-      {
-        title: "Total Estd. Amount (exc. GST)",
-        dataIndex: "total_estimated_amount",
-        key: "total_estimated_amount",
-        width: "30%",
-        render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
-      },
+        {
+            title: "Work Package",
+            dataIndex: "work_package",
+            key: "work_package",
+            width: "40%",
+            render: (text) => <strong onClick={() => handleSetSelectedPackage(text)} className="text-primary underline cursor-pointer">{text}</strong>,
+        },
+        {
+            title: "Total Estd. Amount (exc. GST)",
+            dataIndex: "total_estimated_amount",
+            key: "total_estimated_amount",
+            width: "30%",
+            render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+        },
     ];
-    
-      return (
+
+    return (
         <div className="w-full">
-        {allWorkPackages?.length > 0 ? (
-          <div className="overflow-x-auto">
-            <ConfigProvider>
-              <Table
-                dataSource={allWorkPackages
-                  ?.sort((a, b) =>
-                    a?.work_package_name?.localeCompare(b?.work_package_name)
-                  )
-                  ?.map((key) => {
-                    return {
-                      key: key?.work_package_name,
-                      total_estimated_amount: workPackageTotals[key?.work_package_name]?.withoutGst,
-                      work_package: key?.work_package_name,
-                    }
-                  })?.
-                  sort((a,b) => (b?.total_estimated_amount || 0) - (a?.total_estimated_amount || 0))}
-                columns={columns}
-              />
-            </ConfigProvider>
-          </div>
-        ) : (
-          <div className="h-[10vh] flex items-center justify-center">
-            No Results.
-          </div>
-        )}
-      </div>
-      )
-    }
+            {allWorkPackages?.length > 0 ? (
+                <div className="overflow-x-auto">
+                    <ConfigProvider>
+                        <Table
+                            dataSource={allWorkPackages
+                                ?.sort((a, b) =>
+                                    a?.work_package_name?.localeCompare(b?.work_package_name)
+                                )
+                                ?.map((key) => {
+                                    return {
+                                        key: key?.work_package_name,
+                                        total_estimated_amount: workPackageTotals[key?.work_package_name]?.withoutGst,
+                                        work_package: key?.work_package_name,
+                                    }
+                                })?.
+                                sort((a, b) => (b?.total_estimated_amount || 0) - (a?.total_estimated_amount || 0))}
+                            columns={columns}
+                        />
+                    </ConfigProvider>
+                </div>
+            ) : (
+                <div className="h-[10vh] flex items-center justify-center">
+                    No Results.
+                </div>
+            )}
+        </div>
+    )
+}

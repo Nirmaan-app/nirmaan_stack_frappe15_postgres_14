@@ -5,15 +5,15 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
-import { SheetContent, SheetTrigger, Sheet } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 // import { fetchDoc } from "@/reactQuery/customFunctions";
 // import { useQuery } from "@tanstack/react-query";
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { ArrowLeft, FilePenLine, MapPin } from "lucide-react";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import EditCustomer from "./edit-customer";
-import { useState } from "react";
 
 const Customer = () => {
   const { customerId } = useParams<{ customerId: string }>();
@@ -26,17 +26,17 @@ export const Component = Customer;
 const CustomerView = ({ customerId }: { customerId: string }) => {
   const navigate = useNavigate();
 
-  const [editSheetOpen, setEditSheetOpen] = useState(false);
-
-  const toggleEditSheet = () => {
-    setEditSheetOpen((prevState) => !prevState);
-  };
-
   // const { data, isLoading, error } = useQuery({
   //   queryKey: ["doc", "Customers", customerId],
   //   queryFn: () => fetchDoc({doctype: "Customers", name: customerId}),
   //   staleTime: 1000 * 60 * 5,
   // });
+
+  const [editSheetOpen, setEditSheetOpen] = useState(false);
+
+  const toggleEditSheet = () => {
+    setEditSheetOpen((prevState) => !prevState);
+  };
 
   const { data, isLoading, error } = useFrappeGetDoc(
     "Customers",
@@ -80,21 +80,17 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
   return (
     <div className="flex-1 md:space-y-4">
       <div className="flex items-center gap-1 max-md:mb-2">
-        <ArrowLeft
-          className="cursor-pointer"
-          onClick={() => navigate("/customers")}
-        />
+        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} /> */}
         {isLoading ? (
           <Skeleton className="h-10 w-1/3 bg-gray-300" />
         ) : (
-          <h2 className="text-xl md:text-3xl font-bold tracking-tight">
+          <h2 className="text-xl md:text-3xl font-bold tracking-tight ml-2">
             {data?.company_name}
           </h2>
         )}
-
         <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
           <SheetTrigger>
-            <FilePenLine className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
+            <FilePenLine className="text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
           </SheetTrigger>
           <SheetContent className="overflow-auto">
             <EditCustomer toggleEditSheet={toggleEditSheet} />
@@ -180,7 +176,7 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
             </CardContent>
           </Card>
           <div className="mt-4">
-            <h2 className="text-2xl max-md:text-xl font-semibold font-bold pb-2">
+            <h2 className="text-2xl max-md:text-xl font-semibold font-bold pb-2 ml-2">
               Associated Projects
             </h2>
             {associatedProjects?.length ? (

@@ -354,11 +354,11 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
         <div>
             {
                 navigation && (<div className="space-y-0.5">
-                    <div className="flex space-x-2 items-center">
-                        <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} />
+                    <div className="flex space-x-2 items-center ml-6">
+                        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} /> */}
                         <h2 className="text-2xl font-bold tracking-tight">Add New Customer</h2>
                     </div>
-                    <p className="text-muted-foreground pl-8">
+                    <p className="text-muted-foreground ml-6">
                         Fill all the marked fields to create a new Customer
                     </p>
                 </div>)
