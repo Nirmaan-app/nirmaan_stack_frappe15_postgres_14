@@ -182,7 +182,7 @@ export const ApprovedSR = () => {
         <div className='flex-1 md:space-y-4'>
             <div className="flex justify-between items-center">
                 <div className="py-4 flex items-center gap-1">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
                     <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
                 </div>
                 <ShadButton className='flex items-center gap-2' onClick={handlePrint}>

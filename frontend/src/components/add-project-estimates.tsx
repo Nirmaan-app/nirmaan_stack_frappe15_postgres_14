@@ -578,8 +578,8 @@ const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.redu
     return (
         <>
             <div className="flex-1 md:space-y-4 pb-10">
-                <div className="flex items-center pt-1 pb-4">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${project_data?.name}`)} />
+                <div className="flex items-center pt-1 max-md:pb-4">
+                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${project_data?.name}`)} /> */}
                     <h3 className="text-base pl-2 font-bold tracking-tight">
                         {/* <span className="text-primary">{project_data?.project_name}</span>  */} Estimations Overview</h3>
                 </div>

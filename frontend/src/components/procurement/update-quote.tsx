@@ -343,14 +343,14 @@ export const UpdateQuote = () => {
 
     const filteredVendorList = vendor_list?.filter((ven) => !uniqueVendors?.list?.includes(ven.name))
 
-    if(procurement_request_list_loading || category_loading || quotation_request_list_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+    if(procurement_request_list_loading || category_loading || quotation_request_list_loading || vendor_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"}  /> </div>
 
     return (
         <>
             {page == 'quotation' &&
                     <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                            {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
                         </div>
                         <ProcurementHeaderCard orderData={orderData} />

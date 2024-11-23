@@ -62,7 +62,7 @@ const ApproveAmendPO = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (po_loading || project_loading || owner_loading || versionsLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     if (po_error || project_error || owner_error || versionsError) return <h1>Error</h1>
     if (po_data?.status !== "PO Amendment") return (
         <div className="flex items-center justify-center h-full">
@@ -227,7 +227,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
         <div className="flex-1 md:space-y-4">
             {/* PO Details Card */}
             <div className="flex items-center pt-1  pb-4">
-                <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-amended-po")} />
+                {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-amended-po")} /> */}
                 <h2 className="text-base pl-2 font-bold tracking-tight">Amended PO: <span className="text-red-700">{po_data?.name}</span></h2>
             </div>
             <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">

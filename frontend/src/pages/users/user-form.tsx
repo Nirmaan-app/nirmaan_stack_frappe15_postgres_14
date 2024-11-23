@@ -107,7 +107,7 @@ export const UserForm = () => {
     return (
         <div className="flex-1">
             <div className="flex gap-2">
-                <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} />
+                {/* <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} /> */}
                 <div className="flex flex-col">
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Add New User</h2>
                     <p className="text-muted-foreground">
