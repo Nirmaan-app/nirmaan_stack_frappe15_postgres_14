@@ -10,7 +10,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./
 import ReactSelect from 'react-select';
 import { Input } from "./ui/input";
 import { toast } from "./ui/use-toast";
-import { ConfigProvider, Table } from "antd";
+import { ConfigProvider, Radio, Table } from "antd";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
 import { Separator } from "./ui/separator";
@@ -102,6 +102,11 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
     const [serviceDesc, setServiceDesc] = useState(null)
     const [serviceUnit, setServiceUnit] = useState(null)
     const [loadingState, setLoadingState] = useState(null)
+    const [options, setOptions] = useState(null)
+    const [selectedPackage, setSelectedPackage] = useState("")
+    const [categoryTotals, setCategoryTotals] = useState({})
+    const [overAllCategoryTotals, setOverAllCategoryTotals] = useState({})
+    const [categoryWisePieChartData, setCategoryWisePieChartData] = useState([])
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
@@ -219,6 +224,18 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
             setAllWorkPackages(wpList)
             const list: string[] = wpList?.map((wp) => wp.work_package_name)
             setDefaultValues(list)
+            const options = []
+            options.push({ label: "All", value: "All" })
+            wpList?.forEach((wp) => {
+              const option = { label: wp?.work_package_name, value: wp?.work_package_name }
+              options?.push(option)
+            })
+    
+        //   options?.push({ label: "Tool & Equipments", value: "Tool & Equipments" })
+        //   options?.push({ label: "Services", value: "Services" })
+    
+          setOptions(options)
+          setSelectedPackage("All")
         }
     }, [project_data])
     
@@ -516,6 +533,44 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         }
     };
 
+    useEffect(() => {
+        if(selectedPackage !== "All" && estimates_data) {
+            const filteredEstimates = estimates_data?.filter((i) => i?.work_package === selectedPackage)
+            const categoryTotals = filteredEstimates?.reduce((acc, item) => {
+                const category = acc[item?.category] || { withoutGst: 0, withGst: 0 };
+
+                const itemTotal = parseFloat(item?.quantity_estimate) * parseFloat(item?.rate_estimate);
+                const itemTotalWithGst = itemTotal * (1 + parseFloat(item?.item_tax) / 100);
+
+                category.withoutGst += itemTotal;
+                category.withGst += itemTotalWithGst;
+
+                acc[item.category] = category;
+                return acc;
+            }, {});
+
+            const overallTotal = categoryTotals && Object.values(categoryTotals)?.reduce(
+                  (acc, totals) => ({
+                    withoutGst: acc.withoutGst + totals.withoutGst,
+                    withGst: acc.withGst + totals.withGst,
+                  }),
+                  { withoutGst: 0, withGst: 0 }
+            );
+
+            const pieChartData = categoryTotals && Object.keys(categoryTotals)?.map((category) => ({
+                  name: category,
+                  value: categoryTotals[category]?.withoutGst,
+                  fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
+            }));
+
+            setCategoryTotals(categoryTotals)
+
+            setOverAllCategoryTotals(overallTotal)
+
+            setCategoryWisePieChartData(pieChartData)
+        }
+    }, [selectedPackage, estimates_data])
+
     // const categoryTotals = estimates_data?.reduce((acc, item) => {
     //     const category = acc[item?.category] || { withoutGst: 0, withGst: 0 };
 
@@ -542,7 +597,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
         return acc;
     }, {});
 
-    console.log("workpackage", workPackageTotals)
+    // console.log("workpackage", workPackageTotals)
 
 //   const overallTotal = categoryTotals && Object.values(categoryTotals)?.reduce(
 //     (acc, totals) => ({
@@ -611,7 +666,7 @@ const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.redu
                     </Card>
                   </CardTitle>
                 </CardHeader>
-                {Object.keys(workPackageTotals)?.length > 0 ? (
+                {(selectedPackage &&  selectedPackage === "All") ? ( Object.keys(workPackageTotals)?.length > 0 ? (
                     <CardContent className="flex max-md:flex-col items-center lg:mx-10">
                     <div className="flex-1">
                         <p className="font-bold text-lg text-gray-700">
@@ -657,9 +712,71 @@ const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.redu
                     <CardContent className="flex items-center justify-center my-10 italic">
                         Please Start filling the estimates to show the totals overview!
                     </CardContent>
+                )) : (
+                    Object.keys(categoryTotals)?.length > 0 ? (
+                        <CardContent className="flex max-md:flex-col items-center lg:mx-10">
+                        <div className="flex-1">
+                            <p className="font-bold text-lg text-gray-700">
+                              Overall Total: <span className="font-medium">{formatToIndianRupee(overAllCategoryTotals?.withoutGst)}</span>
+                            </p>
+                            <ul className="list-disc ml-6">
+                                {categoryTotals && Object.keys(categoryTotals)?.map((cat) => (
+                                    <li>
+                                        <span>{cat}: </span>
+                                        <span>{formatToIndianRupee(categoryTotals[cat]?.withoutGst)}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                      <ChartContainer
+                        config={chartConfig}
+                        className="mx-auto w-full min-h-[250px] max-h-[300px] flex-1 flex justify-center"
+                      >
+                        <PieChart>
+                          <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                          <Pie data={categoryWisePieChartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
+                            <Label
+                              content={({ viewBox }) => {
+                                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                                  return (
+                                    <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+                                      <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
+                                        {overAllCategoryTotals?.withoutGst?.toLocaleString()}
+                                      </tspan>
+                                      <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
+                                        Total
+                                      </tspan>
+                                    </text>
+                                  );
+                                }
+                              }}
+                            />
+                          </Pie>
+                        </PieChart>
+                      </ChartContainer>
+                    </CardContent>
+                    ) : (
+                        <CardContent className="flex items-center justify-center my-10 italic">
+                            Please Start filling the estimates to show the totals overview!
+                        </CardContent>
+                    )
                 )}
             </Card>
-                    {defaultValues && (
+
+                    {
+                    options && (
+                      <Radio.Group
+                        block
+                        options={options}
+                        defaultValue="All"
+                        optionType="button"
+                        buttonStyle="solid"
+                        onChange={(e) => setSelectedPackage(e.target.value)}
+                      />
+                    )
+                    }
+                    {(defaultValues && selectedPackage === "All") ? 
+                    (
                     <Accordion type="multiple" className="space-y-4" defaultValue={defaultValues?.slice(0, 2) || []}>
                         {allWorkPackages?.map((wp) => (
                             <AccordionItem key={wp.work_package_name} value={wp.work_package_name} className="border-b rounded-lg shadow">
@@ -845,6 +962,12 @@ const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.redu
                           </AccordionItem>
                         ))}
                     </Accordion>
+                    ) : (
+                        <CategoryWiseEstimateCard selectedPackage={selectedPackage} categorizedData={categorizedData} columns={columns} innerColumns={innerColumns} 
+                        curCategory={curCategory} workPackageCategoryList={workPackageCategoryList} handleCategoryChange={handleCategoryChange} selectedItem={selectedItem} categoryItemList={categoryItemList} handleItemChange={handleItemChange} 
+                        setServiceDesc={setServiceDesc} serviceDesc={serviceDesc} enteredQuantities={enteredQuantities} handleQuantityChange={handleQuantityChange} serviceUnit={serviceUnit} handleUnitChange={handleUnitChange} rateInput={rateInput}
+                        handleRateChange={handleRateChange} loadingState={loadingState} handleSubmit={handleSubmit} showRateDialog={showRateDialog} setShowRateDialog={setShowRateDialog} errorItem={errorItem} setErrorItem={setErrorItem} handleAlertSubmit={handleAlertSubmit} create_loading={create_loading}
+                         />
                     )}
                 </div>
 
@@ -854,3 +977,183 @@ const overallTotal = workPackageTotals && Object.values(workPackageTotals)?.redu
 }
 
 export const Component = AddProjectEstimates;
+
+export const CategoryWiseEstimateCard = ({selectedPackage, categorizedData, columns, innerColumns, 
+    curCategory, workPackageCategoryList, handleCategoryChange, selectedItem, categoryItemList, handleItemChange, 
+    setServiceDesc, serviceDesc, enteredQuantities, handleQuantityChange, serviceUnit, handleUnitChange, rateInput,
+    handleRateChange, loadingState, handleSubmit, showRateDialog, setShowRateDialog, errorItem, setErrorItem, handleAlertSubmit, create_loading
+}) => {
+    return (
+        <div className="flex flex-col gap-6">
+                                    <div className=" overflow-x-auto border-b border-gray-100">
+                                            <ConfigProvider
+                                                theme={{
+                                                    components: {
+                                                        Table: {
+                                                        }
+                                                    }
+                                                }}
+                                            >
+                                                <Table
+                                                    dataSource={((categorizedData[selectedPackage] && Object.keys(categorizedData[selectedPackage])) || []).map((key) => ({
+                                                        key,
+                                                        category: key,
+                                                        items: categorizedData[selectedPackage][key],
+                                                    }))}
+                                                    columns={columns}
+                                                    expandable={{
+                                                        expandedRowRender: (record) => (
+                                                            <Table
+                                                                dataSource={record.items}
+                                                                columns={innerColumns}
+                                                                pagination={false}
+                                                                rowKey={(item) => item.name}
+                                                            />
+                                                        ),
+                                                    }}
+                                                    rowKey="category"
+                                                />
+                                            </ConfigProvider>
+                                    </div>
+                                    {/* <Separator /> */}
+                                    <div className="flex flex-col gap-2">
+                                        <h2 className="font-semibold text-base underline">Submit New Estimation</h2>
+                                        <div className="flex justify-between items-end">
+                                                <div className="flex gap-2 items-end flex-wrap">
+                                                    <div className="flex flex-col gap-2">
+                                                        <h3 className="text-gray-500">Select Associated Category<sup className="text-sm text-red-600">*</sup></h3>
+                                                        <ReactSelect 
+                                                            className="w-64"
+                                                            value={curCategory[selectedPackage]} 
+                                                            options={workPackageCategoryList[selectedPackage]} 
+                                                            onChange={(value) => handleCategoryChange(selectedPackage, value)} />
+                                                    </div>
+                                                    {selectedPackage !== "Services" ? (
+                                                        <div className="flex flex-col gap-2">
+                                                            <h3 className="text-gray-500">Select Item<sup className="text-sm text-red-600">*</sup></h3>
+                                                            <ReactSelect 
+                                                                className="w-64"
+                                                                value={selectedItem[selectedPackage]} 
+                                                                options={categoryItemList[curCategory[selectedPackage]?.value]} 
+                                                                onChange={(value) => handleItemChange(selectedPackage, curCategory[selectedPackage], value)}
+                                                                isDisabled={!curCategory[selectedPackage]}
+                                                                 />
+                                                        </div>
+                                                    ) :  (
+                                                        <div className="flex flex-col gap-2">
+                                                            <h3 className="text-gray-500">Description (optional)</h3>
+                                                            <Textarea
+                                                                placeholder={`Add Description...`}
+                                                                id="description"
+                                                                className="w-64"
+                                                                disabled={!curCategory[selectedPackage]}
+                                                                onChange={(e) => setServiceDesc(e.target.value)}
+                                                                value={serviceDesc || ''}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    <div className="flex flex-col gap-2">
+                                                        <h3 className="text-gray-500">Qty<sup className="text-sm text-red-600">*</sup></h3>
+                                                        <Input type="number" placeholder="Enter Estimated Qty" 
+                                                            className="w-20"
+                                                            value={enteredQuantities[selectedPackage]} 
+                                                            onChange={(e) => handleQuantityChange(selectedPackage, curCategory[selectedPackage],  e.target.value)} 
+                                                            disabled={selectedPackage === "Services" ? !curCategory[selectedPackage] : !selectedItem[selectedPackage]}
+                                                        />
+                                                    </div>
+
+                                                    <div className="flex flex-col gap-2">
+                                                        <h3 className="text-gray-500">Unit{selectedPackage === "Services" ? "(Opt)" : <sup className="text-sm text-red-600">*</sup>}</h3>
+                                                        <Input type="text"
+                                                            className="w-20"
+                                                            value={selectedPackage !== "Services" ? selectedItem[selectedPackage]?.unit : (serviceUnit || "")}  
+                                                            onChange={(e) => handleUnitChange(e.target.value)}
+                                                            disabled={selectedPackage !== "Services"}
+                                                        />
+                                                    </div>
+
+                                                    {selectedPackage === "Services" && (
+                                                        <>
+                                                        <div className="flex flex-col gap-2">
+                                                            <h3 className="text-gray-500">Rate<sup className="text-sm text-red-600">*</sup></h3>
+                                                            <Input type="number" placeholder="Enter Estimated Rate" 
+                                                            value={rateInput}
+                                                            onChange={(e) => handleRateChange(e.target.value)}  
+                                                            disabled={!enteredQuantities[selectedPackage]}
+                                                            />
+                                                        </div>
+                                                        <div className="flex flex-col gap-4">
+                                                            <h3 className="text-gray-500">Amount</h3>
+                                                            <p className="text-primary">{formatToIndianRupee((enteredQuantities["Services"] || 0) * (rateInput || 0))}</p>
+                                                        </div>
+                                                    </>
+                                                    )}
+                                                    </div>
+                                                        <Button
+                                                            onClick={() => handleSubmit(wp.work_package_name)}
+                                                            disabled={!curCategory[selectedPackage] || (selectedPackage !== "Services" && !selectedItem[selectedPackage]) || (selectedPackage === "Services" && !rateInput) || !enteredQuantities[selectedPackage] || loadingState === selectedPackage}>
+                                                            {loadingState === selectedPackage ? "Submitting.." : "Submit"}
+                                                        </Button>
+                                                        <AlertDialog open={showRateDialog} onOpenChange={setShowRateDialog}>
+                                                            <AlertDialogContent>
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle>
+                                                                        No Quotes Found
+                                                                    </AlertDialogTitle>
+                                                                </AlertDialogHeader>
+                                                                <AlertDialogDescription>
+                                                                    <p>No quotes found for the item: <span className="text-primary italic">{errorItem?.item_name}</span> in the system. Please provide a rate:</p>
+                                                                    <div className="flex items-center gap-6">
+                                                                        <div className="flex flex-col gap-2">
+                                                                            <h3 className="text-gray-500">Qty</h3>
+                                                                            <Input type="number" placeholder="Enter Estimated Qty" 
+                                                                                value={errorItem?.quantity_estimate} 
+                                                                                onChange={(e) => setErrorItem({...errorItem, quantity_estimate : e.target.value})} 
+                                                                            />
+                                                                        </div>
+                                                                        <div className="flex flex-col gap-2">
+                                                                            <h3 className="text-gray-500">Unit</h3>
+                                                                            <Input type="text"
+                                                                                value={errorItem?.uom} 
+                                                                                disabled
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                    
+                                                                    <div className="flex items-center gap-6 mt-4">
+                                                                        <div className="flex flex-col gap-2">
+                                                                            <h3 className="text-gray-500">Rate</h3>
+                                                                            <Input
+                                                                                type="number"
+                                                                                placeholder="Enter Rate"
+                                                                                value={rateInput}
+                                                                                onChange={(e) => handleRateChange(e.target.value)}
+                                                                                disabled={!errorItem?.quantity_estimate}
+                                                                            />
+                                                                        </div>
+                                                                        <div className="flex flex-col gap-4">
+                                                                            <h3 className="text-gray-500">Amount</h3>
+                                                                            <p className="text-primary">{formatToIndianRupee((errorItem?.quantity_estimate || 0) * (rateInput || 0))}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-end gap-2 mt-4">
+                                                                        <AlertDialogCancel>
+                                                                            Cancel
+                                                                        </AlertDialogCancel>
+                                                                        <AlertDialogAction asChild>
+                                                                            <Button
+                                                                                disabled={!rateInput || !errorItem?.quantity_estimate}
+                                                                                onClick={handleAlertSubmit}
+                                                                            >
+                                                                                {create_loading ? "Submitting.." : "Submit"}
+                                                                            </Button>
+                                                                        </AlertDialogAction>
+                                                                    </div>
+                                                                </AlertDialogDescription>
+                                                            </AlertDialogContent>
+                                                        </AlertDialog>
+                                                </div>
+                                        </div>
+                                </div>
+    )
+}
