@@ -590,7 +590,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const handleDeletePr = async () => {
         try {
             await deleteDoc("Procurement Requests", orderData.name)
-            await mutate("Procurement Requests,orderBy(creation-desc)")
+            await mutate(`Procurement Requests ${orderData?.project}`)
             await mutate("ApprovePR,PRListMutate")
             toast({
                 title: "Success!",

@@ -151,7 +151,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
     const handleDeletePr = async () => {
         try {
             await deleteDoc("Procurement Requests", pr_data?.name)
-            await mutate("Procurement Requests,orderBy(creation-desc)")
+            await mutate(`Procurement Requests ${pr_data?.project}`)
             toast({
                 title: "Success!",
                 description: `PR: ${pr_data?.name} deleted successfully!`,
