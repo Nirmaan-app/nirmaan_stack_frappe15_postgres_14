@@ -205,7 +205,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 {/* <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span> */}
                             </div>
                             <div className="flex gap-4 items-center">
-                                {sr_data?.status === "Approved" &&
+                                {
+                                    sr_data?.status === "Approved" &&
                                     <div>
                                         <Button className='flex items-center gap-2' onClick={handlePrint}>
                                             <Printer className='h-4 w-4' />
@@ -223,11 +224,13 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                     //     </Button>
                                     // </div>
                                 }
-                                {sr_data?.status === "Rejected" && (
-                                    <Button onClick={() => navigate("resolve-sr")} className="flex items-center gap-1">
-                                        <Settings2 className="h-4 w-4" />
-                                        Resolve</Button>
-                                )}
+                                {
+                                    sr_data?.status === "Rejected" && (
+                                        <Button onClick={() => navigate("resolve-sr")} className="flex items-center gap-1">
+                                            <Settings2 className="h-4 w-4" />
+                                            Resolve</Button>
+                                    )
+                                }
                                 {
                                     ["Created", "Rejected", userData?.role === "Nirmaan Procurement Executive Profile" ? "Vendor Selected" : ""].includes(sr_data?.status) && (
                                         <AlertDialog>
@@ -259,8 +262,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                         </AlertDialog>
                                     )
                                 }
-                            </div>
-                        </div>
+                            </div >
+                        </div >
                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                             <Card className="w-full">
                                 <CardHeader>
@@ -620,7 +623,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                             </div>
                         </div>
 
-                        {sr_data?.status === "Created" &&
+                        {
+                            sr_data?.status === "Created" &&
                             <div className="text-right">
                                 <Button onClick={() => navigate(`/choose-service-vendor/${sr_data?.name}`)} className="items-center gap-2"><UserSearch className="h-4 w-4" />Select Service Vendor</Button>
                             </div>
@@ -631,7 +635,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
             {/* {page === "Resolve" && (
                 <SelectServiceVendorPage resolve={true} sr_data={sr_data} universalComments={universalComments?.filter((com) => com?.subject === "rejecting sr")} setPage={setPage} />
             )} */}
-        </div>
+        </div >
     )
 }
 
