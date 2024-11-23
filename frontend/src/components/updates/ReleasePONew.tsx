@@ -720,8 +720,8 @@ export const ReleasePONew = ({ not }) => {
 
     // console.log("orderData", orderData?.order_list?.list)
     // console.log("mergedItems", mergedItems)
-
-    if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+    // console.log(orderData?.order_list.list.some((item) => 'po' in item))
+    if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (procurement_order_list_error || address_list_error || vendor_error) return <h1>Error</h1>
     if (!not && !["PO Approved", "Merged"].includes(orderData?.status)) return (
         <div className="flex items-center justify-center h-full">
@@ -2274,35 +2274,37 @@ export const ReleasePONew = ({ not }) => {
                                             </div>
 
                                             <div className="flex justify-end">
-                                                {(["PO Approved"].includes(orderData?.status) && orderData?.merged !== "true"
-                                                    //  && (orderData?.order_list.list.some(item => 'po' in item) === false)
-                                                ) ? (
-                                                    <ShadButton
-                                                        onClick={() => document.getElementById("alertTrigger")?.click()}
-                                                        className="border-primary flex items-center gap-1"
-                                                    >
-                                                        <ListX className="h-4 w-4 mr-1" />
-                                                        Cancel PO
-                                                    </ShadButton>
-                                                ) : (
-                                                    <HoverCard>
-                                                        <HoverCardTrigger>
-                                                            <ShadButton disabled className="border-primary flex items-center gap-1">
-                                                                <ListX className="h-4 w-4 mr-1" />
-                                                                Cancel PO
-                                                            </ShadButton>
-                                                        </HoverCardTrigger>
-                                                        <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                                            {orderData?.merged === "true" ? (
-                                                                <div>As this is a <span className='text-primary'>Merged PO</span>, in order to Cancel this, you should unmerge the POs first!</div>
-                                                            ) : (
-                                                                <div>
-                                                                    <span className="text-primary underline">Cancellation</span>is not allowed for this PO. This might be due to the status is not PO Approved.
-                                                                </div>
-                                                            )}
-                                                        </HoverCardContent>
-                                                    </HoverCard>
-                                                )}
+                                                {
+                                                    (["PO Approved"].includes(orderData?.status) && orderData?.merged !== "true"
+                                                        //  && (orderData?.order_list.list.some(item => 'po' in item) === false)
+                                                    ) ? (
+                                                        <ShadButton
+                                                            onClick={() => document.getElementById("alertTrigger")?.click()}
+                                                            className="border-primary flex items-center gap-1"
+                                                        >
+                                                            <ListX className="h-4 w-4 mr-1" />
+                                                            Cancel PO
+                                                        </ShadButton>
+                                                    ) : (
+                                                        <HoverCard>
+                                                            <HoverCardTrigger>
+                                                                <ShadButton disabled className="border-primary flex items-center gap-1">
+                                                                    <ListX className="h-4 w-4 mr-1" />
+                                                                    Cancel PO
+                                                                </ShadButton>
+                                                            </HoverCardTrigger>
+                                                            <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                                {orderData?.merged === "true" ? (
+                                                                    <div>As this is a <span className='text-primary'>Merged PO</span>, in order to Cancel this, you should unmerge the POs first!</div>
+                                                                ) : (
+                                                                    <div>
+                                                                        <span className="text-primary underline">Cancellation</span>is not allowed for this PO. This might be due to the status is not PO Approved.
+                                                                    </div>
+                                                                )}
+                                                            </HoverCardContent>
+                                                        </HoverCard>
+                                                    )
+                                                }
                                                 <AlertDialog>
                                                     <AlertDialogTrigger>
                                                         <button className="hidden" id="alertTrigger">trigger</button>
@@ -2335,11 +2337,11 @@ export const ReleasePONew = ({ not }) => {
                                                         <AlertDialogCancel className='hidden' id='CancelPOAlertCancel'>Close</AlertDialogCancel>
                                                     </AlertDialogContent>
                                                 </AlertDialog>
-                                            </div>
-                                        </div>
-                                    </CardDescription>
-                                </CardContent>
-                            </Card>
+                                            </div >
+                                        </div >
+                                    </CardDescription >
+                                </CardContent >
+                            </Card >
                         </Content >
                     </div >
                 </Layout >
