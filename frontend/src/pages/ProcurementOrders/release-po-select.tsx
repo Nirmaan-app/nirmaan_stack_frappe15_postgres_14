@@ -29,7 +29,7 @@ export const ReleasePOSelect = () => {
 
     const [tab, setTab] = useState<string>(searchParams.get("tab") || "Approved PO");
 
-    const {role, user_id} = useUserData()    
+    const { role, user_id } = useUserData()
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
@@ -86,7 +86,7 @@ export const ReleasePOSelect = () => {
     };
 
 
-    const {newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount} = useDocCountStore()
+    const { newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount } = useDocCountStore()
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
@@ -101,12 +101,12 @@ export const ReleasePOSelect = () => {
         const currentTab = searchParams.get("tab") || "Approved PO";
         setTab(currentTab);
         updateURL("tab", currentTab);
-      }, []);
-    
+    }, []);
+
     const updateURL = (key, value) => {
-      const url = new URL(window.location);
-      url.searchParams.set(key, value);
-      window.history.pushState({}, "", url);
+        const url = new URL(window.location);
+        url.searchParams.set(key, value);
+        window.history.pushState({}, "", url);
     };
 
     // const setPOTab = (changeTab) => {
@@ -116,41 +116,41 @@ export const ReleasePOSelect = () => {
     // };
 
     const onClick = (value) => {
-        
+
         if (tab === value) return; // Prevent redundant updates
-    
+
         const newTab = value;
         setTab(newTab);
         updateURL("tab", newTab);
-    
+
     };
-    
+
     // type MenuItem = Required<MenuProps>["items"][number];
-    
+
     const items = [
         {
-          label: (
-            <div className="flex items-center">
-              <span>Approved PO</span>
-              <span className="ml-2 text-xs font-bold">
-                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewPOCount : newPOCount}
-              </span>
-            </div>
-          ),
-          value: "Approved PO",
+            label: (
+                <div className="flex items-center">
+                    <span>Approved PO</span>
+                    <span className="ml-2 text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewPOCount : newPOCount}
+                    </span>
+                </div>
+            ),
+            value: "Approved PO",
         },
         {
-          label: (
-            <div className="flex items-center">
-              <span>Released PO</span>
-              <span className="ml-2 rounded text-xs font-bold">
-              {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminOtherPOCount : otherPOCount}
-              </span>
-            </div>
-          ),
-          value: "Released PO",
+            label: (
+                <div className="flex items-center">
+                    <span>Released PO</span>
+                    <span className="ml-2 rounded text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminOtherPOCount : otherPOCount}
+                    </span>
+                </div>
+            ),
+            value: "Released PO",
         },
-      ];
+    ];
 
     const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
         () => [
@@ -303,7 +303,7 @@ export const ReleasePOSelect = () => {
                 header: ({ column }) => {
                     return <h1 className="hidden">:</h1>
                 },
-                cell: ({row}) => <span className="hidden">hh</span>
+                cell: ({ row }) => <span className="hidden">hh</span>
             }
         ],
         [project_values, procurement_order_list]
@@ -360,7 +360,7 @@ export const ReleasePOSelect = () => {
                         buttonStyle="solid"
                         value={tab}
                         onChange={(e) => onClick(e.target.value)}
-                      />
+                    />
                 )}
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list?.filter((po) => po?.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
@@ -370,6 +370,4 @@ export const ReleasePOSelect = () => {
         </>
     )
 }
-
-
 

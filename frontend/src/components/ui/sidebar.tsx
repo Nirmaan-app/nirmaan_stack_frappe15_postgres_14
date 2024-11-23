@@ -17,6 +17,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 import { PanelLeft, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { Link } from "react-router-dom"
+import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 
 const SIDEBAR_COOKIE_NAME = "sidebar:state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
@@ -270,7 +271,7 @@ const SidebarTrigger = React.forwardRef<
       data-sidebar="trigger"
       variant="ghost"
       size="icon"
-      className={cn("h-7 w-7", className)}
+      className={cn("h-7 w-7 flex items-center justify-center", className)}
       onClick={(event) => {
         onClick?.(event)
         toggleSidebar()
@@ -279,9 +280,9 @@ const SidebarTrigger = React.forwardRef<
     >
       {/* <ViewVerticalIcon /> */}
       {state === "collapsed" ? (
-        <PanelRightClose className="w-5 h-5" />
+        <MenuUnfoldOutlined  />
       ) : (
-        <PanelRightOpen className="w-5 h-5" />
+        <MenuFoldOutlined  />
       )}
       {/* <PanelLeft className={`${state === "collapsed"}`} /> */}
       <span className="sr-only">Toggle Sidebar</span>

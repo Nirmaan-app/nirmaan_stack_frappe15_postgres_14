@@ -116,8 +116,8 @@ export function Notifications({ isMobileMain = false }) {
                   <li
                     key={notification.name}
                     className={`border-t first:border-t-0 rounded-sm transition-all ${notification.seen === "false"
-                      ? "bg-red-200 hover:bg-red-100"
-                      : "hover:bg-gray-100"
+                        ? "bg-red-200 hover:bg-red-100"
+                        : "hover:bg-gray-100"
                       }`}
                   >
                     <div
