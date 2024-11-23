@@ -235,7 +235,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                 if (a.label === "All") return -1;
                 if (b.label === "All") return 1;
                 return a.label.localeCompare(b.label);
-              });
+            });
 
             //   options?.push({ label: "Tool & Equipments", value: "Tool & Equipments" })
             //   options?.push({ label: "Services", value: "Services" })
@@ -780,8 +780,8 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                 buttonStyle="solid"
                                 onChange={(e) => {
                                     setSelectedPackage(e.target.value)
-                                    setCurCategory({[e.target.value] : null})
-                                    setSelectedItem({[e.target.value] : null})
+                                    setCurCategory({ [e.target.value]: null })
+                                    setSelectedItem({ [e.target.value]: null })
                                 }}
                             />
                         )
@@ -789,7 +789,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                     {(defaultValues && selectedPackage === "All") ?
                         (
                             <Accordion type="multiple" className="space-y-4" defaultValue={defaultValues?.slice(0, 2) || []}>
-                                {allWorkPackages?.sort((a,b) => a?.work_package_name?.localeCompare(b?.work_package_name))?.map((wp) => (
+                                {allWorkPackages?.sort((a, b) => a?.work_package_name?.localeCompare(b?.work_package_name))?.map((wp) => (
                                     <AccordionItem key={wp.work_package_name} value={wp.work_package_name} className="border-b rounded-lg shadow">
                                         <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
                                             <div className="flex space-x-4 text-sm text-gray-600">
@@ -1008,7 +1008,7 @@ export const CategoryWiseEstimateCard = ({ selectedPackage, categorizedData, col
                     }}
                 >
                     <Table
-                        dataSource={((categorizedData[selectedPackage] && Object.keys(categorizedData[selectedPackage])?.sort((a,b) => a?.localeCompare(b)) ) || []).map((key) => ({
+                        dataSource={((categorizedData[selectedPackage] && Object.keys(categorizedData[selectedPackage])?.sort((a, b) => a?.localeCompare(b))) || []).map((key) => ({
                             key,
                             category: key,
                             items: categorizedData[selectedPackage][key],
