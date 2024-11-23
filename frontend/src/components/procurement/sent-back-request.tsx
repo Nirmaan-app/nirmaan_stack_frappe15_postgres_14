@@ -19,13 +19,13 @@ type PRTable = {
     category: string
 }
 
-export const SentBackRequest = ({type}) => {
+export const SentBackRequest = ({ type }) => {
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation', 'type', 'modified'],
             filters: [["workflow_state", "=", "Pending"], ["type", "=", type]],
             limit: 1000,
-            orderBy: {field: "modified", order: "desc"}
+            orderBy: { field: "modified", order: "desc" }
         });
 
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
@@ -45,11 +45,11 @@ export const SentBackRequest = ({type}) => {
         return total;
     }
 
-    const {mark_seen_notification, notifications} = useNotificationStore()
+    const { mark_seen_notification, notifications } = useNotificationStore()
 
-    const {db} = useContext(FrappeContext) as FrappeConfig
+    const { db } = useContext(FrappeContext) as FrappeConfig
     const handleNewPRSeen = (notification) => {
-        if(notification) {
+        if (notification) {
             mark_seen_notification(db, notification)
         }
     }
@@ -187,16 +187,16 @@ export const SentBackRequest = ({type}) => {
     }
 
     return (
-            <div className="flex-1 space-y-4">
-                {/* <div className="flex items-center justify-between pl-2 space-y-2">
+        <div className="flex-1 md:space-y-4">
+            {/* <div className="flex items-center justify-between pl-2 space-y-2">
                     <h2 className="text-lg font-bold tracking-tight">{type} Sent Back PR</h2>
                 </div> */}
-                {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
-                {(sent_back_list_loading || projects_loading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
-                )}
+            {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
+            {(sent_back_list_loading || projects_loading) ? (<TableSkeleton />) : (
+                <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />
+            )}
 
-                {/* <div className="overflow-x-auto">
+            {/* <div className="overflow-x-auto">
                         <table className="min-w-full divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
@@ -228,6 +228,6 @@ export const SentBackRequest = ({type}) => {
                             </tbody>
                         </table>
                     </div> */}
-            </div>
+        </div>
     )
 }

@@ -64,12 +64,12 @@ export function Notifications({ isMobileMain = false }) {
                             <Bell className="relative max-md:w-5 max-md:h-5" />
                             <span className="font-medium">Notifications</span>
                         </div>
-                        {state === "collapsed" && (
+                        {(state === "collapsed" && !isMobile) && (
                             <span className="absolute -top-1 right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
                                 {notificationsCount}
                             </span>
                         )}
-                        <SidebarMenuBadge className="mr-2">{notificationsCount > 10 ? "10+" : notificationsCount}</SidebarMenuBadge>
+                        <SidebarMenuBadge>{notificationsCount}</SidebarMenuBadge>
                     </SidebarMenuButton>
                 ) : (
 
