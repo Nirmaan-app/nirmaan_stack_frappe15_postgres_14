@@ -2,65 +2,73 @@
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-09-06 13:20:00.409305",
+  "modified": "2024-11-23 14:19:57.671845",
   "name": "Access Control System",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/access_control.jpg",
+  "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20WP/access_control.jpg",
   "work_package_name": "Access Control System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-09-06 13:21:42.309285",
+  "modified": "2024-11-23 14:19:57.665961",
   "name": "Fire Fighting System",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/fire.jpg",
+  "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20WP/fire.jpg",
   "work_package_name": "Fire Fighting System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-09-06 13:22:32.392375",
+  "modified": "2024-11-23 14:19:57.660205",
   "name": "Data & Networking",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/network.jpg",
+  "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20WP/network.jpg",
   "work_package_name": "Data & Networking"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-09-06 13:22:55.720371",
+  "modified": "2024-11-23 14:19:57.653740",
   "name": "PA System",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/pa.jpg",
+  "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20WP/pa.jpg",
   "work_package_name": "PA System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-09-06 13:16:55.788393",
+  "modified": "2024-11-23 14:19:57.646394",
   "name": "FA System",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/Fire-alarm-system.jpg",
+  "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20WP/Fire-alarm-system.jpg",
   "work_package_name": "FA System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-09-06 13:20:44.378005",
+  "modified": "2024-11-23 14:19:57.638229",
   "name": "CCTV System",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/cctv.jpg",
+  "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20WP/cctv.jpg",
   "work_package_name": "CCTV System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-09-06 13:22:12.397520",
+  "modified": "2024-11-23 14:19:57.628143",
   "name": "HVAC System",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/hvac.jpg",
+  "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20WP/hvac.jpg",
   "work_package_name": "HVAC System"
  },
  {
   "docstatus": 0,
   "doctype": "Work Packages",
-  "modified": "2024-09-06 13:21:13.121793",
+  "modified": "2024-11-23 14:19:57.616699",
   "name": "Electrical Work",
-  "work_package_image": "https://storage.cloud.google.com/nirmaan-public-bucket1/Cropped WP/electrical_work.jpg.jpg",
+  "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20WP/electrical_work.jpg.jpg",
   "work_package_name": "Electrical Work"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
+  "modified": "2024-11-23 14:31:18.387214",
+  "name": "Civil & Interior",
+  "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped WP/civil-work.jpg",
+  "work_package_name": "Civil & Interior"
  }
 ]
