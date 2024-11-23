@@ -18,6 +18,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/h
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
 import { TailSpin } from 'react-loader-spinner';
+import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -728,7 +729,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                         {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-po")} /> */}
                         <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back</h2>
                     </div>
-                    <Card className="flex flex-wrap lg:grid lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
+                    {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
@@ -749,7 +750,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             <p className="text-left py-1 font-light text-sm text-sm text-red-700">Procurement By</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-                    </Card>
+                    </Card> */}
+                    <ProcurementActionsHeaderCard orderData={orderData} po={true} />
                 </div>}
             <div className='overflow-x-auto'>
                 <ConfigProvider
