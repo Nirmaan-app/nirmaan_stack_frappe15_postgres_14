@@ -1,4 +1,4 @@
-import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, useSidebar } from "@/components/ui/sidebar"
+import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { BadgeCheck, Bell, Calendar, ChevronDown, ChevronRight, ChevronsUpDown, ChevronUp, CreditCard, Home, Inbox, LogOut, Search, Settings, Sparkles, User2 } from "lucide-react"
 import logo from "@/assets/logo-svg.svg"
 import nLogo from "@/assets/LOGO.png"
@@ -481,17 +481,25 @@ export function NewSidebar() {
 
     return (
       <Sidebar collapsible="icon">
-      <SidebarHeader className="flex items-center justify-center">
-      <Link onClick={handleCloseMobile} to={"/"}>
-        {state === "expanded" ? (
-          <img src={logo} alt="Nirmaan" width="158" height="48" />
+      <SidebarHeader className="flex items-center justify-center relative">
+        {!isMobile ? (
+            <Link to={"/"}>
+            {state === "expanded" ? (
+              <img src={logo} alt="Nirmaan" width="158" height="48" />
+            ) : (
+              <img src={nLogo} alt="Nirmaan" />
+            )}
+            </Link>
         ) : (
-          <img src={nLogo} alt="Nirmaan" />
+            <Link to={"/"}>
+                <img onClick={handleCloseMobile} src={logo} alt="Nirmaan" width="158" height="48" />
+            </Link>
+
         )}
-        </Link>
       </SidebarHeader>
+      <SidebarTrigger className={`absolute ${isMobile ? "hidden" : ""} ${state === "collapsed" ? "top-3.5" : "top-4"} -right-4`} />
       <Separator />
-      <SidebarContent className="scrollbar-container">
+      <SidebarContent className="scrollbar-container overflow-x-hidden">
         <SidebarGroup>
           <SidebarMenu>
             {items.map((item) => (

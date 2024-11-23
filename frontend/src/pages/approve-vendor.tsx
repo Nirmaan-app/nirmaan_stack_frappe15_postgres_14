@@ -751,7 +751,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                         </div>
                     </Card>
                 </div>}
-            <div className='overflow-x-auto pt-6'>
+            <div className='overflow-x-auto mt-6'>
                 <ConfigProvider
                     theme={{
                         token: {
