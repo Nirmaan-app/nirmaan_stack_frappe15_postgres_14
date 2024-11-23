@@ -62,7 +62,7 @@ import { Select, SelectContent, SelectItem, SelectValue, SelectTrigger } from ".
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 
 const SelectServiceVendor = () => {
-  const { id }: any = useParams();
+  const { srId: id }: any = useParams();
   const [project, setProject] = useState<string>();
 
   const {
@@ -109,9 +109,9 @@ const SelectServiceVendor = () => {
     <>
       {" "}
       {sr_data_loading ||
-      project_loading ||
-      userLoading ||
-      universalCommentsLoading ? (
+        project_loading ||
+        userLoading ||
+        universalCommentsLoading ? (
         <NewPRSkeleton />
       ) : (
         <SelectServiceVendorPage
@@ -130,12 +130,9 @@ const SelectServiceVendor = () => {
 };
 
 interface SelectServiceVendorPageProps {
-  sr_data: ServiceRequestsType | undefined;
-  project_data?: ProjectsType | undefined;
-  usersList?: NirmaanUsersType[] | undefined;
-  universalComments: NirmaanCommentsType[] | undefined;
-  resolve?: boolean;
-  setPage?: any;
+  sr_data: ServiceRequestsType | undefined
+  usersList?: NirmaanUsersType[] | undefined
+  universalComments: NirmaanCommentsType[] | undefined
 }
 
 interface DataType {
@@ -148,14 +145,7 @@ interface DataType {
   children?: DataType[];
 }
 
-export const SelectServiceVendorPage = ({
-  sr_data,
-  project_data,
-  usersList,
-  universalComments,
-  resolve = false,
-  setPage,
-}: SelectServiceVendorPageProps) => {
+export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments }: SelectServiceVendorPageProps) => {
   const navigate = useNavigate();
   const userData = useUserData();
 
@@ -427,7 +417,7 @@ export const SelectServiceVendorPage = ({
   // console.log("selecedVendor", selectedVendor)
 
   useEffect(() => {
-    if ((resolve || sr_data?.status === "Rejected") && vendor_list) {
+    if (sr_data?.status === "Rejected" && vendor_list) {
       const vendor = vendor_list?.find((ven) => ven?.name === sr_data?.vendor);
       const selectedVendor = {
         value: vendor?.name,
@@ -437,14 +427,14 @@ export const SelectServiceVendorPage = ({
       };
       setSelectedvendor(selectedVendor);
     }
-    if (resolve || sr_data?.status === "Rejected") {
+    if (sr_data?.status === "Rejected") {
       let amounts = {};
       JSON.parse(sr_data?.service_order_list)?.list?.forEach((item) => {
         amounts = { ...amounts, [item.id]: item?.rate };
       });
       setAmounts(amounts);
     }
-  }, [resolve, sr_data, vendor_list]);
+  }, [sr_data, vendor_list]);
 
   // console.log("amounts", amounts)
   // console.log("sr_data", sr_data)
@@ -475,7 +465,7 @@ export const SelectServiceVendorPage = ({
         variant: "success",
       });
 
-      navigate("/select-service-vendor");
+      navigate("/choose-service-vendor");
     } catch (error) {
       toast({
         title: "Failed!",
@@ -512,10 +502,10 @@ export const SelectServiceVendorPage = ({
         variant: "success",
       });
 
-      if (resolve) {
-        setPage("Summary");
+      if (sr_data?.status === "Rejected") {
+        navigate(`/service-requests/${sr_data?.name}`);
       } else {
-        navigate("/select-service-vendor");
+        navigate("/choose-service-vendor");
       }
     } catch (error) {
       toast({
@@ -535,9 +525,6 @@ export const SelectServiceVendorPage = ({
       setOrder(updatedOrder);
     }
   };
-
-  console.log("amounts", amounts)
-
   // console.log("selectedVendor", selectedVendor)
 
   // console.log("orderData", order)
@@ -547,32 +534,15 @@ export const SelectServiceVendorPage = ({
       {section === "choose-vendor" && (
         <>
           <div className="flex-1 space-y-4">
-            <div className="flex items-center pt-1">
-              <ArrowLeft
-                className="cursor-pointer"
-                onClick={() => {
-                  if (resolve) {
-                    setPage("Summary");
-                  } else {
-                    navigate(-1);
-                  }
-                }}
-              />
-              {resolve ? (
-                <h2 className="text-base pl-2 font-bold tracking-tight">
-                  Resolve:{" "}
-                  <span className="text-red-700">
-                    SR-{sr_data?.name?.slice(-4)}
-                  </span>
-                </h2>
-              ) : (
-                <h2 className="text-base pl-2 font-bold tracking-tight">
-                  <span className="text-red-700">
-                    SR-{sr_data?.name?.slice(-4)}
-                  </span>
-                  : Choose Service Vendor{" "}
-                </h2>
-              )}
+            <div className="flex items-center">
+              {/* {resolve && (
+                            <ArrowLeft className='cursor-pointer' onClick={() => setPage("Summary")} />
+                        )} */}
+              {/* {sr_data?.status === "Rejected" ? (
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Resolve</h2>
+                        ) : (
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Choose Service Vendor </h2>
+                        )} */}
             </div>
             <ProcurementHeaderCard orderData={sr_data} sr={true} />
 
@@ -622,7 +592,7 @@ export const SelectServiceVendorPage = ({
                   <TableHeader>
                     <TableRow className="bg-red-100">
                       <TableHead className="w-[10%] text-red-700 font-extrabold">
-                          Service
+                        Service
                       </TableHead>
                       <TableHead className="w-[50%]">Description</TableHead>
                       <TableHead className="w-[10%]">Unit</TableHead>
@@ -722,8 +692,8 @@ export const SelectServiceVendorPage = ({
                 </Table>
               </div>
             </div>
-            <div className="flex justify-between items-center mt-4">
-              <Button onClick={() => setOrder(prev => [...prev, {id : uuidv4(), category: "", description: "", quantity: "", uom: "", rate: ""}])}>New Service</Button>
+            <div className="flex justify-between items-center mt-4 pl-2">
+              <Button onClick={() => setOrder(prev => [...prev, { id: uuidv4(), category: "", description: "", quantity: "", uom: "", rate: "" }])}>New Service</Button>
               <Button
                 disabled={
                   !isNextEnabled ||
@@ -782,13 +752,13 @@ export const SelectServiceVendorPage = ({
       )}
       {section == "summary" && (
         <>
-          <div className="flex-1 md:space-y-4">
-            <div className="flex items-center pt-1 pb-4">
+          <div className="flex-1 space-y-4">
+            <div className="flex items-center">
               <ArrowLeft
                 className="cursor-pointer"
                 onClick={() => setSection("choose-vendor")}
               />
-              <h2 className="text-base pl-2 font-bold tracking-tight">
+              <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">
                 Comparison
               </h2>
             </div>
@@ -811,7 +781,7 @@ export const SelectServiceVendorPage = ({
                         </ConfigProvider>
                     </div> */}
 
-          <div className="pt-6 overflow-x-auto">
+          <div className="mt-6 overflow-x-auto">
             <ConfigProvider>
               <AntTable
                 dataSource={(
@@ -842,12 +812,12 @@ export const SelectServiceVendorPage = ({
             <Dialog>
               <DialogTrigger asChild>
                 <Button className="flex items-center gap-1">
-                  {resolve || sr_data?.status === "Rejected" ? (
+                  {sr_data?.status === "Rejected" ? (
                     <Settings2 className="h-4 w-4" />
                   ) : (
                     <ArrowBigUpDash className="" />
                   )}
-                  {resolve || sr_data?.status === "Rejected"
+                  {sr_data?.status === "Rejected"
                     ? "Resolve"
                     : "Send for Approval"}
                 </Button>
@@ -857,7 +827,7 @@ export const SelectServiceVendorPage = ({
                   <DialogTitle>Are you sure?</DialogTitle>
                   <DialogDescription>
                     Click on Confirm to{" "}
-                    {resolve || sr_data?.status === "Rejected"
+                    {sr_data?.status === "Rejected"
                       ? "resolve and send for approval"
                       : "Submit"}
                     !
@@ -883,7 +853,7 @@ export const SelectServiceVendorPage = ({
                       Cancel
                     </Button>
                   </DialogClose>
-                  {resolve || sr_data?.status === "Rejected" ? (
+                  {sr_data?.status === "Rejected" ? (
                     <Button
                       variant="default"
                       className="flex items-center gap-1"

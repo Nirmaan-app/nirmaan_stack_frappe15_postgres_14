@@ -1,43 +1,60 @@
 import { Bell } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from "../ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { useContext, useState } from "react";
-import { FrappeConfig, FrappeContext, useFrappeGetDocList } from "frappe-react-sdk";
-import { useNavigate } from "react-router-dom";
+import {
+  FrappeConfig,
+  FrappeContext,
+  useFrappeGetDocList,
+} from "frappe-react-sdk";
+import { useLocation, useNavigate } from "react-router-dom";
 import { format, isToday, isYesterday } from "date-fns";
-import { SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, useSidebar } from "../ui/sidebar";
+import {
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from "../ui/sidebar";
 
 const formatNotificationDate = (creationDate) => {
   const date = new Date(creationDate);
 
   if (isToday(date)) {
-    return `Today, ${format(date, 'HH:mm')}`;
+    return `Today, ${format(date, "HH:mm")}`;
   } else if (isYesterday(date)) {
-    return `Yesterday, ${format(date, 'HH:mm')}`;
+    return `Yesterday, ${format(date, "HH:mm")}`;
   }
 
-  return format(date, 'MMM dd, yyyy, HH:mm');
+  return format(date, "MMM dd, yyyy, HH:mm");
 };
 
 export function Notifications({ isMobileMain = false }) {
   const { db } = useContext(FrappeContext) as FrappeConfig;
   const navigate = useNavigate();
 
-  const { notifications, notificationsCount, mark_seen_notification } = useNotificationStore();
+  const location = useLocation();
+
+  const { notifications, notificationsCount, mark_seen_notification } =
+    useNotificationStore();
   const [isDropdownOpen, setDropdownOpen] = useState(false);
 
-  const { isMobile, state, toggleSidebar } = useSidebar()
+  const { isMobile, state, toggleSidebar } = useSidebar();
 
   const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
     fields: ["full_name", "name"],
-    limit: 1000
-  })
+    limit: 1000,
+  });
 
   const getName = (name) => {
     if (usersList) {
-      return usersList?.find((user) => user.name === name)?.full_name
+      return usersList?.find((user) => user.name === name)?.full_name;
     }
-  }
+  };
 
   const handleNavigate = (url, notification) => {
     if (url) {
@@ -46,7 +63,7 @@ export function Notifications({ isMobileMain = false }) {
       }
       setDropdownOpen(false);
       if (isMobile && !isMobileMain) {
-        toggleSidebar()
+        toggleSidebar();
       }
       navigate(`/${url}`);
     }
@@ -55,31 +72,35 @@ export function Notifications({ isMobileMain = false }) {
   return (
     <DropdownMenu open={isDropdownOpen} onOpenChange={setDropdownOpen}>
       <DropdownMenuTrigger asChild>
-        {!isMobileMain ? (
-          <SidebarMenuButton
-            size="lg"
-            className={`data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground ${isMobile ? "pr-32" : "pr-28"}`}
-          >
-            <div className="flex gap-4 ml-1 items-center">
-              <Bell className="relative max-md:w-5 max-md:h-5" />
-              <span className="font-medium">Notifications</span>
-            </div>
-            {state === "collapsed" && (
-              <span className="absolute -top-1 -right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
-                {notificationsCount}
-              </span>
-            )}
-            <SidebarMenuBadge>{notificationsCount}</SidebarMenuBadge>
-          </SidebarMenuButton>
-        ) : (
-
-          <div className="relative mt-1 cursor-pointer">
-            <Bell className="h-6 w-6" />
-            <span className="absolute -top-1 -right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
+        {/* {!isMobileMain ? ( */}
+        <SidebarMenuButton
+          size="lg"
+          className={`data-[state=open]:bg-[#FFD3CC] ${location.pathname === "/notifications" && "bg-[#FFD3CC]"
+            } data-[state=open]:text-sidebar-accent-foreground ${isMobile ? "pr-32" : "pr-28"
+            }`}
+        >
+          <div className="flex gap-4 ml-1 items-center">
+            <Bell className="relative max-md:w-5 max-md:h-5" />
+            <span className="font-medium">Notifications</span>
+          </div>
+          {state === "collapsed" && !isMobile && (
+            <span className="absolute -top-1 right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
               {notificationsCount}
             </span>
-          </div>
-        )}
+          )}
+          <SidebarMenuBadge className="right-3">
+            {notificationsCount}
+          </SidebarMenuBadge>
+        </SidebarMenuButton>
+        {/* ) : (
+
+                    <div className="relative mt-1 cursor-pointer">
+                        <Bell className="h-6 w-6" />
+                        <span className="absolute -top-1 -right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
+                            {notificationsCount > 10 ? "10+" : notificationsCount}
+                        </span>
+                    </div>
+                )} */}
       </DropdownMenuTrigger>
       <DropdownMenuContent
         className="w-80 overflow-y-auto max-h-[36rem] min-w-56 rounded-lg"
@@ -94,10 +115,15 @@ export function Notifications({ isMobileMain = false }) {
                 {notifications.slice(0, 10).map((notification) => (
                   <li
                     key={notification.name}
-                    className={`border-t first:border-t-0 rounded-sm transition-all ${notification.seen === "false" ? "bg-red-200 hover:bg-red-100" : "hover:bg-gray-100"}`}
+                    className={`border-t first:border-t-0 rounded-sm transition-all ${notification.seen === "false"
+                      ? "bg-red-200 hover:bg-red-100"
+                      : "hover:bg-gray-100"
+                      }`}
                   >
                     <div
-                      onClick={() => handleNavigate(notification?.action_url, notification)}
+                      onClick={() =>
+                        handleNavigate(notification?.action_url, notification)
+                      }
                       className="cursor-pointer py-2 px-5 relative"
                     >
                       {notification.seen === "false" && (
@@ -117,7 +143,12 @@ export function Notifications({ isMobileMain = false }) {
                       <div className="text-xs text-gray-500 mt-1">
                         <p>Project: {notification.project}</p>
                         <p>Work Package: {notification.work_package}</p>
-                        <p>Action By: {notification?.sender ? getName(notification?.sender) : "Administrator"}</p>
+                        <p>
+                          Action By:{" "}
+                          {notification?.sender
+                            ? getName(notification?.sender)
+                            : "Administrator"}
+                        </p>
                       </div>
                     </div>
                     <div className="flex justify-end py-1 pr-2">
@@ -125,7 +156,9 @@ export function Notifications({ isMobileMain = false }) {
                         <span className="text-green-500">Seen</span>
                       ) : (
                         <span
-                          onClick={() => mark_seen_notification(db, notification)}
+                          onClick={() =>
+                            mark_seen_notification(db, notification)
+                          }
                           className="underline text-primary hover:text-red-400 cursor-pointer"
                         >
                           Mark as read
@@ -141,7 +174,10 @@ export function Notifications({ isMobileMain = false }) {
                     className="text-primary font-semibold underline hover:text-blue-500"
                     onClick={() => {
                       setDropdownOpen(false);
-                      navigate('/notifications')
+                      if (isMobile && !isMobileMain) {
+                        toggleSidebar();
+                      }
+                      navigate("/notifications");
                     }}
                   >
                     Show More
@@ -183,7 +219,9 @@ export const NotificationsPage = () => {
   return (
     <div className="py-4 px-2">
       <header className="flex justify-between items-center border-b pb-4 mb-6">
-        <h1 className="text-2xl max-md:text-xl font-semibold">Notifications({notifications.length})</h1>
+        <h1 className="text-2xl max-md:text-xl font-semibold">
+          Notifications({notifications.length})
+        </h1>
         <button
           className="bg-blue-600 text-white px-4 py-2 max-md:px-2 max-md:py-1 max-md:text-sm rounded hover:bg-blue-500"
           onClick={handleMarkAllAsRead}
@@ -204,15 +242,22 @@ export const NotificationsPage = () => {
         {notifications.map((notification) => (
           <li
             key={notification.name}
-            className={`p-4 border rounded-lg shadow-sm ${notification.seen === "false" ? "bg-red-50" : "bg-white"} transition-all hover:shadow-md`}
+            className={`p-4 border rounded-lg shadow-sm ${notification.seen === "false" ? "bg-red-50" : "bg-white"
+              } transition-all hover:shadow-md`}
           >
             <div
-              onClick={() => handleNavigate(notification?.action_url, notification)}
+              onClick={() =>
+                handleNavigate(notification?.action_url, notification)
+              }
               className="cursor-pointer "
             >
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-blue-600">{notification.title}</h3>
-                <span className="text-sm text-gray-500">{formatNotificationDate(notification.creation)}</span>
+                <h3 className="text-lg font-semibold text-blue-600">
+                  {notification.title}
+                </h3>
+                <span className="text-sm text-gray-500">
+                  {formatNotificationDate(notification.creation)}
+                </span>
               </div>
               <p className="text-gray-600">{notification.description}</p>
               <div className="text-sm text-gray-500 mt-2">
