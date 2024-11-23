@@ -936,7 +936,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   // console.log("segregatedServicedata", segregatedServiceOrderData)
 
-  console.log("new status", newStatus)
+  // console.log("new status", newStatus)
 
   const handleConfirmStatus = async () => {
     try {
