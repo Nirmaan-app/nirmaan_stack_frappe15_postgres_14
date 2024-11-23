@@ -988,8 +988,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             <p className="text-left py-1 font-light text-sm text-pageheader">Created By</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-                        {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-pageheader">PR Number</p>
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div>
                     </Card> */}
