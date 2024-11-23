@@ -170,82 +170,79 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
                   <Separator orientation="vertical" className="mr-1 h-4" />
                 </>
               )}
-              <ArrowLeft onClick={() => navigate(-1)} className='text-primary cursor-pointer' />
-              <Separator orientation="vertical" className="mr-1 h-4" />
-              <Breadcrumb>
-                <BreadcrumbList>
-                  {locationsPaths?.length > (isMobile ? 1 : 2) ? (
-                    <>
-                      {/* First Item */}
-                      {!isMobile && (
-                        <>
-                          <BreadcrumbItem>
-                            <Link to={`/${locationsPaths[0]}`}>
-                              <BreadcrumbLink>{locationsPaths[0]?.toUpperCase()}</BreadcrumbLink>
-                            </Link>
-                          </BreadcrumbItem>
-                          <BreadcrumbSeparator />
-                        </>
-                      )}
-
-                      {/* Ellipsis Dropdown */}
-                      <BreadcrumbItem>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger className="flex items-center gap-1">
-                            <BreadcrumbEllipsis className="h-4 w-4" />
-                            <span className="sr-only">Toggle menu</span>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {locationsPaths.slice((isMobile ? 0 : 1), -1).map((route, index) => (
-                              <DropdownMenuItem key={index}>
-                                <Link to={`/${locationsPaths.slice(0, index + (isMobile ? 1 : 2)).join('/')}`}>
-                                  {route.toUpperCase()}
-                                </Link>
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </BreadcrumbItem>
-                      <BreadcrumbSeparator />
-
-                      return (
+              <NewSidebar />
+              <div className='w-full h-auto overflow-auto'>
+                <header className={`${(!isMobile && state === "collapsed") ? "mt-1" : ""} flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}>
+                  <div className={`${isMobile ? "ml-2" : ""} flex items-center gap-2 px-4`}>
+                    {isMobile && (
                       <>
-                        {/* <NavBar /> */}
-                        {/* <SidebarProvider> */}
-                        <NewSidebar />
-                        <SidebarInset>
-                          <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
-                            <div className="flex items-center gap-2 px-4">
-                              <SidebarTrigger className="-ml-1" />
-                              <Separator orientation="vertical" className="mr-2 h-4" />
-                              <Breadcrumb>
-                                <BreadcrumbList>
-                                  <BreadcrumbItem className="hidden md:block">
-                                    <BreadcrumbLink>
-                                      Building Your Application
-                                    </BreadcrumbLink>
-                                  </BreadcrumbItem>
-                                  <BreadcrumbSeparator className="hidden md:block" />
-                                  <BreadcrumbItem>
-                                    <BreadcrumbPage>Data Fetching</BreadcrumbPage>
-                                  </BreadcrumbItem>
-                                </BreadcrumbList>
-                              </Breadcrumb>
-                            </div>
-                          </header>
-                          <main
-                            className="flex flex-1 flex-col p-4 pt-0 transition-all duration-300 ease-in-out overflow-auto"
-                            style={{ maxHeight: "100vh", maxWidth: "100vw" }}
-                          >
-                            <ErrorBoundaryWithNavigationReset>
-                              <ScrollToTop />
-                              <Outlet />
-                            </ErrorBoundaryWithNavigationReset>
-                          </main>
-                        </SidebarInset>
-                        {/* </SidebarProvider> */}
+                        <BreadcrumbItem>
+                          <Link to={`/${locationsPaths[0]}`}>
+                            <BreadcrumbLink>{locationsPaths[0]?.toUpperCase()}</BreadcrumbLink>
+                          </Link>
+                        </BreadcrumbItem>
+                        <BreadcrumbSeparator />
+                      </>
+                    )}
 
-                        {/* <Layout>
+                    {/* Ellipsis Dropdown */}
+                    <BreadcrumbItem>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger className="flex items-center gap-1">
+                          <BreadcrumbEllipsis className="h-4 w-4" />
+                          <span className="sr-only">Toggle menu</span>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          {locationsPaths.slice((isMobile ? 0 : 1), -1).map((route, index) => (
+                            <DropdownMenuItem key={index}>
+                              <Link to={`/${locationsPaths.slice(0, index + (isMobile ? 1 : 2)).join('/')}`}>
+                                {route.toUpperCase()}
+                              </Link>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </BreadcrumbItem>
+                    <BreadcrumbSeparator />
+
+                    return (
+                    <>
+                      {/* <NavBar /> */}
+                      {/* <SidebarProvider> */}
+                      <NewSidebar />
+                      <SidebarInset>
+                        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+                          <div className="flex items-center gap-2 px-4">
+                            <SidebarTrigger className="-ml-1" />
+                            <Separator orientation="vertical" className="mr-2 h-4" />
+                            <Breadcrumb>
+                              <BreadcrumbList>
+                                <BreadcrumbItem className="hidden md:block">
+                                  <BreadcrumbLink>
+                                    Building Your Application
+                                  </BreadcrumbLink>
+                                </BreadcrumbItem>
+                                <BreadcrumbSeparator className="hidden md:block" />
+                                <BreadcrumbItem>
+                                  <BreadcrumbPage>Data Fetching</BreadcrumbPage>
+                                </BreadcrumbItem>
+                              </BreadcrumbList>
+                            </Breadcrumb>
+                          </div>
+                        </header>
+                        <main
+                          className="flex flex-1 flex-col p-4 pt-0 transition-all duration-300 ease-in-out overflow-auto"
+                          style={{ maxHeight: "100vh", maxWidth: "100vw" }}
+                        >
+                          <ErrorBoundaryWithNavigationReset>
+                            <ScrollToTop />
+                            <Outlet />
+                          </ErrorBoundaryWithNavigationReset>
+                        </main>
+                      </SidebarInset>
+                      {/* </SidebarProvider> */}
+
+                      {/* <Layout>
 
             <Header>
                 <div className="border-b w-full">
@@ -272,36 +269,36 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
                     ) : (
                         projectData && <Badge className='mr-4'>{projectData?.project_name}</Badge>
                     )} */}
-                        {Object.keys(newButtonRoutes)?.includes(location.pathname) ? (
-                          <Button className='sm:mr-4 mr-2' onClick={() => navigate(newButtonRoutes[location.pathname]?.route)}>
-                            <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">{newButtonRoutes[location.pathname]?.label}</span>
-                          </Button>
+                      {Object.keys(newButtonRoutes)?.includes(location.pathname) ? (
+                        <Button className='sm:mr-4 mr-2' onClick={() => navigate(newButtonRoutes[location.pathname]?.route)}>
+                          <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">{newButtonRoutes[location.pathname]?.label}</span>
+                        </Button>
+                      ) : (
+                        location.pathname === "/prs&milestones/procurement-requests" ? (
+                          selectedProject && (<Button className='sm:mr-4 mr-2' onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)}>
+                            <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">New PR</span>
+                          </Button>)
                         ) : (
-                          location.pathname === "/prs&milestones/procurement-requests" ? (
-                            selectedProject && (<Button className='sm:mr-4 mr-2' onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)}>
-                              <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">New PR</span>
+                          location.pathname === "/service-requests" ? (
+                            selectedProject && (<Button className='sm:mr-4 mr-2' onClick={() => navigate(`/service-requests/${selectedProject}/new-sr`)}>
+                              <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">New SR</span>
                             </Button>)
                           ) : (
-                            location.pathname === "/service-requests" ? (
-                              selectedProject && (<Button className='sm:mr-4 mr-2' onClick={() => navigate(`/service-requests/${selectedProject}/new-sr`)}>
-                                <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">New SR</span>
-                              </Button>)
-                            ) : (
-                              projectData && <Badge className='sm:mr-4 mr-2 max-sm:text-[11px]'>{projectData?.project_name}</Badge>
-                            )
+                            projectData && <Badge className='sm:mr-4 mr-2 max-sm:text-[11px]'>{projectData?.project_name}</Badge>
                           )
-                        )}
-                      </header >
-                      <main
-                        className={`flex flex-1 flex-col py-4 px-2 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
-                      >
-                        <ErrorBoundaryWithNavigationReset>
-                          <ScrollToTop />
-                          <Outlet />
-                        </ErrorBoundaryWithNavigationReset>
-                      </main>
-                    </div >
-                </div >
-              </>
-              );
+                        )
+                      )}
+                    </header >
+                    <main
+                      className={`flex flex-1 flex-col py-4 px-2 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
+                    >
+                      <ErrorBoundaryWithNavigationReset>
+                        <ScrollToTop />
+                        <Outlet />
+                      </ErrorBoundaryWithNavigationReset>
+                    </main>
+                  </div >
+              </div >
+            </>
+            );
 };

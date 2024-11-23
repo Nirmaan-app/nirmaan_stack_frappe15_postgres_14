@@ -133,7 +133,7 @@ const columns: TableColumnsType<DataType> = [
 
 export const SelectVendors = () => {
 
-    const { prId : orderId } = useParams<{ prId: string }>()
+    const { prId: orderId } = useParams<{ prId: string }>()
     const navigate = useNavigate()
 
     const [page, setPage] = useState<string>('updatequotation')
@@ -656,7 +656,7 @@ export const SelectVendors = () => {
         let vendorWiseApprovalItems = {};
         let delayedItemsOverallTotal = 0;
         let approvalOverallTotal = 0;
-    
+
         orderData.procurement_list?.list.forEach((item) => {
             const vendor = selectedVendors[item.name];
             const quote = getPrice(vendor, item?.name);
@@ -678,7 +678,7 @@ export const SelectVendors = () => {
                 approvalOverallTotal += itemTotal;
             }
         });
-    
+
         return {
             allDelayedItems,
             delayedItemsOverallTotal,
@@ -686,15 +686,15 @@ export const SelectVendors = () => {
             approvalOverallTotal,
         };
     };
-    
+
     const {
         allDelayedItems,
         delayedItemsOverallTotal,
         vendorWiseApprovalItems,
         approvalOverallTotal,
     } = generateActionSummary();
-    
-    
+
+
 
     // const getPercentdiff = (a: number, b: number) => {
     //     if (a === 0 && b === 0) {
@@ -711,10 +711,10 @@ export const SelectVendors = () => {
     return (
         <>
             {page == 'updatequotation' &&
-                <div className="flex-1 space-y-4">
-                    <div className="flex items-center">
-                        {/* <ArrowLeft onClick={() => navigate("/choose-vendor")} /> */}
-                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Choose Vendor/Item Quotes</h2>
+                <div className="flex-1 space-y-2 md:space-y-4">
+                    <div className="flex items-center pt-1  pb-4">
+                        {/* <ArrowLeft onClick={() => navigate("/select-vendor-list")} /> */}
+                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Choose Vendor/Item Quotes</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />
                     {orderData?.category_list?.list.map((cat) => {
@@ -928,7 +928,7 @@ export const SelectVendors = () => {
                                             <ul className="list-disc pl-5 text-sm text-gray-600">
                                                 {items.map((item) => (
                                                     <li key={item.name}>
-                                                        {item.item} - {item.quantity} {item.unit} - 
+                                                        {item.item} - {item.quantity} {item.unit} -
                                                         {formatToIndianRupee(item.quantity * getPrice(vendor, item?.name))}
                                                     </li>
                                                 ))}
@@ -980,7 +980,7 @@ export const SelectVendors = () => {
                                 <DialogHeader>
                                     <DialogTitle>Have you cross-checked your selections?</DialogTitle>
                                     <DialogDescription>
-                                        Remainder: Items whose quotes are not selected will have a delayed status 
+                                        Remainder: Items whose quotes are not selected will have a delayed status
                                         attached to them. If confirmed, Delayed sent back request will be created for those Items.
                                         {Object.keys(delayedItems).length !== 0 ? (
                                             <div className='flex flex-col gap-2 mt-2 text-start'>
@@ -991,14 +991,14 @@ export const SelectVendors = () => {
                                     </DialogDescription>
                                 </DialogHeader>
                                 <DialogDescription className='flex items-center justify-center gap-2'>
-                                    {(update_loading || create_loading) ? <TailSpin width={60} color={"red"}  /> : (
+                                    {(update_loading || create_loading) ? <TailSpin width={60} color={"red"} /> : (
                                         <>
-                                        <DialogClose><Button variant="secondary" className="flex items-center gap-1">
-                                        <Undo2 className="h-4 w-4" />
-                                        Cancel</Button></DialogClose>
-                                    <Button variant="default" onClick={() => handleSubmit()} disabled={submitClicked} className="flex items-center gap-1">
-                                        <CheckCheck className="h-4 w-4" />
-                                        Confirm</Button>
+                                            <DialogClose><Button variant="secondary" className="flex items-center gap-1">
+                                                <Undo2 className="h-4 w-4" />
+                                                Cancel</Button></DialogClose>
+                                            <Button variant="default" onClick={() => handleSubmit()} disabled={submitClicked} className="flex items-center gap-1">
+                                                <CheckCheck className="h-4 w-4" />
+                                                Confirm</Button>
                                         </>
                                     )}
                                 </DialogDescription>

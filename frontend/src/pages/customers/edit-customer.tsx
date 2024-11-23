@@ -58,7 +58,7 @@ const EditCustomer = () => {
 
     const navigate = useNavigate();
 
-    const { customerId : id } = useParams<{ customerId: string }>();
+    const { customerId: id } = useParams<{ customerId: string }>();
 
     const { data, mutate: customerMutate } = useFrappeGetDoc("Customers", id, `Customers ${id}`, {
         revalidateIfStale: false
@@ -235,9 +235,9 @@ const EditCustomer = () => {
 
     return (
         <div className="flex-1">
-            {/* <div className="space-y-0.5">
+            <div className="space-y-0.5">
                 <div className="flex space-x-2 items-center ml-6">
-                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/customers/${id}`)} />
+                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/customers/${id}`)} /> */}
                     <h2 className="text-2xl font-bold tracking-tight">Edit: <span className="text-red-700">{id}</span></h2>
                 </div>
             </div>

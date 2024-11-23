@@ -801,10 +801,10 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     return (
         <div className='flex-1 space-y-4'>
             {page == 'approvequotation' &&
-                <div className="flex-1 space-y-4">
-                    <div className="flex items-center">
-                        {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-po")} /> */}
-                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back</h2>
+                <div className="flex-1 md:space-y-4">
+                    <div className="flex items-center pt-1  pb-4">
+                        {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-vendor")} /> */}
+                        <h2 className="text-base pl-2 font-bold tracking-tight">Approve PO: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
                     <ProcurementActionsHeaderCard orderData={orderData} po={true} />
                 </div>}

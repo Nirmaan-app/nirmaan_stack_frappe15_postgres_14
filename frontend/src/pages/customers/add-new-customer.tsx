@@ -182,19 +182,20 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
             }
         } catch (err) {
             // Error handling for address creation or customer creation failure
-            if(err?.exc_type === "CustomerGSTExistError") {
+            if (err?.exc_type === "CustomerGSTExistError") {
                 toast({
                     title: "Duplicate Value Error!",
                     description: `Provided GST Already binded with other Customer!`,
                     variant: "destructive",
                 });
             } else {
-             toast({
-                title: "Failed!",
-                description: `Error while creating new Customer!`,
-                variant: "destructive",
-            });}
-            
+                toast({
+                    title: "Failed!",
+                    description: `Error while creating new Customer!`,
+                    variant: "destructive",
+                });
+            }
+
             console.log("Error while creating new customer:", err);
         }
     };

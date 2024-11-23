@@ -101,7 +101,7 @@ const columns: TableColumnsType<DataType> = [
 
 const ApproveSentBack = () => {
 
-    const { sbId : id } = useParams<{ sbId: string }>()
+    const { sbId: id } = useParams<{ sbId: string }>()
     const [project, setProject] = useState()
     const [owner, setOwner] = useState()
     const { data: sb, isLoading: sb_loading, error: sb_error, mutate: sb_mutate } = useFrappeGetDoc<SentBackCategoryType>("Sent Back Category", id);

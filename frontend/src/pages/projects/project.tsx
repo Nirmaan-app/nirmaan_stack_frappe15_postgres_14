@@ -1163,11 +1163,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   return (
     <div className="flex-1 space-y-4">
       <div className="flex items-center justify-between max-md:flex-col max-md:gap-4 max-md:items-start">
-        <div className="pl-2 text-xl md:text-3xl font-bold tracking-tight">
+        <div className="flex items-center">
           {/* <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} /> */}
-          {/* <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight"></h2> */}
-          {data?.project_name.toUpperCase()}
-          {role === "Nirmaan Admin Profile" && <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer inline-block ml-1 mb-1" />}
+          <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
+          {role === "Nirmaan Admin Profile" && <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />}
         </div>
         <div className="flex max-sm:text-xs max-md:text-sm items-center max-md:justify-between max-md:w-full">
           {role === "Nirmaan Admin Profile" &&

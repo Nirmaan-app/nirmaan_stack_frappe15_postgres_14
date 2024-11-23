@@ -170,8 +170,8 @@ export const EditProjectForm = () => {
     //     limit: 1000
     // });
 
-    useFrappeDocTypeEventListener("Project Types",async (d) => {
-           await project_types_mutate()
+    useFrappeDocTypeEventListener("Project Types", async (d) => {
+        await project_types_mutate()
     })
 
     const form = useForm<ProjectFormValues>({
@@ -189,7 +189,7 @@ export const EditProjectForm = () => {
             project_start_date: data?.project_start_date ? new Date(data?.project_start_date) : new Date(),
             project_end_date: data?.project_end_date ? new Date(data?.project_end_date) : new Date(),
             project_work_packages: data?.project_work_packages ? JSON.parse(data?.project_work_packages) : {
-                work_packages : []
+                work_packages: []
             },
             project_scopes: data?.project_scopes ? (JSON.parse(data?.project_scopes)) : {
                 scopes: []
@@ -213,7 +213,7 @@ export const EditProjectForm = () => {
                 project_start_date: data?.project_start_date ? new Date(data?.project_start_date) : new Date(),
                 project_end_date: data?.project_end_date ? new Date(data?.project_end_date) : new Date(),
                 project_work_packages: data?.project_work_packages ? JSON.parse(data?.project_work_packages) : {
-                    work_packages : []
+                    work_packages: []
                 },
                 project_scopes: data?.project_scopes ? (JSON.parse(data?.project_scopes)) : {
                     scopes: []
@@ -735,7 +735,7 @@ export const EditProjectForm = () => {
 
                         </div>
 
-                         <Separator className="my-6" />
+                        <Separator className="my-6" />
                         <p className="text-sky-600 font-semibold pb-6">Package Specification</p>
                         <FormField
                             control={form.control}
@@ -804,39 +804,39 @@ export const EditProjectForm = () => {
                                                         if (scope.work_package === item.work_package_name) {
                                                             return (
                                                                 <div className="md:w-[35%]">
-                                                                     <Separator />
-                                                                <FormField
-                                                                    key={scope.scope_of_work_name}
-                                                                    control={form.control}
-                                                                    name="project_scopes.scopes"
-                                                                    render={({ field }) => (
-                                                                        <FormItem className="flex flex-row items-center justify-between p-3">
-                                                                            <FormLabel className="text-sm font-normal">
-                                                                                            <div className="flex">
-                                                                                                <GitCommitVertical className="w-6" />
-                                                                                                <span className="text-sm mt-0.5">{scope.scope_of_work_name}</span>
-                                                                                            </div>
-                                                                            </FormLabel>
-                                                                            <FormControl>
-                                                                                <Checkbox
-                                                                                    checked={field.value?.some((i) => i.scope_of_work_name === scope.scope_of_work_name)}
-                                                                                    onCheckedChange={(checked) => {
-                                                                                        return checked
-                                                                                            ? field.onChange([...field.value, {
-                                                                                                scope_of_work_name: scope.scope_of_work_name,
-                                                                                                work_package: scope.work_package
-                                                                                            }])
-                                                                                            : field.onChange(
-                                                                                                field.value?.filter(
-                                                                                                    (value) => value.scope_of_work_name !== scope.scope_of_work_name
+                                                                    <Separator />
+                                                                    <FormField
+                                                                        key={scope.scope_of_work_name}
+                                                                        control={form.control}
+                                                                        name="project_scopes.scopes"
+                                                                        render={({ field }) => (
+                                                                            <FormItem className="flex flex-row items-center justify-between p-3">
+                                                                                <FormLabel className="text-sm font-normal">
+                                                                                    <div className="flex">
+                                                                                        <GitCommitVertical className="w-6" />
+                                                                                        <span className="text-sm mt-0.5">{scope.scope_of_work_name}</span>
+                                                                                    </div>
+                                                                                </FormLabel>
+                                                                                <FormControl>
+                                                                                    <Checkbox
+                                                                                        checked={field.value?.some((i) => i.scope_of_work_name === scope.scope_of_work_name)}
+                                                                                        onCheckedChange={(checked) => {
+                                                                                            return checked
+                                                                                                ? field.onChange([...field.value, {
+                                                                                                    scope_of_work_name: scope.scope_of_work_name,
+                                                                                                    work_package: scope.work_package
+                                                                                                }])
+                                                                                                : field.onChange(
+                                                                                                    field.value?.filter(
+                                                                                                        (value) => value.scope_of_work_name !== scope.scope_of_work_name
+                                                                                                    )
                                                                                                 )
-                                                                                            )
-                                                                                    }}
-                                                                                />
-                                                                            </FormControl>
-                                                                        </FormItem>
-                                                                    )}
-                                                                />
+                                                                                        }}
+                                                                                    />
+                                                                                </FormControl>
+                                                                            </FormItem>
+                                                                        )}
+                                                                    />
                                                                 </div>
                                                             );
                                                         }

@@ -35,7 +35,7 @@ import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActions
 
 const ApprovePRList = () => {
 
-    const { prId : id } = useParams<{ prId: string }>()
+    const { prId: id } = useParams<{ prId: string }>()
     const [project, setProject] = useState()
     const [owner, setOwner] = useState(null)
     const { data: pr, isLoading: pr_loading, error: pr_error } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id);
@@ -637,9 +637,9 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             {page == 'itemlist' &&
                 <div className="flex-1 space-y-4">
                     <div className="flex justify-between items-center">
-                        <div className="flex items-center">
+                        <div className="flex items-center pt-1  pb-4 ">
                             {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                            <h2 className="text-lg pl-2 font-bold tracking-tight text-pageheader">Approve/Reject/Delete</h2>
+                            <h2 className="text-lg pl-2 font-bold tracking-tight">Approve/Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
 
                         <AlertDialog>

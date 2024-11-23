@@ -49,20 +49,20 @@ const EditUserForm = () => {
 
     const navigate = useNavigate()
 
-    const {userId : id} = useParams()
+    const { userId: id } = useParams()
 
-    const {data, mutate} = useFrappeGetDoc("Nirmaan Users", id, id ? `Nirmaan Users ${id}` : null)
+    const { data, mutate } = useFrappeGetDoc("Nirmaan Users", id, id ? `Nirmaan Users ${id}` : null)
 
     // console.log("data", data)
-    const {updateDoc, loading} = useFrappeUpdateDoc()
+    const { updateDoc, loading } = useFrappeUpdateDoc()
 
     const hasChanges = () => {
         const values = form.getValues();
         const originalValues = {
-           "first_name" : data?.first_name || "",
-            "last_name" : data?.last_name || "",
-            "email" : data?.email || "",
-            "mobile_no" : data?.mobile_no || ""
+            "first_name": data?.first_name || "",
+            "last_name": data?.last_name || "",
+            "email": data?.email || "",
+            "mobile_no": data?.mobile_no || ""
         };
         return JSON.stringify(values) !== JSON.stringify(originalValues);
     };
@@ -70,21 +70,21 @@ const EditUserForm = () => {
     const form = useForm<UserFormValues>({
         resolver: zodResolver(UserFormSchema),
         defaultValues: {
-            "first_name" : data?.first_name || "",
-            "last_name" : data?.last_name || "",
-            "email" : data?.email || "",
-            "mobile_no" : data?.mobile_no || ""
+            "first_name": data?.first_name || "",
+            "last_name": data?.last_name || "",
+            "email": data?.email || "",
+            "mobile_no": data?.mobile_no || ""
         },
         mode: "onBlur",
     })
 
     useEffect(() => {
-        if(data) {
+        if (data) {
             form.reset({
-            "first_name" : data.first_name,
-            "last_name" : data.last_name,
-            "email" : data.email,
-            "mobile_no" : data.mobile_no
+                "first_name": data.first_name,
+                "last_name": data.last_name,
+                "email": data.email,
+                "mobile_no": data.mobile_no
             })
         }
     }, [data])
@@ -183,7 +183,7 @@ const EditUserForm = () => {
                             </FormItem>
                         )}
                     />
-                    <div className="flex items-center gap-2 justify-end lg:w-[68%]">  
+                    <div className="flex items-center gap-2 justify-end lg:w-[68%]">
                         <Button type="button" variant="secondary" onClick={() => {
                             form.reset()
                             form.clearErrors()
@@ -191,10 +191,10 @@ const EditUserForm = () => {
                             <ListRestart className="h-4 w-4" />
                             Reset
                         </Button>
-                            <Button disabled={!hasChanges() || loading } className="flex items-center gap-1" type="submit">
-                                <ListChecks className="h-4 w-4" />
-                                {loading ? "Updating" : "Update"}
-                            </Button>
+                        <Button disabled={!hasChanges() || loading} className="flex items-center gap-1" type="submit">
+                            <ListChecks className="h-4 w-4" />
+                            {loading ? "Updating" : "Update"}
+                        </Button>
                     </div>
                 </form>
             </Form>
