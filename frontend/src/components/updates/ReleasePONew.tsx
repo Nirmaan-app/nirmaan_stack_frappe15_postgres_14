@@ -720,8 +720,8 @@ export const ReleasePONew = ({ not }) => {
 
     // console.log("orderData", orderData?.order_list?.list)
     // console.log("mergedItems", mergedItems)
-
-    if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
+    // console.log(orderData?.order_list.list.some((item) => 'po' in item))
+    if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (procurement_order_list_error || address_list_error || vendor_error) return <h1>Error</h1>
     if (!not && !["PO Approved", "Merged"].includes(orderData?.status)) return (
         <div className="flex items-center justify-center h-full">
