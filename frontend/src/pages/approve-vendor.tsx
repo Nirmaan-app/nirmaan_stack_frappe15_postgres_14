@@ -721,7 +721,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     };
 
     return (
-        <>
+        <div className='flex-1 space-y-4'>
             {page == 'approvequotation' &&
                 <div className="flex-1 md:space-y-4">
                     <div className="flex items-center pt-1  pb-4">
@@ -751,7 +751,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                         </div>
                     </Card>
                 </div>}
-            <div className='overflow-x-auto mt-6'>
+            <div className='overflow-x-auto'>
                 <ConfigProvider
                     theme={{
                         token: {
@@ -896,7 +896,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     })()}
                 </div>
             </div>
-        </>
+        </div>
     )
 }
 

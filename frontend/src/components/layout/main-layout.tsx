@@ -96,7 +96,7 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
         <>
             <div className='flex w-full relative h-auto'>
               {isMobile && (
-                <div className='absolute top-[17px] -left-2 shadow-2xl'>
+                <div className='absolute top-[15px] -left-2 shadow-2xl'>
                 <SidebarTrigger />
               </div>
               )}
@@ -190,7 +190,7 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
                     )}
                 </header>
                 <main 
-                    className={`flex flex-1 flex-col p-4 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
+                    className={`flex flex-1 flex-col py-4 px-2 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
                 >
                 <ErrorBoundaryWithNavigationReset>
                     <ScrollToTop />
