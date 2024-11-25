@@ -13,7 +13,7 @@ import { Separator } from "../../components/ui/separator"
 import { useNavigate, useParams } from "react-router-dom"
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover"
 import { cn } from "@/lib/utils"
-import { ArrowLeft, CalendarIcon, CirclePlus, ListChecks, MessageCircleWarning } from "lucide-react"
+import { ArrowLeft, CalendarIcon, CirclePlus, GitCommitVertical, ListChecks, MessageCircleWarning } from "lucide-react"
 import { Calendar } from "../../components/ui/calendar"
 import { format } from "date-fns"
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects"
@@ -23,6 +23,8 @@ import NewCustomer from "../customers/add-new-customer"
 import { formatToLocalDateTimeString } from "@/utils/FormatDate"
 import { toast } from "@/components/ui/use-toast"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Checkbox } from "@/components/ui/checkbox"
 
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
@@ -93,23 +95,23 @@ const projectFormSchema = z.object({
     //     .string({
     //         required_error: "Please select Procurement Lead"
     //     }),
-    // project_work_packages: z
-    //     .object({
-    //         work_packages: z.array(
-    //             z.object({
-    //                 work_package_name: z.string()
-    //             })
-    //         )
-    //     }),
-    // project_scopes: z
-    //     .object({
-    //         scopes: z.array(
-    //             z.object({
-    //                 scope_of_work_name: z.string(),
-    //                 work_package: z.string()
-    //             })
-    //         )
-    //     })
+    project_work_packages: z
+        .object({
+            work_packages: z.array(
+                z.object({
+                    work_package_name: z.string()
+                })
+            )
+        }),
+    project_scopes: z
+        .object({
+            scopes: z.array(
+                z.object({
+                    scope_of_work_name: z.string(),
+                    work_package: z.string()
+                })
+            )
+        })
 })
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>
@@ -135,21 +137,21 @@ export const EditProjectForm = () => {
         `${projectId}`
     );
 
-    // console.log("projectData", data)
+    console.log("projectData", data)
 
     const navigate = useNavigate()
 
-    // const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
-    //     {
-    //         fields: ['work_package_name'],
-    //         limit: 100
-    //     });
-    // const { data: scope_of_work_list, isLoading: sow_list_loading, error: sow_list_error } = useFrappeGetDocList("Scopes of Work",
-    //     {
-    //         fields: ['scope_of_work_name', 'work_package'],
-    //         limit: 1000,
-    //     }
-    // );
+    const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
+        {
+            fields: ['work_package_name'],
+            limit: 100
+        });
+    const { data: scope_of_work_list, isLoading: sow_list_loading, error: sow_list_error } = useFrappeGetDocList("Scopes of Work",
+        {
+            fields: ['scope_of_work_name', 'work_package'],
+            limit: 1000,
+        }
+    );
 
     const { data: company, isLoading: company_isLoading, error: company_error, mutate: company_mutate } = useFrappeGetDocList('Customers', {
         fields: ["name", "company_name"],
@@ -186,14 +188,16 @@ export const EditProjectForm = () => {
             phone: project_address?.phone || "",
             project_start_date: data?.project_start_date ? new Date(data?.project_start_date) : new Date(),
             project_end_date: data?.project_end_date ? new Date(data?.project_end_date) : new Date(),
-            // project_work_packages: {
-            //     work_packages: []
-            // },
-            // project_scopes: {
-            //     scopes: []
-            // }
+            project_work_packages: data?.project_work_packages ? JSON.parse(data?.project_work_packages) : {
+                work_packages : []
+            },
+            project_scopes: data?.project_scopes ? (JSON.parse(data?.project_scopes)) : {
+                scopes: []
+            }
         },
     })
+
+    console.log("formValues", form.getValues())
 
     useEffect(() => {
         if (data && project_address) {
@@ -208,6 +212,12 @@ export const EditProjectForm = () => {
                 phone: project_address?.phone || "",
                 project_start_date: data?.project_start_date ? new Date(data?.project_start_date) : new Date(),
                 project_end_date: data?.project_end_date ? new Date(data?.project_end_date) : new Date(),
+                project_work_packages: data?.project_work_packages ? JSON.parse(data?.project_work_packages) : {
+                    work_packages : []
+                },
+                project_scopes: data?.project_scopes ? (JSON.parse(data?.project_scopes)) : {
+                    scopes: []
+                }
             })
 
             setPincode(project_address.pincode)
@@ -308,6 +318,8 @@ export const EditProjectForm = () => {
                 project_end_date: formatted_end_date,
                 project_city: city,
                 project_state: state,
+                project_work_packages: values.project_work_packages,
+                project_scopes: values.project_scopes
             })
 
             await projectMutate()
@@ -341,14 +353,14 @@ export const EditProjectForm = () => {
         value: item.name
     })) || [];
 
-    // const wp_list: wpType[] = work_package_list?.map(item => ({
-    //     work_package_name: item.work_package_name, // Adjust based on your data structure
-    // })) || [];
+    const wp_list = work_package_list?.map(item => ({
+        work_package_name: item.work_package_name, // Adjust based on your data structure
+    })) || [];
 
-    // const sow_list: sowType[] = scope_of_work_list?.map(item => ({
-    //     scope_of_work_name: item.scope_of_work_name, // Adjust based on your data structure
-    //     work_package: item.work_package
-    // })) || [];
+    const sow_list = scope_of_work_list?.map(item => ({
+        scope_of_work_name: item.scope_of_work_name, // Adjust based on your data structure
+        work_package: item.work_package
+    })) || [];
 
     // console.log("projectData", data)
     // console.log("projectvalues", form.getValues())
@@ -376,7 +388,7 @@ export const EditProjectForm = () => {
                                 render={({ field }) => {
                                     return (
                                         <FormItem className="lg:flex lg:items-center gap-4">
-                                            <FormLabel className="md:basis-2/12">Project Name<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                            <FormLabel className="md:basis-2/12">Project Name<sup className="text-sm text-red-600">*</sup></FormLabel>
                                             <div className="flex flex-col items-start md:basis-2/4">
                                                 <FormControl>
                                                     <Input {...field} />
@@ -393,7 +405,7 @@ export const EditProjectForm = () => {
                                 render={({ field }) => (
                                     <FormItem className="lg:flex lg:items-center gap-4">
                                         <FormLabel className="md:basis-2/12">
-                                            Customer<sup className="pl-1 text-sm text-red-600">*</sup>
+                                            Customer<sup className="text-sm text-red-600">*</sup>
                                         </FormLabel>
                                         <div className="md:basis-2/4">
                                             <Select onValueChange={field.onChange} value={field.value}>
@@ -447,7 +459,7 @@ export const EditProjectForm = () => {
                                 render={({ field }) => (
                                     <FormItem className="lg:flex lg:items-center gap-4">
                                         <FormLabel className="md:basis-2/12">
-                                            Project Type<sup className="pl-1 text-sm text-red-600">*</sup>
+                                            Project Type<sup className="text-sm text-red-600">*</sup>
                                         </FormLabel>
                                         <div className="md:basis-2/4">
                                             <Select onValueChange={field.onChange} value={field.value}>
@@ -501,7 +513,7 @@ export const EditProjectForm = () => {
                                 name="address_line_1"
                                 render={({ field }) => (
                                     <FormItem className="lg:flex lg:items-center gap-4">
-                                        <FormLabel className="md:basis-2/12">Address Line 1<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                        <FormLabel className="md:basis-2/12">Address Line 1<sup className="text-sm text-red-600">*</sup></FormLabel>
                                         <div className="md:basis-2/4">
                                             <FormControl>
                                                 <Input placeholder="Address Line 1" {...field} />
@@ -517,7 +529,7 @@ export const EditProjectForm = () => {
                                 name="address_line_2"
                                 render={({ field }) => (
                                     <FormItem className="lg:flex lg:items-center gap-4">
-                                        <FormLabel className="md:basis-2/12">Address Line 2<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                        <FormLabel className="md:basis-2/12">Address Line 2<sup className="text-sm text-red-600">*</sup></FormLabel>
                                         <div className="md:basis-2/4">
                                             <FormControl>
                                                 <Input placeholder="Address Line 2" {...field} />
@@ -529,7 +541,7 @@ export const EditProjectForm = () => {
                             />
 
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">City<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">City<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
                                         <Input placeholder={city || "City"} disabled={true} />
@@ -538,7 +550,7 @@ export const EditProjectForm = () => {
                                 </div>
                             </FormItem>
                             <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">State<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                <FormLabel className="md:basis-2/12">State<sup className="text-sm text-red-600">*</sup></FormLabel>
                                 <div className="md:basis-2/4">
                                     <FormControl>
                                         <Input placeholder={state || "State"} disabled={true} />
@@ -552,7 +564,7 @@ export const EditProjectForm = () => {
                                 name="pin"
                                 render={({ field }) => (
                                     <FormItem className="lg:flex lg:items-center gap-4">
-                                        <FormLabel className="md:basis-2/12">Pin Code<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                        <FormLabel className="md:basis-2/12">Pin Code<sup className="text-sm text-red-600">*</sup></FormLabel>
                                         <div className="flex flex-col items-start md:basis-2/4">
                                             <FormControl>
                                                 <Input
@@ -622,7 +634,7 @@ export const EditProjectForm = () => {
                                 name="project_start_date"
                                 render={({ field }) => (
                                     <FormItem className="lg:flex lg:items-center gap-4">
-                                        <FormLabel className="md:basis-2/12">Project Start Date<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                        <FormLabel className="md:basis-2/12">Project Start Date<sup className="text-sm text-red-600">*</sup></FormLabel>
                                         <div className="md:basis-1/4">
                                             <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
                                                 <PopoverTrigger asChild>
@@ -669,7 +681,7 @@ export const EditProjectForm = () => {
                                 name="project_end_date"
                                 render={({ field }) => (
                                     <FormItem className="lg:flex lg:items-center gap-4">
-                                        <FormLabel className="md:basis-2/12">Project End Date<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                        <FormLabel className="md:basis-2/12">Project End Date<sup className="text-sm text-red-600">*</sup></FormLabel>
                                         <div className="md:basis-1/4">
                                             <Popover open={popoverOpen2} onOpenChange={setPopoverOpen2}>
                                                 <PopoverTrigger asChild>
@@ -723,21 +735,20 @@ export const EditProjectForm = () => {
 
                         </div>
 
-                        {/* <Separator className="my-6" />
-                        <p className="text-sky-600 font-semibold pb-9">Package Specification</p>
+                         <Separator className="my-6" />
+                        <p className="text-sky-600 font-semibold pb-6">Package Specification</p>
                         <FormField
                             control={form.control}
                             name="project_work_packages"
                             render={() => (
                                 <FormItem>
                                     <div className="mb-4">
-                                        {/* <FormLabel className="text-base">Sidebar</FormLabel> 
                                         <div className="font-semibold">
-                                            Select the work packages.
+                                            Edit work packages.
                                         </div>
                                     </div>
                                     {wp_list.map((item) => (
-                                        <Accordion type="single" collapsible className="w-full">
+                                        <Accordion type="single" collapsible value={form.getValues().project_work_packages.work_packages.find(d => d.work_package_name === item.work_package_name)?.work_package_name} className="w-full">
                                             <AccordionItem value={item.work_package_name}>
                                                 <AccordionTrigger>
                                                     <FormField
@@ -745,9 +756,6 @@ export const EditProjectForm = () => {
                                                         control={form.control}
                                                         name="project_work_packages.work_packages"
                                                         render={({ field }) => {
-
-                                                            // console.log(field) 
-                                                            // if(data) field.value = JSON.parse(data.project_work_milestones).work_packages
                                                             return (
                                                                 <FormItem
                                                                     key={item.work_package_name}
@@ -755,8 +763,24 @@ export const EditProjectForm = () => {
                                                                 >
                                                                     <FormControl>
                                                                         <Checkbox
+                                                                            disabled={field.value.length === 1 && field.value?.[0].work_package_name === item.work_package_name}
                                                                             checked={field.value?.some((i) => i.work_package_name === item.work_package_name)}
                                                                             onCheckedChange={(checked) => {
+                                                                                if (!checked) {
+                                                                                    const filteredSow = form.getValues().project_scopes.scopes.filter(sow => sow.work_package != item.work_package_name)
+                                                                                    form.setValue(("project_scopes.scopes"), filteredSow)
+                                                                                }
+                                                                                else {
+                                                                                    const filteredSow = form.getValues().project_scopes.scopes.filter(sow => sow.work_package != item.work_package_name)
+
+                                                                                    sow_list?.forEach((sow) => {
+                                                                                        if (sow.work_package === item.work_package_name) {
+                                                                                            filteredSow.push(sow);
+                                                                                        }
+                                                                                    })
+                                                                                    form.setValue(("project_scopes.scopes"), filteredSow)
+
+                                                                                }
                                                                                 return checked
                                                                                     ? field.onChange([...field.value, { work_package_name: item.work_package_name }])
                                                                                     : field.onChange(
@@ -764,11 +788,6 @@ export const EditProjectForm = () => {
                                                                                             (value) => value.work_package_name !== item.work_package_name
                                                                                         )
                                                                                     )
-                                                                                // const updatedValue = checked
-                                                                                //     ? [...workPackagesValue, { work_package_name: item.work_package_name }]
-                                                                                //     : workPackagesValue.filter(value => value.work_package_name !== item.work_package_name);
-                                                                                // setWorkPackagesValue(updatedValue);
-                                                                                // field.onChange(updatedValue);
                                                                             }}
                                                                         />
                                                                     </FormControl>
@@ -784,20 +803,26 @@ export const EditProjectForm = () => {
                                                     {sow_list.map((scope) => {
                                                         if (scope.work_package === item.work_package_name) {
                                                             return (
+                                                                <div className="md:w-[35%]">
+                                                                     <Separator />
                                                                 <FormField
                                                                     key={scope.scope_of_work_name}
                                                                     control={form.control}
                                                                     name="project_scopes.scopes"
                                                                     render={({ field }) => (
-                                                                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                                                                        <FormItem className="flex flex-row items-center justify-between p-3">
+                                                                            <FormLabel className="text-sm font-normal">
+                                                                                            <div className="flex">
+                                                                                                <GitCommitVertical className="w-6" />
+                                                                                                <span className="text-sm mt-0.5">{scope.scope_of_work_name}</span>
+                                                                                            </div>
+                                                                            </FormLabel>
                                                                             <FormControl>
                                                                                 <Checkbox
                                                                                     checked={field.value?.some((i) => i.scope_of_work_name === scope.scope_of_work_name)}
-
                                                                                     onCheckedChange={(checked) => {
                                                                                         return checked
                                                                                             ? field.onChange([...field.value, {
-                                                                                                name: scope.scope_of_work_name,
                                                                                                 scope_of_work_name: scope.scope_of_work_name,
                                                                                                 work_package: scope.work_package
                                                                                             }])
@@ -809,12 +834,10 @@ export const EditProjectForm = () => {
                                                                                     }}
                                                                                 />
                                                                             </FormControl>
-                                                                            <FormLabel className="text-sm font-normal">
-                                                                                {scope.scope_of_work_name}
-                                                                            </FormLabel>
                                                                         </FormItem>
                                                                     )}
                                                                 />
+                                                                </div>
                                                             );
                                                         }
                                                     })}
@@ -826,7 +849,7 @@ export const EditProjectForm = () => {
                                     <FormMessage />
                                 </FormItem>
                             )}
-                        /> */}
+                        />
                         {/* <Separator className="my-6" /> */}
                         {/* <p className="text-sky-600 font-semibold pb-9">DEBUG Package Specification</p> */}
                         <div className="my-6">

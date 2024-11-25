@@ -395,9 +395,13 @@ export const ReleasePONew = ({ not }) => {
                     status: "Dispatched",
                 })
             }
+
+            document.getElementById("SendPODialogClose")?.click()
             await mutate()
 
-            document.getElementById("MarkDispatchedAlertClose")?.click()
+            navigate(-1)
+
+            // document.getElementById("MarkDispatchedAlertClose")?.click()
 
             toast({
                 title: "Success!",
@@ -469,32 +473,32 @@ export const ReleasePONew = ({ not }) => {
         }
     };
 
-    const handleSendPO = async () => {
-        setClicked(true)
-        try {
-            await updateDoc("Procurement Orders", orderId, {
-                status: "PO Sent"
-            })
-            await mutate()
-            toast({
-                title: "Success!",
-                description: `PO: ${orderId} status updated to 'PO Sent' successfully!`,
-                variant: "success"
-            })
-            document.getElementById("SendPODialogClose")?.click()
-            navigate(-1)
-        } catch (error) {
-            console.log("error while updating the status of the PO to PO Sent", error)
-            toast({
-                title: "Failed!",
-                description: `PO: ${orderId} Updation Failed!`,
-                variant: "destructive"
-            })
-        }
-        finally {
-            setClicked(false)
-        }
-    }
+    // const handleSendPO = async () => {
+    //     setClicked(true)
+    //     try {
+    //         await updateDoc("Procurement Orders", orderId, {
+    //             status: "PO Sent"
+    //         })
+    //         await mutate()
+    //         toast({
+    //             title: "Success!",
+    //             description: `PO: ${orderId} status updated to 'PO Sent' successfully!`,
+    //             variant: "success"
+    //         })
+    //         document.getElementById("SendPODialogClose")?.click()
+    //         navigate(-1)
+    //     } catch (error) {
+    //         console.log("error while updating the status of the PO to PO Sent", error)
+    //         toast({
+    //             title: "Failed!",
+    //             description: `PO: ${orderId} Updation Failed!`,
+    //             variant: "destructive"
+    //         })
+    //     }
+    //     finally {
+    //         setClicked(false)
+    //     }
+    // }
 
     const handleSave = (itemName: string, newQuantity: string) => {
         let curRequest = orderData.order_list.list;
@@ -1547,14 +1551,45 @@ export const ReleasePONew = ({ not }) => {
                                                     <DialogTrigger asChild>
                                                         <ShadButton variant="default" className="bg-yellow-500 hover:bg-yellow-600">
                                                             <Send className='h-4 w-4 mr-2' />
-                                                            Mark PO Sent
+                                                            Mark as Dispatched
                                                         </ShadButton>
                                                     </DialogTrigger>
                                                     <DialogContent>
                                                         <DialogHeader>
                                                             <DialogTitle>Confirm PO Sending</DialogTitle>
-                                                            <DialogDescription>
-                                                                This action will set the status of this PO to "PO Sent". Are you sure you want to proceed?
+                                                            <DialogDescription className="pt-2 flex flex-col gap-2">
+                                                            <div>
+                                                                <Label htmlFor="personName" className="text-sm font-medium">
+                                                                    Person Name <span className="text-gray-400">(optional)</span>
+                                                                </Label>
+                                                                <Input
+                                                                    id="personName"
+                                                                    type='text'
+                                                                    value={contactPerson.name}
+                                                                    placeholder='Enter person name'
+                                                                    onChange={(e) => setContactPerson((prev) => ({
+                                                                        ...prev,
+                                                                        name: e.target.value
+                                                                    }))}
+                                                                    className="mt-1"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <Label htmlFor="contactNumber" className="text-sm font-medium">
+                                                                    Contact Number <span className="text-gray-400">(optional)</span>
+                                                                </Label>
+                                                                <Input
+                                                                    id="contactNumber"
+                                                                    type='tel'
+                                                                    value={contactPerson.number}
+                                                                    placeholder='Enter 10-digit number'
+                                                                    onChange={(e) => setContactPerson((prev) => ({
+                                                                        ...prev,
+                                                                        number: e.target.value.slice(0, 10)
+                                                                    }))}
+                                                                    className="mt-1"
+                                                                />
+                                                            </div>
                                                             </DialogDescription>
                                                         </DialogHeader>
                                                         {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
@@ -1565,7 +1600,7 @@ export const ReleasePONew = ({ not }) => {
                                                                         Cancel
                                                                     </ShadButton>
                                                                 </DialogClose>
-                                                                <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600">
+                                                                <ShadButton onClick={handleDispatchPO} className="bg-yellow-500 hover:bg-yellow-600">
                                                                     <CheckCheck className="h-4 w-4 mr-2" />
                                                                     Confirm
                                                                 </ShadButton>
