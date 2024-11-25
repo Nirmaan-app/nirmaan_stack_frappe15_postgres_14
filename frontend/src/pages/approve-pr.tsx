@@ -60,7 +60,6 @@ export const ApprovePR = () => {
         let total: number = 0;
         let usedQuotes = {}
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
-        // console.log("orderData", orderData)
         orderData?.list.map((item: any) => {
             const quotesForItem = quote_data
                 ?.filter(value => value.item_id === item.name && value.quote != null)
@@ -198,10 +197,15 @@ export const ApprovePR = () => {
                     const prUsedQuotes = getTotal(row.getValue("name"))?.usedQuotes
                     // console.log('usedQuotes', prUsedQuotes)
                     return (
-                        <HoverCard>
+                        total === "N/A" ? (
+                            <div className="font-medium">
+                                N/A
+                            </div>
+                        ) : (
+                            <HoverCard>
                             <HoverCardTrigger>
                             <div className="font-medium underline">
-                                {total === "N/A" ? "N/A" : formatToIndianRupee(total)}
+                                {formatToIndianRupee(total)}
                             </div>
                             </HoverCardTrigger>
                             <HoverCardContent>
@@ -226,6 +230,7 @@ export const ApprovePR = () => {
                                 </div>
                             </HoverCardContent>
                         </HoverCard>
+                        )
                     )
                 }
             }
