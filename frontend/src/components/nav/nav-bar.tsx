@@ -39,9 +39,9 @@ export const NavBar = () => {
     const { data } = useFrappeGetDoc("Nirmaan Users", user_id, user_id === "Administrator" ? null : undefined)
 
     const {
-        pendingPRCount, approvePRCount, adminApprovePRCount, adminPendingPRCount, updatePRCounts, updateSBCounts, newSBApproveCount, 
-        adminNewApproveSBCount, amendPOCount, adminAmendPOCount, updatePOCounts, adminApprovedPRCount, approvedPRCount, newPOCount, 
-        adminNewPOCount, adminNewSBCounts, newSBCounts, updateSRCounts, adminSelectedSRCount, selectedSRCount, approvedSRCount, adminApprovedSRCount} = useDocCountStore()
+        pendingPRCount, approvePRCount, adminApprovePRCount, adminPendingPRCount, updatePRCounts, updateSBCounts, newSBApproveCount,
+        adminNewApproveSBCount, amendPOCount, adminAmendPOCount, updatePOCounts, adminApprovedPRCount, approvedPRCount, newPOCount,
+        adminNewPOCount, adminNewSBCounts, newSBCounts, updateSRCounts, adminSelectedSRCount, selectedSRCount, approvedSRCount, adminApprovedSRCount } = useDocCountStore()
     const { notifications, add_new_notification, delete_notification } = useNotificationStore();
     const { db } = useContext(FrappeContext) as FrappeConfig
 
@@ -159,7 +159,7 @@ export const NavBar = () => {
     useEffect(() => {
         if ((user_id === "Administrator" || role === "Nirmaan Admin Profile") && adminPOData) {
             updatePOCounts(adminPOData, true)
-        } else if(poData) {
+        } else if (poData) {
             updatePOCounts(poData, false)
         }
     }, [poData, adminPOData])
@@ -167,7 +167,7 @@ export const NavBar = () => {
     useEffect(() => {
         if ((user_id === "Administrator" || role === "Nirmaan Admin Profile") && adminSBData) {
             updateSBCounts(adminSBData, true)
-        } else if(sbData) {
+        } else if (sbData) {
             updateSBCounts(sbData, false)
         }
     }, [sbData, adminSBData])
@@ -175,7 +175,7 @@ export const NavBar = () => {
     useEffect(() => {
         if ((user_id === "Administrator" || role === "Nirmaan Admin Profile") && adminPrData) {
             updatePRCounts(adminPrData, true)
-        } else if(prData) {
+        } else if (prData) {
             updatePRCounts(prData, false)
         }
     }, [prData, adminPrData])
@@ -183,7 +183,7 @@ export const NavBar = () => {
     useEffect(() => {
         if ((user_id === "Administrator" || role === "Nirmaan Admin Profile") && adminSRData) {
             updateSRCounts(adminSRData, true)
-        } else if(srData) {
+        } else if (srData) {
             updateSRCounts(srData, false)
         }
     }, [srData, adminSRData])
@@ -282,7 +282,7 @@ export const NavBar = () => {
     // useFrappeEventListener("pr:statusChanged", async (event) => { // not working
     //     await handlePRStatusChangedEvent(role, user_id);
     // });
-    
+
     // useFrappeEventListener("pr:resolved", async (event) => {
     //     await handlePRResolvedEvent(db, event, role, user_id, add_new_notification, mutate);
     // });
@@ -424,18 +424,18 @@ export const NavBar = () => {
                                 <div className="flex justify-between items-center relative">
                                     Approve PR
                                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminPendingPRCount && adminPendingPRCount !== 0 ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                            {adminPendingPRCount}
-                                        </span>
-                                    </div>
-                                    ) : (
-                                        (pendingPRCount && pendingPRCount !== 0) ? (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                            {pendingPRCount}
-                                        </span>
-                                    </div>
+                                                {adminPendingPRCount}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (pendingPRCount && pendingPRCount !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {pendingPRCount}
+                                                </span>
+                                            </div>
                                         ) : ""
                                     )}
                                 </div>
@@ -446,18 +446,18 @@ export const NavBar = () => {
                                 <div className="flex justify-between items-center relative">
                                     Approve PO
                                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovePRCount && adminApprovePRCount !== 0 ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                            {adminApprovePRCount}
-                                        </span>
-                                    </div>
-                                    ) : (
-                                        (approvePRCount && approvePRCount !== 0) ? (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                            {approvePRCount}
-                                        </span>
-                                    </div>
+                                                {adminApprovePRCount}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (approvePRCount && approvePRCount !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {approvePRCount}
+                                                </span>
+                                            </div>
                                         ) : ""
                                     )}
                                 </div>
@@ -469,18 +469,18 @@ export const NavBar = () => {
                                 <div className="flex justify-between items-center relative">
                                     Approve Amended PO
                                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminAmendPOCount && adminAmendPOCount !== 0 ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                            {adminAmendPOCount}
-                                        </span>
-                                    </div>
-                                    ) : (
-                                        (amendPOCount && amendPOCount !== 0) ? (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                            {amendPOCount}
-                                        </span>
-                                    </div>
+                                                {adminAmendPOCount}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (amendPOCount && amendPOCount !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {amendPOCount}
+                                                </span>
+                                            </div>
                                         ) : ""
                                     )}
                                 </div>
@@ -492,46 +492,47 @@ export const NavBar = () => {
                                 <div className="flex justify-between items-center relative">
                                     Approve Sent Back PO
                                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewApproveSBCount && adminNewApproveSBCount !== 0 ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                            {adminNewApproveSBCount}
-                                        </span>
-                                    </div>
-                                    ) : (
-                                        (newSBApproveCount && newSBApproveCount !== 0) ? (
                                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                             <span className="text-white text-xs font-bold">
-                                            {newSBApproveCount}
-                                        </span>
-                                    </div>
+                                                {adminNewApproveSBCount}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (newSBApproveCount && newSBApproveCount !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {newSBApproveCount}
+                                                </span>
+                                            </div>
                                         ) : ""
                                     )}
                                 </div>
                             ),
 
                         },
-                        { key: '/approve-service-request', label: (
-                            <div className="flex justify-between items-center relative">
-                                Approve Service Order
-                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminSelectedSRCount && adminSelectedSRCount !== 0 ? (
-                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                    <span className="text-white text-xs font-bold">
-                                        {adminSelectedSRCount}
-                                    </span>
+                        {
+                            key: '/approve-service-request', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Approve Service Order
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminSelectedSRCount && adminSelectedSRCount !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminSelectedSRCount}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (selectedSRCount && selectedSRCount !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {selectedSRCount}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
                                 </div>
-                                ) : (
-                                    (selectedSRCount && selectedSRCount !== 0) ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                        {selectedSRCount}
-                                    </span>
-                                </div>
-                                    ) : ""
-                                )}
-                            </div>
-                        ),
+                            ),
 
-                    },
+                        },
                     ],
                 }
             ]
@@ -543,91 +544,100 @@ export const NavBar = () => {
                     icon: <List className="h-4 w-4" />,
                     label: 'Procurement Requests',
                     children: [
-                        { key: '/new-procure-request', label: (
-                            <div className="flex justify-between items-center relative">
-                                New PR Request
-                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
-                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                    <span className="text-white text-xs font-bold">
-                                        {adminApprovedPRCount}
-                                    </span>
+                        {
+                            key: '/procure-request', label: (
+                                <div className="flex justify-between items-center relative">
+                                    New PR Request
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminApprovedPRCount}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (approvedPRCount && approvedPRCount !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {approvedPRCount}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
                                 </div>
-                                ) : (
-                                    (approvedPRCount && approvedPRCount !== 0) ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                        {approvedPRCount}
-                                    </span>
-                                </div>
-                                    ) : ""
-                                )}
-                            </div>
 
-                        )},
+                            )
+                        },
                         { key: '/update-quote', label: 'Update Quote' },
                         { key: '/choose-vendor', label: 'Choose Vendor' },
                         // {key: '/service-request', label: 'Service Requests'}
                     ],
                 },
+            ]
+            : []),
+        ...(role == 'Nirmaan Procurement Executive Profile' || role == 'Nirmaan Project Lead Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
+            ? [
                 {
                     key: 'pe-sr-actions',
                     icon: <SquareSquare className="h-4 w-4" />,
                     label: "Service Requests",
                     children: [
-                        {key: '/service-requests', label : 'View/Create SR'},
-                        {key: '/choose-service-vendor', label : 'Choose Service Vendor'},
-                        {key: '/approved-sr', label: (
-                            <div className="flex justify-between items-center relative">
-                                Approved SR
-                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedSRCount && adminApprovedSRCount !== 0 ? (
-                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                    <span className="text-white text-xs font-bold">
-                                        {adminApprovedSRCount}
-                                    </span>
+                        { key: '/service-request', label: 'View/Create SR' },
+                        { key: '/select-service-vendor', label: 'Select Service Vendor' },
+                        {
+                            key: '/approved-sr', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Approved SR
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedSRCount && adminApprovedSRCount !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminApprovedSRCount}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (approvedSRCount && approvedSRCount !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {approvedSRCount}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
                                 </div>
-                                ) : (
-                                    (approvedSRCount && approvedSRCount !== 0) ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                        {approvedSRCount}
-                                    </span>
-                                </div>
-                                    ) : ""
-                                )}
-                            </div>
-                        ),
+                            ),
 
-                    },
+                        },
                     ]
                 },
-                {
-                    key : 'pe-po-actions',
-                    icon : <ShoppingCart className="h-4 w-4" />,
-                    label: 'Purchase Orders',
-                    children : [
-                        { key: '/approved-po', label: (
-                            <div className="flex justify-between items-center relative">
-                                Approved PO
-                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
-                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                    <span className="text-white text-xs font-bold">
-                                        {adminNewPOCount}
-                                    </span>
-                                </div>
-                                ) : (
-                                    (newPOCount && newPOCount !== 0) ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                        {newPOCount}
-                                    </span>
-                                </div>
-                                    ) : ""
-                                )}
-                            </div>
 
-                        ),
-                            
-                         },
+                {
+                    key: 'pe-po-actions',
+                    icon: <ShoppingCart className="h-4 w-4" />,
+                    label: 'Purchase Orders',
+                    children: [
+                        {
+                            key: '/release-po', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Approved PO
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminNewPOCount}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (newPOCount && newPOCount !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {newPOCount}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
+                                </div>
+
+                            ),
+
+                        },
                         { key: '/released-po', label: 'Released PO' }
                     ]
                 }
@@ -635,73 +645,79 @@ export const NavBar = () => {
             : []),
         ...(role == 'Nirmaan Procurement Executive Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
             ? [
-                { 
-                    key: 'sent-back-actions', 
+                {
+                    key: 'sent-back-actions',
                     icon: <SendToBack className="h-4 w-4" />,
-                    label: 'Sent Back Requests', 
+                    label: 'Sent Back Requests',
                     children: [
-                        { key: '/rejected-sb', label: (
-                            <div className="flex justify-between items-center relative">
-                                Rejected Sent Back
-                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.rejected && adminNewSBCounts.rejected !== 0 ? (
-                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                    <span className="text-white text-xs font-bold">
-                                        {adminNewSBCounts.rejected}
-                                    </span>
+                        {
+                            key: '/rejected-sb', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Rejected Sent Back
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.rejected && adminNewSBCounts.rejected !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminNewSBCounts.rejected}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (newSBCounts.rejected && newSBCounts.rejected !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {newSBCounts.rejected}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
                                 </div>
-                                ) : (
-                                    (newSBCounts.rejected && newSBCounts.rejected !== 0) ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                        {newSBCounts.rejected}
-                                    </span>
-                                </div>
-                                    ) : ""
-                                )}
-                            </div>
 
-                        )},
-                        { key: '/delayed-sb', label: (
-                            <div className="flex justify-between items-center relative">
-                                Delayed Sent Back
-                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.delayed && adminNewSBCounts.delayed !== 0 ? (
-                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                    <span className="text-white text-xs font-bold">
-                                        {adminNewSBCounts.delayed}
-                                    </span>
+                            )
+                        },
+                        {
+                            key: '/delayed-sb', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Delayed Sent Back
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.delayed && adminNewSBCounts.delayed !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminNewSBCounts.delayed}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (newSBCounts.delayed && newSBCounts.delayed !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {newSBCounts.delayed}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
                                 </div>
-                                ) : (
-                                    (newSBCounts.delayed && newSBCounts.delayed !== 0) ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                        {newSBCounts.delayed}
-                                    </span>
-                                </div>
-                                    ) : ""
-                                )}
-                            </div>
 
-                        )},
-                        { key: '/cancelled-sb', label: (
-                            <div className="flex justify-between items-center relative">
-                                Cancelled Sent Back
-                                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.cancelled && adminNewSBCounts.cancelled !== 0 ? (
-                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                    <span className="text-white text-xs font-bold">
-                                        {adminNewSBCounts.cancelled}
-                                    </span>
+                            )
+                        },
+                        {
+                            key: '/cancelled-sb', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Cancelled Sent Back
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.cancelled && adminNewSBCounts.cancelled !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminNewSBCounts.cancelled}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (newSBCounts.cancelled && newSBCounts.cancelled !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {newSBCounts.cancelled}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
                                 </div>
-                                ) : (
-                                    (newSBCounts.cancelled && newSBCounts.cancelled !== 0) ? (
-                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                        <span className="text-white text-xs font-bold">
-                                        {newSBCounts.cancelled}
-                                    </span>
-                                </div>
-                                    ) : ""
-                                )}
-                            </div>
-                        )}
+                            )
+                        }
                     ]
                 }
             ] : []
@@ -718,10 +734,10 @@ export const NavBar = () => {
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
-    const openKey = ["prs&milestones", "approve-new-pr", "approve-po",
-        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["new-procure-request", "update-quote",
-            "choose-vendor"].includes(selectedKeys) ? "pe-actions" : ["approved-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
-            ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-requests", "choose-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
+    const openKey = ["prs&milestones", "approve-order", "approve-vendor",
+        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["service-request", "procure-request", "update-quote",
+            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" :
+        ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
 
     if (user_id !== "Administrator" && !role) {
         return (<div>loading...</div>)
