@@ -545,7 +545,7 @@ export const NavBar = () => {
                     label: 'Procurement Requests',
                     children: [
                         {
-                            key: '/new-procure-request', label: (
+                            key: '/procure-request', label: (
                                 <div className="flex justify-between items-center relative">
                                     New PR Request
                                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
@@ -554,266 +554,263 @@ export const NavBar = () => {
                                                 {adminApprovedPRCount}
                                             </span>
                                         </div>
-
-                                    )
-                        },
-                                    {key: '/update-quote', label: 'Update Quote' },
-                                    {key: '/choose-vendor', label: 'Choose Vendor' },
-                        // {key: '/service-request', label: 'Service Requests'}
-                                    ],
-                },
-                                    ]
-                                    : []),
-                                    ...(role == 'Nirmaan Procurement Executive Profile' || role == 'Nirmaan Project Lead Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
-                                    ? [
-                                    {
-                                        key: 'pe-sr-actions',
-                                    icon: <SquareSquare className="h-4 w-4" />,
-                                    label: "Service Requests",
-                                    children: [
-                                    {key: '/service-requests', label : 'View/Create SR'},
-                                    {key: '/choose-service-vendor', label : 'Choose Service Vendor'},
-                                    {key: '/approved-sr', label: (
-                                    <div className="flex justify-between items-center relative">
-                                        Approved SR
-                                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedSRCount && adminApprovedSRCount !== 0 ? (
+                                    ) : (
+                                        (approvedPRCount && approvedPRCount !== 0) ? (
                                             <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
                                                 <span className="text-white text-xs font-bold">
-                                                    {adminApprovedSRCount}
+                                                    {approvedPRCount}
                                                 </span>
                                             </div>
-                                        ),
+                                        ) : ""
+                                    )}
+                                </div>
 
+                            )
                         },
-                                        ]
+                        { key: '/update-quote', label: 'Update Quote' },
+                        { key: '/choose-vendor', label: 'Choose Vendor' },
+                        // {key: '/service-request', label: 'Service Requests'}
+                    ],
                 },
-                                        {
-                                            key : 'pe-po-actions',
-                                        icon : <ShoppingCart className="h-4 w-4" />,
-                                        label: 'Purchase Orders',
-                                        children : [
-                                        {key: '/approved-po', label: (
-                                        <div className="flex justify-between items-center relative">
-                                            Approved PO
-                                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
-                                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                    <span className="text-white text-xs font-bold">
-                                                        {adminNewPOCount}
-                                                    </span>
-                                                </div>
-                                            ) : (
-                                                (newPOCount && newPOCount !== 0) ? (
-                                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                        <span className="text-white text-xs font-bold">
-                                                            {newPOCount}
-                                                        </span>
-                                                    </div>
-                                                ) : ""
-                                            )}
+            ]
+            : []),
+        ...(role == 'Nirmaan Procurement Executive Profile' || role == 'Nirmaan Project Lead Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
+            ? [
+                {
+                    key: 'pe-sr-actions',
+                    icon: <SquareSquare className="h-4 w-4" />,
+                    label: "Service Requests",
+                    children: [
+                        { key: '/service-request', label: 'View/Create SR' },
+                        { key: '/select-service-vendor', label: 'Select Service Vendor' },
+                        {
+                            key: '/approved-sr', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Approved SR
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedSRCount && adminApprovedSRCount !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminApprovedSRCount}
+                                            </span>
                                         </div>
-
-                                        {
-                                            key: 'pe-po-actions',
-                                        icon: <ShoppingCart className="h-4 w-4" />,
-                                        label: 'Purchase Orders',
-                                        children: [
-                                        {
-                                            key: '/release-po', label: (
-                                        <div className="flex justify-between items-center relative">
-                                            Approved PO
-                                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
-                                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                    <span className="text-white text-xs font-bold">
-                                                        {adminNewPOCount}
-                                                    </span>
-                                                </div>
-                                            ) : (
-                                                (newPOCount && newPOCount !== 0) ? (
-                                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                        <span className="text-white text-xs font-bold">
-                                                            {newPOCount}
-                                                        </span>
-                                                    </div>
-                                                ) : ""
-                                            )}
-                                        </div>
-
-                                        ),
+                                    ) : (
+                                        (approvedSRCount && approvedSRCount !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {approvedSRCount}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
+                                </div>
+                            ),
 
                         },
-                                        {key: '/released-po', label: 'Released PO' }
-                                        ]
+                    ]
+                },
+
+                {
+                    key: 'pe-po-actions',
+                    icon: <ShoppingCart className="h-4 w-4" />,
+                    label: 'Purchase Orders',
+                    children: [
+                        {
+                            key: '/release-po', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Approved PO
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminNewPOCount}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        (newPOCount && newPOCount !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {newPOCount}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
+                                </div>
+
+                            ),
+
+                        },
+                        { key: '/released-po', label: 'Released PO' }
+                    ]
                 }
-                                        ]
-                                        : []),
-                                        ...(role == 'Nirmaan Procurement Executive Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
-                                        ? [
-                                        {
-                                            key: 'sent-back-actions',
-                                        icon: <SendToBack className="h-4 w-4" />,
-                                        label: 'Sent Back Requests',
-                                        children: [
-                                        {
-                                            key: '/rejected-sb', label: (
-                                        <div className="flex justify-between items-center relative">
-                                            Rejected Sent Back
-                                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.rejected && adminNewSBCounts.rejected !== 0 ? (
-                                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                    <span className="text-white text-xs font-bold">
-                                                        {adminNewSBCounts.rejected}
-                                                    </span>
-                                                </div>
-                                            ) : (
-                                                (newSBCounts.rejected && newSBCounts.rejected !== 0) ? (
-                                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                        <span className="text-white text-xs font-bold">
-                                                            {newSBCounts.rejected}
-                                                        </span>
-                                                    </div>
-                                                ) : ""
-                                            )}
+            ]
+            : []),
+        ...(role == 'Nirmaan Procurement Executive Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
+            ? [
+                {
+                    key: 'sent-back-actions',
+                    icon: <SendToBack className="h-4 w-4" />,
+                    label: 'Sent Back Requests',
+                    children: [
+                        {
+                            key: '/rejected-sb', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Rejected Sent Back
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.rejected && adminNewSBCounts.rejected !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminNewSBCounts.rejected}
+                                            </span>
                                         </div>
+                                    ) : (
+                                        (newSBCounts.rejected && newSBCounts.rejected !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {newSBCounts.rejected}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
+                                </div>
 
-                                        )
+                            )
                         },
-                                        {
-                                            key: '/delayed-sb', label: (
-                                        <div className="flex justify-between items-center relative">
-                                            Delayed Sent Back
-                                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.delayed && adminNewSBCounts.delayed !== 0 ? (
-                                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                    <span className="text-white text-xs font-bold">
-                                                        {adminNewSBCounts.delayed}
-                                                    </span>
-                                                </div>
-                                            ) : (
-                                                (newSBCounts.delayed && newSBCounts.delayed !== 0) ? (
-                                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                        <span className="text-white text-xs font-bold">
-                                                            {newSBCounts.delayed}
-                                                        </span>
-                                                    </div>
-                                                ) : ""
-                                            )}
+                        {
+                            key: '/delayed-sb', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Delayed Sent Back
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.delayed && adminNewSBCounts.delayed !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminNewSBCounts.delayed}
+                                            </span>
                                         </div>
+                                    ) : (
+                                        (newSBCounts.delayed && newSBCounts.delayed !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {newSBCounts.delayed}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
+                                </div>
 
-                                        )
+                            )
                         },
-                                        {
-                                            key: '/cancelled-sb', label: (
-                                        <div className="flex justify-between items-center relative">
-                                            Cancelled Sent Back
-                                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.cancelled && adminNewSBCounts.cancelled !== 0 ? (
-                                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                    <span className="text-white text-xs font-bold">
-                                                        {adminNewSBCounts.cancelled}
-                                                    </span>
-                                                </div>
-                                            ) : (
-                                                (newSBCounts.cancelled && newSBCounts.cancelled !== 0) ? (
-                                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                        <span className="text-white text-xs font-bold">
-                                                            {newSBCounts.cancelled}
-                                                        </span>
-                                                    </div>
-                                                ) : ""
-                                            )}
+                        {
+                            key: '/cancelled-sb', label: (
+                                <div className="flex justify-between items-center relative">
+                                    Cancelled Sent Back
+                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewSBCounts.cancelled && adminNewSBCounts.cancelled !== 0 ? (
+                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                            <span className="text-white text-xs font-bold">
+                                                {adminNewSBCounts.cancelled}
+                                            </span>
                                         </div>
-                                        )
+                                    ) : (
+                                        (newSBCounts.cancelled && newSBCounts.cancelled !== 0) ? (
+                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                                <span className="text-white text-xs font-bold">
+                                                    {newSBCounts.cancelled}
+                                                </span>
+                                            </div>
+                                        ) : ""
+                                    )}
+                                </div>
+                            )
                         }
-                                        ]
+                    ]
                 }
-                                        ] : []
-                                        ),
-                                        ];
+            ] : []
+        ),
+    ];
 
-                                        const allKeys = [
-                                        "projects", "users", "items", "vendors", "customers",
-                                        "prs&milestones", "approve-new-pr", "approve-po",
-                                        "approve-sent-back", "approve-amended-po", "new-procure-request", "update-quote",
-                                        "choose-vendor", "approved-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
-                                        "service-requests", "approve-service-request", "choose-service-vendor", "approved-sr"
-                                        ];
+    const allKeys = [
+        "projects", "users", "items", "vendors", "customers",
+        "prs&milestones", "approve-new-pr", "approve-po",
+        "approve-sent-back", "approve-amended-po", "new-procure-request", "update-quote",
+        "choose-vendor", "approved-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
+        "service-requests", "approve-service-request", "choose-service-vendor", "approved-sr"
+    ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
-                                        const openKey = ["prs&milestones", "approve-new-pr", "approve-po",
-                                        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["new-procure-request", "update-quote",
-                                        "choose-vendor"].includes(selectedKeys) ? "pe-actions" : ["approved-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" :
-                                        ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-requests", "choose-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
+    const openKey = ["prs&milestones", "approve-order", "approve-vendor",
+        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["service-request", "procure-request", "update-quote",
+            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" :
+        ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
 
-                                        if (user_id !== "Administrator" && !role) {
+    if (user_id !== "Administrator" && !role) {
         return (<div>loading...</div>)
     }
 
-                                        return (
-                                        <div className="w-full flex flex-col overflow-hidden" style={{ height: 'calc(var(--vh, 1vh) * 100)' }}>
-                                            {/* Top Navbar */}
-                                            <div className="fixed top-0 left-0 w-full bg-white shadow-md z-50">
-                                                <div className="flex h-16 items-center px-2 md:px-4">
-                                                    <div className="flex items-center justify-center">
-                                                        {(data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
-                                                            <Button type="text" className={`border border-slate-400 px-4 ${!collapsed && "bg-gray-200"}`} onClick={isSmallScreen ? handleMobileSidebarToggle : toggleCollapsed}>
-                                                                {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                                                            </Button>
-                                                        )}
-                                                        <MainNav className="mx-2 md:mx-4" />
-                                                    </div>
-                                                    <div className="ml-auto flex items-center space-x-4">
-                                                        <ModeToggle />
-                                                        <Notifications />
-                                                        <UserNav />
-                                                    </div>
-                                                </div>
-                                            </div>
+    return (
+        <div className="w-full flex flex-col overflow-hidden" style={{ height: 'calc(var(--vh, 1vh) * 100)' }}>
+            {/* Top Navbar */}
+            <div className="fixed top-0 left-0 w-full bg-white shadow-md z-50">
+                <div className="flex h-16 items-center px-2 md:px-4">
+                    <div className="flex items-center justify-center">
+                        {(data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
+                            <Button type="text" className={`border border-slate-400 px-4 ${!collapsed && "bg-gray-200"}`} onClick={isSmallScreen ? handleMobileSidebarToggle : toggleCollapsed}>
+                                {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                            </Button>
+                        )}
+                        <MainNav className="mx-2 md:mx-4" />
+                    </div>
+                    <div className="ml-auto flex items-center space-x-4">
+                        <ModeToggle />
+                        <Notifications />
+                        <UserNav />
+                    </div>
+                </div>
+            </div>
 
-                                            {/* Main Content Wrapper */}
-                                            <div className="flex mt-16 overflow-hidden" style={{ height: 'calc(var(--vh, 1vh) * 100 - 64px)' }}>
-                                                {/* Sidebar for large screens */}
-                                                {!isSmallScreen && (data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
-                                                    <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto overflow-x-hidden scrollbar-container ${collapsed ? "sm:w-16 w-0" : role === "Nirmaan Project Manager Profile" ? "sm:w-40 w-0" : "sm:w-64 w-0"}`}>
-                                                        <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70, dropdownWidth: 220 } } }}>
-                                                            <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
-                                                                ...item,
-                                                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
-                                                                children: item.children?.map((child) => ({
-                                                                    ...child,
-                                                                    label: <Link to={child.key}>{child.label}</Link>
-                                                                })),
-                                                            }))} />
-                                                        </ConfigProvider>
-                                                    </div>
-                                                )}
+            {/* Main Content Wrapper */}
+            <div className="flex mt-16 overflow-hidden" style={{ height: 'calc(var(--vh, 1vh) * 100 - 64px)' }}>
+                {/* Sidebar for large screens */}
+                {!isSmallScreen && (data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
+                    <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto overflow-x-hidden scrollbar-container ${collapsed ? "sm:w-16 w-0" : role === "Nirmaan Project Manager Profile" ? "sm:w-40 w-0" : "sm:w-64 w-0"}`}>
+                        <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70, dropdownWidth: 220 } } }}>
+                            <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
+                                ...item,
+                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                children: item.children?.map((child) => ({
+                                    ...child,
+                                    label: <Link to={child.key}>{child.label}</Link>
+                                })),
+                            }))} />
+                        </ConfigProvider>
+                    </div>
+                )}
 
-                                                {/* Sheet for small screens */}
-                                                {isSmallScreen && (data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
-                                                    <Sheet open={isMobileSidebarOpen} onOpenChange={handleMobileSidebarToggle}>
-                                                        <SheetContent side="left" className={`overflow-y-auto overflow-x-hidden scrollbar-container ${role === "Nirmaan Project Manager Profile" ? "w-64" : ""}`}>
-                                                            <div className={`${role === "Nirmaan Project Manager Profile" ? "" : "max-w-[95%]"}`}>
-                                                                <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", activeBarBorderWidth: 0 } } }}>
-                                                                    <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
-                                                                        ...item,
-                                                                        onClick: () => setIsMobileSidebarOpen(false),
-                                                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
-                                                                        children: item.children?.map((child) => ({
-                                                                            ...child,
-                                                                            label: <Link to={child.key}>{child.label}</Link>
-                                                                        })),
-                                                                    }))} />
-                                                                </ConfigProvider>
-                                                            </div>
-                                                        </SheetContent>
-                                                    </Sheet>
-                                                )}
+                {/* Sheet for small screens */}
+                {isSmallScreen && (data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
+                    <Sheet open={isMobileSidebarOpen} onOpenChange={handleMobileSidebarToggle}>
+                        <SheetContent side="left" className={`overflow-y-auto overflow-x-hidden scrollbar-container ${role === "Nirmaan Project Manager Profile" ? "w-64" : ""}`}>
+                            <div className={`${role === "Nirmaan Project Manager Profile" ? "" : "max-w-[95%]"}`}>
+                                <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", activeBarBorderWidth: 0 } } }}>
+                                    <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
+                                        ...item,
+                                        onClick: () => setIsMobileSidebarOpen(false),
+                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                        children: item.children?.map((child) => ({
+                                            ...child,
+                                            label: <Link to={child.key}>{child.label}</Link>
+                                        })),
+                                    }))} />
+                                </ConfigProvider>
+                            </div>
+                        </SheetContent>
+                    </Sheet>
+                )}
 
-                                                {/* Content Area */}
-                                                <div id="scrollwindow" className="flex-1 px-4 py-2 overflow-auto transition-all duration-300 ease-in-out">
-                                                    <ErrorBoundaryWithNavigationReset>
-                                                        <ScrollToTop />
-                                                        <Outlet />
-                                                    </ErrorBoundaryWithNavigationReset>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        );
+                {/* Content Area */}
+                <div id="scrollwindow" className="flex-1 px-4 py-2 overflow-auto transition-all duration-300 ease-in-out">
+                    <ErrorBoundaryWithNavigationReset>
+                        <ScrollToTop />
+                        <Outlet />
+                    </ErrorBoundaryWithNavigationReset>
+                </div>
+            </div>
+        </div>
+    );
 };
