@@ -659,14 +659,14 @@ export const SelectVendors = () => {
     //     return percentDiff.toFixed(2);
     // }
 
-    if (procurement_request_list_loading || quotation_request_list_loading || vendor_list_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (procurement_request_list_loading || quotation_request_list_loading || vendor_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
 
     return (
         <>
             {page == 'updatequotation' &&
                 <div className="flex-1 space-y-2 md:space-y-4">
                     <div className="flex items-center pt-1  pb-4">
-                        <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
+                        {/* <ArrowLeft onClick={() => navigate("/select-vendor-list")} /> */}
                         <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Choose Vendor/Item Quotes</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />

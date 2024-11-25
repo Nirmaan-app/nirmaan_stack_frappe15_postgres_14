@@ -1,4 +1,4 @@
-import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, useSidebar } from "@/components/ui/sidebar"
+import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { BadgeCheck, Bell, Calendar, ChevronDown, ChevronRight, ChevronsUpDown, ChevronUp, CreditCard, Home, Inbox, LogOut, Search, Settings, Sparkles, User2 } from "lucide-react"
 import logo from "@/assets/logo-svg.svg"
 import nLogo from "@/assets/LOGO.png"
@@ -33,6 +33,8 @@ export function NewSidebar() {
 
     const [role, setRole] = useState(null)
     const location = useLocation();
+
+    const navigate = useNavigate()
 
     const user_id = Cookies.get('user_id') ?? ''
 
@@ -342,7 +344,7 @@ export function NewSidebar() {
     }, [user_id, data]);
 
     const items = [
-        // { key: '/', icon: <LayoutGrid className="h-4 w-4" />, label: 'Dashboard' },
+        { key: '/', icon: LayoutGrid, label: 'Dashboard' },
         ...(user_id == "Administrator" || role == "Nirmaan Admin Profile"
             ? [
                 {
@@ -465,9 +467,9 @@ export function NewSidebar() {
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
-    const openKey = ["prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["service-request", "procure-request", "update-quote",
-            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
+    const openKey = ["projects", "users", "items", "vendors", "customers"].includes(selectedKeys) ? "admin-actions" : ["prs&milestones", "approve-order", "approve-vendor",
+        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["procure-request", "update-quote",
+            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
             ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
 
 
@@ -479,19 +481,30 @@ export function NewSidebar() {
       }
     }
 
+    // console.log("selectedKeys", selectedKeys)
+
+
+    // console.log("openkey", openKey)
+
     return (
       <Sidebar collapsible="icon">
-      <SidebarHeader className="flex items-center justify-center">
-      <Link onClick={handleCloseMobile} to={"/"}>
-        {state === "expanded" ? (
-          <img src={logo} alt="Nirmaan" width="158" height="48" />
+      <SidebarHeader className="flex flex-row items-center justify-center">
+        {!isMobile ? (
+            <Link to={"/"}>
+            {state === "expanded" && (
+              <img src={logo} alt="Nirmaan" width="158" height="48" />
+            )}
+            </Link>
         ) : (
-          <img src={nLogo} alt="Nirmaan" />
+            <Link to={"/"}>
+                <img onClick={handleCloseMobile} src={logo} alt="Nirmaan" width="158" height="48" />
+            </Link>
+
         )}
-        </Link>
+        <SidebarTrigger />
       </SidebarHeader>
       <Separator />
-      <SidebarContent className="scrollbar-container">
+      <SidebarContent className="scrollbar-container overflow-x-hidden">
         <SidebarGroup>
           <SidebarMenu>
             {items.map((item) => (
@@ -502,16 +515,28 @@ export function NewSidebar() {
                 asChild
               >
                 <SidebarMenuItem>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton selectedKeys={selectedKeys} tooltip={item.children}>
-                      {item.icon && <item.icon />}
-                      <span className="font-medium">{item.label}</span>
-                      <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
+                    {item?.label === "Dashboard" ? (
+                    <SidebarMenuButton className={`${!openKey ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : ""}`} onClick={() => {
+                        if(isMobile) {
+                            toggleSidebar()
+                        }
+                        navigate("/")
+                    }} selectedKeys={selectedKeys} tooltip={item.label}>
+                        {item.icon && <item.icon />}
+                        <span className="font-medium">{item.label}</span>
+                      </SidebarMenuButton>
+                    ) : (
+                        <CollapsibleTrigger asChild>
+                        <SidebarMenuButton className={`${openKey === item?.key ? "text-[#D03B45] hover:text-[#D03B45] !important" : ""}`} selectedKeys={selectedKeys} tooltip={item.children}>
+                          {item.icon && <item.icon />}
+                          <span className="font-medium">{item.label}</span>
+                          <ChevronRight className="ml-auto mr-2 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                    )}
                   <CollapsibleContent>
                     <SidebarMenuSub className="space-y-1">
-                      {item.children.map((subitem) => (
+                      {item?.children?.map((subitem) => (
                         <SidebarMenuSubItem className="relative" key={subitem.key}>
                           <SidebarMenuSubButton onClick={handleCloseMobile} className={`${`/${selectedKeys}` === subitem.key ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : ""} rounded-md ${isMobile ? "w-60" : "w-52"}`} asChild>
                             <Link to={subitem.key}>
@@ -519,7 +544,7 @@ export function NewSidebar() {
                             </Link>
                           </SidebarMenuSubButton>
                           {subitem?.count !== 0 && (
-                            <span className="absolute top-2 -right-4 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center text-xs">
+                            <span className="absolute top-2 -right-2 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center text-xs">
                             {subitem.count}
                             </span>
                           )}

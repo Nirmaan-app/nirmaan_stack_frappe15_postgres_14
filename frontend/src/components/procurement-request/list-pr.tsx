@@ -67,7 +67,7 @@ export default function ListPR() {
     return (
         <div className="flex-1 space-y-4">
             <div className="flex items-center gap-1">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
                 <h2 className="text-xl  font-bold tracking-tight">Procurement Requests</h2>
             </div>
 

@@ -15,8 +15,9 @@ import {
 import { ViewVerticalIcon } from "@radix-ui/react-icons"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
-import { PanelLeft } from "lucide-react"
+import { Menu, PanelLeft, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { Link } from "react-router-dom"
+import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 
 const SIDEBAR_COOKIE_NAME = "sidebar:state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
@@ -228,7 +229,7 @@ const Sidebar = React.forwardRef<
             "group-data-[side=right]:rotate-180",
             variant === "floating" || variant === "inset"
               ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]"
-              : "group-data-[collapsible=icon]:w-[--sidebar-width-icon]"
+              : "group-data-[collapsible=icon]:w-20"
           )}
         />
         <div
@@ -240,7 +241,7 @@ const Sidebar = React.forwardRef<
             // Adjust the padding for floating and inset variants.
             variant === "floating" || variant === "inset"
               ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4)_+2px)]"
-              : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
+              : "group-data-[collapsible=icon]:w-16 group-data-[side=left]:border-r group-data-[side=right]:border-l",
             className
           )}
           {...props}
@@ -262,7 +263,7 @@ const SidebarTrigger = React.forwardRef<
   React.ElementRef<typeof Button>,
   React.ComponentProps<typeof Button>
 >(({ className, onClick, ...props }, ref) => {
-  const { toggleSidebar } = useSidebar()
+  const { toggleSidebar, state } = useSidebar()
 
   return (
     <Button
@@ -270,7 +271,7 @@ const SidebarTrigger = React.forwardRef<
       data-sidebar="trigger"
       variant="ghost"
       size="icon"
-      className={cn("h-7 w-7", className)}
+      className={cn("h-7 w-7 mt-1 flex items-center justify-center", className)}
       onClick={(event) => {
         onClick?.(event)
         toggleSidebar()
@@ -278,7 +279,13 @@ const SidebarTrigger = React.forwardRef<
       {...props}
     >
       {/* <ViewVerticalIcon /> */}
-      <PanelLeft />
+      {/* {state === "collapsed" ? (
+        <MenuUnfoldOutlined  />
+      ) : (
+        <MenuFoldOutlined  />
+      )} */}
+      {/* <PanelLeft className={`${state === "collapsed"}`} /> */}
+      <Menu />
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   )
@@ -521,9 +528,9 @@ const sidebarMenuButtonVariants = cva(
           "bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
       },
       size: {
-        default: "h-8 text-sm",
+        default: "h-8 text-sm group-data-[collapsible=icon]:ml-2",
         sm: "h-7 text-xs",
-        lg: "h-12 text-sm group-data-[collapsible=icon]:!p-0",
+        lg: "h-12 text-sm group-data-[collapsible=icon]:!p-0 group-data-[collapsible=icon]:ml-2",
       },
     },
     defaultVariants: {
@@ -618,7 +625,7 @@ const SidebarMenuButton = React.forwardRef<
           ))}
         </SidebarMenu>
       ) : (
-        tooltip.children
+        <p className={`${!selectedKeys ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} rounded-md px-2 py-1`}><Link to="/">{tooltip.children}</Link></p>
       )}
     </TooltipContent>
   </Tooltip>

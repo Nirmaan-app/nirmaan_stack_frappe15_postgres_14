@@ -188,9 +188,9 @@ export const SentBackRequest = ({type}) => {
 
     return (
             <div className="flex-1 md:space-y-4">
-                <div className="flex items-center justify-between pl-2 space-y-2">
+                {/* <div className="flex items-center justify-between pl-2 space-y-2">
                     <h2 className="text-lg font-bold tracking-tight">{type} Sent Back PR</h2>
-                </div>
+                </div> */}
                 {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
                 {(sent_back_list_loading || projects_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={sent_back_list || []} project_values={project_values} />

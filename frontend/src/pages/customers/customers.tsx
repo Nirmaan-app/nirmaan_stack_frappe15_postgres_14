@@ -182,9 +182,9 @@ export default function Customers() {
         <div className="flex-1 space-y-2 md:space-y-4">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1">
-                    <Link to="/">
+                    {/* <Link to="/">
                         <ArrowLeft className="" />
-                    </Link>
+                    </Link> */}
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Customers Dashboard</h2>
                 </div>
                 <Button asChild>

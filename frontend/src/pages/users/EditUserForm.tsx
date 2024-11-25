@@ -112,7 +112,7 @@ const EditUserForm = () => {
     return (
         <div className="flex-1">
             <div className="flex items-center gap-2">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/users/${id}`)} />
+                {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/users/${id}`)} /> */}
                 <h2 className="text-xl md:text-2xl font-bold tracking-tight">Edit User: <span className="text-primary">{id}</span></h2>
             </div>
 

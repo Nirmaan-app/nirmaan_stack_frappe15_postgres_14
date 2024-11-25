@@ -361,8 +361,8 @@ export const EditProjectForm = () => {
             }} className="flex-1 md:space-y-4">
 
                 <div className="flex flex-col">
-                    <div className="flex items-center gap-1">
-                        <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${projectId}`)} />
+                    <div className="flex items-center gap-1 ml-6">
+                        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${projectId}`)} /> */}
                         <p className="text-black font-semibold text-2xl max-md:text-xl">Edit: <span className="text-red-700">{projectId}</span></p>
                         <sup className="text-red-700">*(beta)</sup>
                     </div>

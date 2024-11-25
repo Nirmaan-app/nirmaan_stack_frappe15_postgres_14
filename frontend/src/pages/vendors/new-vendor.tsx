@@ -318,8 +318,8 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         <>
         <div className={`flex-1 space-x-2 ${navigation ? "flex-1 md:space-y-4" : ""} `}>
             {navigation && (
-                <div className="flex gap-1">
-                    <Link to="/vendors"><ArrowLeft className="mt-1.5" /></Link>
+                <div className="flex gap-1 ml-8">
+                    {/* <Link to="/vendors"><ArrowLeft className="mt-1.5" /></Link> */}
                     <div>
                         <h2 className="text-2xl font-bold tracking-tight">Add New Vendor</h2>
                         <p className="text-muted-foreground">

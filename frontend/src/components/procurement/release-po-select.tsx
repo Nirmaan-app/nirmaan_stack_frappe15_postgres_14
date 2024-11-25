@@ -254,9 +254,9 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
     return (
         <>
             <div className="flex-1 md:space-y-4">
-                <div className="flex items-center justify-between space-y-2">
+                {/* <div className="flex items-center justify-between space-y-2">
                     <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">{not ? "Released" : "Approved"} PO</h2>
-                </div>
+                </div> */}
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
                 )}

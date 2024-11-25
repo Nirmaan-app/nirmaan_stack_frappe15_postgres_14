@@ -62,7 +62,7 @@ const ApprovePRList = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (pr_loading || project_loading || owner_loading || usersListLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (pr_loading || project_loading || owner_loading || usersListLoading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     if (pr_error || project_error || owner_error || usersListError) return <h1>Error</h1>
     if (pr?.workflow_state !== "Pending") {
         return (
@@ -637,7 +637,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 <div className="flex-1 md:space-y-4">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center pt-1  pb-4 ">
-                            <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                            {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
                             <h2 className="text-lg pl-2 font-bold tracking-tight">Approve/Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
 

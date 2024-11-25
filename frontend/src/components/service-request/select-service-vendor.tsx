@@ -405,13 +405,9 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
             {section === 'choose-vendor' && <>
                 <div className="flex-1 md:space-y-4">
                     <div className="flex items-center pt-1 pb-4">
-                        <ArrowLeft className='cursor-pointer' onClick={() => {
-                            if (resolve) {
-                                setPage("Summary")
-                            } else {
-                                navigate(-1)
-                            }
-                        }} />
+                        {resolve && (
+                            <ArrowLeft className='cursor-pointer' onClick={() => setPage("Summary")} />
+                        )}
                         {resolve ? (
                             <h2 className="text-base pl-2 font-bold tracking-tight">Resolve: <span className="text-red-700">SR-{sr_data?.name?.slice(-4)}</span></h2>
                         ) : (
@@ -541,7 +537,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                         </ConfigProvider>
                     </div> */}
 
-                    <div className="pt-6 overflow-x-auto">
+                    <div className="mt-6 overflow-x-auto">
                         <ConfigProvider
                         >
                             <AntTable

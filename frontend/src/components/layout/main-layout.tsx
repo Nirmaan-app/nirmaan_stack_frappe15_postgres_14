@@ -6,13 +6,15 @@ import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '../ui
 import { NewSidebar } from './NewSidebar';
 import ErrorBoundaryWithNavigationReset from '../common/ErrorBoundaryWrapper';
 import ScrollToTop from '@/hooks/ScrollToTop';
-import { Link, Outlet, useLocation } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Separator } from '../ui/separator';
 import { Breadcrumb, BreadcrumbEllipsis, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../ui/breadcrumb';
 import { UserNav } from '../nav/user-nav';
 import { Notifications } from '../nav/notifications';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { Badge } from '../ui/badge';
+import nLogoBlack from "@/assets/icons.svg"
+import { ArrowLeft } from 'lucide-react';
 
 export const MainLayout = ({children} : {children : React.ReactNode}) => {
 
@@ -22,7 +24,9 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
 
     const [project, setProject] = useState(null)
 
-    console.log("project", project)
+    const navigate = useNavigate()
+
+    // console.log("project", project)
 
     const [prId, setPrId] = useState(null)
     const [poId, setPoId] = useState(null)
@@ -90,24 +94,41 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
 
     return (
         <>
-            <div className='flex w-full'>
+            <div className='flex w-full relative h-auto'>
+              {isMobile && (
+                <div className='absolute top-[15px] -left-2 shadow-2xl'>
+                <SidebarTrigger />
+              </div>
+              )}
                 <NewSidebar />
-            <div className='flex flex-col w-full overflow-auto'>
-                <header className="flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
-                    <div className="flex items-center gap-2 px-4">
-                       <SidebarTrigger className="-ml-1" />
-                       <Separator orientation="vertical" className="mr-2 h-4" />
+            <div className='w-full h-auto overflow-auto'>
+                <header className={`${(!isMobile && state === "collapsed") ? "mt-1" : ""} flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}>
+                    <div className={`${isMobile ? "ml-2" : ""} flex items-center gap-2 px-4`}>
+                      {/* {isMobile && (
+                        <>
+                          <Link to={`/`}>
+                            <img src={nLogoBlack} alt="Nirmaan" width="24" height="25" />
+                          </Link>
+                          <Separator orientation="vertical" className="mr-1 h-4" />
+                        </>
+                      )} */}
+                      <ArrowLeft onClick={() => navigate(-1)} className='text-primary cursor-pointer' />
+                       <Separator orientation="vertical" className="mr-1 h-4" />
                        <Breadcrumb>
             <BreadcrumbList>
-              {locationsPaths?.length > 2 ? (
+              {locationsPaths?.length > (isMobile ? 1 : 2) ? (
                 <>
                   {/* First Item */}
-                  <BreadcrumbItem>
+                  {!isMobile && (
+                    <>
+                    <BreadcrumbItem>
                     <Link to={`/${locationsPaths[0]}`}>
                       <BreadcrumbLink>{locationsPaths[0]?.toUpperCase()}</BreadcrumbLink>
                     </Link>
                   </BreadcrumbItem>
                   <BreadcrumbSeparator />
+                     </>
+                  )}
 
                   {/* Ellipsis Dropdown */}
                   <BreadcrumbItem>
@@ -117,9 +138,9 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
                         <span className="sr-only">Toggle menu</span>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start">
-                        {locationsPaths.slice(1, -1).map((route, index) => (
+                        {locationsPaths.slice((isMobile ? 0 : 1), -1).map((route, index) => (
                           <DropdownMenuItem key={index}>
-                            <Link to={`/${locationsPaths.slice(0, index + 2).join('/')}`}>
+                            <Link to={`/${locationsPaths.slice(0, index + (isMobile ? 1 : 2)).join('/')}`}>
                               {route.toUpperCase()}
                             </Link>
                           </DropdownMenuItem>
@@ -143,14 +164,14 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
                       <React.Fragment key={index}>
                         <BreadcrumbItem>
                           <Link to={`/${toNavigate}`}>
-                            <BreadcrumbLink>{route?.toUpperCase()}</BreadcrumbLink>
+                            <BreadcrumbLink>{route === "release-po" ? "APPROVED-PO" : route?.toUpperCase()}</BreadcrumbLink>
                           </Link>
                         </BreadcrumbItem>
                         <BreadcrumbSeparator />
                       </React.Fragment>
                     ) : (
                       <BreadcrumbItem key={index}>
-                        <BreadcrumbPage>{route?.toUpperCase()}</BreadcrumbPage>
+                        <BreadcrumbPage>{route === "release-po" ? "APPROVED-PO" : route?.toUpperCase()}</BreadcrumbPage>
                       </BreadcrumbItem>
                     )
                   );
@@ -169,7 +190,7 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
                     )}
                 </header>
                 <main 
-                    className={`flex flex-1 flex-col p-4 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
+                    className={`flex flex-1 flex-col py-4 px-2 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
                 >
                 <ErrorBoundaryWithNavigationReset>
                     <ScrollToTop />
