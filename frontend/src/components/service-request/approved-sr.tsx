@@ -15,6 +15,10 @@ import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { toast } from "../ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
 import { Button as ShadButton } from "../ui/button"
+import { Separator } from "../ui/separator";
+import { RadioGroup, RadioGroupItem } from "../ui/radiogroup";
+import { Label } from "../ui/label";
+import { Switch } from "../ui/switch";
 
 const { Sider, Content } = Layout;
 
@@ -32,6 +36,9 @@ export const ApprovedSR = () => {
     const [notes, setNotes] = useState([])
     const [curNote, setCurNote] = useState(null)
     const [collapsed, setCollapsed] = useState(true);
+    const [gstEnabled, setGstEnabled] = useState(null)
+    const [advance, setAdvance]= useState(0)
+    const [customAdvance, setCustomAdvance] = useState(false);
 
     const { data: service_vendor, isLoading: service_vendor_loading, error: service_vendor_error, mutate: service_vendor_mutate } = useFrappeGetDoc("Vendors", orderData?.vendor, orderData?.vendor ? `Vendors ${orderData?.vendor}` : null)
 
@@ -47,9 +54,17 @@ export const ApprovedSR = () => {
 
     useEffect(() => {
         if (service_request) {
+            console.log("running")
             setOrderData(service_request)
             const notes = service_request?.notes && JSON.parse(service_request?.notes)?.list
             setNotes(notes || [])
+            const gst = service_request?.gst
+            if(gst === "true") {
+                setGstEnabled(true)
+            } else {
+                setGstEnabled(false)
+            }
+            setAdvance(parseFloat(service_request?.advance) || 0)
         }
     }, [service_request])
 
@@ -120,10 +135,23 @@ export const ApprovedSR = () => {
     };
 
     const handleNotesSave = async () => {
+        let updatedData = {}
+
+        if(notes?.length) {
+            updatedData = {...updatedData, notes: { list: notes }}
+        }
+        if(service_request?.gst !== gstEnabled?.toString()) {
+            updatedData = {...updatedData, gst : gstEnabled?.toString()}
+        }
+
+        // if(parseFloat(service_request?.advance || 0) !== advance) {
+        //     updatedData = {...updatedData, advance: advance}
+        // }
+
         try {
-            await updateDoc("Service Requests", orderData?.name, {
-                notes: { list: notes }
-            })
+            const data = await updateDoc("Service Requests", orderData?.name, updatedData)
+
+            // console.log("updatedData", data)
 
             await service_request_mutate()
 
@@ -146,6 +174,10 @@ export const ApprovedSR = () => {
 
     // console.log("orderData", orderData)
 
+    // console.log("advance", advance, customAdvance)
+
+    // console.log("gstEnabled", gstEnabled)
+
     return (
         <div className='flex-1 md:space-y-4'>
             <div className="flex justify-between items-center">
@@ -160,20 +192,82 @@ export const ApprovedSR = () => {
             </div>
             <Layout>
                 <Sider theme='light' collapsedWidth={0} width={400} trigger={null} collapsible collapsed={collapsed}>
-                    <div className="flex flex-col gap-2">
+                    {gstEnabled !== null && (
+                        <div className="flex flex-col gap-2 py-6 border-b border-gray-200">
+                        <p className="font-semibold">Enable/Disable Tax Calculation</p>
+                        <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)}  /> 
+                    </div>
+                    )}
+                    {/* <div className="flex-1 py-6 border-b border-gray-200">
+                                <Label className="font-semibold">Advance (in %)</Label>
+                                <RadioGroup
+                                                onValueChange={(value) => {
+                                                    setAdvance(value !== "Other" ? parseFloat(value) : 0);
+                                                    setCustomAdvance(value === "Other");
+                                                }}
+                                                className="flex flex-col space-y-2 mt-2"
+                                            >
+                                                <div className="flex gap-4 items-center">
+                                                    <RadioGroupItem value="25" id="advance-25" />
+                                                    <Label htmlFor="advance-25" className="font-medium text-gray-700">25%</Label>
+
+                                                    <RadioGroupItem value="50" id="advance-50" />
+                                                    <Label htmlFor="advance-50" className="font-medium text-gray-700">50%</Label>
+
+                                                    <RadioGroupItem value="75" id="advance-75" />
+                                                    <Label htmlFor="advance-75" className="font-medium text-gray-700">75%</Label>
+
+                                                    <RadioGroupItem value="100" id="advance-100" />
+                                                    <Label htmlFor="advance-100" className="font-medium text-gray-700">100%</Label>
+
+                                                    <RadioGroupItem value="Other" id="advance-other" />
+                                                    <Label htmlFor="advance-other" className="font-medium text-gray-700">Other</Label>
+                                                </div>
+
+                                                {customAdvance && (
+                                                    <div className="mt-4">
+                                                        <Label htmlFor="custom-advance">Enter Custom Advance %</Label>
+                                                        <Input
+                                                            id="custom-advance"
+                                                            type="number"
+                                                            min="0"
+                                                            max="100"
+                                                            placeholder="Enter percentage"
+                                                            className="mt-2 border border-gray-300 rounded-lg p-2"
+                                                            value={advance}
+                                                            onChange={(e) => {
+                                                                const value = e.target.value
+                                                                if (value === "") {
+                                                                    setAdvance(0);
+                                                                } else if (parseFloat(value) < 0) {
+                                                                    setAdvance(0);
+                                                                } else if (parseFloat(value) > 100) {
+                                                                    setAdvance(100);
+                                                                } else {
+                                                                    setAdvance(parseFloat(value));
+                                                                }
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
+                                </RadioGroup>
+                    </div>             */}
+                    <div className="flex flex-col pt-4 gap-2">
                         <h3 className="text-sm font-semibold">Create Note Points</h3>
-                        <Input
-                            type="text"
-                            placeholder="type notes here..."
-                            value={curNote || ""}
-                            className="w-[90%]"
-                            onChange={(e) => setCurNote(e.target.value)}
-                        />
-                        <Button onClick={handleAddNote}
-                            className="w-16 h-12 flex gap-2 items-center"
-                            disabled={!curNote}>
-                            {editingIndex === null ? <><CirclePlus className="w-4 h-4" /><span>Add</span></> : <><Edit className="w-4 h-4" /><span>Update</span></>}
-                        </Button>
+                        <div className="flex max-md:flex-col gap-4 md:items-center">
+                            <Input
+                                type="text"
+                                placeholder="type notes here..."
+                                value={curNote || ""}
+                                className="w-[90%]"
+                                onChange={(e) => setCurNote(e.target.value)}
+                            />
+                            <Button onClick={handleAddNote}
+                                className="w-20"
+                                disabled={!curNote}>
+                                {editingIndex === null ? <div className="flex gap-1 items-center"><CirclePlus className="w-4 h-4" /><span>Add</span></div> : <div className="flex gap-1 items-center"><Edit className="w-4 h-4" /><span>Update</span></div>}
+                            </Button>
+                        </div>
                     </div>
 
                     {notes?.length > 0 && (
@@ -209,9 +303,8 @@ export const ApprovedSR = () => {
                         </div>
                     )}
 
-                    {(notes?.length > 0 || (service_request?.notes !== undefined && JSON.parse(service_request?.notes)?.list?.length > 0)) && (
-                        <Button disabled={update_loading} onClick={handleNotesSave} className="w-full mt-4 items-center flex gap-2">{update_loading ? <TailSpin width={20} height={20} color="red" /> : <><Save className="w-4 h-4" /> <span>Save</span></>}</Button>
-                    )}
+                        <Button disabled={update_loading || (!notes?.length && !(service_request?.notes && JSON.parse(service_request?.notes)?.list?.length > 0) && service_request?.gst === gstEnabled?.toString() && parseFloat(service_request?.advance || 0) === advance) } onClick={handleNotesSave} className="w-full mt-4 items-center flex gap-2">{update_loading ? <TailSpin width={20} height={20} color="red" /> : <div className="flex items-center gap-1"><Save className="w-4 h-4" /> <span>Save</span></div>}</Button>
+                    {/* <Separator className="my-6" /> */}
                 </Sider>
                 <Layout className='bg-white'>
                     <div className="flex">
@@ -244,7 +337,7 @@ export const ApprovedSR = () => {
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Service Order No.</div>
+                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No.</div>
                                                                 <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>
@@ -278,25 +371,28 @@ export const ApprovedSR = () => {
                                                 </tr>
                                                 <tr className="border-t border-black">
                                                     <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">No.</th>
-                                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th>
-                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Description</th>
+                                                    {/* <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th> */}
+                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Service Description</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
                                                     <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
-                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
+                                                    {gstEnabled && <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>}
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                                 </tr>
                                             </thead>
                                             <tbody className={`bg-white`}>
                                                 {orderData && JSON.parse(orderData?.service_order_list)?.list?.map((item, index) => (
                                                     <tr key={item.id} className={`${index === (orderData && JSON.parse(orderData?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
-                                                        <td className="py-2 text-sm whitespace-nowrap">{index + 1}.</td>
-                                                        <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
+                                                        <td className="py-2 text-sm whitespace-nowrap flex items-start">{index + 1}.</td>
+                                                        {/* <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td> */}
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
+                                                            <p className="font-semibold">{item?.category}</p>
+                                                            {item?.description}
+                                                        </td>
                                                         <td className="px-2 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
                                                         <td className=" py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
+                                                        {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>}
                                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate * item.quantity)}</td>
                                                     </tr>
                                                 ))}
@@ -319,8 +415,8 @@ export const ApprovedSR = () => {
                                                     <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                                    {/* <td className="px-4 py-2 text-sm whitespace-nowrap"></td> */}
+                                                    {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal())}</td>
                                                 </tr>
@@ -328,19 +424,19 @@ export const ApprovedSR = () => {
                                                     <td></td>
                                                     <td></td>
                                                     <td></td>
-                                                    <td></td>
-                                                    <td></td>
+                                                    {/* <td></td> */}
+                                                    {gstEnabled && <td></td>}
                                                     <td></td>
                                                     <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
-                                                        <div>Total Tax(GST):</div>
+                                                        {gstEnabled && <div>Total Tax(GST):</div>}
                                                         <div>Round Off:</div>
                                                         <div>Total:</div>
                                                     </td>
 
                                                     <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                                        <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div>
-                                                        <div className="ml-4">- {formatToIndianRupee((getTotal() * 1.18).toFixed(2) - Math.floor(getTotal() * 1.18))}</div>
-                                                        <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * 1.18))}</div>
+                                                        {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div> }
+                                                        <div className="ml-4">- {formatToIndianRupee((getTotal() * (gstEnabled ? 1.18 : 1)).toFixed(2) - Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
+                                                        <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
                                                     </td>
 
                                                 </tr>
@@ -358,15 +454,9 @@ export const ApprovedSR = () => {
                                                                 </ul>
                                                             </div>
                                                         )}
-                                                        {/* {notes !== "" && (
-                                                            <>
-                                                                <div className="text-gray-400 text-sm py-2">Note</div>
-                                                                <div className="text-sm text-gray-900">{"Placeholder"}</div>
-                                                            </>
-                                                        )}
-                                                        <div className="text-gray-400 text-sm py-2">Payment Terms</div>
+
+                                                        {/* <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                                         <div className="text-sm text-gray-900">
-                                                            Placeholder
                                                             {advance}% advance {advance === 100 ? "" : `and remaining ${100 - advance}% on material readiness before delivery of material to site`}
                                                         </div> */}
 
@@ -391,7 +481,7 @@ export const ApprovedSR = () => {
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Service Order No. :</div>
+                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No. :</div>
                                                                 <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>

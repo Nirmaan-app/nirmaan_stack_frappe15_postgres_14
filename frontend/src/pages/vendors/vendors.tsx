@@ -39,7 +39,7 @@ export default function Vendors() {
             }))
             setCategoryOptions(currOptions);
         }
-        console.log("options", categoryOptions)
+        // console.log("options", categoryOptions)
     }, [category_data]);
 
     const columns: ColumnDef<VendorsType>[] = useMemo(

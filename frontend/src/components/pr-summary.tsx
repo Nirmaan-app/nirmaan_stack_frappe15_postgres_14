@@ -151,7 +151,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
     const handleDeletePr = async () => {
         try {
             await deleteDoc("Procurement Requests", pr_data?.name)
-            await mutate("Procurement Requests,orderBy(creation-desc)")
+            await mutate(`Procurement Requests ${pr_data?.project}`)
             toast({
                 title: "Success!",
                 description: `PR: ${pr_data?.name} deleted successfully!`,
@@ -255,7 +255,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                     <Button disabled={updateLoading} onClick={handleSendForAppr}>{updateLoading ? <TailSpin width={20} height={16} color="white" /> : "Send for Approval"}</Button>
                                 )}
                                 {
-                                    ["Rejected", "Pending", role === "Nirmaan Project Lead Profile" ? "Approved" : ""].includes(pr_data?.workflow_state) && (
+                                    [...((!["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) && userData?.user_id === pr_data?.owner) ? ["Rejected", "Pending"] : []), ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) ? ["Approved", "Rejected", "Pending"] : []),].includes(pr_data?.workflow_state) && (
                                         <AlertDialog>
                                             <AlertDialogTrigger>
                                                 <Button className="flex items-center gap-1">

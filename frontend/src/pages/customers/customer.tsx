@@ -33,7 +33,7 @@ const CustomerView = ({ customerId }: { customerId: string }) => {
     limit: 1000
   })
 
-  console.log("asociated Projects", associatedProjects)
+  // console.log("asociated Projects", associatedProjects)
 
   const customerAddressID = data?.company_address;
 

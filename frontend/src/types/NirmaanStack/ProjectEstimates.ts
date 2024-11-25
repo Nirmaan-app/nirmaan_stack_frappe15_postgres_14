@@ -12,13 +12,13 @@ export interface ProjectEstimates{
 	idx?: number
 	/**	Project : Link - Projects	*/
 	project?: string
-	/**	Work Package : Link - Work Packages	*/
+	/**	Work Package : Link - Procurement Packages	*/
 	work_package?: string
 	/**	Category : Link - Category	*/
 	category?: string
 	/**	Item : Link - Items	*/
 	item?: string
-	/**	Item Name : Data	*/
+	/**	Item Name : Long Text	*/
 	item_name?: string
 	/**	UOM : Data	*/
 	uom?: string

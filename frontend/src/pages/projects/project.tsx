@@ -163,7 +163,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
     fields: ["*"],
-    filters: [["project", "=", projectId], ["status", "!=", "PO Approved"]],
+    filters: [["project", "=", projectId]], // removed ["status", "!=", "PO Approved"] for now
     limit: 1000,
     orderBy: { field: "creation", order: "desc" }
   },
@@ -586,9 +586,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           const srId = row.getValue("name")
           return (
-            <div className="font-medium">
+            <Link className="text-blue-500 underline" to={`/service-request/${srId}`}>
               {srId?.slice(-5)}
-            </div>
+            </Link>
           )
         }
       },
@@ -755,14 +755,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         existingItem.quantity = parseFloat(existingItem.quantity) + parseFloat(item.quantity);
         existingItem.amount += baseAmount;
         existingItem.amountWithTax += amountPlusTax
+        existingItem.averageRate = Math.floor((parseFloat(existingItem.averageRate) + parseFloat(item.quote)) / 2)
       } else {
         acc[item.work_package][item.category].push({
           ...item,
           amount: baseAmount,
           amountWithTax: amountPlusTax,
+          averageRate: item.quote
         });
       }
-
       return acc;
     }, {});
 
@@ -775,6 +776,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [po_item_data]);
 
   const { groupedData: categorizedData } = groupItemsByWorkPackageAndCategory(po_item_data);
+
+  // console.log("categorizedData", categorizedData)
 
   // console.log("workPackageTotals", workPackageTotalAmounts)
 
@@ -932,6 +935,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // console.log("service requests", serviceRequestsData)
 
   // console.log("segregatedServicedata", segregatedServiceOrderData)
+
+  // console.log("new status", newStatus)
 
   const handleConfirmStatus = async () => {
     try {
@@ -1658,9 +1663,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 }
 
 
-const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates }) => {
+export const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates }) => {
 
-  const selectedData = categorizedData[selectedPackage] || null;
+  const selectedData = categorizedData?.[selectedPackage] || null;
 
   const defaultValues = selectedData && Object.keys(selectedData)
 
@@ -1699,10 +1704,11 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                             <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
                             <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
                             <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
-                            <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Qty Ordered</TableHead>
                             <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
-                            <TableHead className="px-4 py-2 font-semibold">Actual Amt</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Amt Spent</TableHead>
                             <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Updated Estd. Amt</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1723,6 +1729,10 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                               }
                             }
 
+                            const updated_estd_amt = estimateItem?.quantity_estimate > item?.quantity ? (estimateItem?.quantity_estimate * item?.averageRate) : item.amount
+
+                            const percentage_change = Math.floor(((updated_estd_amt - (estimateItem?.rate_estimate * estimateItem?.quantity_estimate)) / (estimateItem?.rate_estimate * estimateItem?.quantity_estimate)) * 100)
+
                             return <TableRow key={item.item_id}>
                               <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
                               <TableCell className="px-4 py-2">{item.item_name}</TableCell>
@@ -1732,6 +1742,7 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
                               <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
                               {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
                               <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
+                              <TableCell className={`px-4 py-2 ${estimateItem?.quantity_estimate !== undefined ? (updated_estd_amt > (estimateItem?.rate_estimate * estimateItem?.quantity_estimate) ? "text-red-500" : "text-green-500") : ""}`}>{estimateItem?.quantity_estimate !== undefined ?  formatToIndianRupee(updated_estd_amt) : "--"}{estimateItem?.quantity_estimate !== undefined && ` (${percentage_change}%)`}</TableCell>
                             </TableRow>
                           })}
                         </TableBody>
@@ -1751,9 +1762,9 @@ const CategoryAccordion = ({ categorizedData, selectedPackage, projectEstimates 
 };
 
 
-const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
+export const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
 
-  const selectedData = categorizedData["Tool & Equipments"] || null;
+  const selectedData = categorizedData?.["Tool & Equipments"] || null;
 
   const toolandEquipEstimates = projectEstimates?.filter((p) => p?.work_package === "Tool & Equipments")
 
@@ -1789,10 +1800,11 @@ const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
                           <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
                           <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Qty Ordered</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Amt Spent</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Updated Estd. Amt</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1814,6 +1826,11 @@ const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
                           // }
 
                           // console.log("estimateItme", estimateItem)
+
+                          const updated_estd_amt = estimateItem?.quantity_estimate > item?.quantity ? (estimateItem?.quantity_estimate * item?.averageRate) : item.amount
+
+                          const percentage_change = Math.floor(((updated_estd_amt - (estimateItem?.rate_estimate * estimateItem?.quantity_estimate)) / (estimateItem?.rate_estimate * estimateItem?.quantity_estimate)) * 100)
+
                           return <TableRow key={item.item_id}>
                             <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
                             <TableCell className="px-4 py-2">{item.item_name}</TableCell>
@@ -1822,6 +1839,7 @@ const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
                             <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
                             <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
                             <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
+                            <TableCell className={`px-4 py-2 ${estimateItem?.quantity_estimate !== undefined ? (updated_estd_amt > (estimateItem?.rate_estimate * estimateItem?.quantity_estimate) ? "text-red-500" : "text-green-500") : ""}`}>{estimateItem?.quantity_estimate !== undefined ?  formatToIndianRupee(updated_estd_amt) : "--"}{estimateItem?.quantity_estimate !== undefined && ` (${percentage_change}%)`}</TableCell>
                           </TableRow>
                         })}
                       </TableBody>
@@ -1840,7 +1858,7 @@ const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }) => {
 };
 
 
-const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) => {
+export const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) => {
   const [expandedRowKeys, setExpandedRowKeys] = useState([]);
 
   useEffect(() => {
@@ -1974,6 +1992,7 @@ const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedDat
     return treeData;
   };
 
+
   return (
     <HoverCard>
       <HoverCardTrigger>
@@ -1984,8 +2003,11 @@ const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedDat
           </span>
         </div>
       </HoverCardTrigger>
-      <HoverCardContent>
-        <div className="">
+      <HoverCardContent className="overflow-y-auto max-h-[80vh]">
+        {/* {[...Array(20)].map((_, index) => (
+        <div>We plugged in the entire chancejs API surface in the $tweak. namespace that enables a myriad of use cases! You can literally pick any method directly from the chancejs API!</div>
+      ))} */}
+        <div>
           <h3 className="font-semibold text-lg mb-2">Total Spent Breakdown</h3>
           <Tree
             showLine

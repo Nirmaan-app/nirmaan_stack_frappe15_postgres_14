@@ -88,6 +88,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
     const { mutate } = useSWRConfig()
     const { deleteDoc } = useFrappeDeleteDoc()
+    const [gstEnabled, setGstEnabled] = useState(true)
 
     const getFullName = (id: string) => {
         return usersList?.find((user) => user.name === id)?.full_name
@@ -103,6 +104,13 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
             setVendorAddress(address2)
             // setPhoneNumber(doc2?.phone || "")
             // setEmail(doc2?.email_id || "")
+        }
+        if(sr_data) {
+            if(sr_data?.gst === "true") {
+                setGstEnabled(true)
+            } else {
+                setGstEnabled(false)
+            }
         }
         // if (orderData?.vendor) {
         //     setVendor(orderData?.vendor)
@@ -145,7 +153,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                 description: `SR: ${sr_data?.name} deleted successfully!`,
                 variant: "success"
             })
-            await navigate("/service-request")
+            navigate("/service-request")
         } catch (error) {
             console.log("error while deleting SR", error)
             toast({
@@ -158,10 +166,17 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
     const componentRef = useRef<HTMLDivElement>(null);
 
+    // const handlePDFPrint = (enable) => {
+    //     setGstEnabled(enable)
+    //     setTimeout(() => handlePrint(), 1000)
+    // }
+
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
         documentTitle: `${sr_data?.name}_${sr_data?.vendor}`
     });
+
+    // console.log('gstEnabled', gstEnabled)
 
     const getTotal = () => {
         let total: number = 0;
@@ -174,6 +189,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
         }
         return total;
     }
+
+    console.log("sr_data", sr_data)
 
     return (
         <div className="flex-1 space-y-2 md:space-y-4">
@@ -189,10 +206,24 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 </div>
                             </div>
                             <div className="flex gap-4 items-center">
-                                {sr_data?.status === "Approved" && <Button className='flex items-center gap-2' onClick={handlePrint}>
-                                    <Printer className='h-4 w-4' />
-                                    Print
-                                </Button>}
+                                {sr_data?.status === "Approved" && 
+                                <div>
+                                    <Button className='flex items-center gap-2' onClick={handlePrint}>
+                                         <Printer className='h-4 w-4' />
+                                         Print
+                                     </Button>
+                                </div>
+                                // <div className="flex max-sm:flex-col gap-2 items-center">
+                                //     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(true)}>
+                                //         <Printer className='h-4 w-4' />
+                                //         Print inc. Tax
+                                //     </Button>
+                                //     <Button className='flex items-center gap-2' onClick={() => handlePDFPrint(false)}>
+                                //         <Printer className='h-4 w-4' />
+                                //         Print exc. Tax
+                                //     </Button>
+                                // </div>
+                                }
                                 {sr_data?.status === "Rejected" && (
                                     <Button onClick={() => setPage("Resolve")} className="flex items-center gap-1">
                                         <Settings2 className="h-4 w-4" />
@@ -242,7 +273,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                         <Badge>{sr_data?.status}</Badge>
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent className="flex flex-col gap-4">
+                                <CardContent className="flex flex-wrap gap-4">
                                     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                                         <div className="space-y-1">
                                             <Label className="text-slim text-red-300">Project:</Label>
@@ -257,6 +288,22 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                             <p className="font-semibold">{new Date(sr_data?.creation).toDateString()}</p>
                                         </div>
                                     </div>
+                                    {sr_data?.status === "Approved" && (
+                                        <>
+                                            <div className="space-y-1">
+                                                <Label className="text-slim text-red-300">Vendor Name:</Label>
+                                                <p className="font-semibold">{service_vendor?.vendor_name}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-slim text-red-300">Vendor Address:</Label>
+                                                <p className="font-semibold">{vendorAddress}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-slim text-red-300">GST Information:</Label>
+                                                <p className="font-semibold">GST {sr_data?.gst === "true" ? "Enabled" : "Disabled"}</p>
+                                            </div>
+                                        </>
+                                        )}
 
                                     <div className="space-y-1 flex flex-col items-start justify-start">
                                         <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
@@ -365,7 +412,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Service Order No.</div>
+                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No.</div>
                                                                 <div className="text-lg font-semibold text-black">{(sr_data?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>
@@ -399,25 +446,28 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                 </tr>
                                                 <tr className="border-t border-black">
                                                     <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">No.</th>
-                                                    <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th>
-                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Description</th>
+                                                    {/* <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th> */}
+                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Service Description</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
                                                     <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
-                                                    <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>
+                                                    {gstEnabled && <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>}
                                                     <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
                                                 </tr>
                                             </thead>
                                             <tbody className={`bg-white`}>
                                                 {sr_data && JSON.parse(sr_data?.service_order_list)?.list?.map((item, index) => (
                                                     <tr key={item.id} className={`${index === (sr_data && JSON.parse(sr_data?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
-                                                        <td className="py-2 text-sm whitespace-nowrap">{index + 1}.</td>
-                                                        <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
+                                                        <td className="py-2 text-sm whitespace-nowrap flex items-start">{index + 1}.</td>
+                                                        {/* <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td> */}
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
+                                                            <p className="font-semibold">{item?.category}</p>
+                                                            {item?.description}
+                                                        </td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
                                                         <td className="py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>
+                                                        {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>}
                                                         <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate * item.quantity)}</td>
                                                     </tr>
                                                 ))}
@@ -426,8 +476,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                                    <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                                    {/* <td className="px-4 py-2 text-sm whitespace-nowrap"></td> */}
+                                                    {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
                                                     <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal())}</td>
                                                 </tr>
@@ -435,35 +485,39 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     <td></td>
                                                     <td></td>
                                                     <td></td>
-                                                    <td></td>
-                                                    <td></td>
+                                                    {/* <td></td> */}
+                                                    {gstEnabled && <td></td>}
                                                     <td></td>
                                                     <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
-                                                        <div>Total Tax(GST):</div>
+                                                    {gstEnabled && <div>Total Tax(GST):</div>}
                                                         <div>Round Off:</div>
                                                         <div>Total:</div>
                                                     </td>
 
                                                     <td className="space-y-4 py-4 text-sm whitespace-nowrap">
-                                                        <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div>
-                                                        <div className="ml-4">- {formatToIndianRupee((getTotal() * 1.18).toFixed(2) - Math.floor(getTotal() * 1.18))}</div>
-                                                        <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * 1.18))}</div>
+                                                    {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div> }
+                                                    <div className="ml-4">- {formatToIndianRupee((getTotal() * (gstEnabled ? 1.18 : 1)).toFixed(2) - Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
+                                                    <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
                                                     </td>
 
                                                 </tr>
 
                                                 <tr className="end-of-page page-break-inside-avoid" >
                                                     <td colSpan={6}>
-                                                        {/* {notes !== "" && (
-                                                            <>
-                                                                <div className="text-gray-400 text-sm py-2">Note</div>
-                                                                <div className="text-sm text-gray-900">{"Placeholder"}</div>
-                                                            </>
+                                                        {sr_data?.notes && JSON.parse(sr_data?.notes)?.list?.length > 0 && (
+                                                            <div className="mb-2">
+                                                                <div className="text-gray-400 text-sm py-2">Notes</div>
+                                                                <ul className="list-[number]">
+                                                                    {JSON.parse(sr_data?.notes)?.list?.map((note) => (
+                                                                        <li key={note?.id} className="text-sm text-gray-900 ml-4">{note?.note}</li>
+                                                                    ))}
+                                                                </ul>
+                                                            </div>
                                                         )}
-                                                        <div className="text-gray-400 text-sm py-2">Payment Terms</div>
+
+                                                        {/* <div className="text-gray-400 text-sm py-2">Payment Terms</div>
                                                         <div className="text-sm text-gray-900">
-                                                            Placeholder
-                                                            {advance}% advance {advance === 100 ? "" : `and remaining ${100 - advance}% on material readiness before delivery of material to site`}
+                                                            {parseFloat(sr_data?.advance || 0)}% advance {parseFloat(sr_data?.advance || 0) === 100 ? "" : `and remaining ${100 - parseFloat(sr_data?.advance || 0)}% on material readiness before delivery of material to site`}
                                                         </div> */}
 
                                                         <img src={Seal} className="w-24 h-24" />
@@ -487,7 +541,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                                 </div>
                                                             </div>
                                                             <div>
-                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Service Order No. :</div>
+                                                                <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No. :</div>
                                                                 <div className="text-lg font-semibold text-black">{(sr_data?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>

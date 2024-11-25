@@ -8,8 +8,8 @@ function formatToIndianRupee(price) {
   
     // Convert the number to Indian currency format
     return `₹${amount.toLocaleString('en-IN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     })}`;
   }
   

@@ -11,6 +11,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 
 type PRTable = {
     name: string
@@ -37,9 +38,13 @@ export const ApprovePR = () => {
         })
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item_id', 'quote'],
+            fields: ["*"],
             limit: 10000
         });
+    const {data : po_data} = useFrappeGetDocList("Procurement Orders", {
+        fields: ["*"],
+        limit: 1000
+    })
 
     useFrappeDocTypeEventListener("Procurement Requests", async (data) => {
         await pr_list_mutate()
@@ -49,19 +54,26 @@ export const ApprovePR = () => {
 
     const {notifications, mark_seen_notification} = useNotificationStore()
 
+    console.log('quotes', quote_data)
+
     const getTotal = (order_id: string) => {
         let total: number = 0;
+        let usedQuotes = {}
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
-        // console.log("orderData", orderData)
         orderData?.list.map((item: any) => {
             const quotesForItem = quote_data
                 ?.filter(value => value.item_id === item.name && value.quote != null)
                 ?.map(value => value.quote);
             let minQuote;
-            if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+            if (quotesForItem && quotesForItem.length > 0) {
+                minQuote = Math.min(...quotesForItem);
+                const estimateQuotes = quote_data
+                ?.filter(value => value.item_id === item.name && parseFloat(value.quote) === parseFloat(minQuote))
+                usedQuotes = {...usedQuotes, [item.item] : {items : estimateQuotes, amount : minQuote * item.quantity}}
+            }
             total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
         })
-        return total || "N/A";
+        return {total : total || "N/A", usedQuotes : usedQuotes}
     }
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
@@ -181,11 +193,44 @@ export const ApprovePR = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const total = getTotal(row.getValue("name"))
+                    const total = getTotal(row.getValue("name")).total
+                    const prUsedQuotes = getTotal(row.getValue("name"))?.usedQuotes
+                    // console.log('usedQuotes', prUsedQuotes)
                     return (
-                        <div className="font-medium">
-                            {total === "N/A" ? "N/A" : formatToIndianRupee(total)}
-                        </div>
+                        total === "N/A" ? (
+                            <div className="font-medium">
+                                N/A
+                            </div>
+                        ) : (
+                            <HoverCard>
+                            <HoverCardTrigger>
+                            <div className="font-medium underline">
+                                {formatToIndianRupee(total)}
+                            </div>
+                            </HoverCardTrigger>
+                            <HoverCardContent>
+                                <div>
+                                    <h2 className="text-primary font-semibold mb-4">PO Quotes used for calculating this Estimation!</h2>
+                                    <div className="flex flex-col gap-4">
+                                    {Object.entries(prUsedQuotes)?.map(([item, quotes]) => (
+                                        <div key={item} className="flex flex-col gap-2">
+                                            <p className="font-semibold">{item}({formatToIndianRupee(quotes?.amount)})</p>
+                                            <ul className="list-disc ">
+                                                {quotes?.items?.length ? (
+                                                    quotes?.items?.map((quote) => (
+                                                        <li className="ml-4 text-gray-600 underline hover:underline-offset-2" key={quote?.name}><Link to={`/debug/${quote?.procurement_order?.replaceAll("/", "&=")}`}>{quote?.procurement_order}</Link></li>
+                                                    ))
+                                                ) : (
+                                                    <p className="text-xs">No previous Quotes found for this item</p>
+                                                )}
+                                            </ul>
+                                        </div>
+                                    ))}
+                                    </div>
+                                </div>
+                            </HoverCardContent>
+                        </HoverCard>
+                        )
                     )
                 }
             }

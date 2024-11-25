@@ -57,6 +57,7 @@ import { ApproveServiceRequest } from './components/service-request/approve-serv
 import { SelectServiceVendorList } from './components/service-request/select-service-vendor-list'
 import { ApprovedSRList } from './components/service-request/approved-sr-list'
 import { ApprovedSR } from './components/service-request/approved-sr'
+import { ManPowerReport } from './components/ManPowerReport'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -85,8 +86,15 @@ const router = createBrowserRouter(
 						{/* Delivery Notes Paths */}
 						<Route path='delivery-notes'>
 							<Route index element={<DeliveryNotes />} />
-							<Route path=":id" element={<DeliveryNote />} />
+							<Route path=":id">
+								<Route index element={<DeliveryNote />} />
+								<Route path=":id">
+									<Route index lazy={() => import('@/components/pr-summary')} />
+									<Route path=":id" element={<POSummary />} />
+								</Route>
+							</Route>
 						</Route>
+						<Route path='man-power-report' element={<ManPowerReport />} />
 					</Route>
 
 					{/* Service Requests Paths */}
@@ -243,6 +251,7 @@ const router = createBrowserRouter(
 					<Route path="debug">
 						{/* <Route index element={<Debug />} /> */}
 						<Route index element={<ApprovedQuotationsTable />} />
+						<Route path=':id' element={<POSummary />} />
 					</Route>
 
 					{/* Other routes */}

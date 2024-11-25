@@ -1,14 +1,22 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Card } from "./ui/card";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { Button } from "./ui/button";
+import { CirclePlus } from "lucide-react";
 
 export const ProjectLead = () => {
-    const {approvePRCount, pendingPRCount, amendPOCount, newSBApproveCount} = useDocCountStore()
+    const { approvePRCount, pendingPRCount, amendPOCount, newSBApproveCount } = useDocCountStore()
+    const navigate = useNavigate()
 
     return (
         <div className="flex-1 space-y-4">
-            <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Project Lead Dashboard</h2>
-
+            <div className="flex justify-between gap-2 max-sm:flex-col">
+                <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Project Lead Dashboard</h2>
+                <div className="flex gap-2">
+                    <Button onClick={() => navigate("/prs&milestones/procurement-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
+                    <Button onClick={() => navigate("/service-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Service Request</Button>
+                </div>
+            </div>
             <div className=" space-y-2">
                 <h2 className="text-base font-bold tracking-tight">Procurement Actions</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">

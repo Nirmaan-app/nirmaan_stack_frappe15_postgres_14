@@ -28,6 +28,7 @@ import { fuzzyFilter } from "./data-table-models"
 import DebouncedInput from "./debounced-input"
 import { DataTableViewOptions } from "./data-table-view-options";
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
+import { useFilterStore } from "@/zustand/useFilterStore";
 
 type ProjectOptions = {
     label: string,
@@ -47,12 +48,13 @@ interface DataTableProps<TData, TValue> {
     statusOptions?: any
     totalPOsRaised?: any
     itemSearch?: boolean
-
+    approvedQuotesVendors?: any
+    itemOptions?: any
 }
 
 
 
-export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined, itemSearch = false }: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined, itemSearch = false, approvedQuotesVendors = undefined, itemOptions = undefined }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([
         {
             id: "creation",
@@ -64,7 +66,21 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
 
     const [rowSelection, setRowSelection] = React.useState({})
 
-    const [globalFilter, setGlobalFilter] = React.useState('')
+    const currentRoute = window.location.pathname;
+
+    const globalSearch = useFilterStore((state) => state.getTextSearch(currentRoute));
+    const [globalFilter, setGlobalFilter] = React.useState(globalSearch || '')
+
+    React.useEffect(() => {
+        if (globalSearch) {
+            setGlobalFilter(globalSearch);
+        }
+    }, [globalSearch]);
+
+    const handleGlobalFilterChange = (value: string) => {
+        setGlobalFilter(value);
+        useFilterStore.getState().setTextSearch(currentRoute, value);
+    };
 
     const customGlobalFilter = (row, columnId, filterValue) => {
         const name = row.getValue("name");
@@ -125,7 +141,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                         // onChange={(event) =>
                         //     table.getColumn("name")?.setFilterValue(event.target.value)
                         // }
-                        onChange={value => setGlobalFilter(String(value))}
+                        onChange={(value) => handleGlobalFilterChange(String(value))}
                         className="max-w-sm"
                     />
                     {/* <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} statusOptions={statusOptions} roleTypeOptions={roleTypeOptions}/> */}
@@ -138,8 +154,8 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                     </div>
                 )}
             </div>
-
-            <div className="rounded-md border">
+ 
+            <div className="rounded-md border max-h-[70vh] overflow-y-auto">
                 <Table>
                     <TableHeader>
                         {table.getHeaderGroups().map((headerGroup) => (
@@ -199,6 +215,26 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                                                                     column={table.getColumn("vendor_name")}
                                                                     title={"Vendor"}
                                                                     options={vendorOptions || []}
+                                                                />
+                                                            ) : null
+                                                        )}
+
+                                                        {(approvedQuotesVendors && header.id === table.getColumn("vendor")?.id) && (
+                                                            table.getColumn("vendor") ? (
+                                                                <DataTableFacetedFilter
+                                                                    column={table.getColumn("vendor")}
+                                                                    title={"Vendor"}
+                                                                    options={approvedQuotesVendors || []}
+                                                                />
+                                                            ) : null
+                                                        )}
+
+                                                        {(itemOptions && header.id === table.getColumn("item_name")?.id) && (
+                                                            table.getColumn("item_name") ? (
+                                                                <DataTableFacetedFilter
+                                                                    column={table.getColumn("item_name")}
+                                                                    title={"Item"}
+                                                                    options={itemOptions || []}
                                                                 />
                                                             ) : null
                                                         )}

@@ -31,6 +31,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { TailSpin } from "react-loader-spinner";
+import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
 
 const ApprovePRList = () => {
 
@@ -62,7 +63,7 @@ const ApprovePRList = () => {
     }
 
     // console.log("within 1st component", owner_data)
-    if (pr_loading || project_loading || owner_loading || usersListLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"}  /> </div>
+    if (pr_loading || project_loading || owner_loading || usersListLoading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (pr_error || project_error || owner_error || usersListError) return <h1>Error</h1>
     if (pr?.workflow_state !== "Pending") {
         return (
@@ -146,7 +147,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
 
     // console.log("universalCOmment", universalComments)
 
-    const { createDoc: createDoc, error: update_error, loading : createLoading } = useFrappeCreateDoc()
+    const { createDoc: createDoc, error: update_error, loading: createLoading } = useFrappeCreateDoc()
 
 
     interface Category {
@@ -176,7 +177,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
         }
     }, [usersList])
 
-    console.log("usersList", usersList)
+    // console.log("usersList", usersList)
     // const fileInputRefs = useRef({});
 
     const getFullName = (id) => {
@@ -303,7 +304,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     }, [orderData.procurement_list]);
 
     const handleChange = (selectedItem) => {
-        console.log('Selected item:', selectedItem);
+        // console.log('Selected item:', selectedItem);
         setCurItem(selectedItem.value)
         item_list?.map((item) => {
             if (item.item_name == selectedItem.value) {
@@ -433,7 +434,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const { toast } = useToast()
     const { updateDoc: updateDoc, loading: updateLoading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
     const { upload } = useFrappeFileUpload()
-    const { call, loading : callLoading } = useFrappePostCall('frappe.client.set_value');
+    const { call, loading: callLoading } = useFrappePostCall('frappe.client.set_value');
     const { deleteDoc } = useFrappeDeleteDoc()
     const { mutate } = useSWRConfig()
 
@@ -491,7 +492,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 })
             }
 
-            console.log("orderData2", res);
+            // console.log("orderData2", res);
             document.getElementById("dialogCloseforApproveOrder")?.click()
             toast({
                 title: "Success!",
@@ -535,7 +536,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 })
             }
             await mutate("ApprovePR,PRListMutate")
-            
+
             document.getElementById("dialogCloseforApproveOrder")?.click()
             toast({
                 title: "Success!",
@@ -572,10 +573,10 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             item_name: curItem,
             make_name: make
         }
-        console.log("itemData", itemData)
+        // console.log("itemData", itemData)
         createDoc('Items', itemData)
             .then(() => {
-                console.log(itemData)
+                // console.log(itemData)
                 setUnit('')
                 setCurItem('')
                 setMake('')
@@ -589,7 +590,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     const handleDeletePr = async () => {
         try {
             await deleteDoc("Procurement Requests", orderData.name)
-            await mutate("Procurement Requests,orderBy(creation-desc)")
+            await mutate(`Procurement Requests ${orderData?.project}`)
             await mutate("ApprovePR,PRListMutate")
             toast({
                 title: "Success!",
@@ -673,7 +674,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             </AlertDialogContent>
                         </AlertDialog>
                     </div>
-                    <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                    {/* <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-red-700">Date:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
@@ -690,7 +691,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             <p className="text-left py-1 font-light text-sm text-red-700">Created By:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-                    </Card>
+                    </Card> */}
+                    <ProcurementActionsHeaderCard orderData={orderData} pr={true} />
 
                     {curCategory === '' && <button className="text-lg text-blue-400 flex p-2" onClick={() => setPage('categorylist')}><CirclePlus className="w-5 h-5 mt-1 pr-1" /> Add Missing Items</button>}
 
@@ -970,7 +972,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         <ArrowLeft onClick={() => setPage('itemlist')} />
                         <h2 className="text-lg pl-2 font-bold tracking-tight">Quantity Summary: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
-                    <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                    {/* <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
                             <p className="text-left py-1 font-light text-sm text-red-700">Date</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
@@ -987,11 +989,12 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             <p className="text-left py-1 font-light text-sm text-red-700">Created By</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-                        {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
                                 <p className="text-left py-1 font-light text-sm text-red-700">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
-                            </div> */}
-                    </Card>
+                            </div>
+                    </Card> */}
+                    <ProcurementActionsHeaderCard orderData={orderData} pr={true} />
                     <div className="overflow-x-auto">
 
                         <div className="min-w-full inline-block align-middle">
@@ -1170,15 +1173,15 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                 <DialogDescription className="flex items-center justify-center">
                                     {
                                         dynamicPage === "reject" ? (
-                                            createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"}  /> :
-                                            <Button variant="default" onClick={() => handleReject()} className="flex items-center gap-1">
-                                                <CheckCheck />
-                                                Confirm</Button>
+                                            createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"} /> :
+                                                <Button variant="default" onClick={() => handleReject()} className="flex items-center gap-1">
+                                                    <CheckCheck />
+                                                    Confirm</Button>
                                         ) : (
-                                            createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"}  /> :
-                                            <Button variant="default" onClick={() => handleApprove()} className="flex items-center gap-1">
-                                                <CheckCheck />
-                                                Confirm</Button>
+                                            createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"} /> :
+                                                <Button variant="default" onClick={() => handleApprove()} className="flex items-center gap-1">
+                                                    <CheckCheck />
+                                                    Confirm</Button>
                                         )
                                     }
                                 </DialogDescription>

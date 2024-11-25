@@ -20,7 +20,8 @@ const DeliveryNotes = () => {
 
     const { data: procurementOrdersList, isLoading: procurementRequestsListLoading } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
-        limit: 1000
+        filters: [["status", "not in", ["PO Sent", "PO Approved", "PO Amendment"]]],
+        limit: 1000,
     },
         "Procurement Orders"
     )
@@ -126,12 +127,10 @@ const DeliveryNotes = () => {
 
     return (
         <div className="flex-1 space-y-2 md:space-y-4">
-            <div className="">
                 <div className="flex items-center ">
                     <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
                     <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">Update Delivery Notes</h2>
                 </div>
-            </div>
             {/* {(!procurementRequestsLoading && !procurementRequestsListLoading) && <DataTable columns={columns} data={procurementRequestsList} />} */}
 
             <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
@@ -177,7 +176,7 @@ const DeliveryNotes = () => {
                                                             <TableRow>
                                                                 <TableCell>
                                                                     <Badge variant={`${po?.status === "Dispatched" ? "orange" : "green"}`} className="">
-                                                                        {po?.status === "Dispatched" ? "Dispatched" : "Delivered"}
+                                                                        {po?.status}
                                                                     </Badge>
                                                                 </TableCell>
                                                             </TableRow>

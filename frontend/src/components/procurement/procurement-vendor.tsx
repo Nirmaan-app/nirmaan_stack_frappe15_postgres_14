@@ -247,30 +247,36 @@ export const ProcurementOrder = () => {
                 }
             }
         ],
-        []
+        [vendor_list]
     )
 
     useEffect(() => {
-        const updatedCategories = { ...categories };
+        if(vendor_category_list && vendor_list) {
+            const updatedCategories = { ...categories };
 
-        vendor_category_list?.forEach((item) => {
-            const fieldName = `${item.category}`;
-            if (!Array.isArray(updatedCategories[fieldName])) {
-                updatedCategories[fieldName] = [];
-            }
-            const exists = updatedCategories[fieldName].some(
-                (entry) => entry.value === item.vendor
-            );
-            if (!exists) {
-                updatedCategories[fieldName].push({
-                    value: item.vendor,
-                    label: item.vendor_name,
-                });
-            }
-        });
-
-        setCategories(updatedCategories);
-    }, [vendor_category_list]);
+            vendor_category_list?.forEach((item) => {
+                const fieldName = `${item.category}`;
+                if (!Array.isArray(updatedCategories[fieldName])) {
+                    updatedCategories[fieldName] = [];
+                }
+                const exists = updatedCategories[fieldName].some(
+                    (entry) => entry.value === item.vendor
+                );
+                if (!exists) {
+                    const venAddr = getVendorAddr(item.vendor_name)
+                    updatedCategories[fieldName].push({
+                        value: item.vendor,
+                        label: item.vendor_name + ` (${venAddr?.city}, ${venAddr?.state})`,
+                        vendor_name: item.vendor_name,
+                        city: venAddr?.city,
+                        state: venAddr?.state,
+                    });
+                }
+            });
+    
+            setCategories(updatedCategories);
+        }
+    }, [vendor_category_list, vendor_list]);
 
     const handleChange = (category) => (selectedOptions) => {
         console.log("selectedOptions", selectedOptions)
@@ -588,7 +594,13 @@ export const ProcurementOrder = () => {
                                     </SheetContent>
                                 </Sheet>
                             </div>
-                            <Select options={getCategoryByName(cat.name)} onChange={handleChange(cat.name)} isMulti />
+                            <Select options={getCategoryByName(cat.name)} onChange={handleChange(cat.name)}
+                             isMulti 
+                             components={{
+                                SingleValue: CustomSingleValue,
+                                Option: CustomOption,
+                             }}
+                             />
                         </div>
                     })}
                     <div className="flex flex-col justify-end items-end max-md:py-6 pb-10">
@@ -638,6 +650,21 @@ export const ProcurementOrder = () => {
         </>
     )
 }
+
+const CustomSingleValue = ({ data }) => (
+    <div>
+        <strong>{data.vendor_name}</strong> <i>({data.city}, {data.state})</i>
+    </div>
+);
+
+const CustomOption = (props) => {
+    const { data, innerRef, innerProps } = props;
+    return (
+        <div ref={innerRef} {...innerProps} style={{ padding: "5px", cursor: "pointer" }}>
+            <strong className="text-primary">{data.vendor_name}</strong> <i>({data.city}, {data.state})</i>
+        </div>
+    );
+};
 
 
 // const CustomSelect = ({ options, defaultValue, onChange }) => {

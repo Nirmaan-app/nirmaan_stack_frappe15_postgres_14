@@ -50,7 +50,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     const userData = useUserData()
     const { toast } = useToast()
 
-    console.log("section", section)
+    // console.log("section", section)
 
     const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["*"],
@@ -182,7 +182,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 list: [...prevState.list, { name: categoryName }]
             }));
         }
-        console.log(curCategory, categories)
+        // console.log(curCategory, categories)
     };
 
 
@@ -220,7 +220,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     }
 
     const handleChange = (selectedItem) => {
-        console.log('Selected item:', selectedItem);
+        // console.log('Selected item:', selectedItem);
         setCurItem(selectedItem.value)
 
 
@@ -318,8 +318,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     })
                 }
                 // console.log("newPR", res);
-                await mutate("Procurement Requests,orderBy(creation-desc)");
-                await mutate("Procurement Orders");
+                await mutate(`Procurement Requests ${orderData?.project}`);
+                await mutate(`Procurement Orders ${orderData?.project}`);
 
                 document.getElementById("dialogCloseforNewPR")?.click()
                 toast({
@@ -361,8 +361,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 })
             }
             // console.log("newPR", res)
-            await mutate("Procurement Requests,orderBy(creation-desc)")
-            await mutate("Procurement Orders")
+            await mutate(`Procurement Requests ${orderData?.project}`)
+            await mutate(`Procurement Orders ${orderData?.project}`)
             await mutate(`Procurement Requests ${orderData?.name}`)
             await mutate(`Nirmaan Comments ${orderData?.name}`)
 
@@ -431,10 +431,10 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
             item_name: curItem,
             make_name: make
         }
-        console.log("itemData", itemData)
+        // console.log("itemData", itemData)
         createDoc('Items', itemData)
             .then(() => {
-                console.log(itemData)
+                // console.log(itemData)
                 setUnit('')
                 setCurItem('')
                 setMake('')

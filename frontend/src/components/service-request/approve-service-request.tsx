@@ -11,6 +11,7 @@ import { Button } from "../ui/button"
 import { toast } from "../ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
 import { TailSpin } from "react-loader-spinner"
+import { ProcurementActionsHeaderCard } from "../ui/ProcurementActionsHeaderCard"
 
 export const ApproveServiceRequest = () => {
     const { id } = useParams<{ id: string }>()
@@ -75,7 +76,7 @@ export const ApproveServiceRequest = () => {
         }
     }, [groupedData]);
 
-    console.log("groupedData", groupedData)
+    // console.log("groupedData", groupedData)
 
     // Main table columns
     const columns = [
@@ -255,7 +256,7 @@ export const ApproveServiceRequest = () => {
                     <ArrowLeft onClick={() => { navigate('/approve-service-request') }} />
                     <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">SR-{service_request?.name?.slice(-4)}</span></h2>
                 </div>
-                <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
+                {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                     <div className="border-0 flex flex-col justify-center max-sm:hidden">
                         <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
                         <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(service_request?.creation?.split(" ")[0])}</p>
@@ -272,7 +273,8 @@ export const ApproveServiceRequest = () => {
                         <p className="text-left py-1 font-light text-sm text-sm text-red-700">Created by</p>
                         <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name || "Administrator"}</p>
                     </div>
-                </Card>
+                </Card> */}
+                <ProcurementActionsHeaderCard orderData={service_request} sr={true} />
             </div>
 
             <div className="pt-6 overflow-x-auto">
@@ -342,19 +344,19 @@ export const ApproveServiceRequest = () => {
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         {isLoading === "rejectSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                        <AlertDialogFooter>
-                            <AlertDialogCancel className="flex items-center gap-1">
-                                <Undo2 className="h-4 w-4" />
-                                Cancel
-                            </AlertDialogCancel>
-                            <Button onClick={handleReject} className="flex items-center gap-1">
-                                <CheckCheck className="h-4 w-4" />
-                                Confirm
-                            </Button>
-                        </AlertDialogFooter>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel className="flex items-center gap-1">
+                                    <Undo2 className="h-4 w-4" />
+                                    Cancel
+                                </AlertDialogCancel>
+                                <Button onClick={handleReject} className="flex items-center gap-1">
+                                    <CheckCheck className="h-4 w-4" />
+                                    Confirm
+                                </Button>
+                            </AlertDialogFooter>
                         )}
                         <AlertDialogCancel id='RejectSRAlertCancel' className="hidden">
-                                Cancel
+                            Cancel
                         </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
@@ -374,18 +376,18 @@ export const ApproveServiceRequest = () => {
                         </AlertDialogHeader>
                         {isLoading === "approveSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
                             <AlertDialogFooter>
-                            <AlertDialogCancel className="flex items-center gap-1">
-                                <Undo2 className="h-4 w-4" />
-                                Cancel
-                            </AlertDialogCancel>
-                            <Button onClick={handleApprove} className="flex items-center gap-1">
-                                <CheckCheck className="h-4 w-4" />
-                                Confirm
-                            </Button>
-                        </AlertDialogFooter>
+                                <AlertDialogCancel className="flex items-center gap-1">
+                                    <Undo2 className="h-4 w-4" />
+                                    Cancel
+                                </AlertDialogCancel>
+                                <Button onClick={handleApprove} className="flex items-center gap-1">
+                                    <CheckCheck className="h-4 w-4" />
+                                    Confirm
+                                </Button>
+                            </AlertDialogFooter>
                         )}
                         <AlertDialogCancel id='ApproveSRAlertCancel' className="hidden">
-                                Cancel
+                            Cancel
                         </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
