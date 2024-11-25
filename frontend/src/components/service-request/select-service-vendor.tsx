@@ -188,7 +188,10 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
         if (vendor_list) {
             const currOptions = vendor_list?.map((item) => ({
                 value: item.name,
-                label: item.vendor_name + ` (${item?.vendor_city}, ${item?.vendor_state})`
+                label: item.vendor_name + ` (${item?.vendor_city}, ${item?.vendor_state})`,
+                vendor_name: item.vendor_name,
+                city: item?.vendor_city,
+                state: item?.vendor_state,
             }))
             setVendorOptions(currOptions);
         }
@@ -266,6 +269,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     }
 
     const handleChange = () => (vendor: any) => {
+        console.log("vendor", vendor)
         setSelectedvendor(vendor)
     }
 
@@ -383,7 +387,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                 variant: "success",
             });
 
-            if(resolve) {
+            if (resolve) {
                 setPage("Summary")
             } else {
                 navigate("/choose-service-vendor");
@@ -421,8 +425,14 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
 
                     <div>
                         <div className="flex m-2 justify-left gap-2">
-                            <div className="text-lg text-gray-400 mt-1">Select vendor:</div>
-                            <Select className="w-72" value={selectedVendor} options={vendorOptions} onChange={handleChange()} />
+
+                            <div className="text-lg text-gray-400 mt-1">Select vendors for this SR:</div>
+                            <Select className="w-[40%]" value={selectedVendor} options={vendorOptions} onChange={handleChange()}
+                                components={{
+                                    SingleValue: CustomSingleValue,
+                                    Option: CustomOption,
+                                }}
+                            />
                             <Sheet>
                                 <SheetTrigger className="text-blue-500">
                                     <div className="text-base text-blue-400 flex items-center gap-1" >
@@ -594,9 +604,9 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                                                 <TailSpin width={20} height={20} color="white" />
                                             ) : (
                                                 <>
-                                                <CheckCheck className="h-4 w-4" />
-                                                Confirm
-                                                 </>
+                                                    <CheckCheck className="h-4 w-4" />
+                                                    Confirm
+                                                </>
                                             )}
                                         </Button>
                                     ) : (
@@ -605,9 +615,9 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                                                 <TailSpin width={20} height={20} color="white" />
                                             ) : (
                                                 <>
-                                                <CheckCheck className="h-4 w-4" />
-                                                Confirm
-                                                 </>
+                                                    <CheckCheck className="h-4 w-4" />
+                                                    Confirm
+                                                </>
                                             )}
                                         </Button>
                                     )}
@@ -623,3 +633,18 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
 }
 
 export const Component = SelectServiceVendor
+
+const CustomSingleValue = ({ data }) => (
+    <div>
+        <strong>{data.vendor_name}</strong> <i>({data.city}, {data.state})</i>
+    </div>
+);
+
+const CustomOption = (props) => {
+    const { data, innerRef, innerProps } = props;
+    return (
+        <div ref={innerRef} {...innerProps} style={{ padding: "5px", cursor: "pointer" }}>
+            <strong className="text-primary">{data.vendor_name}</strong> <i>({data.city}, {data.state})</i>
+        </div>
+    );
+};

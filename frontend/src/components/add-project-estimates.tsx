@@ -772,7 +772,11 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
                                 defaultValue="All"
                                 optionType="button"
                                 buttonStyle="solid"
-                                onChange={(e) => setSelectedPackage(e.target.value)}
+                                onChange={(e) => {
+                                    setSelectedPackage(e.target.value)
+                                    setCurCategory({[e.target.value] : null})
+                                    setSelectedItem({[e.target.value] : null})
+                                }}
                             />
                         )
                     }

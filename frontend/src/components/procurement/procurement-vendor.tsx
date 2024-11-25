@@ -267,6 +267,9 @@ export const ProcurementOrder = () => {
                     updatedCategories[fieldName].push({
                         value: item.vendor,
                         label: item.vendor_name + ` (${venAddr?.city}, ${venAddr?.state})`,
+                        vendor_name: item.vendor_name,
+                        city: venAddr?.city,
+                        state: venAddr?.state,
                     });
                 }
             });
@@ -591,7 +594,13 @@ export const ProcurementOrder = () => {
                                     </SheetContent>
                                 </Sheet>
                             </div>
-                            <Select options={getCategoryByName(cat.name)} onChange={handleChange(cat.name)} isMulti />
+                            <Select options={getCategoryByName(cat.name)} onChange={handleChange(cat.name)}
+                             isMulti 
+                             components={{
+                                SingleValue: CustomSingleValue,
+                                Option: CustomOption,
+                             }}
+                             />
                         </div>
                     })}
                     <div className="flex flex-col justify-end items-end max-md:py-6 pb-10">
@@ -641,6 +650,21 @@ export const ProcurementOrder = () => {
         </>
     )
 }
+
+const CustomSingleValue = ({ data }) => (
+    <div>
+        <strong>{data.vendor_name}</strong> <i>({data.city}, {data.state})</i>
+    </div>
+);
+
+const CustomOption = (props) => {
+    const { data, innerRef, innerProps } = props;
+    return (
+        <div ref={innerRef} {...innerProps} style={{ padding: "5px", cursor: "pointer" }}>
+            <strong className="text-primary">{data.vendor_name}</strong> <i>({data.city}, {data.state})</i>
+        </div>
+    );
+};
 
 
 // const CustomSelect = ({ options, defaultValue, onChange }) => {
