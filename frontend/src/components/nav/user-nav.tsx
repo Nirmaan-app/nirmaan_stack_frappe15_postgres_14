@@ -57,7 +57,7 @@ export function UserNav({isMobileMain = false}) {
                   <span className="truncate font-semibold">{userData.full_name}</span>
                   <span className="truncate text-xs">{userData.user_id}</span>
                 </div>
-                <ChevronsUpDown className="ml-auto size-4" />
+                <ChevronsUpDown className="ml-auto mr-2 size-4" />
               </SidebarMenuButton>
 
             ) : (
