@@ -1704,9 +1704,9 @@ export const CategoryAccordion = ({ categorizedData, selectedPackage, projectEst
                             <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
                             <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
                             <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
-                            <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Qty Ordered</TableHead>
                             <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
-                            <TableHead className="px-4 py-2 font-semibold">Actual Amt</TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">Amt Spent</TableHead>
                             <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
                             <TableHead className="px-4 py-2 font-semibold">Updated Estd. Amt</TableHead>
                           </TableRow>
@@ -1729,6 +1729,10 @@ export const CategoryAccordion = ({ categorizedData, selectedPackage, projectEst
                               }
                             }
 
+                            const updated_estd_amt = estimateItem?.quantity_estimate > item?.quantity ? (estimateItem?.quantity_estimate * item?.averageRate) : item.amount
+
+                            const percentage_change = Math.floor(((updated_estd_amt - (estimateItem?.rate_estimate * estimateItem?.quantity_estimate)) / (estimateItem?.rate_estimate * estimateItem?.quantity_estimate)) * 100)
+
                             return <TableRow key={item.item_id}>
                               <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
                               <TableCell className="px-4 py-2">{item.item_name}</TableCell>
@@ -1738,7 +1742,7 @@ export const CategoryAccordion = ({ categorizedData, selectedPackage, projectEst
                               <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
                               {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
                               <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
-                              <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.quantity_estimate - item?.quantity) * item?.averageRate)}</TableCell>
+                              <TableCell className={`px-4 py-2 ${estimateItem?.quantity_estimate !== undefined ? (updated_estd_amt > (estimateItem?.rate_estimate * estimateItem?.quantity_estimate) ? "text-red-500" : "text-green-500") : ""}`}>{estimateItem?.quantity_estimate !== undefined ?  formatToIndianRupee(updated_estd_amt) : "--"}{estimateItem?.quantity_estimate !== undefined && ` (${percentage_change}%)`}</TableCell>
                             </TableRow>
                           })}
                         </TableBody>
@@ -1796,9 +1800,9 @@ export const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }
                           <TableHead className="px-4 py-2 font-semibold">Item ID</TableHead>
                           <TableHead className="px-4 py-2 font-semibold w-[40%]">Item Name</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Unit</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Actual Qty</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Qty Ordered</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Estd Qty</TableHead>
-                          <TableHead className="px-4 py-2 font-semibold">Amount</TableHead>
+                          <TableHead className="px-4 py-2 font-semibold">Amt Spent</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Estd. Amt</TableHead>
                           <TableHead className="px-4 py-2 font-semibold">Updated Estd. Amt</TableHead>
                         </TableRow>
@@ -1822,6 +1826,11 @@ export const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }
                           // }
 
                           // console.log("estimateItme", estimateItem)
+
+                          const updated_estd_amt = estimateItem?.quantity_estimate > item?.quantity ? (estimateItem?.quantity_estimate * item?.averageRate) : item.amount
+
+                          const percentage_change = Math.floor(((updated_estd_amt - (estimateItem?.rate_estimate * estimateItem?.quantity_estimate)) / (estimateItem?.rate_estimate * estimateItem?.quantity_estimate)) * 100)
+
                           return <TableRow key={item.item_id}>
                             <TableCell className="px-4 py-2">{item.item_id.slice(5)}</TableCell>
                             <TableCell className="px-4 py-2">{item.item_name}</TableCell>
@@ -1830,7 +1839,7 @@ export const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }
                             <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
                             <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
                             <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
-                            <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.quantity_estimate - item?.quantity) * item?.averageRate)}</TableCell>
+                            <TableCell className={`px-4 py-2 ${estimateItem?.quantity_estimate !== undefined ? (updated_estd_amt > (estimateItem?.rate_estimate * estimateItem?.quantity_estimate) ? "text-red-500" : "text-green-500") : ""}`}>{estimateItem?.quantity_estimate !== undefined ?  formatToIndianRupee(updated_estd_amt) : "--"}{estimateItem?.quantity_estimate !== undefined && ` (${percentage_change}%)`}</TableCell>
                           </TableRow>
                         })}
                       </TableBody>
