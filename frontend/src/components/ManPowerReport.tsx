@@ -19,9 +19,9 @@ export const ManPowerReport = () => {
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
     const [editReport, setEditReport] = useState(null)
 
-    const {updateDoc, loading: updateLoading} = useFrappeUpdateDoc()
+    const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc()
 
-    const {deleteDoc, loading: deleteLoading} = useFrappeDeleteDoc()
+    const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc()
 
     const fullManpowerDetails = [
         { role: "MEP Engineer", count: 0, key: "always" },
@@ -81,12 +81,12 @@ export const ManPowerReport = () => {
 
     const handleCopy = (id) => {
 
-    let filteredDetails;
-    if(id) {
-        filteredDetails = manpowerData?.find((i) => i?.name === id)?.report?.data
-    } else {
-        filteredDetails = manpowerDetails.filter(item => item.count > 0);
-    }
+        let filteredDetails;
+        if (id) {
+            filteredDetails = manpowerData?.find((i) => i?.name === id)?.report?.data
+        } else {
+            filteredDetails = manpowerDetails.filter(item => item.count > 0);
+        }
 
         const total = filteredDetails.reduce((sum, item) => sum + item.count, 0);
         const message = `
@@ -102,7 +102,7 @@ ${filteredDetails
 Total - ${total.toString().padStart(2, '0')} Nos.
     `.trim();
         navigator.clipboard.writeText(message);
-        if(id) {
+        if (id) {
             toast({
                 title: "Success!",
                 description: "Report copied to clipboard!",
@@ -158,7 +158,7 @@ Total - ${total.toString().padStart(2, '0')} Nos.
 
         try {
             await updateDoc("Manpower Reports", editReport?.name, {
-                report: {data : filteredDetails}
+                report: { data: filteredDetails }
             })
 
             await manpowerMutate()
@@ -243,75 +243,75 @@ Total - ${total.toString().padStart(2, '0')} Nos.
                                             </TableCell>
                                             <TableCell className="text-xs text-center">{formatDate(item.creation)}</TableCell>
                                             <TableCell className="text-xs text-center flex items-center gap-2">
-                                            <Dialog>
-                                                <DialogTrigger>
-                                                    <Pencil2Icon onClick={() => setEditReport(item)}  className="w-6 h-6 hover:text-blue-500" />
-                                                </DialogTrigger>
-                                                <DialogContent>
-                                                    <DialogHeader>
-                                                        <DialogTitle>
-                                                            Edit <span className="text-primary">{item.project_name}</span> {formatDate(item?.creation)}'s Report
-                                                        </DialogTitle>
-                                                    </DialogHeader>
-                                                    <DialogDescription className="flex flex-col gap-4 w-full">
-                                                    {manpowerDetails?.map((item, index) => {
-                                                        const addedItem = editReport?.report?.data?.find((i) => i?.role === item?.role)
-                                                        return (
-                                                            <div key={index} className="flex items-center gap-4">
-                                                            <label className="w-40">{item.role}:</label>
-                                                            <input
-                                                                type="number"
-                                                                value={addedItem?.count || 0}
-                                                                onChange={(e) => {
-                                                                    const newValue = parseFloat(e.target.value);
-                                                                    setEditReport((prevState) => {
-                                                                      const existingItemIndex = prevState.report.data.findIndex(
-                                                                        (dataItem) => dataItem.role === item.role
-                                                                      );
+                                                <Dialog>
+                                                    <DialogTrigger>
+                                                        <Pencil2Icon onClick={() => setEditReport(item)} className="w-6 h-6 hover:text-blue-500" />
+                                                    </DialogTrigger>
+                                                    <DialogContent>
+                                                        <DialogHeader>
+                                                            <DialogTitle>
+                                                                Edit <span className="text-primary">{item.project_name}</span> {formatDate(item?.creation)}'s Report
+                                                            </DialogTitle>
+                                                        </DialogHeader>
+                                                        <DialogDescription className="flex flex-col gap-4 w-full">
+                                                            {manpowerDetails?.map((item, index) => {
+                                                                const addedItem = editReport?.report?.data?.find((i) => i?.role === item?.role)
+                                                                return (
+                                                                    <div key={index} className="flex items-center gap-4">
+                                                                        <label className="w-40">{item.role}:</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            value={addedItem?.count || 0}
+                                                                            onChange={(e) => {
+                                                                                const newValue = parseFloat(e.target.value);
+                                                                                setEditReport((prevState) => {
+                                                                                    const existingItemIndex = prevState.report.data.findIndex(
+                                                                                        (dataItem) => dataItem.role === item.role
+                                                                                    );
 
-                                                                      if (existingItemIndex !== -1) {
-                                                                        const updatedData = [...prevState.report.data];
-                                                                        updatedData[existingItemIndex] = {
-                                                                          ...updatedData[existingItemIndex],
-                                                                          count: newValue,
-                                                                        };
-                                                                        return {
-                                                                          ...prevState,
-                                                                          report: {
-                                                                            ...prevState.report,
-                                                                            data: updatedData,
-                                                                          },
-                                                                        };
-                                                                      }
-                                                          
-                                                                      return {
-                                                                        ...prevState,
-                                                                        report: {
-                                                                          ...prevState.report,
-                                                                          data: [
-                                                                            ...prevState.report.data,
-                                                                            { role: item.role, count: newValue },
-                                                                          ],
-                                                                        },
-                                                                      };
-                                                                    });
-                                                                  }}
-                                                                className="border border-gray-300 rounded-md px-2 py-1"
-                                                            />
-                                                        </div>
-                                                        )
-                                                        })}
-                                                            <Button onClick={() => handleEditReport()} 
-                                                                disabled={editReport?.report?.data?.every((i) => i?.count ===  item?.report?.data?.find((j) => j?.role === i?.role)?.count )}>
+                                                                                    if (existingItemIndex !== -1) {
+                                                                                        const updatedData = [...prevState.report.data];
+                                                                                        updatedData[existingItemIndex] = {
+                                                                                            ...updatedData[existingItemIndex],
+                                                                                            count: newValue,
+                                                                                        };
+                                                                                        return {
+                                                                                            ...prevState,
+                                                                                            report: {
+                                                                                                ...prevState.report,
+                                                                                                data: updatedData,
+                                                                                            },
+                                                                                        };
+                                                                                    }
+
+                                                                                    return {
+                                                                                        ...prevState,
+                                                                                        report: {
+                                                                                            ...prevState.report,
+                                                                                            data: [
+                                                                                                ...prevState.report.data,
+                                                                                                { role: item.role, count: newValue },
+                                                                                            ],
+                                                                                        },
+                                                                                    };
+                                                                                });
+                                                                            }}
+                                                                            className="border border-gray-300 rounded-md px-2 py-1"
+                                                                        />
+                                                                    </div>
+                                                                )
+                                                            })}
+                                                            <Button onClick={() => handleEditReport()}
+                                                                disabled={editReport?.report?.data?.every((i) => i?.count === item?.report?.data?.find((j) => j?.role === i?.role)?.count)}>
                                                                 {updateLoading ? <TailSpin color={"white"} width={20} height={20} /> : "Update"}
                                                             </Button>
                                                             <DialogClose id="updateReportClose" className="hidden">Close</DialogClose>
                                                         </DialogDescription>
-                                                </DialogContent>
-                                            </Dialog>
-                                            <span>|</span>
-                                                
-                                            {/* <Dialog>
+                                                    </DialogContent>
+                                                </Dialog>
+                                                <span>|</span>
+
+                                                {/* <Dialog>
                                                 <DialogTrigger>
                                                     <Trash className="w-6 h-6 text-primary cursor-pointer" />
                                                 </DialogTrigger>
@@ -332,7 +332,7 @@ Total - ${total.toString().padStart(2, '0')} Nos.
                                                 </DialogHeader>
                                                 </DialogContent>
                                             </Dialog> */}
-                                                <Copy className="cursor-pointer hover:text-blue-500"  onClick={() => handleCopy(item?.name)} />
+                                                <Copy className="cursor-pointer hover:text-blue-500" onClick={() => handleCopy(item?.name)} />
                                             </TableCell>
                                         </TableRow>
                                     }
@@ -354,9 +354,9 @@ Total - ${total.toString().padStart(2, '0')} Nos.
                     </div>
                     {project && (
                         <Card>
-                            <CardHeader>
+                            {/* <CardHeader>
                                 <CardTitle className="text-primary">Fill this form to best reflect the manpower details:</CardTitle>
-                            </CardHeader>
+                            </CardHeader> */}
                             <CardContent>
                                 <div className="flex flex-col gap-4">
                                     <div>
