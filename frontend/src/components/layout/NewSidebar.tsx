@@ -581,10 +581,10 @@ export function NewSidebar() {
 
       const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
-      const openKey = ["prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["service-request", "procure-request", "update-quote",
-          "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" :
-        ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
+      const openKey = ["projects", "users", "items", "vendors", "customers"].includes(selectedKeys) ? "admin-actions" : ["prs&milestones", "approve-order", "approve-vendor",
+        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["procure-request", "update-quote",
+          "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" :
+            ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
 
 
       const isDefaultOpen = ["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]
@@ -596,10 +596,10 @@ export function NewSidebar() {
       }
     };
 
-    console.log("selectedKeys", selectedKeys)
+    // console.log("selectedKeys", selectedKeys)
 
 
-    console.log("openkey", openKey)
+    // console.log("openkey", openKey)
 
     return (
       <Sidebar collapsible="icon">
@@ -629,15 +629,20 @@ export function NewSidebar() {
                   className="group/collapsible"
                   asChild
                 >
-                  <SidebarMenuItem className={`${(!selectedKeys && item.label === "Dashboard") ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : ""} rounded-md`}>
+                  <SidebarMenuItem>
                     {item?.label === "Dashboard" ? (
-                      <SidebarMenuButton onClick={() => navigate("/")} selectedKeys={selectedKeys} tooltip={item.label}>
+                      <SidebarMenuButton className={`${!openKey ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : ""}`} onClick={() => {
+                        if (isMobile) {
+                          toggleSidebar()
+                        }
+                        navigate("/")
+                      }} selectedKeys={selectedKeys} tooltip={item.label}>
                         {item.icon && <item.icon />}
                         <span className="font-medium">{item.label}</span>
                       </SidebarMenuButton>
                     ) : (
                       <CollapsibleTrigger asChild>
-                        <SidebarMenuButton selectedKeys={selectedKeys} tooltip={item.children}>
+                        <SidebarMenuButton className={`${openKey === item?.key ? "text-[#D03B45] hover:text-[#D03B45] !important" : ""}`} selectedKeys={selectedKeys} tooltip={item.children}>
                           {item.icon && <item.icon />}
                           <span className="font-medium">{item.label}</span>
                           <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />

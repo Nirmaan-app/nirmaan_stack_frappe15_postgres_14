@@ -163,7 +163,7 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
           <header className={`${(!isMobile && state === "collapsed") ? "mt-1" : ""} flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}>
             <div className={`${isMobile ? "ml-2" : ""} flex items-center gap-2 px-4`}>
               {isMobile && (
-                <div className='absolute top-[17px] -left-2 shadow-2xl'>
+                <div className='absolute top-[15px] -left-2 shadow-2xl'>
                   <SidebarTrigger />
                 </div>
               )}
@@ -222,27 +222,8 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
                           </div>
                         ) : (
                           projectData && <Badge className='mr-4'>{projectData?.project_name}</Badge>
-                        )} */}
-                        {Object.keys(newButtonRoutes)?.includes(location.pathname) ? (
-                          <Button className='sm:mr-4 mr-2' onClick={() => navigate(newButtonRoutes[location.pathname]?.route)}>
-                            <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">{newButtonRoutes[location.pathname]?.label}</span>
-                          </Button>
-                        ) : (
-                          location.pathname === "/prs&milestones/procurement-requests" ? (
-                            selectedProject && (<Button className='sm:mr-4 mr-2' onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)}>
-                              <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">New PR</span>
-                            </Button>)
-                          ) : (
-                            location.pathname === "/service-requests" ? (
-                              selectedProject && (<Button className='sm:mr-4 mr-2' onClick={() => navigate(`/service-requests/${selectedProject}/new-sr`)}>
-                                <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">New SR</span>
-                              </Button>)
-                            ) : (
-                              projectData && <Badge className='sm:mr-4 mr-2 max-sm:text-[11px]'>{projectData?.project_name}</Badge>
-                            )
-                          )
                         )}
-                      </header >
+                      </header>
                       <main
                         className={`flex flex-1 flex-col py-4 px-2 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
                       >
@@ -251,8 +232,8 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
                           <Outlet />
                         </ErrorBoundaryWithNavigationReset>
                       </main>
-                  </div >
-              </div >
+                  </div>
+              </div>
             </>
             );
 };
