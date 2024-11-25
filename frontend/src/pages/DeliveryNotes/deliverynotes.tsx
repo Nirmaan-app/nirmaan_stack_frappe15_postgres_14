@@ -20,7 +20,8 @@ const DeliveryNotes = () => {
 
     const { data: procurementOrdersList, isLoading: procurementRequestsListLoading } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
-        limit: 1000
+        filters: [["status", "not in", ["PO Sent", "PO Approved", "PO Amendment"]]],
+        limit: 1000,
     },
         "Procurement Orders"
     )
@@ -175,7 +176,7 @@ const DeliveryNotes = () => {
                                                             <TableRow>
                                                                 <TableCell>
                                                                     <Badge variant={`${po?.status === "Dispatched" ? "orange" : "green"}`} className="">
-                                                                        {po?.status === "Dispatched" ? "Dispatched" : "Delivered"}
+                                                                        {po?.status}
                                                                     </Badge>
                                                                 </TableCell>
                                                             </TableRow>

@@ -459,7 +459,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Check, ArrowLeft, X, ArrowUp, ArrowDown, Printer, Pencil, ListChecks, Undo2, CheckCheck, Paperclip } from "lucide-react";
 import { Badge } from '@/components/ui/badge';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from 'frappe-react-sdk';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 // import { z } from "zod";
@@ -684,16 +684,16 @@ export default function DeliveryNote() {
                     <div className="flex justify-between items-center">
                         <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Order Details</CardTitle>
                         <Badge variant={`${data?.status === "Dispatched" ? "orange" : "green"}`} className="">
-                            {data?.status === "Dispatched" ? "Dispatched" : "Delivered"}
+                            {data?.status}
                         </Badge>
                     </div>
                 </CardHeader>
                 <CardContent>
                     <p><strong>Project:</strong> {data?.project_name}</p>
                     <p><strong>Address:</strong> {data?.project_address}</p>
-                    <p><strong>PR:</strong> {data?.procurement_request}</p>
+                    <p><strong>PR:</strong> <Link className='underline' to={`${data?.procurement_request}`}>{data?.procurement_request}</Link></p>
+                    <p><strong>PO:</strong> <Link className='underline' to={`${data?.procurement_request}/${data?.name.replaceAll("/", "&=")}`}>{data?.name}</Link></p>
                 </CardContent>
-
                 <CardHeader className='pb-2'>
                     <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Delivery Person Details</CardTitle>
                 </CardHeader>

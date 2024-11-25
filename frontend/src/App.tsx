@@ -86,7 +86,13 @@ const router = createBrowserRouter(
 						{/* Delivery Notes Paths */}
 						<Route path='delivery-notes'>
 							<Route index element={<DeliveryNotes />} />
-							<Route path=":id" element={<DeliveryNote />} />
+							<Route path=":id">
+								<Route index element={<DeliveryNote />} />
+								<Route path=":id">
+									<Route index lazy={() => import('@/components/pr-summary')} />
+									<Route path=":id" element={<POSummary />} />
+								</Route>
+							</Route>
 						</Route>
 						<Route path='man-power-report' element={<ManPowerReport />} />
 					</Route>
