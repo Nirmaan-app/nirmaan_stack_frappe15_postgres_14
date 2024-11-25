@@ -530,7 +530,7 @@ export function NewSidebar() {
                         <SidebarMenuButton className={`${openKey === item?.key ? "text-[#D03B45] hover:text-[#D03B45] !important" : ""}`} selectedKeys={selectedKeys} tooltip={item.children}>
                           {item.icon && <item.icon />}
                           <span className="font-medium">{item.label}</span>
-                          <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                          <ChevronRight className="ml-auto mr-2 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
                         </SidebarMenuButton>
                       </CollapsibleTrigger>
                     )}
@@ -544,7 +544,7 @@ export function NewSidebar() {
                             </Link>
                           </SidebarMenuSubButton>
                           {subitem?.count !== 0 && (
-                            <span className="absolute top-2 -right-4 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center text-xs">
+                            <span className="absolute top-2 -right-2 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center text-xs">
                             {subitem.count}
                             </span>
                           )}
