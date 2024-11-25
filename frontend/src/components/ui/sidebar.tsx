@@ -15,7 +15,7 @@ import {
 import { ViewVerticalIcon } from "@radix-ui/react-icons"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
-import { PanelLeft, PanelRightClose, PanelRightOpen } from "lucide-react"
+import { Menu, PanelLeft, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { Link } from "react-router-dom"
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 
@@ -271,7 +271,7 @@ const SidebarTrigger = React.forwardRef<
       data-sidebar="trigger"
       variant="ghost"
       size="icon"
-      className={cn("h-7 w-7 flex items-center justify-center", className)}
+      className={cn("h-7 w-7 mt-1 flex items-center justify-center", className)}
       onClick={(event) => {
         onClick?.(event)
         toggleSidebar()
@@ -279,12 +279,13 @@ const SidebarTrigger = React.forwardRef<
       {...props}
     >
       {/* <ViewVerticalIcon /> */}
-      {state === "collapsed" ? (
+      {/* {state === "collapsed" ? (
         <MenuUnfoldOutlined  />
       ) : (
         <MenuFoldOutlined  />
-      )}
+      )} */}
       {/* <PanelLeft className={`${state === "collapsed"}`} /> */}
+      <Menu />
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   )
@@ -624,7 +625,7 @@ const SidebarMenuButton = React.forwardRef<
           ))}
         </SidebarMenu>
       ) : (
-        tooltip.children
+        <p className={`${!selectedKeys ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} rounded-md px-2 py-1`}><Link to="/">{tooltip.children}</Link></p>
       )}
     </TooltipContent>
   </Tooltip>
