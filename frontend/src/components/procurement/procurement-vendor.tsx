@@ -268,6 +268,9 @@ export const ProcurementOrder = () => {
                     updatedCategories[fieldName].push({
                         value: item.vendor,
                         label: item.vendor_name + ` (${venAddr?.city}, ${venAddr?.state})`,
+                        vendor_name: item.vendor_name,
+                        city: venAddr?.city,
+                        state: venAddr?.state,
                     });
                 }
             });
