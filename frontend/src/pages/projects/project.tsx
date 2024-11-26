@@ -35,6 +35,7 @@ import { Separator } from "@/components/ui/separator"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { DownOutlined } from '@ant-design/icons';
 import { v4 as uuidv4 } from 'uuid';
+import logo from "@/assets/logo-svg.svg"
 
 const projectStatuses = [
   { value: 'WIP', label: 'WIP', color: 'text-yellow-500', icon: HardHat },
@@ -1379,7 +1380,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   <th colSpan={5 + areaNames?.length} className="p-0">
                     <div className="mt-1 flex justify-between">
                       <div>
-                        <img className="w-44" src={redlogo} alt="Nirmaan" />
+                        <img src={logo} alt="Nirmaan" width="180" height="52" />
                         <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
                       </div>
                     </div>
@@ -1457,7 +1458,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   <th colSpan={5} className="p-0">
                     <div className="mt-1 flex justify-between">
                       <div>
-                        <img className="w-44" src={redlogo} alt="Nirmaan" />
+                        <img src={logo} alt="Nirmaan" width="180" height="52" />
                         <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
                       </div>
                     </div>
@@ -1523,7 +1524,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   <th colSpan={6 + areaNames?.length} className="p-0">
                     <div className="mt-1 flex justify-between">
                       <div>
-                        <img className="w-44" src={redlogo} alt="Nirmaan" />
+                        <img src={logo} alt="Nirmaan" width="180" height="52" />
                         <div className="pt-1 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
                       </div>
                     </div>
