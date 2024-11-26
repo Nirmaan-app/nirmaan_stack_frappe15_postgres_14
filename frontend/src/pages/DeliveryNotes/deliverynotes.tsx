@@ -20,7 +20,7 @@ const DeliveryNotes = () => {
 
     const { data: procurementOrdersList, isLoading: procurementRequestsListLoading } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
-        filters: [["status", "not in", ["PO Sent", "PO Approved", "PO Amendment"]]],
+        filters: [["status", "not in", ["PO Sent", "PO Approved", "PO Amendment", "Cancelled", "Merged"]]],
         limit: 1000,
     },
         "Procurement Orders"
@@ -28,8 +28,8 @@ const DeliveryNotes = () => {
 
     // console.log("data", procurementOrdersList, procurementRequestsList)
 
-    const getPrsAssociated = (prId) => {
-        return procurementOrdersList?.filter((po) => po.procurement_request === prId && !["PO Approved"].includes(po.status)) || []
+    const getPOsAssociated = (prId) => {
+        return procurementOrdersList?.filter((po) => po.procurement_request === prId) || []
     }
 
     const [project, setProject] = useState(null)
@@ -60,7 +60,7 @@ const DeliveryNotes = () => {
     //             },
     //             cell: ({ row }) => {
     //                 const id = row.getValue("name");
-    //                 const associatedPOs = getPrsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
+    //                 const associatedPOs = getPOsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
 
     //                 return (
     //                     <div className="font-medium">
@@ -92,7 +92,7 @@ const DeliveryNotes = () => {
     //             },
     //             cell: ({ row }) => {
     //                 const id = row.getValue("name");
-    //                 const associatedPOs = getPrsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
+    //                 const associatedPOs = getPOsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
 
     //                 return (
     //                     <div className="font-medium">
@@ -153,9 +153,9 @@ const DeliveryNotes = () => {
                                     return (
                                         <TableRow key={item.name}>
                                             <TableCell className="text-sm">{item.name.split("-")[2]}</TableCell>
-                                            {getPrsAssociated(item.name).length ? (
+                                            {getPOsAssociated(item.name).length ? (
                                                 <>
-                                                    <TableCell className="text-sm">{getPrsAssociated(item.name)?.map((po) => (
+                                                    <TableCell className="text-sm">{getPOsAssociated(item.name)?.map((po) => (
                                                         <TableRow>
                                                             <TableCell>
                                                                 <Link className="underline text-blue-300 hover:text-blue-500" to={`${po.name.replaceAll("/", "&=")}`}>DN-{po.name.split('/')[1]}</Link>
@@ -163,7 +163,7 @@ const DeliveryNotes = () => {
                                                         </TableRow>
                                                     ))}</TableCell>
                                                     <TableCell className="text-sm">
-                                                        {getPrsAssociated(item.name)?.map((po) => (
+                                                        {getPOsAssociated(item.name)?.map((po) => (
                                                             <TableRow>
                                                                 <TableCell>
                                                                     {formatDate(po.creation)}
@@ -172,7 +172,7 @@ const DeliveryNotes = () => {
                                                         ))}
                                                     </TableCell>
                                                     <TableCell className="text-sm">
-                                                        {getPrsAssociated(item.name)?.map((po) => (
+                                                        {getPOsAssociated(item.name)?.map((po) => (
                                                             <TableRow>
                                                                 <TableCell>
                                                                     <Badge variant={`${po?.status === "Dispatched" ? "orange" : "green"}`} className="">
