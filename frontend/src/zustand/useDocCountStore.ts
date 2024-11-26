@@ -142,8 +142,8 @@ export const useDocCountStore = create<StoreState>()(
             },
             updatePOCounts: (poData, admin) => {
                 const amendPOCount = poData?.filter((po) => po?.status === "PO Amendment")?.length
-                const newPOCount = poData?.filter((po) => po?.status === "PO Approved")?.length
-                const otherPOCount = poData?.filter((po) =>  !["PO Approved", "PO Amendment"].includes(po?.status))?.length
+                const newPOCount = poData?.filter((po) =>  ["PO Approved"].includes(po?.status))?.length
+                const otherPOCount = poData?.filter((po) =>  !["PO Approved", "PO Amendment", "Merged"].includes(po?.status))?.length
                 if(admin) {
                     set({
                         adminAmendPOCount: amendPOCount,

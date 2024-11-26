@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Button, Layout } from 'antd';
+import { Button, Layout, Tree } from 'antd';
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useEffect, useRef } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 // import { Button } from "../ui/button";
-import { AlertTriangle, ArrowLeft, ArrowLeftToLine, CheckCheck, Download, Eye, ListChecks, ListTodo, ListX, Mail, Merge, MessageCircleWarning, NotebookPen, Pencil, Phone, Printer, Send, Split, Trash2, Truck, Undo, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowLeftToLine, CheckCheck, Download, Eye, List, ListChecks, ListTodo, ListX, Mail, Merge, MessageCircleWarning, NotebookPen, Pencil, Phone, Printer, Send, Split, Trash2, Truck, Undo, Undo2, X } from "lucide-react";
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import { Controller, useForm } from "react-hook-form";
 import { Input } from '@/components/ui/input';
@@ -29,6 +29,7 @@ import { Button as ShadButton } from "@/components/ui/button";
 import { Separator } from '../ui/separator';
 import { ProcurementOrders as ProcurementOrdersType } from '@/types/NirmaanStack/ProcurementOrders';
 import { TailSpin } from 'react-loader-spinner';
+import logo from "@/assets/logo-svg.svg"
 
 const { Sider, Content } = Layout;
 
@@ -70,6 +71,7 @@ export const ReleasePONew = ({ not }) => {
     const [vendorGST, setVendorGST] = useState()
 
     const [clicked, setClicked] = useState(false)
+    const [prevMergedPOs, setPrevMergedPos] = useState([])
 
 
     const { id } = useParams<{ id: string }>()
@@ -212,7 +214,12 @@ export const ReleasePONew = ({ not }) => {
             if (curOrder?.status === "PO Approved") {
                 const mergeablePOs = procurement_order_list.filter((item) => (item.project === curOrder?.project && item.vendor === curOrder?.vendor && item.status === "PO Approved" && item.name !== orderId))
                 setMergeablePOs(mergeablePOs)
+                if(curOrder?.merged === "true") {
+                    const mergedPOs = procurement_order_list.filter((po) => po?.merged === orderId)
+                    setPrevMergedPos(mergedPOs)
+                }
             }
+
             if (curOrder) {
                 setOrderData(curOrder);
                 const chargesArray = curOrder?.advance?.split(", ")
@@ -422,56 +429,150 @@ export const ReleasePONew = ({ not }) => {
 
     const { deleteDoc } = useFrappeDeleteDoc()
 
+    // console.log("mergedItems", mergedItems)
+    // console.log("po merged ", orderData)
+
+    // console.log("order_data", orderData?.order_list?.list)
+
     const handleMergePOs = async () => {
         setClicked(true)
-        const deletionResults = await Promise.all(
+        const updatedOrderList = orderData.order_list.list.map(item => {
+            if (!item?.po) {
+                return { ...item, po: orderData?.name };
+            }
+            return item;
+        });
+        try {
+            const newDoc = await createDoc("Procurement Orders", {
+                procurement_request: orderData?.procurement_request,
+                project: orderData?.project,
+                project_name: orderData?.project_name,
+                project_address: orderData?.project_address,
+                vendor: orderData?.vendor,
+                vendor_name: orderData?.vendor_name,
+                vendor_address: orderData?.vendor_address,
+                vendor_gst: orderData?.vendor_gst,
+                order_list: { list: updatedOrderList },
+                merged: "true"
+            })
+
             mergedItems.map(async (po) => {
                 try {
-                    await deleteDoc("Procurement Orders", po);
-                    return { po, success: true }; // Deletion successful
+                    await updateDoc("Procurement Orders", po, {
+                        status : "Merged",
+                        merged: newDoc?.name
+                    });
+                    // return { po, success: true };
                 } catch (error) {
                     console.error(`Error while merging PO(s)`, error);
-                    return { po, success: false }; // Deletion failed
+                    // return { po, success: false }; // Deletion failed
                 }
             })
-        );
+
+            await updateDoc("Procurement Orders", orderData?.name, {
+                status : "Merged",
+                merged: newDoc?.name
+            })
+
+            toast({
+                 title: "Success!",
+                 description: `Successfully merged PO(s)`,
+                 variant: "success",
+            });
+
+            setMergeablePOs([])
+
+            document.getElementById("MergePOsAlertCancel")?.click()
+
+            navigate(-1)
+
+        } catch (error) {
+            console.log("error while creating the master po", error)
+        } finally {
+            setClicked(false)
+        }
+        // const deletionResults = await Promise.all(
+        //     mergedItems.map(async (po) => {
+        //         try {
+        //             await updateDoc("Procurement Orders", po, {status : "Merged"});
+        //             return { po, success: true }; // Deletion successful
+        //         } catch (error) {
+        //             console.error(`Error while merging PO(s)`, error);
+        //             return { po, success: false }; // Deletion failed
+        //         }
+        //     })
+        // );
 
         // Filter out unsuccessful POs
-        const unsuccessfulPOs = deletionResults.filter(result => !result.success).map(result => result.po);
+        // const unsuccessfulPOs = deletionResults.filter(result => !result.success).map(result => result.po);
 
         // console.log("unsuccess", unsuccessfulPOs)
         // Update order_list based on successful deletions
-        const updatedOrderList = orderData.order_list.list.filter(item =>
-            !unsuccessfulPOs.includes(item.po)
-        );
+        // const updatedOrderList = orderData.order_list.list.filter(item =>
+        //     !unsuccessfulPOs.includes(item.po)
+        // );
 
         // console.log("updatedOrderList", updatedOrderList)
 
         // Proceed to update the current PO
+        // try {
+        //     await updateDoc("Procurement Orders", orderId, {
+        //         order_list: { list: updatedOrderList },
+        //         status: "Merged"
+        //     });
+
+        //     toast({
+        //         title: "Success!",
+        //         description: `Successfully merged PO(s)`,
+        //         variant: "success",
+        //     });
+        //     setMergeablePOs([])
+        //     await mutate();
+        //     document.getElementById("MergePOsAlertCancel")?.click()
+        // } catch (error) {
+        //     console.log("Error while updating the PO's order list", error);
+        //     toast({
+        //         title: "Failed!",
+        //         description: `Unable to Merge PO(s)`,
+        //         variant: "destructive",
+        //     });
+        // } finally {
+        //     setClicked(false)
+        // }
+    };
+
+    const handleUnmergePOs = async () => {
+        setClicked(true)
         try {
-            await updateDoc("Procurement Orders", orderId, {
-                order_list: { list: updatedOrderList }
-            });
+            prevMergedPOs.map(async (po) => {
+                try {
+                    await updateDoc("Procurement Orders", po?.name, {
+                        status : "PO Approved",
+                        merged: null
+                    });
+                    // return { po, success: true };
+                } catch (error) {
+                    console.error(`Error while unmerging PO(s)`, error);
+                    // return { po, success: false }; // Deletion failed
+                }
+            })
+
+            await deleteDoc("Procurement Orders", orderData?.name)
 
             toast({
                 title: "Success!",
-                description: `Successfully merged PO(s)`,
+                description: `Successfully unmerged PO(s)`,
                 variant: "success",
-            });
-            setMergeablePOs([])
-            await mutate();
-            document.getElementById("MergePOsAlertCancel")?.click()
+           });
+
+           navigate(-1)
+
         } catch (error) {
-            console.log("Error while updating the PO's order list", error);
-            toast({
-                title: "Failed!",
-                description: `Unable to Merge PO(s)`,
-                variant: "destructive",
-            });
+            console.log("error while unmerging po's", error)
         } finally {
             setClicked(false)
         }
-    };
+    }
 
     // const handleSendPO = async () => {
     //     setClicked(true)
@@ -597,6 +698,21 @@ export const ReleasePONew = ({ not }) => {
         }
     }
 
+    const treeData = [
+        {
+          title: orderData?.name,
+          key: "mainPO",
+          children: prevMergedPOs?.map((po, idx) => ({
+            title: po?.name,
+            key: `po-${idx}`,
+            children: po?.order_list?.list.map((item, itemIdx) => ({
+              title: item?.item,
+              key: `item-${idx}-${itemIdx}`,
+            })),
+          })),
+        },
+    ];
+
     const checkPrintDisabled = (advance > 100 || advance < 0 || materialReadiness > 100 || materialReadiness < 0 || afterDelivery > 100 || afterDelivery < 0 || xDaysAfterDelivery > 100 || xDaysAfterDelivery < 0 || ![100, 0].includes((advance + materialReadiness + afterDelivery + xDaysAfterDelivery)))
 
     // console.log("advance", control.)
@@ -607,7 +723,7 @@ export const ReleasePONew = ({ not }) => {
     // console.log(orderData?.order_list.list.some((item) => 'po' in item))
     if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (procurement_order_list_error || address_list_error || vendor_error) return <h1>Error</h1>
-    if (!not && orderData?.status !== "PO Approved") return (
+    if (!not && !["PO Approved", "Merged"].includes(orderData?.status)) return (
         <div className="flex items-center justify-center h-full">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
@@ -879,7 +995,7 @@ export const ReleasePONew = ({ not }) => {
                                 )}
                             </div>
 
-                            {(orderData?.status === "PO Approved" && mergeablePOs.length !== 0) && (
+                            {(orderData?.status === "PO Approved" && orderData?.merged !== "true" && mergeablePOs.length !== 0) && (
                                 <>
                                     <Alert variant="warning" className="">
                                         <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
@@ -895,19 +1011,57 @@ export const ReleasePONew = ({ not }) => {
                                                     <div className="p-6">
                                                         <h2 className="text-2xl font-bold mb-4">Merge Purchase Orders</h2>
 
+                                                        <Card className='mb-4'>
+                                                            <CardHeader className="flex flex-row justify-between items-center">
+                                                            <div className="flex flex-col">
+                                                              <span className="text-sm text-gray-500">Project:</span>
+                                                              <p className="text-base font-medium tracking-tight text-black">{orderData?.project_name}</p>
+                                                            </div>
+                                                            <div className="flex flex-col">
+                                                              <span className="text-sm text-gray-500">Vendor:</span>
+                                                              <p className="text-base font-medium tracking-tight text-black">{orderData?.vendor_name}</p>
+                                                            </div>
+                                                            </CardHeader>
+                                                        </Card>
+
                                                         {mergeablePOs.length > 0 ? (
                                                             <Table>
                                                                 <TableHeader>
                                                                     <TableRow className="bg-red-100">
                                                                         <TableHead className="w-[15%]">PO Id</TableHead>
-                                                                        <TableHead>Project</TableHead>
-                                                                        <TableHead>Vendor</TableHead>
-                                                                        <TableHead>Status</TableHead>
-                                                                        <TableHead>Items</TableHead>
+                                                                        {/* <TableHead>Project</TableHead> */}
+                                                                        {/* <TableHead>Vendor</TableHead> */}
+                                                                        {/* <TableHead>Status</TableHead> */}
+                                                                        <TableHead>Items Count</TableHead>
+                                                                        <TableHead>Items List</TableHead>
                                                                         <TableHead>Action</TableHead>
                                                                     </TableRow>
                                                                 </TableHeader>
                                                                 <TableBody>
+                                                                <TableRow key={orderData.name}>
+                                                                                <TableCell>{orderData.name.slice(3, 6)}</TableCell>
+                                                                                {/* <TableCell>{po.project.split("-").slice(1).join("-")}</TableCell> */}
+                                                                                {/* <TableCell>{orderData.project_name}</TableCell> */}
+                                                                                {/* <TableCell>{orderData.vendor_name}</TableCell> */}
+                                                                                {/* <TableCell>{po.status}</TableCell> */}
+                                                                                <TableCell>{orderData.order_list.list.filter((i) => !i?.po)?.length}</TableCell>
+                                                                                <TableCell>
+                                                                                    <ul className='list-disc'>
+                                                                                        {orderData?.order_list?.list?.filter((i) => !i?.po)?.map((j) => (
+                                                                                            <li>{j?.item} <span>(Qty-{j?.quantity})</span></li>
+                                                                                        ))}
+                                                                                    </ul>
+                                                                                </TableCell>
+                                                                                <TableCell><Button
+                                                                                            className='flex items-center gap-1'
+                                                                                            danger
+                                                                                            disabled
+                                                                                        >
+                                                                                            <Split className='w-4 h-4' />
+                                                                                            Split
+                                                                                        </Button>
+                                                                                </TableCell>
+                                                                </TableRow>
                                                                     {mergeablePOs.map((po) => {
                                                                         // Helper function to check if merge should be disabled
                                                                         const isMergeDisabled = po.order_list.list.some((poItem) => {
@@ -920,10 +1074,18 @@ export const ReleasePONew = ({ not }) => {
                                                                         return (
                                                                             <TableRow key={po.name}>
                                                                                 <TableCell>{po.name.slice(3, 6)}</TableCell>
-                                                                                <TableCell>{po.project.split("-").slice(1).join("-")}</TableCell>
-                                                                                <TableCell>{po.vendor}</TableCell>
-                                                                                <TableCell>{po.status}</TableCell>
+                                                                                {/* <TableCell>{po.project.split("-").slice(1).join("-")}</TableCell> */}
+                                                                                {/* <TableCell>{po.project_name}</TableCell> */}
+                                                                                {/* <TableCell>{po.vendor_name}</TableCell> */}
+                                                                                {/* <TableCell>{po.status}</TableCell> */}
                                                                                 <TableCell>{po.order_list.list.length}</TableCell>
+                                                                                <TableCell>
+                                                                                    <ul className='list-disc'>
+                                                                                        {po?.order_list?.list?.map((i) => (
+                                                                                            <li>{i?.item} <span>(Qty-{i?.quantity})</span></li>
+                                                                                        ))}
+                                                                                    </ul>
+                                                                                </TableCell>
                                                                                 <TableCell>
                                                                                     {!mergedItems.includes(po.name) ? (
                                                                                         isMergeDisabled ? (
@@ -1004,8 +1166,8 @@ export const ReleasePONew = ({ not }) => {
                                                                     <AlertDialogDescription>
                                                                         Below are the subsequent actions executed on clicking the Confirm button:
                                                                         <ul className='list-disc ml-6 italic'>
-                                                                            <li>Merged PO(s) will be permanently deleted!</li>
-                                                                            <li>The current PO will be updated to contain the merged PO(s) items</li>
+                                                                            <li>Merged PO(s) including the current PO will be marked as <span className='text-primary'>Merged</span>!</li>
+                                                                            <li>A <span className='text-primary'>New PO</span> will be created to contain the merged PO(s) items</li>
                                                                         </ul>
                                                                         <p className='mt-2 font-semibold text-base'>Continue?</p>
                                                                     </AlertDialogDescription>
@@ -1044,38 +1206,39 @@ export const ReleasePONew = ({ not }) => {
                                                         <div className="flex justify-between border-gray-600 pb-1">
                                                             <div className="mt-2 flex justify-between">
                                                                 <div>
-                                                                    <img className="w-44" src={redlogo} alt="Nirmaan" />
-                                                                    <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                                                                    {/* <img className="w-44" src={redlogo} alt="Nirmaan" /> */}
+                                                                    <img src={logo} alt="Nirmaan" width="180" height="52" />
+                                                                    <div className="pt-2 text-lg text-gray-600 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
                                                                 </div>
                                                             </div>
                                                             <div>
                                                                 <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No.</div>
-                                                                <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
+                                                                <div className="text-lg font-light italic text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>
 
                                                         <div className=" border-b-2 border-gray-600 pb-1 mb-1">
                                                             <div className="flex justify-between">
-                                                                <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
-                                                                <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                                                <div className="text-xs text-gray-600 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
+                                                                <div className="text-xs text-gray-600 font-normal">GST: 29ABFCS9095N1Z9</div>
                                                             </div>
                                                         </div>
 
                                                         <div className="flex justify-between">
                                                             <div>
-                                                                <div className="text-gray-500 text-sm pb-2 text-left">Vendor Address</div>
+                                                                <div className="text-gray-600 text-sm pb-2 text-left">Vendor Address</div>
                                                                 <div className="text-sm font-medium text-gray-900 max-w-[280px] truncate text-left">{orderData?.vendor_name}</div>
                                                                 <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{vendorAddress}</div>
                                                                 <div className="text-sm font-medium text-gray-900 text-left">GSTIN: {vendorGST}</div>
                                                             </div>
                                                             <div>
                                                                 <div>
-                                                                    <h3 className="text-gray-500 text-sm pb-2 text-left">Delivery Location</h3>
+                                                                    <h3 className="text-gray-600 text-sm pb-2 text-left">Delivery Location</h3>
                                                                     <div className="text-sm font-medium text-gray-900 break-words max-w-[280px] text-left">{projectAddress}</div>
                                                                 </div>
                                                                 <div className="pt-2">
-                                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.creation?.split(" ")[0]}</i></div>
-                                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-500 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.project_name}</i></div>
+                                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-600 font-normal">Date:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.creation?.split(" ")[0]}</i></div>
+                                                                    <div className="text-sm font-normal text-gray-900 text-left"><span className="text-gray-600 font-normal">Project Name:</span>&nbsp;&nbsp;&nbsp;<i>{orderData?.project_name}</i></div>
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -1202,13 +1365,13 @@ export const ReleasePONew = ({ not }) => {
                                                     <td colSpan={6}>
                                                         {notes !== "" && (
                                                             <>
-                                                                <div className="text-gray-400 text-sm py-2">Note</div>
+                                                                <div className="text-gray-600 text-sm py-2">Note</div>
                                                                 <div className="text-sm text-gray-900">{notes}</div>
                                                             </>
                                                         )}
                                                         {(advance || materialReadiness || afterDelivery || xDaysAfterDelivery) ? (
                                                             <>
-                                                                <div className="text-gray-400 text-sm py-2">Payment Terms</div>
+                                                                <div className="text-gray-600 text-sm py-2">Payment Terms</div>
                                                                 <div className="text-sm text-gray-900">
                                                                     {advance}% advance {advance === 100 ? "" : `, ${materialReadiness}% on material readiness, ${afterDelivery}% after delivery to the site and ${xDaysAfterDelivery}% after 30 days of delivering the material(s)!`}
                                                                 </div>
@@ -1231,20 +1394,21 @@ export const ReleasePONew = ({ not }) => {
                                                         <div className="flex justify-between border-gray-600 pb-1">
                                                             <div className="mt-2 flex justify-between">
                                                                 <div>
-                                                                    <img className="w-44" src={redlogo} alt="Nirmaan" />
-                                                                    <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
+                                                                    {/* <img className="w-44" src={redlogo} alt="Nirmaan" /> */}
+                                                                    <img src={logo} alt="Nirmaan" width="180" height="52" />
+                                                                    <div className="pt-2 text-lg text-gray-600 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
                                                                 </div>
                                                             </div>
                                                             <div>
                                                                 <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No. :</div>
-                                                                <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
+                                                                <div className="text-lg font-light italic text-black">{(orderData?.name)?.toUpperCase()}</div>
                                                             </div>
                                                         </div>
 
                                                         <div className=" border-b-2 border-gray-600 pb-1 mb-1">
                                                             <div className="flex justify-between">
-                                                                <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
-                                                                <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                                                <div className="text-xs text-gray-600 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
+                                                                <div className="text-xs text-gray-600 font-normal">GST: 29ABFCS9095N1Z9</div>
                                                             </div>
                                                         </div>
                                                     </th>
@@ -1718,6 +1882,87 @@ export const ReleasePONew = ({ not }) => {
                                     </Card>
                                 )
                             }
+                            {(orderData?.status === "PO Approved" && orderData?.merged === "true") && (
+                                <Card className="border-indigo-500 shadow-lg overflow-hidden">
+                                <CardHeader className="bg-indigo-500/10 border-b border-indigo-500/20">
+                                    <CardTitle className="text-2xl text-indigo-500 flex items-center">
+                                        <Split className="w-6 h-6 mr-2" />
+                                        Unmerge PO
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className='p-6'>
+                                    <CardDescription>                                        
+                                        <div className="space-y-6">
+                                        <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
+                                                <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
+                                                    <List className="w-5 h-5 mr-2" />
+                                                    Associated Merged PO's
+                                                </h3>
+                                                <Tree treeData={treeData} defaultExpandedKeys={["mainPO"]} />
+                                        </div>
+                                            <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
+                                                <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
+                                                    <AlertTriangle className="w-5 h-5 mr-2" />
+                                                    Important Notes
+                                                </h3>
+                                                <ul className="list-disc list-inside space-y-1 text-sm text-indigo-500/80">
+                                                    <li>If you need to <span className='italic'>Amend or Cancel</span>, You should proceed with this option.</li>
+                                                    <li>This action will delete the current PO, unmerge all <span className="text-primary font-semibold">the above listed merged PO(s)</span> and make them available in the table!</li>
+                                                </ul>
+                                            </div>
+
+                                            <div className="flex justify-end">
+                                            <AlertDialog>
+                                                <AlertDialogTrigger asChild>
+                                                <ShadButton
+                                                    variant={"outline"}
+                                                    className="flex border-primary items-center gap-1"
+                                                >
+                                                    <Split className="h-4 w-4 mr-1" />
+                                                    Unmerge
+                                                </ShadButton>
+                                                </AlertDialogTrigger>
+                                                <AlertDialogContent>
+                                                    <AlertDialogHeader>
+                                                        <AlertDialogTitle>
+                                                            Are you sure?
+                                                        </AlertDialogTitle>
+                                                    </AlertDialogHeader>
+                                                    <AlertDialogDescription className='space-y-2'>
+                                                        <div>
+                                                            Please be informed that, the following are the PO(s) that are going to be unmerged and be available in the table, it is advised to note these PO numbers!
+                                                        </div>
+                                                        
+                                                        <ul className='list-disc list-inside'>
+                                                            {prevMergedPOs?.map((po) => (
+                                                                <li key={po?.name}>{po?.name}</li>
+                                                            ))}
+                                                        </ul>
+
+                                                        <p className=''>Click on confirm to proceed with unmerging!</p>
+                                                    </AlertDialogDescription>
+                                                    {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                                                        <div className='flex justify-end items-center gap-2'>
+                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                        <AlertDialogAction asChild>
+                                                        <ShadButton
+                                                            onClick={handleUnmergePOs}
+                                                            className="flex items-center gap-1"
+                                                        >
+                                                            <Split className="h-4 w-4 mr-1" />
+                                                            Confirm
+                                                        </ShadButton>
+                                                        </AlertDialogAction>
+                                                    </div>
+                                                    )}
+                                                </AlertDialogContent>
+                                            </AlertDialog> 
+                                            </div> 
+                                        </div>
+                                    </CardDescription>
+                                </CardContent>
+                            </Card>
+                            )}
                             <Card className="border-primary shadow-lg overflow-hidden">
                                 <CardHeader className="bg-primary/10 border-b border-primary/20">
                                     <CardTitle className="text-2xl text-primary flex items-center">
@@ -1740,7 +1985,7 @@ export const ReleasePONew = ({ not }) => {
                                             </div>
 
                                             <div className="flex justify-end">
-                                                {orderData?.status === "PO Approved" ? (
+                                                { (["PO Approved"].includes(orderData?.status) && orderData?.merged !== "true") ? (
                                                     <ShadButton
                                                         onClick={() => document.getElementById("amendAlertTrigger")?.click()}
                                                         className="flex items-center gap-1"
@@ -1757,15 +2002,18 @@ export const ReleasePONew = ({ not }) => {
                                                             </ShadButton>
                                                         </HoverCardTrigger>
                                                         <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                                            <div>
-                                                                <span className="text-primary underline">Amendment</span> not allowed for this PO as its delivery note or status has already been updated!
-                                                            </div>
+                                                            {orderData?.merged === "true" ? (
+                                                                <div>As this is a <span className='text-primary'>Merged PO</span>, in order to Amend this, you should unmerge the POs first!</div>
+                                                            ) : (
+                                                                <div>
+                                                                <span className="text-primary underline">Amendment</span> not allowed for this PO as its delivery note or status has already been updated!</div>
+                                                            )}
                                                         </HoverCardContent>
                                                     </HoverCard>
                                                 )}
 
                                                 <Sheet>
-                                                    <SheetTrigger>
+                                                    <SheetTrigger asChild>
                                                         <button className="hidden" id="amendAlertTrigger">trigger</button>
                                                     </SheetTrigger>
                                                     <SheetContent>
@@ -1778,7 +2026,7 @@ export const ReleasePONew = ({ not }) => {
                                                                     {stack.length !== 0 && (
                                                                         <div className="flex items-center space-x-2">
                                                                             <HoverCard>
-                                                                                <HoverCardTrigger>
+                                                                                <HoverCardTrigger asChild>
                                                                                     <button
                                                                                         onClick={() => UndoDeleteOperation()}
                                                                                         className="flex items-center max-md:text-sm max-md:px-2 max-md:py-1  px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-600 transition duration-200 ease-in-out"
@@ -1848,14 +2096,14 @@ export const ReleasePONew = ({ not }) => {
                                                                                                                 Delete
                                                                                                             </ShadButton>
                                                                                                             :
-                                                                                                            <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex gap-1 items-center" onClick={() => handleDelete(item.item)}>
+                                                                                                            <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex gap-1 items-center" onClick={() => handleDelete(item.item)} asChild>
                                                                                                                 <ShadButton>
                                                                                                                     <Trash2 className="h-4 w-4" />
                                                                                                                     Delete
                                                                                                                 </ShadButton>
                                                                                                             </AlertDialogAction>
                                                                                                         }
-                                                                                                        <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)} className="flex gap-1 items-center">
+                                                                                                        <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)} className="flex gap-1 items-center" asChild>
                                                                                                             <Button>
                                                                                                                 <ListChecks className="h-4 w-4" />
                                                                                                                 Save
@@ -1994,7 +2242,9 @@ export const ReleasePONew = ({ not }) => {
                                             </div>
 
                                             <div className="flex justify-end">
-                                                {(orderData?.status === "PO Approved" && (orderData?.order_list.list.some(item => 'po' in item) === false)) ? (
+                                                {(["PO Approved"].includes(orderData?.status) && orderData?.merged !== "true"
+                                                //  && (orderData?.order_list.list.some(item => 'po' in item) === false)
+                                                ) ? (
                                                     <ShadButton
                                                         onClick={() => document.getElementById("alertTrigger")?.click()}
                                                         className="border-primary flex items-center gap-1"
@@ -2011,9 +2261,13 @@ export const ReleasePONew = ({ not }) => {
                                                             </ShadButton>
                                                         </HoverCardTrigger>
                                                         <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                        {orderData?.merged === "true" ? (
+                                                                <div>As this is a <span className='text-primary'>Merged PO</span>, in order to Cancel this, you should unmerge the POs first!</div>
+                                                            ) : (
                                                             <div>
-                                                                <span className="text-primary underline">Cancellation</span> not allowed for this PO. This PO might be merged or the status is not PO Approved.
+                                                                <span className="text-primary underline">Cancellation</span>is not allowed for this PO. This might be due to the status is not PO Approved.
                                                             </div>
+                                                        )}
                                                         </HoverCardContent>
                                                     </HoverCard>
                                                 )}

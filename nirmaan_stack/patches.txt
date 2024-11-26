@@ -20,3 +20,4 @@ nirmaan_stack.patches.v1_9.add_project_status
 nirmaan_stack.patches.v1_10.add_new_service_vendor_categories
 nirmaan_stack.patches.v1_10.set_po_dispatched_from_sent
 nirmaan_stack.patches.v1_10.rebuild_merged_pos
+nirmaan_stack.patches.v1_10.merge_po_patch2
