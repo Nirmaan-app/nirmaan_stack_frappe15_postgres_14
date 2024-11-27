@@ -250,7 +250,8 @@ export const ApproveServiceRequest = () => {
     );
 
     return (
-        <div className="flex-1 space-y-4">
+        <>
+            <div className="flex-1 space-y-4">
                 <div className="flex items-center">
                     {/* <ArrowLeft onClick={() => { navigate('/approve-service-request') }} /> */}
                     <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Reject</h2>
@@ -391,6 +392,7 @@ export const ApproveServiceRequest = () => {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>
-        </div >
+        </>
+
     )
 }
