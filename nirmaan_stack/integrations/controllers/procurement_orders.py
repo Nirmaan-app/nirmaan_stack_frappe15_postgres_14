@@ -15,7 +15,7 @@ def after_insert(doc, method):
                         f"Hi {user['full_name']}, a new purchase order for the {pr.work_package} "
                         f"work package has been approved and created by {get_user_name(frappe.session.user)}, click here to take action."
                         )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/release-po"
+                    click_action_url = f"{frappe.utils.get_url()}/frontend/approved-po"
                     # Send notification for each lead
                     PrNotification(user, notification_title, notification_body, click_action_url)
                 else:
@@ -48,7 +48,7 @@ def after_insert(doc, method):
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "po:new"
             action_url = doc.name.replace("/", "&=")
-            new_notification_doc.action_url = f"release-po/{action_url}"
+            new_notification_doc.action_url = f"approved-po/{action_url}"
             new_notification_doc.insert()
             frappe.db.commit()
 
