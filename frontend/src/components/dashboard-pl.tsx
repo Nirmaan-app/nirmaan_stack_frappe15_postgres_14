@@ -9,7 +9,7 @@ export const ProjectLead = () => {
         <div className="flex-1 space-y-4">
             <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Project Lead Dashboard</h2>
 
-            <div className=" space-y-2">
+            <div className="space-y-2">
                 <h2 className="text-base font-bold tracking-tight">Procurement Actions</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
@@ -19,7 +19,7 @@ export const ProjectLead = () => {
                         </Link>
                     </Card>
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                        <Link to="/approve-order">
+                        <Link to="/approve-new-pr">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PR</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                                 {pendingPRCount || 0}
@@ -27,7 +27,7 @@ export const ProjectLead = () => {
                         </Link>
                     </Card>
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                        <Link to="/approve-vendor">
+                        <Link to="/approve-po">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PO</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                                 {approvePRCount || 0}

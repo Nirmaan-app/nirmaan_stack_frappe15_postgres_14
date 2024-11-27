@@ -160,24 +160,24 @@ export function Sidebar({ className, isSidebarOpen, setIsSidebarOpen, toggleSide
                                             <span className={cn({ "text-white": isActive("/prs&milestones") })}>PRs & Milestones</span>
                                         </Button>
                                     </Link>
-                                    <Link to="/approve-order">
+                                    <Link to="/approve-new-pr">
                                         <Button
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => handleSetSidebarOpen(false)}
-                                            disabled={isActive("/approve-order")}
-                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-order") })}>
-                                            <span className={cn({ "text-white": isActive("/approve-order") })}>Approve PR</span>
+                                            disabled={isActive("/approve-new-pr")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-new-pr") })}>
+                                            <span className={cn({ "text-white": isActive("/approve-new-pr") })}>Approve PR</span>
                                         </Button>
                                     </Link>
-                                    <Link to="/approve-vendor">
+                                    <Link to="/approve-po">
                                         <Button
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => handleSetSidebarOpen(false)}
-                                            disabled={isActive("/approve-vendor")}
-                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-vendor") })}>
-                                            <span className={cn({ "text-white": isActive("/approve-vendor") })}>Approve PO</span>
+                                            disabled={isActive("/approve-po")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/approve-po") })}>
+                                            <span className={cn({ "text-white": isActive("/approve-po") })}>Approve PO</span>
                                         </Button>
                                     </Link>
                                     <Link to="/approve-sent-back">
@@ -200,14 +200,14 @@ export function Sidebar({ className, isSidebarOpen, setIsSidebarOpen, toggleSide
                                     </Button>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                    <Link to="/procure-request">
+                                    <Link to="/new-procure-request">
                                         <Button
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => handleSetSidebarOpen(false)}
-                                            disabled={isActive("/procure-request")}
-                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/procure-request") })}>
-                                            <span className={cn({ "text-white": isActive("/procure-request") })}>New PR Request</span>
+                                            disabled={isActive("/new-procure-request")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/new-procure-request") })}>
+                                            <span className={cn({ "text-white": isActive("/new-procure-request") })}>New PR Request</span>
                                         </Button>
                                     </Link>
                                     <Link to="/update-quote">
@@ -220,24 +220,24 @@ export function Sidebar({ className, isSidebarOpen, setIsSidebarOpen, toggleSide
                                             <span className={cn({ "text-white": isActive("/update-quote") })}>Update Quote</span>
                                         </Button>
                                     </Link>
-                                    <Link to="/select-vendor-list">
+                                    <Link to="/choose-vendor">
                                         <Button
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => handleSetSidebarOpen(false)}
-                                            disabled={isActive("/select-vendor-list")}
-                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/select-vendor-list") })}>
-                                            <span className={cn({ "text-white": isActive("/select-vendor-list") })}>Select Vendor</span>
+                                            disabled={isActive("/choose-vendor")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/choose-vendor") })}>
+                                            <span className={cn({ "text-white": isActive("/choose-vendor") })}>Select Vendor</span>
                                         </Button>
                                     </Link>
-                                    <Link to="/release-po">
+                                    <Link to="/approved-po">
                                         <Button
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => handleSetSidebarOpen(false)}
-                                            disabled={isActive("/release-po")}
-                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/release-po") })}>
-                                            <span className={cn({ "text-white": isActive("/release-po") })}>Release PO</span>
+                                            disabled={isActive("/approved-po")}
+                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/approved-po") })}>
+                                            <span className={cn({ "text-white": isActive("/approved-po") })}>Release PO</span>
                                         </Button>
                                     </Link>
                                     <Separator className="m-4" />

@@ -370,12 +370,12 @@ export function NewSidebar() {
                     children: [
                         { key: '/prs&milestones', label: 'PRs & Milestones' },
                         {
-                            key: '/approve-order',
+                            key: '/approve-new-pr',
                             label: "Approve PR",
                             count: (role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminPendingPRCount : pendingPRCount
                         },
                         {
-                            key: '/approve-vendor', label: "Approve PO",
+                            key: '/approve-po', label: "Approve PO",
                             count: (role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminApprovePRCount : approvePRCount
                           },
                         {
@@ -401,12 +401,12 @@ export function NewSidebar() {
                     icon: List,
                     label: 'Procurement Requests',
                     children: [
-                        { key: '/procure-request', label: "New PR Request",
+                        { key: '/new-procure-request', label: "New PR Request",
                           count: (role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminApprovedPRCount : approvedPRCount
 
                         },
                         { key: '/update-quote', label: 'Update Quote' },
-                        { key: '/select-vendor-list', label: 'Choose Vendor' },
+                        { key: '/choose-vendor', label: 'Choose Vendor' },
                         // {key: '/service-request', label: 'Service Requests'}
                     ],
                 },
@@ -415,8 +415,8 @@ export function NewSidebar() {
                     icon: SquareSquare,
                     label: "Service Requests",
                     children: [
-                        {key: '/service-request', label : 'View/Create SR'},
-                        {key: '/select-service-vendor', label : 'Select Service Vendor'},
+                        {key: '/service-requests', label : 'View/Create SR'},
+                        {key: '/choose-service-vendor', label : 'Choose Service Vendor'},
                         {key: '/approved-sr', label: "Approved SR", 
                           count: (role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminApprovedSRCount : approvedSRCount
                         },
@@ -427,7 +427,7 @@ export function NewSidebar() {
                     icon : ShoppingCart,
                     label: 'Purchase Orders',
                     children : [
-                        { key: '/release-po', label: "Approved PO",
+                        { key: '/approved-po', label: "Approved PO",
                           count: (role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewPOCount : newPOCount
                         },
                         { key: '/released-po', label: 'Released PO' }
@@ -457,20 +457,22 @@ export function NewSidebar() {
         ),
     ];
 
+    console.log("pathname", location?.pathname.slice(1).split("/"))
+
     const allKeys = [
         "projects", "users", "items", "vendors", "customers",
-        "prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po", "procure-request", "update-quote",
-        "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
-        "service-request", "approve-service-request", "select-service-vendor", "approved-sr"
+        "prs&milestones", "approve-new-pr", "approve-po",
+        "approve-sent-back", "approve-amended-po", "new-procure-request", "update-quote",
+        "choose-vendor", "approved-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
+        "service-requests", "approve-service-request", "choose-service-vendor", "approved-sr"
     ];
 
-    const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
+    const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location?.pathname.slice(1).split("/")?.[0] === key) : "";
 
-    const openKey = ["projects", "users", "items", "vendors", "customers"].includes(selectedKeys) ? "admin-actions" : ["prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["procure-request", "update-quote",
-            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
-            ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
+    const openKey = ["projects", "users", "items", "vendors", "customers"].includes(selectedKeys) ? "admin-actions" : ["prs&milestones", "approve-new-pr", "approve-po",
+        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["new-procure-request", "update-quote",
+            "choose-vendor"].includes(selectedKeys) ? "pe-actions" : ["service-requests", "choose-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ["approved-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
+            ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-requests", "choose-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
 
 
     const isDefaultOpen = ["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]
@@ -516,7 +518,7 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
                     {item?.label === "Dashboard" ? (
-                    <SidebarMenuButton className={`${!openKey ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : ""}`} onClick={() => {
+                    <SidebarMenuButton className={`${!openKey ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : ""} tracking-tight`} onClick={() => {
                         if(isMobile) {
                             toggleSidebar()
                         }
@@ -527,7 +529,7 @@ export function NewSidebar() {
                       </SidebarMenuButton>
                     ) : (
                         <CollapsibleTrigger asChild>
-                        <SidebarMenuButton className={`${openKey === item?.key ? "text-[#D03B45] hover:text-[#D03B45] !important" : ""}`} selectedKeys={selectedKeys} tooltip={item.children}>
+                        <SidebarMenuButton className={`${openKey === item?.key ? "text-[#D03B45] hover:text-[#D03B45] !important" : ""} tracking-tight`} selectedKeys={selectedKeys} tooltip={item.children}>
                           {item.icon && <item.icon />}
                           <span className="font-medium">{item.label}</span>
                           <ChevronRight className="ml-auto mr-2 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />

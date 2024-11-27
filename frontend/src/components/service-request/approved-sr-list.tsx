@@ -81,7 +81,7 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={for_vendor === undefined ? `${srId}` : `/service-request/${srId}`}
+                                to={for_vendor === undefined ? `${srId}` : `/service-requests/${srId}`}
                             >
                                 {srId?.slice(-5)}
                             </Link>
@@ -181,7 +181,7 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
     const { toast } = useToast()
 
     if (service_list_error || projects_error) {
-        console.log("Error in select-vendor-list.tsx", service_list_error?.message, projects_error?.message)
+        console.log("Error in approved-sr-list.tsx", service_list_error?.message, projects_error?.message)
         toast({
             title: "Error!",
             description: `Error ${service_list_error?.message || projects_error?.message}`,
@@ -190,10 +190,10 @@ export const ApprovedSRList = ({ for_vendor = undefined }: ApprovedSRListProps) 
     }
 
     return (
-        <div className="flex-1 md:space-y-4">
-            {for_vendor === undefined && <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Choose Vendor PR</h2>
-            </div>}
+        <div className="flex-1 space-y-4">
+            {/* {for_vendor === undefined && <div className="flex items-center justify-between space-y-2">
+                <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Approved SR</h2>
+            </div>} */}
             {(projects_loading || service_list_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={service_list || []} project_values={project_values} />
             )}

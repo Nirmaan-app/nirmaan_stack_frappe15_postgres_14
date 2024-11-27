@@ -152,7 +152,7 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
 
                   {/* Last Item */}
                   <BreadcrumbItem>
-                    <BreadcrumbPage className='max-sm:text-xs'>{locationsPaths[locationsPaths.length - 1]?.toUpperCase()}</BreadcrumbPage>
+                    <BreadcrumbPage className='max-sm:text-xs'>{locationsPaths[locationsPaths.length - 1]?.includes("&=") ? locationsPaths[locationsPaths.length - 1]?.replaceAll("&=", "/") : locationsPaths[locationsPaths.length - 1]?.toUpperCase()}</BreadcrumbPage>
                   </BreadcrumbItem>
                 </>
               ) : (
@@ -164,14 +164,14 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
                       <React.Fragment key={index}>
                         <BreadcrumbItem>
                           <Link to={`/${toNavigate}`}>
-                            <BreadcrumbLink>{route === "release-po" ? "APPROVED-PO" : route?.toUpperCase()}</BreadcrumbLink>
+                            <BreadcrumbLink>{route?.toUpperCase()}</BreadcrumbLink>
                           </Link>
                         </BreadcrumbItem>
                         <BreadcrumbSeparator />
                       </React.Fragment>
                     ) : (
                       <BreadcrumbItem key={index}>
-                        <BreadcrumbPage>{route === "release-po" ? "APPROVED-PO" : route?.toUpperCase()}</BreadcrumbPage>
+                        <BreadcrumbPage>{route?.includes("&=") ? route?.replaceAll("&=", "/") : route?.toUpperCase()}</BreadcrumbPage>
                       </BreadcrumbItem>
                     )
                   );

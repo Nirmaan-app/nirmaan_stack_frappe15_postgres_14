@@ -467,11 +467,11 @@ export const SentBackSelectVendor = () => {
     return (
         <>
             {page == 'updatequotation' &&
-                <div className="flex-1 space-y-2 md:space-y-4">
-                    <div className="flex items-center pt-1 pb-4">
+                <div className="flex-1 space-y-4">
+                    {/* <div className="flex items-center">
                         <ArrowLeft onClick={() => navigate(-1)} />
-                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Select Vendor Quotes</h2>
-                    </div>
+                        <h2 className="text-base pl-2 font-bold tracking-tight">Choose Vendor Quotes</h2>
+                    </div> */}
                     <ProcurementHeaderCard orderData={orderData} sentBack />
                     {orderData?.category_list?.list.map((cat) => {
                         const curCategory = cat.name;
@@ -629,10 +629,10 @@ export const SentBackSelectVendor = () => {
                 </div>}
             {page == 'approvequotation' &&
                 <>
-                    <div className="flex-1 space-y-2 md:space-y-4">
-                        <div className="flex items-center pt-1 pb-4">
+                    <div className="flex-1 space-y-4">
+                        <div className="flex items-center">
                             <ArrowLeft onClick={() => setPage('updatequotation')} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Comparison</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Comparison</h2>
                         </div>
                         <ProcurementHeaderCard orderData={orderData} sentBack />
                         <div className="w-full">
@@ -726,7 +726,7 @@ export const SentBackSelectVendor = () => {
 
                         </ConfigProvider>
                     </div>
-                    <div className="flex flex-col justify-end items-end mr-2 mb-4 mt-4">
+                    <div className="flex flex-col justify-end items-end mr-2 my-4">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button className="flex items-center gap-1">

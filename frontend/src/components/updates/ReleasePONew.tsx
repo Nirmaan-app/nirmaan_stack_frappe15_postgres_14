@@ -608,7 +608,7 @@ export const ReleasePONew = ({ not }) => {
                 </p>
                 <button
                     className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                    onClick={() => navigate("/release-po")}
+                    onClick={() => navigate("/approved-po")}
                 >
                     Go Back
                 </button>
@@ -617,10 +617,10 @@ export const ReleasePONew = ({ not }) => {
     );
 
     return (
-        <div className='flex-1 md:space-y-4'>
-            <div className="py-4 flex items-center gap-1">
+        <div className='flex-1 space-y-4'>
+            <div className="flex items-center gap-1 ml-8">
                 {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
+                <div className="font-semibold text-xl md:text-2xl text-pageheader">PO PDF</div>
             </div>
             <Layout>
                 <Sider theme='light' collapsedWidth={0} width={500} trigger={null} collapsible collapsed={collapsed}>
@@ -764,7 +764,7 @@ export const ReleasePONew = ({ not }) => {
                         <Content
                             className={`${collapsed ? "md:mx-10 lg:mx-32" : ""} my-4 mx-2 flex flex-col gap-4 relative`}
                         >
-                            <div className='absolute right-0 -top-20 max-md:-top-14 flex items-center gap-4'>
+                            <div className='absolute right-0 -top-14 flex items-center gap-4'>
                                 <Badge variant={orderData?.status === "PO Approved" ? "default" : orderData?.status === "PO Sent" ? "yellow" : orderData?.status === "Dispatched" ? "orange" : "green"}>{orderData?.status === "Partially Delivered" ? "Delivered" : orderData?.status}</Badge>
                                 {!["PO Sent", "PO Approved"].includes(orderData?.status) && (
                                     <ShadButton className='flex items-center gap-1' disabled={advance > 100 || advance < 0} onClick={() => {
@@ -1384,15 +1384,15 @@ export const ReleasePONew = ({ not }) => {
                                                             </DialogDescription>
                                                         </DialogHeader>
                                                     {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                                        <DialogFooter>
+                                                        <DialogFooter className='flex flex-row items-center justify-end'>
                                                             <DialogClose>
                                                                 <ShadButton variant="outline" className='flex items-center gap-1'>
-                                                                    <Undo2 className="h-4 w-4 mr-2" />
+                                                                    <Undo2 className="h-4 w-4" />
                                                                     Cancel
                                                                 </ShadButton>
                                                             </DialogClose>
-                                                            <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600">
-                                                                <CheckCheck className="h-4 w-4 mr-2" />
+                                                            <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600 flex items-center gap-1">
+                                                                <CheckCheck className="h-4 w-4" />
                                                                 Confirm
                                                             </ShadButton>
                                                         </DialogFooter>

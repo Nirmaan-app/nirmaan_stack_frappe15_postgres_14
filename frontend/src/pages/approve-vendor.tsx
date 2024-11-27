@@ -180,7 +180,7 @@ const ApproveVendor = () => {
                 </p>
                 <button
                     className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                    onClick={() => navigate("/approve-vendor")}
+                    onClick={() => navigate("/approve-po")}
                 >
                     Go Back
                 </button>
@@ -573,7 +573,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             // }));
 
             if (filteredList.length === 0) {
-                navigate('/approve-vendor');
+                navigate('/approve-po');
             }
 
             document.getElementById("ApproveAlertClose")?.click()
@@ -696,7 +696,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             // }));
 
             if (filteredList.length === 0) {
-                navigate('/approve-vendor');
+                navigate('/approve-po');
             }
 
             document.getElementById("SendBackAlertClose")?.click()
@@ -723,10 +723,10 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     return (
         <div className='flex-1 space-y-4'>
             {page == 'approvequotation' &&
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1  pb-4">
-                        {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-vendor")} /> */}
-                        <h2 className="text-base pl-2 font-bold tracking-tight">Approve PO: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
+                        {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-po")} /> */}
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back</h2>
                     </div>
                     <Card className="flex flex-wrap lg:grid lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
