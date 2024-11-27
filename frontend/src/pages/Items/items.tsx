@@ -198,12 +198,27 @@ export default function Items() {
 
     return (
 
-        <div className="flex-1 md:space-y-4">
-            <div className="flex items-center justify-between mb-2">
+        <div className="flex-1 space-y-4">
+            {/* <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1">
-                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Items List</h2>
                 </div>
+            </div> */}
+            <div className="flex justify-between">
+                <Card className="hover:animate-shadow-drop-center w-[60%]">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">
+                            Total Items
+                        </CardTitle>
+                        <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">
+                            {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (data?.length)}
+                        </div>
+                    </CardContent>
+                </Card>
                 <Dialog>
                     <DialogTrigger asChild>
                         <Button className="flex items-center gap-1">
@@ -282,23 +297,6 @@ export default function Items() {
                         </DialogClose>
                     </DialogContent>
                 </Dialog>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-                <Card className="hover:animate-shadow-drop-center" onClick={() => {
-
-                }}>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">
-                            Total Items
-                        </CardTitle>
-                        <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">
-                            {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (data?.length)}
-                        </div>
-                    </CardContent>
-                </Card>
             </div>
             <div className="pl-0 pr-2">
                 {isLoading || category_loading ? (

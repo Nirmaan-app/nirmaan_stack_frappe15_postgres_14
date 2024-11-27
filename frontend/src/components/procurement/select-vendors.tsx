@@ -517,7 +517,7 @@ export const SelectVendors = () => {
                         description: `You just delayed all the items, you can see them in "New Sent Back" tab!`,
                         variant: "default",
                     });
-                    navigate("/select-vendor-list");
+                    navigate("/choose-vendor");
                 } catch (error) {
                     console.log("update_submit_error", error);
                 }
@@ -533,7 +533,7 @@ export const SelectVendors = () => {
                         description: `Items Sent for Approval`,
                         variant: "success",
                     });
-                    navigate("/select-vendor-list");
+                    navigate("/choose-vendor");
                 } catch (error) {
                     console.log("update_submit_error", error);
                 }
@@ -711,10 +711,10 @@ export const SelectVendors = () => {
     return (
         <>
             {page == 'updatequotation' &&
-                <div className="flex-1 space-y-2 md:space-y-4">
-                    <div className="flex items-center pt-1  pb-4">
-                        {/* <ArrowLeft onClick={() => navigate("/select-vendor-list")} /> */}
-                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Choose Vendor/Item Quotes</h2>
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
+                        {/* <ArrowLeft onClick={() => navigate("/choose-vendor")} /> */}
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Choose Vendor/Item Quotes</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />
                     {orderData?.category_list?.list.map((cat) => {
@@ -876,10 +876,10 @@ export const SelectVendors = () => {
                 </div>}
             {page == 'approvequotation' &&
                 <>
-                    <div className="flex-1 md:space-y-4">
-                        <div className="flex items-center pt-1 pb-4">
+                    <div className="flex-1 space-y-4">
+                        <div className="flex items-center">
                             <ArrowLeft className='cursor-pointer' onClick={() => setPage('updatequotation')} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Comparison</h2>
                         </div>
                         <ProcurementHeaderCard orderData={orderData} />
                     </div>
@@ -968,7 +968,7 @@ export const SelectVendors = () => {
 
                         </ConfigProvider>
                     </div>
-                    <div className="flex flex-col justify-end items-end mr-2 mb-4 mt-4">
+                    <div className="flex flex-col justify-end items-end mr-2 my-4">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button className="flex items-center gap-1" disabled={submitClicked}>

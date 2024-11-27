@@ -220,10 +220,10 @@ export const QuoteUpdateSelect = () => {
     }
 
     return (
-        <div className="flex-1 md:space-y-4">
-            <div className="flex items-center justify-between space-y-2">
+        <div className="flex-1 space-y-4">
+            {/* <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Quote Update PR</h2>
-            </div>
+            </div> */}
             {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2"> */}
             {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
@@ -243,7 +243,7 @@ export const QuoteUpdateSelect = () => {
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {procurement_request_list?.map(item => (
                                     <tr key={item.name}>
-                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/procure-request/quote-update/${item.name}`}>{item.name.slice(-4)}</Link></td>
+                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/new-procure-request/quote-update/${item.name}`}>{item.name.slice(-4)}</Link></td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             {item.creation.split(" ")[0]}
                                         </td>

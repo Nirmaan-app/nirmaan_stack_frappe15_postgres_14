@@ -223,20 +223,20 @@ export const EditVendor = () => {
 
     return (
         <div className="flex-1 md:space-y-4">
-            <div className="space-y-0.5">
+            {/* <div className="space-y-0.5">
                 <div className="flex space-x-2 items-center ml-6">
-                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/vendors/${id}`)} /> */}
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/vendors/${id}`)} />
                     <h2 className="text-2xl font-bold tracking-tight">Edit: <span className="text-red-700">{id}</span></h2>
                 </div>
             </div>
-            <Separator className="my-6 max-md:my-2" />
+            <Separator className="my-6 max-md:my-2" /> */}
             <Form {...form}>
                 <form
                     onSubmit={(event) => {
                         event.preventDefault(); // Prevents page reload
                         return form.handleSubmit(onSubmit)(event); // Calls your form submit logic
                     }}
-                    className="space-y-8 px-6 max-md:px-2"
+                    className="space-y-4 md:space-y-8 px-6 max-md:px-2"
                 >
                     <FormField
                         control={form.control}

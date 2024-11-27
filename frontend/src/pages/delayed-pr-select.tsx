@@ -166,7 +166,7 @@ export const DelayedPRSelect = () => {
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {procurement_request_lists?.map(item => (
                                     <tr key={item.name}>
-                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/approve-vendor/${item.name}`}>{item.name.slice(-4)}</Link></td>
+                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/approve-po/${item.name}`}>{item.name.slice(-4)}</Link></td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             {item.creation.split(" ")[0]}
                                         </td>

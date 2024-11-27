@@ -335,7 +335,7 @@ export const UpdateQuote = () => {
         })
             .then(() => {
                 console.log("orderId", orderId)
-                navigate(`/select-vendor-list/${orderId}`);
+                navigate(`/choose-vendor/${orderId}`);
             }).catch(() => {
                 console.log("submit_error", update_error)
             })
@@ -348,10 +348,10 @@ export const UpdateQuote = () => {
     return (
         <>
             {page == 'quotation' &&
-                    <div className="flex-1 md:space-y-4">
-                        <div className="flex items-center pt-1 pb-4">
+                    <div className="flex-1 space-y-4">
+                        <div className="flex items-center">
                             {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Input Quotes</h2>
                         </div>
                         <ProcurementHeaderCard orderData={orderData} />
                         <div className="flex justify-between">

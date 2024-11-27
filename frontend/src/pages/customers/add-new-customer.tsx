@@ -352,25 +352,25 @@ export default function NewCustomer({ company_mutate, navigation = true }) {
 
     return (
         <div>
-            {
+            {/* {
                 navigation && (<div className="space-y-0.5">
                     <div className="flex space-x-2 items-center ml-6">
-                        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} /> */}
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate("/customers")} />
                         <h2 className="text-2xl font-bold tracking-tight">Add New Customer</h2>
                     </div>
                     <p className="text-muted-foreground ml-6">
                         Fill all the marked fields to create a new Customer
                     </p>
                 </div>)
-            }
-            <Separator className="my-6 max-md:my-2" />
+            } 
+            <Separator className="my-6 max-md:my-2" />*/}
             <Form {...form}>
                 <form
                     onSubmit={(event) => {
                         event.stopPropagation();
                         return form.handleSubmit(onSubmit)(event);
                     }}
-                    className="space-y-8 px-6 max-md:px-2"
+                    className="md:space-y-8 space-y-4 px-6 py-2 max-md:px-2"
                 >
                     <FormField
                         control={form.control}

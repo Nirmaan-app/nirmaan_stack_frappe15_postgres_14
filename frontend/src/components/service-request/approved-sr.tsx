@@ -180,11 +180,11 @@ export const ApprovedSR = () => {
     // console.log("gstEnabled", gstEnabled)
 
     return (
-        <div className='flex-1 md:space-y-4'>
+        <div className='flex-1 space-y-4'>
             <div className="flex justify-between items-center">
-                <div className="py-4 flex items-center gap-1">
+                <div className=" flex items-center gap-1 ml-8">
                     {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                    <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
+                    <div className="font-semibold text-xl md:text-2xl text-pageheader">SR PDF</div>
                 </div>
                 <ShadButton className='flex items-center gap-2' onClick={handlePrint}>
                     <Printer className='h-4 w-4' />
@@ -201,7 +201,7 @@ export const ApprovedSR = () => {
                     )}
                     {/* <div className="flex-1 py-6 border-b border-gray-200">
                                 <Label className="font-semibold">Advance (in %)</Label>
-                                <RadioGroup
+                                            <RadioGroup
                                                 onValueChange={(value) => {
                                                     setAdvance(value !== "Other" ? parseFloat(value) : 0);
                                                     setCustomAdvance(value === "Other");

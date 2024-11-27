@@ -390,7 +390,7 @@ export const ProcurementOrder = () => {
                     </p>
                     <button
                         className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                        onClick={() => navigate("/procure-request")}
+                        onClick={() => navigate("/new-procure-request")}
                     >
                         Go Back to PR List
                     </button>
@@ -402,10 +402,10 @@ export const ProcurementOrder = () => {
     return (
         <>
             {page == 'approve' &&
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1 pb-4">
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
                         {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate(-1)} /> */}
-                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Summary </h2>
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Summary</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />
                     <div className="overflow-x-auto">
@@ -496,7 +496,7 @@ export const ProcurementOrder = () => {
                     </div>
 
                     <div className="flex items-center space-y-2">
-                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
+                        <h2 className="text-base pl-2 font-bold tracking-tight">PR Comments</h2>
                     </div>
                     <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2">
                         {comments?.length !== 0 ? (
@@ -532,10 +532,10 @@ export const ProcurementOrder = () => {
                     </div>
                 </div>}
             {page == 'vendors' &&
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1 pb-4">
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
                         <ArrowLeft onClick={() => setPage("approve")} className="cursor-pointer" />
-                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Select Vendors</h2>
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Select Vendors</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />
                     {orderData?.category_list?.list.map((cat) => {

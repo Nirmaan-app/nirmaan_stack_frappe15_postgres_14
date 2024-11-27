@@ -373,13 +373,13 @@ export const EditProjectForm = () => {
             }} className="flex-1 md:space-y-4">
 
                 <div className="flex flex-col">
-                    <div className="flex items-center gap-1 ml-6">
-                        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${projectId}`)} /> */}
+                    {/* <div className="flex items-center gap-1 ml-6">
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/projects/${projectId}`)} />
                         <p className="text-black font-semibold text-2xl max-md:text-xl">Edit: <span className="text-red-700">{projectId}</span></p>
                         <sup className="text-red-700">*(beta)</sup>
-                    </div>
-                    <Separator className="mt-6 max-md:mt-4 mb-4" />
-                    <div className="px-6 flex flex-col ">
+                    </div> */}
+                    {/* <Separator className="mt-6 max-md:mt-4 mb-4" /> */}
+                    <div className="px-6 flex flex-col py-4">
                         <p className="text-sky-600 font-semibold pb-2">Project Details</p>
                         <div className="flex flex-col gap-4">
                             <FormField

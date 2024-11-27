@@ -87,7 +87,7 @@ const ApprovePRList = () => {
                     </p>
                     <button
                         className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                        onClick={() => navigate("/approve-order")}
+                        onClick={() => navigate("/approve-new-pr")}
                     >
                         Go Back to PR List
                     </button>
@@ -500,7 +500,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 variant: "success"
             });
 
-            navigate("/approve-order");
+            navigate("/approve-new-pr");
         } catch (submit_error) {
             toast({
                 title: "Failed!",
@@ -543,7 +543,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 description: `PR: ${res?.name} is successfully Rejected!`,
                 variant: "success"
             })
-            navigate("/approve-order")
+            navigate("/approve-new-pr")
         } catch (error) {
             toast({
                 title: "Failed!",
@@ -597,7 +597,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                 description: `PR: ${orderData.name} deleted successfully!`,
                 variant: "success"
             })
-            navigate("/approve-order")
+            navigate("/approve-new-pr")
         } catch (error) {
             console.log("error while deleting PR", error)
             toast({
@@ -614,10 +614,10 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
     return (
         <>
             {page == 'categorylist' &&
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1  pb-4">
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
                         <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
-                        <h2 className="text-lg pl-2 font-bold tracking-tight">Select Category</h2>
+                        <h2 className="text-lg pl-2 font-bold tracking-tight text-pageheader">Select Category</h2>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                         {category_list?.map((item) => {
@@ -635,11 +635,11 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     </div>
                 </div>}
             {page == 'itemlist' &&
-                <div className="flex-1 md:space-y-4">
+                <div className="flex-1 space-y-4">
                     <div className="flex justify-between items-center">
-                        <div className="flex items-center pt-1  pb-4 ">
+                        <div className="flex items-center">
                             {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                            <h2 className="text-lg pl-2 font-bold tracking-tight">Approve/Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
+                            <h2 className="text-lg pl-2 font-bold tracking-tight text-pageheader">Approve/Reject/Delete</h2>
                         </div>
 
                         <AlertDialog>
@@ -676,19 +676,19 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     </div>
                     {/* <Card className="flex flex-wrap md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                            <p className="text-left py-1 font-light text-sm text-red-700">Date:</p>
+                            <p className="text-left py-1 font-light text-sm text-pageheader">Date:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
                         </div>
                         <div className="border-0 flex flex-col justify-center">
-                            <p className="text-left py-1 font-light text-sm text-red-700">Project:</p>
+                            <p className="text-left py-1 font-light text-sm text-pageheader">Project:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
                         </div>
                         <div className="border-0 flex flex-col justify-center">
-                            <p className="text-left py-1 font-light text-sm text-red-700">Package:</p>
+                            <p className="text-left py-1 font-light text-sm text-pageheader">Package:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                         </div>
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                            <p className="text-left py-1 font-light text-sm text-red-700">Created By:</p>
+                            <p className="text-left py-1 font-light text-sm text-pageheader">Created By:</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
                     </Card> */}
@@ -717,7 +717,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             </div>
 
                             <div className="flex space-x-2">
-
                                 <div className="w-1/2 md:w-2/3">
                                     <h5 className="text-xs text-gray-400">Items</h5>
                                     <ReactSelect value={{ value: curItem, label: `${curItem}${make ? "-" + make : ""}` }} options={item_options} onChange={handleChange} />
@@ -745,7 +744,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     }
                     <Card className="p-4 border border-gray-100 rounded-lg">
                         <div className="flex justify-between items-center">
-                            <p className="text-xs text-red-700 pb-2">Added Items</p>
+                            <p className="text-xs text-pageheader pb-2">Added Items</p>
                             {/* {stack.length !== 0 && (
                                     <div>
                                         <HoverCard>
@@ -907,7 +906,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             </div>
                         })}
                     </Card>
-                    <div className="flex items-center space-y-2 pt-8">
+                    <div className="flex items-center space-y-2">
                         <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
                     </div>
 
@@ -966,31 +965,31 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                     {/* <button className="bottom-0 h-8 w-full bg-red-700 rounded-md text-sm text-white" onClick={()=>handleSubmit()}>Next</button> */}
                 </div>}
             {page == 'summary' &&
-                <div className="flex-1 md:space-y-4">
+                <div className="flex-1 space-y-4">
                     {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
-                    <div className="flex items-center pt-1 pb-4">
-                        <ArrowLeft onClick={() => setPage('itemlist')} />
-                        <h2 className="text-lg pl-2 font-bold tracking-tight">Quantity Summary: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
+                    <div className="flex items-center">
+                        <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
+                        <h2 className="text-lg pl-2 font-bold tracking-tight text-pageheader">Quantity Summary</h2>
                     </div>
                     {/* <Card className="flex md:grid md:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                            <p className="text-left py-1 font-light text-sm text-red-700">Date</p>
+                            <p className="text-left py-1 font-light text-sm text-pageheader">Date</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation)}</p>
                         </div>
                         <div className="border-0 flex flex-col justify-center">
-                            <p className="text-left py-1 font-light text-sm text-red-700">Project</p>
+                            <p className="text-left py-1 font-light text-sm text-pageheader">Project</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
                         </div>
                         <div className="border-0 flex flex-col justify-center">
-                            <p className="text-left py-1 font-light text-sm text-red-700">Package</p>
+                            <p className="text-left py-1 font-light text-sm text-pageheader">Package</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
                         </div>
                         <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                            <p className="text-left py-1 font-light text-sm text-red-700">Created By</p>
+                            <p className="text-left py-1 font-light text-sm text-pageheader">Created By</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-red-700">PR Number</p>
+                        {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-pageheader">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div>
                     </Card> */}
@@ -1005,10 +1004,10 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                         <TableHeader>
                                             <TableRow className="bg-red-100">
                                                 <TableHead className="w-[50%]">
-                                                    <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
+                                                    <span className="text-pageheader pr-1 font-extrabold">{cat.name}</span>
                                                     {uploadedFiles[cat.name] && (
                                                         <div className="flex gap-1 items-end">
-                                                            <p>Attached File:</p> <span className="text-red-700">{uploadedFiles[cat.name].name}</span>
+                                                            <p>Attached File:</p> <span className="text-pageheader">{uploadedFiles[cat.name].name}</span>
                                                         </div>
                                                     )}
                                                 </TableHead>
@@ -1190,7 +1189,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         </Dialog>
                     </div>
                 </div>}
-            {page == 'additem' && <div className="flex-1 md:space-y-4">
+            {page == 'additem' && <div className="flex-1 space-y-4">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center gap-1">
                     <ArrowLeft className="cursor-pointer" onClick={() => {
@@ -1198,7 +1197,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                         setMake("")
                         setPage('itemlist')
                     }} />
-                    <h2 className="text-base font-bold tracking-tight">Create new Item</h2>
+                    <h2 className="text-base font-bold tracking-tight text-pageheader">Create new Item</h2>
                 </div>
                 <div className="mb-4">
                     <div className="flex">
@@ -1305,7 +1304,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
 
                 </div>
             </div>}
-            {page == 'categorylist2' && <div className="flex-1 md:space-y-4">
+            {page == 'categorylist2' && <div className="flex-1 space-y-4">
                 <div className="flex items-center space-y-2">
                     <ArrowLeft onClick={() => setPage('additem')} />
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>

@@ -27,7 +27,7 @@ export const ProjectLead = () => {
                         </Link>
                     </Card>
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                        <Link to="/approve-order">
+                        <Link to="/approve-new-pr">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PR</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                                 {pendingPRCount || 0}
@@ -35,7 +35,7 @@ export const ProjectLead = () => {
                         </Link>
                     </Card>
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                        <Link to="/approve-vendor">
+                        <Link to="/approve-po">
                             <p className="text-center py-6 font-bold text-gray-500">Approve PO</p>
                             <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                                 {approvePRCount || 0}
