@@ -163,7 +163,7 @@ export default function Users() {
     // if (isLoading) return <h1>Loading</h1>
     if (error) return <h1>error.message</h1>
     return (
-        <div className="flex-1 md:space-y-4">
+        <div className="flex-1 space-y-4">
             {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
@@ -184,18 +184,14 @@ export default function Users() {
                         </Button>
                     </div>
                 </div> */}
-            <div className="flex items-center justify-between mb-2 space-y-2">
+            {/* <div className="flex items-center justify-between mb-2 space-y-2">
                 <div className="flex items-center gap-1">
-                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">User List</h2>
                 </div>
-
-                <Button asChild>
-                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
-                </Button>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-                <Card className="hover:animate-shadow-drop-center" >
+            </div> */}
+            <div className="flex justify-between">
+                <Card className="hover:animate-shadow-drop-center w-[60%]">
                     <Link to="/users">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">
@@ -211,6 +207,9 @@ export default function Users() {
                         </CardContent>
                     </Link>
                 </Card>
+                <Button asChild>
+                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
+                </Button>
             </div>
             <div className="pl-0 pr-2">
                 {isLoading ? (

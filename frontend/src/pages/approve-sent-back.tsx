@@ -44,30 +44,30 @@ const columns: TableColumnsType<DataType> = [
         render: (text, record) => {
             return (
                 <>
-                <div className="inline items-baseline">
-                    <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
-                        {text}
-                    </span>
-                    {(!record.children && record.comment) && (
-                        <HoverCard>
-                            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
-                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                <div className="relative pb-4">
-                                    <span className="block">{record.comment}</span>
-                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
-                                </div>
+                    <div className="inline items-baseline">
+                        <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+                            {text}
+                        </span>
+                        {(!record.children && record.comment) && (
+                            <HoverCard>
+                                <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                                <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                    <div className="relative pb-4">
+                                        <span className="block">{record.comment}</span>
+                                        <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                    </div>
 
-                            </HoverCardContent>
-                        </HoverCard>
+                                </HoverCardContent>
+                            </HoverCard>
+                        )}
+                    </div>
+                    {(record?.makes?.filter(m => m?.enabled === "true")?.length > 0) && (
+                        <div className="text-xs text-gray-500 lg:ml-10">
+                            <span className='text-primary'>make</span> - {record?.makes?.filter(m => m?.enabled === "true")?.map((i, index, arr) => (
+                                <i className='font-semibold'>{i?.make}{index < arr.length - 1 && ", "}</i>
+                            ))}
+                        </div>
                     )}
-                </div>
-                {(record?.makes?.filter(m => m?.enabled === "true")?.length > 0 ) && (
-                    <div className="text-xs text-gray-500 lg:ml-10">
-                        <span className='text-primary'>make</span> - {record?.makes?.filter(m => m?.enabled === "true")?.map((i, index, arr) => (
-                            <i className='font-semibold'>{i?.make}{index < arr.length - 1 && ", "}</i>
-                          ))}
-                      </div>
-                )}
                 </>
             )
         }
@@ -110,33 +110,33 @@ const columns: TableColumnsType<DataType> = [
 
             const amount = parseFloat(text);
             const lowest3 = parseFloat(record?.lowest3);
-                
+
             // Ensure valid numerical values
             if (isNaN(amount) || isNaN(lowest3)) {
-              return <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>{formatToIndianRupee(amount)}</span>;
+                return <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>{formatToIndianRupee(amount)}</span>;
             }
-        
+
             const percentageDifference =
-              ((Math.abs(amount - lowest3) / lowest3) * 100).toFixed(0);
-        
+                ((Math.abs(amount - lowest3) / lowest3) * 100).toFixed(0);
+
             // Determine color and direction
             const isLessThan = amount < lowest3;
             const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
             const Icon = isLessThan ? MoveDown : MoveUp;
 
             return <div className='flex items-center gap-1' style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-            <span>{formatToIndianRupee(amount)}</span>{" "}
-            {record.unit !== null && record?.lowest3 !== 'N/A' && percentageDifference !== 0 && (
-             <div className={`${colorClass} flex items-center`}>
-                <span className={`text-sm`}>
-                  ({isLessThan
-                    ? `${percentageDifference}%`
-                    : `${percentageDifference}%`})
-                </span>
-                <Icon className={`w-4 h-4`} />
+                <span>{formatToIndianRupee(amount)}</span>{" "}
+                {record.unit !== null && record?.lowest3 !== 'N/A' && percentageDifference !== 0 && (
+                    <div className={`${colorClass} flex items-center`}>
+                        <span className={`text-sm`}>
+                            ({isLessThan
+                                ? `${percentageDifference}%`
+                                : `${percentageDifference}%`})
+                        </span>
+                        <Icon className={`w-4 h-4`} />
+                    </div>
+                )}
             </div>
-            )}
-          </div>
         },
     },
     {
@@ -148,26 +148,26 @@ const columns: TableColumnsType<DataType> = [
 
             const amount = parseFloat(record?.amount);
             const lowest3 = parseFloat(record?.lowest3);
-                
+
             // Ensure valid numerical values
             if (isNaN(amount) || isNaN(lowest3)) {
-              return <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>N/A</span>;
+                return <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>N/A</span>;
             }
-        
+
             // Determine color and direction
             const isLessThan = amount < lowest3;
             const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
 
-            return  <div style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                        <span className={`${record.unit !== null && colorClass}`}>{formatToIndianRupee(text)}</span>
-                    </div>
+            return <div style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                <span className={`${record.unit !== null && colorClass}`}>{formatToIndianRupee(text)}</span>
+            </div>
         },
     },
 ];
 
 const ApproveSentBack = () => {
 
-    const { id } = useParams<{ id: string }>()
+    const { sbId: id } = useParams<{ sbId: string }>()
     const [project, setProject] = useState()
     const [owner, setOwner] = useState()
     const { data: sb, isLoading: sb_loading, error: sb_error, mutate: sb_mutate } = useFrappeGetDoc<SentBackCategoryType>("Sent Back Category", id);
@@ -197,7 +197,7 @@ const ApproveSentBack = () => {
     if (sb_loading || project_loading || owner_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     if (sb_error || project_error || owner_error) return <h1>Error</h1>
     if (!["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && !sb?.item_list?.list?.some((i) => i?.status === "Pending")) return (
-        <div className="flex items-center justify-center h-full">
+        <div className="flex items-center justify-center h-screen">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
                     Heads Up!
@@ -217,7 +217,7 @@ const ApproveSentBack = () => {
                 </p>
                 <button
                     className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                    onClick={() => navigate("/approve-vendor")}
+                    onClick={() => navigate("/approve-sent-back")}
                 >
                     Go Back
                 </button>
@@ -239,7 +239,7 @@ interface ApproveSentBackPageProps {
 
 
 const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
-    
+
     const navigate = useNavigate()
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
@@ -253,7 +253,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
         fields: ["*"],
         filters: [["reference_name", "=", sb_data.name], ["subject", "=", "sr vendors selected"]]
     })
-    
+
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
             fields: ['*'],
@@ -265,12 +265,12 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
             fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity', 'makes'],
             filters: [["status", "=", "Selected"], ["procurement_task", "=", sb_data?.procurement_request]],
             limit: 2000
-    });
+        });
 
 
     const [orderData, setOrderData] = useState({
-        category_list : {list : []},
-        item_list: {list : []}
+        category_list: { list: [] },
+        item_list: { list: [] }
     })
 
     const [data, setData] = useState<DataType>([])
@@ -444,7 +444,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                         unit: item.unit,
                         item: item.item,
                         comment: item.comment,
-                        makes: {list : item?.makes || []},
+                        makes: { list: item?.makes || [] },
                     });
                 }
 
@@ -571,7 +571,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                     tax: value.tax,
                     status: "Pending",
                     category: value.category,
-                    comment : value.comment
+                    comment: value.comment
                 })
             })
 
@@ -748,17 +748,17 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                 }
                 return acc;
             }, {});
-    
+
             if (!groupedVendors || Object.keys(groupedVendors).length === 0) {
                 return "No valid items selected for approval.";
             }
-    
+
             const vendorTotals = Object.entries(groupedVendors).map(([vendor, items]) => ({
                 vendor,
                 total: items.reduce((sum, item) => sum + (item.amount || 0), 0),
             }));
             const overallTotal = vendorTotals.reduce((sum, { total }) => sum + total, 0);
-    
+
             return (
                 <div>
                     <p>Upon approval, the following actions will be taken:</p>
@@ -786,13 +786,13 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
             );
         } else if (actionType === "sendBack") {
             const itemsToSendBack = selectedItems?.filter(item => item.unit && item.quantity);
-    
+
             if (!itemsToSendBack || itemsToSendBack.length === 0) {
                 return "No valid items selected for sending back.";
             }
-    
+
             const totalAmount = itemsToSendBack.reduce((sum, item) => sum + (item.amount || 0), 0);
-    
+
             return (
                 <div>
                     <p>Upon sending back, the following actions will be taken:</p>
@@ -814,51 +814,47 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                 </div>
             );
         }
-    
+
         return "No valid action details available.";
-        };
+    };
 
     return (
-        <>
-            <div className="flex" >
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1 pb-4">
-                        {/* <ArrowLeft className='cursor-pointer' onClick={() => { navigate('/approve-sent-back') }} /> */}
-                        <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">{orderData?.type} SB-{orderData?.name?.slice(-4)}</span></h2>
-                    </div>
-                    <ProcurementActionsHeaderCard orderData={orderData} sentBack={true} />
-                </div>
+        <div className="flex-1 space-y-4">
+            <div className="flex items-center">
+                {/* <ArrowLeft className='cursor-pointer' onClick={() => { navigate('/approve-sent-back') }} /> */}
+                <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back <span className="italic">{orderData?.type} SB-{orderData?.name?.slice(-4)}</span></h2>
             </div>
-            {selectedItems?.length > 0 && (
-                    <div className="mt-4">
-                        <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200">
-                            <h2 className="text-lg font-bold mb-3 flex items-center">
-                                <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
-                                Actions Summary
-                            </h2>
-                            <div className="grid md:grid-cols-2 gap-4">
-                                {/* Send Back Action Summary */}
-                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                    <div className="flex items-center mb-2">
-                                        <SendToBack className="h-5 w-5 text-red-500 mr-2" />
-                                        <h3 className="font-medium text-gray-700">Send Back</h3>
-                                    </div>
-                                    <p className="text-sm text-gray-600">{generateActionSummary("sendBack")}</p>
+            <ProcurementActionsHeaderCard orderData={orderData} sentBack={true} />
+            {
+                selectedItems?.length > 0 && (
+                    <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200">
+                        <h2 className="text-lg font-bold mb-3 flex items-center">
+                            <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
+                            Actions Summary
+                        </h2>
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {/* Send Back Action Summary */}
+                            <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                <div className="flex items-center mb-2">
+                                    <SendToBack className="h-5 w-5 text-red-500 mr-2" />
+                                    <h3 className="font-medium text-gray-700">Send Back</h3>
                                 </div>
+                                <p className="text-sm text-gray-600">{generateActionSummary("sendBack")}</p>
+                            </div>
 
-                                {/* Approve Action Summary */}
-                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                    <div className="flex items-center mb-2">
-                                        <ListChecks className="h-5 w-5 text-green-500 mr-2" />
-                                        <h3 className="font-medium text-gray-700">Approve</h3>
-                                    </div>
-                                    <p className="text-sm text-gray-600">{generateActionSummary("approve")}</p>
+                            {/* Approve Action Summary */}
+                            <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                <div className="flex items-center mb-2">
+                                    <ListChecks className="h-5 w-5 text-green-500 mr-2" />
+                                    <h3 className="font-medium text-gray-700">Approve</h3>
                                 </div>
+                                <p className="text-sm text-gray-600">{generateActionSummary("approve")}</p>
                             </div>
                         </div>
                     </div>
-                )}
-            <div className='overflow-x-auto pt-6'>
+                )
+            }
+            <div className='overflow-x-auto'>
                 <ConfigProvider
                     theme={{
                         token: {
@@ -881,7 +877,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                     }
                 </ConfigProvider>
             </div>
-            {selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2 mt-2">
+            {selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2">
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
@@ -952,13 +948,13 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                 </AlertDialog>
             </div>}
 
-            <div className="flex items-center space-y-2 mt-2">
-                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Procurement Comments</h2>
+            <div className="flex items-center space-y-2">
+                <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Procurement Comments</h2>
             </div>
             <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2 mb-2">
                 {universalComment?.length !== 0 ? (
                     universalComment?.map((comment) => (
-                    <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                        <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
                             <Avatar>
                                 <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment?.comment_by}`} />
                                 <AvatarFallback>{comment?.comment_by[0]}</AvatarFallback>
@@ -980,7 +976,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                     <span className="text-xs font-semibold">No Comments Found</span>
                 )}
             </div>
-        </>
+        </div>
     )
 }
 

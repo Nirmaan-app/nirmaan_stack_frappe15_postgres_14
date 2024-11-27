@@ -929,7 +929,7 @@ export const DelayedPR = () => {
             {page == 'approvequotation' && <div className="flex" >
                 <div className="flex-1 space-x-2 md:space-y-4 p-2 md:p-6 pt-6">
                     <div className="flex items-center pt-1  pb-4">
-                        <ArrowLeft onClick={() => navigate("/approve-vendor")} />
+                        <ArrowLeft onClick={() => navigate("/approve-po")} />
                         <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
                     </div>
                     <Card className="grid grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">

@@ -26,8 +26,8 @@ export const ProcurementRequests = () => {
 
     const [searchParams] = useSearchParams();
 
-    const {role, user_id} = useUserData()   
-    
+    const { role, user_id } = useUserData()
+
     const [tab, setTab] = useState<string>(searchParams.get("tab") || "New PR Request");
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: prListMutate } = useFrappeGetDocList("Procurement Requests",
@@ -87,66 +87,66 @@ export const ProcurementRequests = () => {
     }
 
     useEffect(() => {
-      const currentTab = searchParams.get("tab") || "New PR Request";
-      setTab(currentTab);
-      updateURL("tab", currentTab);
+        const currentTab = searchParams.get("tab") || "New PR Request";
+        setTab(currentTab);
+        updateURL("tab", currentTab);
     }, []);
-        
+
     const updateURL = (key, value) => {
-      const url = new URL(window.location);
-      url.searchParams.set(key, value);
-      window.history.pushState({}, "", url);
+        const url = new URL(window.location);
+        url.searchParams.set(key, value);
+        window.history.pushState({}, "", url);
     };
 
     const onClick = (value) => {
-        
+
         if (tab === value) return; // Prevent redundant updates
-    
+
         const newTab = value;
         setTab(newTab);
         updateURL("tab", newTab);
-    
+
     };
-    
+
     // type MenuItem = Required<MenuProps>["items"][number];
 
-    const {approvedPRCount, adminApprovedPRCount, updateQuotePRCount, adminUpdateQuotePRCount, chooseVendorPRCount, adminChooseVendorPRCount} = useDocCountStore()
-    
+    const { approvedPRCount, adminApprovedPRCount, updateQuotePRCount, adminUpdateQuotePRCount, chooseVendorPRCount, adminChooseVendorPRCount } = useDocCountStore()
+
     const items = [
         {
-          label: (
-            <div className="flex items-center">
-              <span>New PR Request</span>
-              <span className="ml-2 text-xs font-bold">
-                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminApprovedPRCount : approvedPRCount}
-              </span>
-            </div>
-          ),
-          value: "New PR Request",
-        },
-        {
-          label: (
-            <div className="flex items-center">
-              <span>Update Quote</span>
-              <span className="ml-2 rounded text-xs font-bold">
-              {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminUpdateQuotePRCount : updateQuotePRCount}
-              </span>
-            </div>
-          ),
-          value: "Update Quote",
+            label: (
+                <div className="flex items-center">
+                    <span>New PR Request</span>
+                    <span className="ml-2 text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminApprovedPRCount : approvedPRCount}
+                    </span>
+                </div>
+            ),
+            value: "New PR Request",
         },
         {
             label: (
-              <div className="flex items-center">
-                <span>Choose Vendor</span>
-                <span className="ml-2 rounded text-xs font-bold">
-                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminChooseVendorPRCount : chooseVendorPRCount}
-                </span>
-              </div>
+                <div className="flex items-center">
+                    <span>Update Quote</span>
+                    <span className="ml-2 rounded text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminUpdateQuotePRCount : updateQuotePRCount}
+                    </span>
+                </div>
+            ),
+            value: "Update Quote",
+        },
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>Choose Vendor</span>
+                    <span className="ml-2 rounded text-xs font-bold">
+                        {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminChooseVendorPRCount : chooseVendorPRCount}
+                    </span>
+                </div>
             ),
             value: "Choose Vendor",
-          },
-      ];
+        },
+    ];
 
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
@@ -291,16 +291,16 @@ export const ProcurementRequests = () => {
                     <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">New PR Request</h2>
                 </div> */}
 
-            {items && (
-                <Radio.Group
-                    block
-                    options={items}
-                    defaultValue="New PR Request"
-                    optionType="button"
-                    buttonStyle="solid"
-                    value={tab}
-                    onChange={(e) => onClick(e.target.value)}
-                  />
+                {items && (
+                    <Radio.Group
+                        block
+                        options={items}
+                        defaultValue="New PR Request"
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={tab}
+                        onChange={(e) => onClick(e.target.value)}
+                    />
                 )}
 
                 {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (

@@ -301,7 +301,7 @@ export const NavBar = () => {
                         serviceWorkerRegistration: registration
                     });
                     if (data?.fcm_token !== token) {
-                        // console.log("running fcm token updating")
+                        console.log("running fcm token updating")
                         // Update token if it's different from the stored one
                         await updateDoc("Nirmaan Users", user_id, {
                             fcm_token: token,
@@ -407,7 +407,6 @@ export const NavBar = () => {
                         { key: '/items', label: 'Items' },
                         { key: '/vendors', label: 'Vendors' },
                         { key: '/customers', label: 'Customers' },
-                        { key: '/procurement-packages', label: 'Procurement Packages' },
                     ],
                 },
             ]
@@ -421,7 +420,7 @@ export const NavBar = () => {
                     children: [
                         { key: '/prs&milestones', label: 'PRs & Milestones' },
                         {
-                            key: '/approve-order',
+                            key: '/approve-new-pr',
                             label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve PR
@@ -444,7 +443,7 @@ export const NavBar = () => {
                             ),
                         },
                         {
-                            key: '/approve-vendor', label: (
+                            key: '/approve-po', label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve PO
                                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovePRCount && adminApprovePRCount !== 0 ? (
@@ -545,25 +544,25 @@ export const NavBar = () => {
                     key: '/procurement-requests',
                     icon: <List className="h-4 w-4" />,
                     label: (
-                         <div className="flex justify-between items-center relative">
-                             Procurement Requests
-                             {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
-                                 <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                     <span className="text-white text-xs font-bold">
-                                         {adminApprovedPRCount}
-                                     </span>
-                                 </div>
-                             ) : (
-                                 (approvedPRCount && approvedPRCount !== 0) ? (
-                                     <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                         <span className="text-white text-xs font-bold">
-                                             {approvedPRCount}
-                                         </span>
-                                     </div>
-                                 ) : ""
-                             )}
-                         </div>
-                     )
+                        <div className="flex justify-between items-center relative">
+                            Procurement Requests
+                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminApprovedPRCount}
+                                    </span>
+                                </div>
+                            ) : (
+                                (approvedPRCount && approvedPRCount !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                            {approvedPRCount}
+                                        </span>
+                                    </div>
+                                ) : ""
+                            )}
+                        </div>
+                    )
                     // children: [
                     //     {
                     //         key: '/procure-request', label: (
@@ -589,7 +588,7 @@ export const NavBar = () => {
                     //         )
                     //     },
                     //     { key: '/update-quote', label: 'Update Quote' },
-                    //     { key: '/select-vendor-list', label: 'Choose Vendor' },
+                    //     { key: '/choose-vendor', label: 'Choose Vendor' },
                     //     // {key: '/service-request', label: 'Service Requests'}
                     // ],
                 },
@@ -634,25 +633,25 @@ export const NavBar = () => {
                     key: '/purchase-orders',
                     icon: <ShoppingCart className="h-4 w-4" />,
                     label: (
-                         <div className="flex justify-between items-center relative">
-                             Purchase Orders
-                             {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
-                                 <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                     <span className="text-white text-xs font-bold">
-                                         {adminNewPOCount}
-                                     </span>
-                                 </div>
-                             ) : (
-                                 (newPOCount && newPOCount !== 0) ? (
-                                     <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                         <span className="text-white text-xs font-bold">
-                                             {newPOCount}
-                                         </span>
-                                     </div>
-                                 ) : ""
-                             )}
-                         </div>
-                      ),
+                        <div className="flex justify-between items-center relative">
+                            Purchase Orders
+                            {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
+                                <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                    <span className="text-white text-xs font-bold">
+                                        {adminNewPOCount}
+                                    </span>
+                                </div>
+                            ) : (
+                                (newPOCount && newPOCount !== 0) ? (
+                                    <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                                        <span className="text-white text-xs font-bold">
+                                            {newPOCount}
+                                        </span>
+                                    </div>
+                                ) : ""
+                            )}
+                        </div>
+                    ),
                     // children: [
                     //     {
                     //         key: '/release-po', label: (
@@ -768,14 +767,6 @@ export const NavBar = () => {
                     key: '/project-payments',
                     icon: <WalletCards className="h-4 w-4" />,
                     label: 'Project Payments',
-                    // children: [
-                    //     { key: '/projects', label: 'Projects' },
-                    //     { key: '/users', label: 'Users' },
-                    //     { key: '/items', label: 'Items' },
-                    //     { key: '/vendors', label: 'Vendors' },
-                    //     { key: '/customers', label: 'Customers' },
-                    //     { key: '/procurement-packages', label: 'Procurement Packages' },
-                    // ],
                 },
             ]
             : [])
@@ -783,16 +774,16 @@ export const NavBar = () => {
 
     const allKeys = [
         "projects", "users", "items", "vendors", "customers",
-        "prs&milestones", "approve-order", "approve-vendor",
+        "prs&milestones", "approve-new-pr", "approve-po",
         "approve-sent-back", "approve-amended-po", "purchase-orders", "rejected-sb", "delayed-sb", "cancelled-sb",
-        "service-request", "approve-service-request", "select-service-vendor", "approved-sr", "procurement-packages", 
+        "service-requests", "approve-service-request", "choose-service-vendor", "approved-sr", "procurement-packages",
         "project-payments", "procurement-requests"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
     const openKey = ["prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["purchase-orders"].includes(selectedKeys) ? "purchase-orders" :
+        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" :
         ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : selectedKeys === "project-payments" ? "project-payments" : selectedKeys === "procurement-requests" ? "procurement-requests" : ""
 
     if (user_id !== "Administrator" && !role) {
@@ -826,9 +817,9 @@ export const NavBar = () => {
                 {!isSmallScreen && (data?.has_project !== "false" || role === "Nirmaan Admin Profile") && (
                     <div className={`bg-white h-full transition-all duration-300 ease-in-out overflow-y-auto overflow-x-hidden scrollbar-container ${collapsed ? "sm:w-16 w-0" : role === "Nirmaan Project Manager Profile" ? "sm:w-40 w-0" : "sm:w-64 w-0"}`}>
                         <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70, dropdownWidth: 220 } } }}>
-                            <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
+                            <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                 ...item,
-                                label: ["pl-actions", "admin-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                 children: item.children?.map((child) => ({
                                     ...child,
                                     label: <Link to={child.key}>{child.label}</Link>
@@ -844,10 +835,10 @@ export const NavBar = () => {
                         <SheetContent side="left" className={`overflow-y-auto overflow-x-hidden scrollbar-container ${role === "Nirmaan Project Manager Profile" ? "w-64" : ""}`}>
                             <div className={`${role === "Nirmaan Project Manager Profile" ? "" : "max-w-[95%]"}`}>
                                 <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", activeBarBorderWidth: 0 } } }}>
-                                    <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
+                                    <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                         ...item,
                                         onClick: () => setIsMobileSidebarOpen(false),
-                                        label: ["pl-actions", "admin-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                         children: item.children?.map((child) => ({
                                             ...child,
                                             label: <Link to={child.key}>{child.label}</Link>

@@ -161,7 +161,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                 description: `PR: ${pr_data?.name} deleted successfully!`,
                 variant: "success"
             })
-            navigate("/prs&milestones/procurement-request")
+            navigate("/prs&milestones/procurement-requests")
         } catch (error) {
             console.log("error while deleting PR", error)
             toast({
@@ -240,10 +240,10 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                 {section === "pr-summary" && (
                     <>
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1 flex-wrap">
+                            <div className="flex items-center gap-1 flex-wrap ml-2">
                                 {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                                <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
-                                <span className="text-red-500 text-2xl max-md:text-xl">PR-{pr_no}</span>
+                                <h2 className="text-xl max-md:text-lg font-bold tracking-tight text-pageheader">Summary</h2>
+                                {/* <span className="text-red-500 text-2xl max-md:text-xl">PR-{pr_no}</span> */}
                             </div>
                             <div className="flex gap-4 items-center">
                                 {pr_data?.workflow_state === "Pending" && (

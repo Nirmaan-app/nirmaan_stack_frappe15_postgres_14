@@ -2,10 +2,11 @@ import ProjectSelect from "@/components/custom-select/project-select"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { UserContext } from "@/utils/auth/UserProvider"
 import { formatDate } from "@/utils/FormatDate"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { ArrowLeft } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useContext, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 
 const DeliveryNotes = () => {
@@ -30,7 +31,7 @@ const DeliveryNotes = () => {
         return procurementOrdersList?.filter((po) => po.procurement_request === prId) || []
     }
 
-    const [project, setProject] = useState(null)
+    const { setSelectedProject, selectedProject } = useContext(UserContext)
 
     // const columns = useMemo(
     //     () => [
@@ -117,23 +118,26 @@ const DeliveryNotes = () => {
 
     const handleChange = (selectedItem: any) => {
         // console.log(selectedItem)
-        setProject(selectedItem ? selectedItem.value : null);
+        setSelectedProject(selectedItem ? selectedItem.value : null);
         sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
     };
 
     // console.log("project", project)
 
     return (
-        <div className="flex-1 space-y-4">
+        <div className="flex-1 space-y-4 min-h-[50vh]">
+            {/* <div className="">
                 <div className="flex items-center ">
                     <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
                     <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">Update Delivery Notes</h2>
                 </div>
+            </div> */}
+            {/* {(!procurementRequestsLoading && !procurementRequestsListLoading) && <DataTable columns={columns} data={procurementRequestsList} />} */}
 
             <div className="border border-gray-200 rounded-lg p-0.5 w-full overflow-auto">
                 <ProjectSelect onChange={handleChange} />
-                {project && <div className="pt-4">
-                    <Table className="min-w-[400px] overflow-auto">
+                {selectedProject && <div className="pt-4">
+                    <Table className="min-w-[400px] min-h-[30vh] overflow-auto">
                         <TableHeader className="bg-red-100">
                             <TableRow>
                                 <TableHead className=" font-extrabold">Delivery Note</TableHead>
@@ -143,20 +147,20 @@ const DeliveryNotes = () => {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {procurementOrdersList?.filter(i => i?.project === project)?.length > 0 ? (
-                                procurementOrdersList?.filter(i => i?.project === project)?.map(item => (
+                            {procurementOrdersList?.filter(i => i?.project === selectedProject)?.length > 0 ? (
+                                procurementOrdersList?.filter(i => i?.project === selectedProject)?.map(item => (
                                     <TableRow key={item.name}>
-                                            <TableCell>
-                                                <Link className="underline text-blue-300 hover:text-blue-500" to={`${item.name.replaceAll("/", "&=")}`}>DN-{item.name.split('/')[1]}</Link>
-                                            </TableCell>
-                                            <TableCell>{item?.procurement_request}</TableCell>
-                                            <TableCell>{formatDate(item.creation)}</TableCell>
-                                            <TableCell>
-                                                <Badge variant={`${item?.status === "Dispatched" ? "orange" : "green"}`}>
-                                                    {item?.status}
-                                                </Badge>
-                                            </TableCell>
-                                                    {/* <TableCell className="text-sm">{getPOsAssociated(item.name)?.map((po) => (
+                                        <TableCell>
+                                            <Link className="underline text-blue-300 hover:text-blue-500" to={`${item.name.replaceAll("/", "&=")}`}>DN-{item.name.split('/')[1]}</Link>
+                                        </TableCell>
+                                        <TableCell>{item?.procurement_request}</TableCell>
+                                        <TableCell>{formatDate(item.creation)}</TableCell>
+                                        <TableCell>
+                                            <Badge variant={`${item?.status === "Dispatched" ? "orange" : "green"}`}>
+                                                {item?.status}
+                                            </Badge>
+                                        </TableCell>
+                                        {/* <TableCell className="text-sm">{getPOsAssociated(item.name)?.map((po) => (
                                                         <TableRow>
                                                             <TableCell>
                                                                 <Link className="underline text-blue-300 hover:text-blue-500" to={`${po.name.replaceAll("/", "&=")}`}>DN-{po.name.split('/')[1]}</Link>
@@ -183,7 +187,7 @@ const DeliveryNotes = () => {
                                                             </TableRow>
                                                         ))}
                                                     </TableCell> */}
-                                        </TableRow>
+                                    </TableRow>
                                 ))
                             ) : (
                                 <>

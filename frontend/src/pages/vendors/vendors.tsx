@@ -197,20 +197,14 @@ export default function Vendors() {
     if (error || category_error) return error ? <h1>{error?.message}</h1> : <h1>{category_error?.message}</h1>
     return (
         <div className="flex-1 space-y-2 md:space-y-4">
-            <div className="flex items-center justify-between">
+            {/* <div className="flex items-center justify-between">
                 <div className="flex gap-1 items-center">
-                    {/* <Link to="/"><ArrowLeft className="" /></Link> */}
+                    <Link to="/"><ArrowLeft className="" /></Link>
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
                 </div>
-
-                <Button asChild>
-                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
-                </Button>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-                <Card className="hover:animate-shadow-drop-center" onClick={() => {
-
-                }}>
+            </div> */}
+            <div className="flex justify-between">
+                <Card className="hover:animate-shadow-drop-center w-[60%]">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">
                             Total Vendors
@@ -225,6 +219,9 @@ export default function Vendors() {
                         {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                     </CardContent>
                 </Card>
+                <Button asChild>
+                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
+                </Button>
             </div>
             <div className="pl-0 pr-2">
                 {(isLoading || category_loading) ? (
