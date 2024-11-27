@@ -170,8 +170,8 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-1 flex-wrap">
-        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
+      {/* <div className="flex items-center gap-1 flex-wrap">
+        <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
         <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
         <span className="text-red-500 text-2xl max-md:text-xl"> {po_data?.name}</span>
       </div> */}

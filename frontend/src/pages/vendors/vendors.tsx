@@ -199,7 +199,7 @@ export default function Vendors() {
         <div className="flex-1 space-y-2 md:space-y-4">
             {/* <div className="flex items-center justify-between">
                 <div className="flex gap-1 items-center">
-                    {/* <Link to="/"><ArrowLeft className="" /></Link> */}
+                    <Link to="/"><ArrowLeft className="" /></Link>
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
                 </div>
             </div> */}
@@ -219,9 +219,9 @@ export default function Vendors() {
                         {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                     </CardContent>
                 </Card>
-                {/* <Button asChild>
-                    <Link to="new-vendor"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
-                </Button> */}
+                <Button asChild>
+                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
+                </Button>
             </div>
             <div className="pl-0 pr-2">
                 {(isLoading || category_loading) ? (

@@ -753,10 +753,10 @@ export const ReleasePONew = ({ not }) => {
     );
 
     return (
-        <div className='flex-1 md:space-y-4'>
-            <div className="py-4 flex items-center gap-1">
+        <div className='flex-1 space-y-4'>
+            <div className="flex items-center gap-1 ml-8">
                 {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
+                <div className="font-semibold text-xl md:text-2xl text-pageheader">PO PDF</div>
             </div>
             <Layout>
                 <Sider theme='light' collapsedWidth={0} width={500} trigger={null} collapsible collapsed={collapsed}>
@@ -1787,15 +1787,15 @@ export const ReleasePONew = ({ not }) => {
                                                             </DialogDescription>
                                                         </DialogHeader>
                                                         {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                                            <DialogFooter>
+                                                            <DialogFooter className='flex flex-row items-center justify-end'>
                                                                 <DialogClose>
                                                                     <ShadButton variant="outline" className='flex items-center gap-1'>
-                                                                        <Undo2 className="h-4 w-4 mr-2" />
+                                                                        <Undo2 className="h-4 w-4" />
                                                                         Cancel
                                                                     </ShadButton>
                                                                 </DialogClose>
-                                                                <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600">
-                                                                    <CheckCheck className="h-4 w-4 mr-2" />
+                                                                <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600 flex items-center gap-1">
+                                                                    <CheckCheck className="h-4 w-4" />
                                                                     Confirm
                                                                 </ShadButton>
                                                             </DialogFooter>

@@ -186,7 +186,7 @@ export default function Users() {
                 </div> */}
             {/* <div className="flex items-center justify-between mb-2 space-y-2">
                 <div className="flex items-center gap-1">
-                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">User List</h2>
                 </div>
             </div> */}
@@ -207,9 +207,9 @@ export default function Users() {
                         </CardContent>
                     </Link>
                 </Card>
-                {/* <Button asChild>
-                    <Link to="new-user"> <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
-                </Button> */}
+                <Button asChild>
+                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1"> New User</span></Link>
+                </Button>
             </div>
             <div className="pl-0 pr-2">
                 {isLoading ? (

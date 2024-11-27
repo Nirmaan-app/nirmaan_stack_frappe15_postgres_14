@@ -182,9 +182,9 @@ export default function Customers() {
         <div className="flex-1 space-y-4">
             {/* <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1">
-                    {/* <Link to="/">
+                    <Link to="/">
                         <ArrowLeft className="" />
-                    </Link> */}
+                    </Link>
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Customers Dashboard</h2>
                 </div>
             </div> */}
@@ -214,12 +214,12 @@ export default function Customers() {
                         </div>
                     </CardContent>
                 </Card>
-                {/* <Button asChild>
-                    <Link to="new-customer">
+                <Button asChild>
+                    <Link to="new">
                         <CirclePlus className="w-5 h-5 pr-1 " />
                         Add <span className="hidden md:flex pl-1"> New Customer</span>
                     </Link>
-                </Button> */}
+                </Button>
             </div>
 
             <div className="pl-0 pr-2">
