@@ -11,7 +11,7 @@ import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "fra
 import { useParams } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom";
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/button';
 import { NewVendor } from '@/pages/vendors/new-vendor';
 import { ButtonLoading } from '../ui/button-loading';
 import { DataTable } from '../data-table/data-table';
@@ -56,7 +56,7 @@ export const ProcurementOrder = () => {
     const [uniqueCategories, setUniqueCategories] = useState({
         list: []
     })
-    const [comment, setComment] = useState(null)
+    const [comments, setComments] = useState([])
     // console.log("selectedCategories", selectedCategories)
     // console.log("orderData", orderData)
 
@@ -124,8 +124,8 @@ export const ProcurementOrder = () => {
 
     useEffect(() => {
         if (universalComments) {
-            const comment = universalComments?.find((cmt) => cmt.subject === "approving pr")
-            setComment(comment)
+            const comments = universalComments?.filter((cmt) => ["approving pr", "creating pr"].includes(cmt.subject))
+            setComments(comments)
         }
     }, [universalComments])
 
@@ -498,40 +498,32 @@ export const ProcurementOrder = () => {
                     <div className="flex items-center space-y-2">
                         <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">PR Comments</h2>
                     </div>
-                    <div className="border border-gray-200 rounded-lg p-4">
-                        {comment ? (
-                            <>
-                                {/* <div className="flex justify-between items-end">
-                                         <p className="font-semibold text-[15px]">{universalComments?.find((cmt) => cmt.subject === "approving pr")?.content}</p>
-                                         {universalComments?.find((cmt) => cmt.subject === "approving pr")?.comment_by === "Administrator" ? (
-                                             <span className="text-sm italic">-Administrator</span>
-                                         ) : (
-                                             <span className="text-sm italic">- {getFullName(universalComments?.find((cmt) => cmt.subject === "approving pr")?.comment_by)}</span>
-                                         )}
-                                     </div> */}
-                                <div key={comment.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                    <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2">
+                        {comments?.length !== 0 ? (
+                            comments?.map((comment) => (
+                            <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
                                     <Avatar>
-                                        <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment.comment_by}`} />
-                                        <AvatarFallback>{comment.comment_by[0]}</AvatarFallback>
+                                        <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment?.comment_by}`} />
+                                        <AvatarFallback>{comment?.comment_by[0]}</AvatarFallback>
                                     </Avatar>
                                     <div className="flex-1">
-                                        <p className="font-medium text-sm text-gray-900">{comment.content}</p>
+                                        <p className="font-medium text-sm text-gray-900">{comment?.content}</p>
                                         <div className="flex justify-between items-center mt-2">
                                             <p className="text-sm text-gray-500">
-                                                {comment.comment_by === "Administrator" ? "Administrator" : getFullName(comment.comment_by)}
+                                                {comment?.comment_by === "Administrator" ? "Administrator" : getFullName(comment?.comment_by)}
                                             </p>
                                             <p className="text-xs text-gray-400">
-                                                {formatDate(comment.creation.split(" ")[0])} {comment.creation.split(" ")[1].substring(0, 5)}
+                                                {formatDate(comment?.creation?.split(" ")[0])} {comment?.creation?.split(" ")[1].substring(0, 5)}
                                             </p>
                                         </div>
                                     </div>
                                 </div>
-                            </>
+                            ))
                         ) : (
                             <span className="text-xs font-semibold">No Comments Found</span>
                         )
                         }
-                    </div>
+                        </div>
                     <div className="flex flex-col justify-end items-end max-md:mt-4">
                         <Button onClick={() => setPage('vendors')} className="flex items-center gap-1">
                             Select Vendors
