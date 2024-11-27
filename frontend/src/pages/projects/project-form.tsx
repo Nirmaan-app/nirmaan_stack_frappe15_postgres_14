@@ -512,13 +512,13 @@ export const ProjectForm = () => {
 
     return (
 
-        <div className="flex-1 md:space-y-4">
-            <div className="space-y-0.5">
+        <div className="flex-1 space-y-4">
+            {/* <div className="space-y-0.5">
                 <div className="flex">
-                    {/* <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/projects")} /> */}
+                    <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/projects")} />
                     <h2 className="pl-8 text-2xl font-bold tracking-tight">Add New Project</h2>
                 </div>
-            </div>
+            </div> */}
 
             <Steps current={currentStep} className="py-6 px-10">
                 {sections.map((sec) => (

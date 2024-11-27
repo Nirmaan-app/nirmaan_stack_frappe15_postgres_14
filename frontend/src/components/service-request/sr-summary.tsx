@@ -145,7 +145,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                 description: `SR: ${sr_data?.name} deleted successfully!`,
                 variant: "success"
             })
-            navigate("/service-request")
+            navigate("/service-requests")
         } catch (error) {
             console.log("error while deleting SR", error)
             toast({
@@ -187,18 +187,16 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
     // console.log("sr_data", sr_data)
 
     return (
-        <div className="flex-1 space-y-2 md:space-y-4">
+        <div className="flex-1 space-y-4">
             {
                 page === "Summary" && (
                     <>
                         <div className="flex items-center justify-between">
-                            <div className="flex gap-2 items-center">
                                 <div className="flex items-center gap-1 flex-wrap">
                                     {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                                    <h2 className="text-xl max-md:text-lg font-bold tracking-tight">Summary: </h2>
-                                    <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span>
+                                    <h2 className="text-xl max-md:text-lg font-bold tracking-tight text-pageheader">Summary</h2>
+                                    {/* <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span> */}
                                 </div>
-                            </div>
                             <div className="flex gap-4 items-center">
                                 {sr_data?.status === "Approved" && 
                                 <div className="flex max-sm:flex-col gap-2 items-center">
@@ -604,7 +602,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
                         {sr_data?.status === "Created" &&
                             <div className="text-right">
-                                <Button onClick={() => navigate(`/select-service-vendor/${sr_data?.name}`)} className="items-center gap-2"><UserSearch className="h-4 w-4" />Select Service Vendor</Button>
+                                <Button onClick={() => navigate(`/choose-service-vendor/${sr_data?.name}`)} className="items-center gap-2"><UserSearch className="h-4 w-4" />Select Service Vendor</Button>
                             </div>
                         }
                     </>

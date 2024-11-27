@@ -156,7 +156,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                     variant: "success",
                 });
 
-                await navigate(`/service-request/${res.name}`);
+                await navigate(`/service-requests/${res.name}`);
             } catch (error) {
                 console.log("submit_error", error);
                 toast({

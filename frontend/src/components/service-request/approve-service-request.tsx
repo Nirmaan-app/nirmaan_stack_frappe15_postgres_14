@@ -249,11 +249,10 @@ export const ApproveServiceRequest = () => {
     );
 
     return (
-        <>
-            <div className="flex-1 md:space-y-4">
-                <div className="flex items-center pt-1 pb-4">
+        <div className="flex-1 space-y-4">
+                <div className="flex items-center">
                     {/* <ArrowLeft onClick={() => { navigate('/approve-service-request') }} /> */}
-                    <h2 className="text-base pl-2 font-bold tracking-tight">Approve <span className="text-red-700">SR-{service_request?.name?.slice(-4)}</span></h2>
+                    <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Reject</h2>
                 </div>
                 <Card className="flex flex-wrap lg:grid lg:grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                     <div className="border-0 flex flex-col justify-center max-sm:hidden">
@@ -273,9 +272,8 @@ export const ApproveServiceRequest = () => {
                         <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name || "Administrator"}</p>
                     </div>
                 </Card>
-            </div>
 
-            <div className="pt-6 overflow-x-auto">
+            <div className="overflow-x-auto">
                 <ConfigProvider
                     theme={{
                         components: {
@@ -342,7 +340,7 @@ export const ApproveServiceRequest = () => {
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         {isLoading === "rejectSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                            <AlertDialogFooter>
+                            <AlertDialogFooter className="flex flex-row justify-center gap-2 items-center">
                                 <AlertDialogCancel className="flex items-center gap-1">
                                     <Undo2 className="h-4 w-4" />
                                     Cancel
@@ -373,7 +371,7 @@ export const ApproveServiceRequest = () => {
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         {isLoading === "approveSR" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                            <AlertDialogFooter>
+                            <AlertDialogFooter className="flex flex-row justify-center gap-2 items-center">
                                 <AlertDialogCancel className="flex items-center gap-1">
                                     <Undo2 className="h-4 w-4" />
                                     Cancel
@@ -390,6 +388,6 @@ export const ApproveServiceRequest = () => {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>
-        </>
+        </div>
     )
 }

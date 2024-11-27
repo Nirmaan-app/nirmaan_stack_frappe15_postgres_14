@@ -58,6 +58,7 @@ import { SelectServiceVendorList } from './components/service-request/select-ser
 import { ApprovedSRList } from './components/service-request/approved-sr-list'
 import { ApprovedSR } from './components/service-request/approved-sr'
 import { SidebarProvider } from './components/ui/sidebar'
+import { SentBackSummary } from './components/procurement/sent-back-summary'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -74,7 +75,7 @@ const router = createBrowserRouter(
 					<Route path='prs&milestones'>
 						<Route index element={<ProjectManager />} />
 						{/* Procurement Request Paths */}
-						<Route path="procurement-request">
+						<Route path="procurement-requests">
 							<Route index element={<ListPR />} />
 							<Route path=":id/new" lazy={() => import('@/components/procurement-request/new-pr')} />
 							<Route path=":id">
@@ -91,25 +92,25 @@ const router = createBrowserRouter(
 					</Route>
 
 					{/* Service Requests Paths */}
-					<Route path='service-request'>
+					<Route path='service-requests'>
 						<Route index element={<ListSR />} />
 						<Route path=":project/new" lazy={() => import('@/components/service-request/new-service-request')} />
 						<Route path=":id" lazy={() => import('@/components/service-request/sr-summary')} />
 					</Route>
 
-					<Route path='select-service-vendor'>
+					<Route path='choose-service-vendor'>
 						<Route index element={<SelectServiceVendorList />} />
 						<Route path=":id" lazy={() => import('@/components/service-request/select-service-vendor')} />
 					</Route>
 
 					{/* Approve PR Paths  */}
-					<Route path="approve-order">
+					<Route path="approve-new-pr">
 						<Route index element={<ApprovePR />} />
 						<Route path=":id" lazy={() => import('@/pages/approve-order')} />
 					</Route>
 
 					{/* Approve PO Paths  */}
-					<Route path="approve-vendor">
+					<Route path="approve-po">
 						<Route index element={<ApproveSelectVendor />} />
 						<Route path=":orderId" lazy={() => import('@/pages/approve-vendor')} />
 					</Route>
@@ -138,7 +139,7 @@ const router = createBrowserRouter(
 					</Route>
 
 					{/* New PR Request Paths  */}
-					<Route path="procure-request">
+					<Route path="new-procure-request">
 						<Route index element={<PRList />} />
 						<Route path=":orderId" element={<ProcurementOrder />} />
 					</Route>
@@ -150,13 +151,13 @@ const router = createBrowserRouter(
 					</Route>
 
 					{/* Select Vendor Paths  */}
-					<Route path="select-vendor-list">
+					<Route path="choose-vendor">
 						<Route index element={<SelectVendorList />} />
 						<Route path=":orderId" element={<SelectVendors />} />
 					</Route>
 
 					{/* Approved PO Paths  */}
-					<Route path="release-po">
+					<Route path="approved-po">
 						<Route index element={<ReleasePOSelect not={false} status="PO Approved" />} />
 						<Route path=":id" element={<ReleasePONew not={false} />} />
 					</Route>
@@ -170,20 +171,35 @@ const router = createBrowserRouter(
 					{/* Sent Back Paths */}
 					<Route path='rejected-sb'>
 						<Route index element={<SentBackRequest type="Rejected" />} />
-						<Route path=":id" element={<SentBackUpdateQuote />} />
-						<Route path="select-vendor/:id" element={<SentBackSelectVendor />} />
+						<Route path=":id">
+							<Route index element={<SentBackSummary />} />
+							<Route path="update-quote">
+								<Route index element={<SentBackUpdateQuote />} />
+								<Route path="choose-vendor" element={<SentBackSelectVendor />} />
+							</Route>
+						</Route>
 					</Route>
 
 					<Route path='delayed-sb'>
 						<Route index element={<SentBackRequest type="Delayed" />} />
-						<Route path=":id" element={<SentBackUpdateQuote />} />
-						<Route path="select-vendor/:id" element={<SentBackSelectVendor />} />
+						<Route path=":id">
+							<Route index element={<SentBackSummary />} />
+							<Route path="update-quote">
+								<Route index element={<SentBackUpdateQuote />} />
+								<Route path="choose-vendor" element={<SentBackSelectVendor />} />
+							</Route>
+						</Route>
 					</Route>
 
 					<Route path='cancelled-sb'>
 						<Route index element={<SentBackRequest type="Cancelled" />} />
-						<Route path=":id" element={<SentBackUpdateQuote />} />
-						<Route path="select-vendor/:id" element={<SentBackSelectVendor />} />
+						<Route path=":id">
+							<Route index element={<SentBackSummary />} />
+							<Route path="update-quote">
+								<Route index element={<SentBackUpdateQuote />} />
+								<Route path="choose-vendor" element={<SentBackSelectVendor />} />
+							</Route>
+						</Route>
 					</Route>
 
 					{/* Project Paths */}

@@ -343,7 +343,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                 variant: "success",
             });
 
-            navigate("/select-service-vendor");
+            navigate("/choose-service-vendor");
         } catch (error) {
             toast({
                 title: "Failed!",
@@ -383,7 +383,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
             if(resolve) {
                 setPage("Summary")
             } else {
-                navigate("/select-service-vendor");
+                navigate("/choose-service-vendor");
             }
 
         } catch (error) {
@@ -403,28 +403,27 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     return (
         <>
             {section === 'choose-vendor' && <>
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1 pb-4">
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
                         {resolve && (
                             <ArrowLeft className='cursor-pointer' onClick={() => setPage("Summary")} />
                         )}
                         {resolve ? (
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Resolve: <span className="text-red-700">SR-{sr_data?.name?.slice(-4)}</span></h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Resolve</h2>
                         ) : (
-                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SR-{sr_data?.name?.slice(-4)}</span>: Choose Service Vendor </h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Choose Service Vendor </h2>
                         )}
                     </div>
                     <ProcurementHeaderCard orderData={sr_data} sr={true} />
 
                     <div>
                         <div className="flex m-2 justify-left gap-2">
-
-                            <div className="text-lg text-gray-400 mt-1">Select vendors for this SR:</div>
+                            <div className="text-lg text-gray-400 mt-1">Select vendor:</div>
                             <Select className="w-72" value={selectedVendor} options={vendorOptions} onChange={handleChange()} />
                             <Sheet>
                                 <SheetTrigger className="text-blue-500">
                                     <div className="text-base text-blue-400 flex items-center gap-1" >
-                                        <CirclePlus className="w-5 h-5" />Add New Vendor
+                                        <CirclePlus className="w-5 h-5" />New Vendor
                                     </div>
                                 </SheetTrigger>
                                 <SheetContent className='overflow-auto'>
@@ -481,7 +480,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                         <Button disabled={!isNextEnabled} onClick={handleSaveAmounts}>Next</Button>
                     </div>
                     <div className="flex items-center space-y-2">
-                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">SR Comments</h2>
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">SR Comments</h2>
                     </div>
                     <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2">
                         {universalComments?.length ? (
@@ -513,10 +512,10 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
             </>}
             {section == 'summary' &&
                 <>
-                    <div className="flex-1 md:space-y-4">
-                        <div className="flex items-center pt-1 pb-4">
+                    <div className="flex-1 space-y-4">
+                        <div className="flex items-center">
                             <ArrowLeft className='cursor-pointer' onClick={() => setSection('choose-vendor')} />
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Comparison</h2>
                         </div>
                         <ProcurementHeaderCard orderData={sr_data} sr={true} />
                     </div>

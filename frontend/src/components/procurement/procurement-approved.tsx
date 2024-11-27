@@ -90,7 +90,7 @@ export const PRList = () => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`/procure-request/${prId}`}
+                                to={`/new-procure-request/${prId}`}
                             >
                                 {prId?.slice(-4)}
                             </Link>
@@ -203,9 +203,9 @@ export const PRList = () => {
     return (
         <>
             <div className="flex-1 md:space-y-4">
-                <div className="flex items-center justify-between space-y-2">
+                {/* <div className="flex items-center justify-between space-y-2">
                     <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">New PR Request</h2>
-                </div>
+                </div> */}
 
                 {(projects_loading || procurement_request_list_loading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_request_list || []} project_values={project_values} />
@@ -225,7 +225,7 @@ export const PRList = () => {
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {procurement_request_lists?.map(item => (
                                     <tr key={item.name}>
-                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/procure-request/${item.name}`}>{item.name.slice(-4)}</Link></td>
+                                        <td className="px-6 py-4 text-blue-600 whitespace-nowrap"><Link to={`/new-procure-request/${item.name}`}>{item.name.slice(-4)}</Link></td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             {item.creation.split(" ")[0]}
                                         </td>

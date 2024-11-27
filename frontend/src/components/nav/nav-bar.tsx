@@ -419,7 +419,7 @@ export const NavBar = () => {
                     children: [
                         { key: '/prs&milestones', label: 'PRs & Milestones' },
                         {
-                            key: '/approve-order',
+                            key: '/approve-new-pr',
                             label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve PR
@@ -442,7 +442,7 @@ export const NavBar = () => {
                             ),
                         },
                         {
-                            key: '/approve-vendor', label: (
+                            key: '/approve-po', label: (
                                 <div className="flex justify-between items-center relative">
                                     Approve PO
                                     {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovePRCount && adminApprovePRCount !== 0 ? (
@@ -543,7 +543,7 @@ export const NavBar = () => {
                     icon: <List className="h-4 w-4" />,
                     label: 'Procurement Requests',
                     children: [
-                        { key: '/procure-request', label: (
+                        { key: '/new-procure-request', label: (
                             <div className="flex justify-between items-center relative">
                                 New PR Request
                                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminApprovedPRCount && adminApprovedPRCount !== 0 ? (
@@ -565,7 +565,7 @@ export const NavBar = () => {
 
                         )},
                         { key: '/update-quote', label: 'Update Quote' },
-                        { key: '/select-vendor-list', label: 'Choose Vendor' },
+                        { key: '/choose-vendor', label: 'Choose Vendor' },
                         // {key: '/service-request', label: 'Service Requests'}
                     ],
                 },
@@ -574,8 +574,8 @@ export const NavBar = () => {
                     icon: <SquareSquare className="h-4 w-4" />,
                     label: "Service Requests",
                     children: [
-                        {key: '/service-request', label : 'View/Create SR'},
-                        {key: '/select-service-vendor', label : 'Select Service Vendor'},
+                        {key: '/service-requests', label : 'View/Create SR'},
+                        {key: '/choose-service-vendor', label : 'Choose Service Vendor'},
                         {key: '/approved-sr', label: (
                             <div className="flex justify-between items-center relative">
                                 Approved SR
@@ -605,7 +605,7 @@ export const NavBar = () => {
                     icon : <ShoppingCart className="h-4 w-4" />,
                     label: 'Purchase Orders',
                     children : [
-                        { key: '/release-po', label: (
+                        { key: '/approved-po', label: (
                             <div className="flex justify-between items-center relative">
                                 Approved PO
                                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
@@ -710,18 +710,18 @@ export const NavBar = () => {
 
     const allKeys = [
         "projects", "users", "items", "vendors", "customers",
-        "prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po", "procure-request", "update-quote",
-        "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
-        "service-request", "approve-service-request", "select-service-vendor", "approved-sr"
+        "prs&milestones", "approve-new-pr", "approve-po",
+        "approve-sent-back", "approve-amended-po", "new-procure-request", "update-quote",
+        "choose-vendor", "approved-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
+        "service-requests", "approve-service-request", "choose-service-vendor", "approved-sr"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
-    const openKey = ["prs&milestones", "approve-order", "approve-vendor",
-        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["service-request", "procure-request", "update-quote",
-            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
-            ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
+    const openKey = ["prs&milestones", "approve-new-pr", "approve-po",
+        "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["new-procure-request", "update-quote",
+            "choose-vendor"].includes(selectedKeys) ? "pe-actions" : ["approved-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
+            ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-requests", "choose-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
 
     if (user_id !== "Administrator" && !role) {
         return (<div>loading...</div>)

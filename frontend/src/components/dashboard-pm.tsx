@@ -35,7 +35,7 @@ export const ProjectManager = () => {
                         <DashboardCard
                             title="Create Procurement Request"
                             icon={<ShoppingCart className="h-8 w-8 text-white" />}
-                            onClick={() => navigate("/prs&milestones/procurement-request")}
+                            onClick={() => navigate("/prs&milestones/procurement-requests")}
                             className="bg-red-600"
                         />
                         {/* <DashboardCard

@@ -237,7 +237,7 @@ export default function Projects() {
     // console.log("projectStatusCounts", projectStatusCounts)
 
     return (
-        <div className="flex-1 md:space-y-4">
+        <div className="flex-1 space-y-4">
             {/* <div className="flex items-center justify-between space-y-2">
                     <Breadcrumb>
                         <BreadcrumbItem>
@@ -250,20 +250,15 @@ export default function Projects() {
                         </BreadcrumbItem>
                     </Breadcrumb>
                 </div> */}
-            <div className="flex items-center justify-between mb-2">
+            {/* <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1">
-                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
                 </div>
 
-                {role === "Nirmaan Admin Profile" && <Button asChild data-cy="add-project-button">
-                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
-                </Button>}
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2 cursor-pointer">
-                <Card className="hover:animate-shadow-drop-center" onClick={() => {
-
-                }}>
+            </div> */}
+            <div className="flex justify-between">
+                <Card className="hover:animate-shadow-drop-center w-[60%]">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">
                             Total Projects
@@ -278,6 +273,9 @@ export default function Projects() {
                         {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                     </CardContent>
                 </Card>
+                {role === "Nirmaan Admin Profile" && <Button asChild data-cy="add-project-button">
+                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
+                </Button>}
             </div>
             <div className="pl-0 pr-2">
                 {isLoading || projectTypesListLoading ? (

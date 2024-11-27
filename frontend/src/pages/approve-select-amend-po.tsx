@@ -186,7 +186,7 @@ export const ApproveSelectAmendPO = () => {
     const { toast } = useToast()
 
     if (procurement_order_list_error || projects_error || vendorsError) {
-        console.log("Error in release-po-select.tsx", procurement_order_list_error?.message, projects_error?.message, vendorsError?.message)
+        console.log("Error in approve-select-amend-po.tsx", procurement_order_list_error?.message, projects_error?.message, vendorsError?.message)
         toast({
             title: "Error!",
             description: `Error ${procurement_order_list_error?.message || projects_error?.message || vendorsError?.message}`,
@@ -197,9 +197,9 @@ export const ApproveSelectAmendPO = () => {
     return (
         <>
             <div className="flex-1 md:space-y-4">
-                <div className="flex items-center justify-between space-y-2">
+                {/* <div className="flex items-center justify-between space-y-2">
                     <h2 className="text-lg pt-1 pl-2 font-bold tracking-tight">Approve Amended PO</h2>
-                </div>
+                </div> */}
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} />
                 )}
