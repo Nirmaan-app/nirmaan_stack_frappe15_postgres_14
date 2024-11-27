@@ -151,7 +151,7 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
   const { state, isMobile } = useSidebar()
 
   return (
-        <>
+    <>
       <div className='flex w-full relative h-auto'>
         {isMobile && (
           <div className='absolute top-[17px] -left-2 shadow-2xl'>
@@ -188,52 +188,62 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
                             <Link to={`/`}>
                               <img src={nLogoBlack} alt="Nirmaan" width="24" height="25" />
                             </Link>
-                            <Separator orientation="vertical" className="mr-1 h-4" />
-                          </>
-                        )}
-                        <NewSidebar />
-                        <div className='w-full h-auto overflow-auto'>
-                          <header className={`${(!isMobile && state === "collapsed") ? "mt-1" : ""} flex justify-between h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12`}>
-                            <div className={`${isMobile ? "ml-2" : ""} flex items-center gap-2 px-4`}>
-                              {isMobile && (
-                                <>
-                                  <BreadcrumbItem>
-                                    <Link to={`/${toNavigate}`}>
-                                      <BreadcrumbLink>{route === "release-po" ? "APPROVED-PO" : route?.toUpperCase()}</BreadcrumbLink>
-                                    </Link>
-                                  </BreadcrumbItem>
-                                  <BreadcrumbSeparator />
-                                </React.Fragment>
-                              ) : (
-                              <BreadcrumbItem key={index}>
-                                <BreadcrumbPage>{route === "release-po" ? "APPROVED-PO" : route?.toUpperCase()}</BreadcrumbPage>
-                              </BreadcrumbItem>
-                              )
-                              );
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+
+                  {/* Last Item */}
+                  <BreadcrumbItem>
+                    <BreadcrumbPage className='max-sm:text-xs'>{locationsPaths[locationsPaths.length - 1]?.includes("&=") ? locationsPaths[locationsPaths.length - 1]?.replaceAll("&=", "/") : locationsPaths[locationsPaths.length - 1]?.toUpperCase()}</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </>
+                ) : (
+                // Render normally if paths are less than or equal to 2
+                locationsPaths?.map((route, index) => {
+                  const toNavigate = locationsPaths.slice(0, index + 1).join('/');
+                return (
+                index < locationsPaths.length - 1 ? (
+                <React.Fragment key={index}>
+                  <BreadcrumbItem>
+                    <Link to={`/${toNavigate}`}>
+                      <BreadcrumbLink>{route?.toUpperCase()}</BreadcrumbLink>
+                    </Link>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                </React.Fragment>
+                ) : (
+                <BreadcrumbItem key={index}>
+                  <BreadcrumbPage>{route?.includes("&=") ? route?.replaceAll("&=", "/") : route?.toUpperCase()}</BreadcrumbPage>
+                </BreadcrumbItem>
+                )
+                );
                 })
               )}
-                            </BreadcrumbList>
-                          </Breadcrumb>
-                        </div>
-                        {isMobile ? (
-                          <div className='flex items-center space-x-4 mr-4'>
-                            <Notifications isMobileMain />
-                            <UserNav isMobileMain />
-                          </div>
-                        ) : (
-                          projectData && <Badge className='mr-4'>{projectData?.project_name}</Badge>
-                        )}
-                      </header>
-                      <main
-                        className={`flex flex-1 flex-col py-4 px-2 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
-                      >
-                        <ErrorBoundaryWithNavigationReset>
-                          <ScrollToTop />
-                          <Outlet />
-                        </ErrorBoundaryWithNavigationReset>
-                      </main>
-                  </div>
-              </div>
+              </BreadcrumbList>
+            </Breadcrumb>
+        </div>
+        {isMobile ? (
+          <div className='flex items-center space-x-4 mr-4'>
+            <Notifications isMobileMain />
+            <UserNav isMobileMain />
+          </div>
+        ) : (
+          projectData && <Badge className='mr-4'>{projectData?.project_name}</Badge>
+        )}
+      </header>
+      <main
+        className={`flex flex-1 flex-col py-4 px-2 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
+      >
+        <ErrorBoundaryWithNavigationReset>
+          <ScrollToTop />
+          <Outlet />
+        </ErrorBoundaryWithNavigationReset>
+      </main>
+    </div >
+              </div >
             </>
             );
 };

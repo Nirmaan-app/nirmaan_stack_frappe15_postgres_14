@@ -637,9 +637,9 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
             {page == 'itemlist' &&
                 <div className="flex-1 space-y-4">
                     <div className="flex justify-between items-center">
-                        <div className="flex items-center pt-1  pb-4 ">
+                        <div className="flex items-center">
                             {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                            <h2 className="text-lg pl-2 font-bold tracking-tight">Approve/Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
+                            <h2 className="text-lg pl-2 font-bold tracking-tight text-pageheader">Approve/Reject/Delete</h2>
                         </div>
 
                         <AlertDialog>
@@ -988,8 +988,8 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                             <p className="text-left py-1 font-light text-sm text-pageheader">Created By</p>
                             <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
                         </div>
-                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                                <p className="text-left py-1 font-light text-sm text-red-700">PR Number</p>
+                        {/* <div className="border-0 flex flex-col justify-center max-sm:hidden">
+                                <p className="text-left py-1 font-light text-sm text-pageheader">PR Number</p>
                                 <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.name?.slice(-4)}</p>
                             </div>
                     </Card> */}

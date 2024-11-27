@@ -38,14 +38,14 @@ export default function Projects() {
     const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList("Procurement Requests", {
         fields: ["*"],
         limit: 2000
-      })
-    
-      const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
+    })
+
+    const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
         filters: [["status", "!=", "PO Approved"]],
         limit: 1000,
         orderBy: { field: "creation", order: "desc" }
-      })
+    })
 
     const projectTypeOptions = projectTypesList?.map((pt) => ({ label: pt.name, value: pt.name }))
 
@@ -63,7 +63,7 @@ export default function Projects() {
                 }
                 return acc;
             }, {});
-    
+
             setPrToProjectData(groupedData);
         }
     }, [pr_data]);
@@ -72,37 +72,37 @@ export default function Projects() {
 
     const getItemStatus = (item: any, filteredPOs: any[]) => {
         return filteredPOs.some(po =>
-          po?.order_list?.list.some(poItem => poItem?.name === item.name)
+            po?.order_list?.list.some(poItem => poItem?.name === item.name)
         );
-      };
-    
-    const statusRender = (status: string, procurementRequest : any) => {
-
-      const itemList = procurementRequest?.procurement_list?.list || [];
-
-      if (["Pending", "Approved", "Rejected"].includes(status)) {
-        return "New PR";
-      }
-
-      const filteredPOs = po_data?.filter(po => po?.procurement_request === procurementRequest?.name) || [];
-      const allItemsApproved = itemList.every(item => { return getItemStatus(item, filteredPOs); });
-
-      return allItemsApproved ? "Approved PO" : "Open PR";
     };
 
-      useEffect(() => {
+    const statusRender = (status: string, procurementRequest: any) => {
+
+        const itemList = procurementRequest?.procurement_list?.list || [];
+
+        if (["Pending", "Approved", "Rejected"].includes(status)) {
+            return "New PR";
+        }
+
+        const filteredPOs = po_data?.filter(po => po?.procurement_request === procurementRequest?.name) || [];
+        const allItemsApproved = itemList.every(item => { return getItemStatus(item, filteredPOs); });
+
+        return allItemsApproved ? "Approved PO" : "Open PR";
+    };
+
+    useEffect(() => {
         if (prToProjectData && po_data) {
             const statusCounts = {};
 
             for (const [project, prs] of Object.entries(prToProjectData)) {
                 statusCounts[project] = { "New PR": 0, "Open PR": 0, "Approved PO": 0 };
-            
+
                 prs?.forEach(pr => {
                     const status = statusRender(pr?.workflow_state, pr);
                     statusCounts[project][status] += 1;
                 });
             }
-        
+
             setProjectStatusCounts(statusCounts);
         }
     }, [prToProjectData, po_data]);
@@ -212,19 +212,19 @@ export default function Projects() {
                 cell: ({ row }) => {
                     const projectName = row.getValue("name");
                     const statusCounts = projectStatusCounts[projectName] || {};
-    
+
                     return (
                         <div className="font-medium flex flex-col gap-1">
                             {/* {Object.entries(statusCounts).map(([status, count]) => ( */}
-                                <Badge className="flex justify-between">
-                                    <span>New PR:</span> <span>{statusCounts["New PR"] || 0}</span>
-                                </Badge>
-                                <Badge variant={"yellow"} className="flex justify-between">
-                                    <span>Open PR:</span> <span>{statusCounts["Open PR"] || 0}</span>
-                                </Badge>
-                                <Badge variant={"green"} className="flex justify-between">
-                                    <span>Apprd PO:</span> <span>{statusCounts["Approved PO"] || 0}</span>
-                                </Badge>
+                            <Badge className="flex justify-between">
+                                <span>New PR:</span> <span>{statusCounts["New PR"] || 0}</span>
+                            </Badge>
+                            <Badge variant={"yellow"} className="flex justify-between">
+                                <span>Open PR:</span> <span>{statusCounts["Open PR"] || 0}</span>
+                            </Badge>
+                            <Badge variant={"green"} className="flex justify-between">
+                                <span>Apprd PO:</span> <span>{statusCounts["Approved PO"] || 0}</span>
+                            </Badge>
                             {/* ))} */}
                         </div>
                     );
@@ -252,7 +252,7 @@ export default function Projects() {
                 </div> */}
             {/* <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1">
-                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} /> */}
+                    <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Projects Dashboard</h2>
                 </div>
 
@@ -273,9 +273,9 @@ export default function Projects() {
                         {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                     </CardContent>
                 </Card>
-                {/* {role === "Nirmaan Admin Profile" && <Button asChild data-cy="add-project-button">
-                    <Link to="new-project"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
-                </Button>} */}
+                {role === "Nirmaan Admin Profile" && <Button asChild data-cy="add-project-button">
+                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
+                </Button>}
             </div>
             <div className="pl-0 pr-2">
                 {isLoading || projectTypesListLoading ? (

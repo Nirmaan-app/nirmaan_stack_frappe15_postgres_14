@@ -348,10 +348,10 @@ export const UpdateQuote = () => {
     return (
         <>
             {page == 'quotation' &&
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1 pb-4">
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
                         {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Input Quotes</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />
                     <div className="flex justify-between">
@@ -406,60 +406,61 @@ export const UpdateQuote = () => {
                                 </Sheet>
                             </div>
                         </div>
-                    })}
-                    <div className="font-light text-sm text-slate-500 max-sm:px-2 px-8 py-6">
-                        <span className="text-red-700">Notes:</span> You can download RFQ PDFs for individual vendors for getting quotes
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <Sheet>
-                            <SheetTrigger className="text-blue-500"><div className="sm:pl-8 pl-2"><CirclePlus className="w-4 h-4 inline mr-1 mb-1" />Add New Vendor</div></SheetTrigger>
-                            <SheetContent className="overflow-auto">
-                                <SheetHeader className="text-start">
-                                    <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
-                                    <SheetDescription>
-                                        <div className="flex-1">
-                                            <span className=" text-slim text-sm text-red-700">Note:</span>
-                                            <p className="text-xs"> - This will add a new vendor entry within the system. Only add new vendors here.</p>
-                                            <p className="text-xs"> - This form will automatically add vendors categories from this PR/SB to the vendor.</p>
-                                        </div>
-                                        <NewVendor dynamicCategories={orderData?.category_list?.list?.map(item => item.name) || []} prData={orderData} renderCategorySelection={false} navigation={false} />
-                                    </SheetDescription>
-                                </SheetHeader>
-                            </SheetContent>
-                        </Sheet>
-                        <Button className="flex items-center gap-1" onClick={handleUpdateQuote}>
-                            <ListChecks className="h-4 w-4" />
-                            Update Quote
-                        </Button>
-                    </div>
-                    <Accordion type="multiple" defaultValue={["Vendors"]}>
-                        <AccordionItem value="Vendors">
-                            <AccordionTrigger>
-                                <div className="md:mb-2 text-base md:text-lg px-2  w-full text-left">
-                                    <div className="flex-1">
-                                        <span className=" text-base mb-0.5 md:text-lg font-slim">Recently Added Vendors List</span>
-                                        <div className="text-sm text-gray-400">Here you can add previosuly added vendors to this PR. You can also update a previously added vendor`s <span className="text-red-700 italic">category</span> </div>
-                                    </div>
+                        </div>
+            })}
+            <div className="font-light text-sm text-slate-500 max-sm:px-2 px-8 py-6">
+                <span className="text-red-700">Notes:</span> You can download RFQ PDFs for individual vendors for getting quotes
+            </div>
+            <div className="flex items-center justify-between">
+                <Sheet>
+                    <SheetTrigger className="text-blue-500"><div className="sm:pl-8 pl-2"><CirclePlus className="w-4 h-4 inline mr-1 mb-1" />Add New Vendor</div></SheetTrigger>
+                    <SheetContent className="overflow-auto">
+                        <SheetHeader className="text-start">
+                            <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
+                            <SheetDescription>
+                                <div className="flex-1">
+                                    <span className=" text-slim text-sm text-red-700">Note:</span>
+                                    <p className="text-xs"> - This will add a new vendor entry within the system. Only add new vendors here.</p>
+                                    <p className="text-xs"> - This form will automatically add vendors categories from this PR/SB to the vendor.</p>
                                 </div>
-                            </AccordionTrigger>
-                            <AccordionContent>
-                                <Card className='max-md:p-0'>
-                                    <CardHeader className="max-md:p-0">
-                                        <div className="pl-6 flex gap-1 items-center pt-10 max-md:pt-6 flex-wrap">
-                                            <span className="font-light max-md:text-sm">PR Categories: </span>
-                                            {orderData?.category_list?.list.map((cat) => (
-                                                <Badge>{cat.name}</Badge>
-                                            ))}
-                                        </div>
-                                        <CardContent>
-                                            <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
-                                        </CardContent>
-                                    </CardHeader>
-                                </Card>
-                            </AccordionContent>
-                        </AccordionItem>
-                    </Accordion>
-                </div>}
+                                <NewVendor dynamicCategories={orderData?.category_list?.list?.map(item => item.name) || []} prData={orderData} renderCategorySelection={false} navigation={false} />
+                            </SheetDescription>
+                        </SheetHeader>
+                    </SheetContent>
+                </Sheet>
+                <Button className="flex items-center gap-1" onClick={handleUpdateQuote}>
+                    <ListChecks className="h-4 w-4" />
+                    Update Quote
+                </Button>
+            </div>
+            <Accordion type="multiple" defaultValue={["Vendors"]}>
+                <AccordionItem value="Vendors">
+                    <AccordionTrigger>
+                        <div className="md:mb-2 text-base md:text-lg px-2  w-full text-left">
+                            <div className="flex-1">
+                                <span className=" text-base mb-0.5 md:text-lg font-slim">Recently Added Vendors List</span>
+                                <div className="text-sm text-gray-400">Here you can add previosuly added vendors to this PR. You can also update a previously added vendor`s <span className="text-red-700 italic">category</span> </div>
+                            </div>
+                        </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                        <Card className='max-md:p-0'>
+                            <CardHeader className="max-md:p-0">
+                                <div className="pl-6 flex gap-1 items-center pt-10 max-md:pt-6 flex-wrap">
+                                    <span className="font-light max-md:text-sm">PR Categories: </span>
+                                    {orderData?.category_list?.list.map((cat) => (
+                                        <Badge>{cat.name}</Badge>
+                                    ))}
+                                </div>
+                                <CardContent>
+                                    <DataTable columns={columns} data={filteredVendorList || []} category_options={categoryOptions} />
+                                </CardContent>
+                            </CardHeader>
+                        </Card>
+                    </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+        </div >}
         </>
     )
 }

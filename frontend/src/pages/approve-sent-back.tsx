@@ -718,141 +718,142 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
     };
 
     return (
-        <div className="flex-1 space-y-4">
+        <div>
             <div className="flex-1 space-y-4">
-                <div className="flex items-center">
-                    {/* <ArrowLeft className='cursor-pointer' onClick={() => { navigate('/approve-sent-back') }} /> */}
-                    <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back <span className="italic">{orderData?.type} SB-{orderData?.name?.slice(-4)}</span></h2>
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
+                        {/* <ArrowLeft className='cursor-pointer' onClick={() => { navigate('/approve-sent-back') }} /> */}
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back <span className="italic">{orderData?.type} SB-{orderData?.name?.slice(-4)}</span></h2>
+                    </div>
+                    <ProcurementActionsHeaderCard orderData={orderData} sentBack={true} />
                 </div>
-                <ProcurementActionsHeaderCard orderData={orderData} sentBack={true} />
             </div>
-        </div>
             {
-        selectedItems?.length > 0 && (
-            <div className="mt-4">
-                <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200">
-                    <h2 className="text-lg font-bold mb-3 flex items-center">
-                        <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
-                        Actions Summary
-                    </h2>
-                    <div className="grid md:grid-cols-2 gap-4">
-                        {/* Send Back Action Summary */}
-                        <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
-                            <div className="flex items-center mb-2">
-                                <SendToBack className="h-5 w-5 text-red-500 mr-2" />
-                                <h3 className="font-medium text-gray-700">Send Back</h3>
-                            </div>
-                            <p className="text-sm text-gray-600">{generateActionSummary("sendBack")}</p>
-                        </div>
+                selectedItems?.length > 0 && (
+                    <div className="mt-4">
+                        <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200">
+                            <h2 className="text-lg font-bold mb-3 flex items-center">
+                                <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
+                                Actions Summary
+                            </h2>
+                            <div className="grid md:grid-cols-2 gap-4">
+                                {/* Send Back Action Summary */}
+                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                    <div className="flex items-center mb-2">
+                                        <SendToBack className="h-5 w-5 text-red-500 mr-2" />
+                                        <h3 className="font-medium text-gray-700">Send Back</h3>
+                                    </div>
+                                    <p className="text-sm text-gray-600">{generateActionSummary("sendBack")}</p>
+                                </div>
 
-                        {/* Approve Action Summary */}
-                        <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
-                            <div className="flex items-center mb-2">
-                                <ListChecks className="h-5 w-5 text-green-500 mr-2" />
-                                <h3 className="font-medium text-gray-700">Approve</h3>
+                                {/* Approve Action Summary */}
+                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                    <div className="flex items-center mb-2">
+                                        <ListChecks className="h-5 w-5 text-green-500 mr-2" />
+                                        <h3 className="font-medium text-gray-700">Approve</h3>
+                                    </div>
+                                    <p className="text-sm text-gray-600">{generateActionSummary("approve")}</p>
+                                </div>
                             </div>
-                            <p className="text-sm text-gray-600">{generateActionSummary("approve")}</p>
                         </div>
                     </div>
-                </div>
-            </div>
-        )
-    }
-    <div className='overflow-x-auto pt-6'>
-        <ConfigProvider
-            theme={{
-                token: {
-                    // Seed Token
-                    colorPrimary: '#FF2828',
-                    borderRadius: 4,
-
-                    // Alias Token
-                    colorBgContainer: '#FFFFFF',
-                },
-            }}
-        >
-            {data.length > 0 &&
-                <Table
-                    dataSource={data}
-                    rowSelection={{ ...rowSelection, checkStrictly }}
-                    expandable={{ defaultExpandAllRows: true }}
-                    columns={columns}
-                />
+                )
             }
-        </ConfigProvider>
-    </div>
-    {
-        selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2 mt-2">
-            <AlertDialog>
-                <AlertDialogTrigger asChild>
-                    <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
-                        <SendToBack className='w-4 h-4' />
-                        Send Back
-                    </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="sm:max-w-[425px]">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you Sure</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Add Comments and Send Back the Selected Items.
-                            <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
-                            <textarea
-                                id="textarea"
-                                className="w-full border rounded-lg p-2"
-                                value={comment}
-                                placeholder="type here..."
-                                onChange={(e) => setComment(e.target.value)}
-                            />
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    {isLoading === "newHandleSentBack" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                        <AlertDialogFooter>
-                            <AlertDialogCancel className="flex items-center gap-1">
-                                <Undo2 className="h-4 w-4" />
-                                Cancel</AlertDialogCancel>
-                            <Button onClick={() => newHandleSentBack()} className="flex items-center gap-1">
-                                <CheckCheck className="h-4 w-4" />
-                                Confirm
+            <div className='overflow-x-auto pt-6'>
+                <ConfigProvider
+                    theme={{
+                        token: {
+                            // Seed Token
+                            colorPrimary: '#FF2828',
+                            borderRadius: 4,
+
+                            // Alias Token
+                            colorBgContainer: '#FFFFFF',
+                        },
+                    }}
+                >
+                    {data.length > 0 &&
+                        <Table
+                            dataSource={data}
+                            rowSelection={{ ...rowSelection, checkStrictly }}
+                            expandable={{ defaultExpandAllRows: true }}
+                            columns={columns}
+                        />
+                    }
+                </ConfigProvider>
+            </div>
+            {
+                selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2 mt-2">
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
+                                <SendToBack className='w-4 h-4' />
+                                Send Back
                             </Button>
-                        </AlertDialogFooter>
-                    )}
-                    <AlertDialogCancel id='SendBackAlertClose' className="hidden">
-                        Cancel
-                    </AlertDialogCancel>
-                </AlertDialogContent>
-            </AlertDialog>
-            <AlertDialog>
-                <AlertDialogTrigger asChild>
-                    <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
-                        <ListChecks className="h-4 w-4" />
-                        Approve
-                    </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="sm:max-w-[425px]">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you Sure</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Click on Confirm to Approve the Selected Items.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    {isLoading === "newHandleApprove" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                        <AlertDialogFooter>
-                            <AlertDialogCancel className="flex items-center gap-1">
-                                <Undo2 className="h-4 w-4" />
-                                Cancel</AlertDialogCancel>
-                            <Button onClick={() => newHandleApprove()} className="flex items-center gap-1">
-                                <CheckCheck className="h-4 w-4" />
-                                Confirm
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="sm:max-w-[425px]">
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Add Comments and Send Back the Selected Items.
+                                    <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
+                                    <textarea
+                                        id="textarea"
+                                        className="w-full border rounded-lg p-2"
+                                        value={comment}
+                                        placeholder="type here..."
+                                        onChange={(e) => setComment(e.target.value)}
+                                    />
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            {isLoading === "newHandleSentBack" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel className="flex items-center gap-1">
+                                        <Undo2 className="h-4 w-4" />
+                                        Cancel</AlertDialogCancel>
+                                    <Button onClick={() => newHandleSentBack()} className="flex items-center gap-1">
+                                        <CheckCheck className="h-4 w-4" />
+                                        Confirm
+                                    </Button>
+                                </AlertDialogFooter>
+                            )}
+                            <AlertDialogCancel id='SendBackAlertClose' className="hidden">
+                                Cancel
+                            </AlertDialogCancel>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
+                                <ListChecks className="h-4 w-4" />
+                                Approve
                             </Button>
-                        </AlertDialogFooter>
-                    )}
-                    <AlertDialogCancel id='ApproveAlertClose' className="hidden">
-                        Cancel
-                    </AlertDialogCancel>
-                </AlertDialogContent>
-            </AlertDialog>
-        </div>
-    }
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="sm:max-w-[425px]">
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Click on Confirm to Approve the Selected Items.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            {isLoading === "newHandleApprove" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel className="flex items-center gap-1">
+                                        <Undo2 className="h-4 w-4" />
+                                        Cancel</AlertDialogCancel>
+                                    <Button onClick={() => newHandleApprove()} className="flex items-center gap-1">
+                                        <CheckCheck className="h-4 w-4" />
+                                        Confirm
+                                    </Button>
+                                </AlertDialogFooter>
+                            )}
+                            <AlertDialogCancel id='ApproveAlertClose' className="hidden">
+                                Cancel
+                            </AlertDialogCancel>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                </div>
+            }
         </div >
     )
 }

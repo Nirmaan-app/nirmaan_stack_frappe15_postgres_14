@@ -405,6 +405,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
         <>
             {section === 'choose-vendor' && <>
 <<<<<<< HEAD
+<<<<<<< HEAD
                 <div className="flex-1 space-y-4">
                     <div className="flex items-center">
                         {/* {resolve && (
@@ -415,20 +416,32 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
 =======
                 <div className="flex-1 md:space-y-4">
                     <div className="flex items-center pt-1 pb-4">
+=======
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
+>>>>>>> ec27647 (fix: fixed several routes & navigations and removed/updated page headings)
                         {resolve && (
                             <ArrowLeft className='cursor-pointer' onClick={() => setPage("Summary")} />
                         )}
                         {resolve ? (
+<<<<<<< HEAD
                             <h2 className="text-base pl-2 font-bold tracking-tight">Resolve: <span className="text-red-700">SR-{sr_data?.name?.slice(-4)}</span></h2>
 >>>>>>> f5a5ff9 (fix: removed left arrows for the following components.)
                         ) : (
                             <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Choose Service Vendor </h2>
                         )} */}
+=======
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Resolve</h2>
+                        ) : (
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Choose Service Vendor </h2>
+                        )}
+>>>>>>> ec27647 (fix: fixed several routes & navigations and removed/updated page headings)
                     </div>
                     <ProcurementHeaderCard orderData={sr_data} sr={true} />
 
                     <div>
                         <div className="flex m-2 justify-left gap-2">
+<<<<<<< HEAD
 
                             <div className="text-lg text-gray-400 mt-1">Select vendors for this SR:</div>
                             <Select className="w-[40%]" value={selectedVendor} options={vendorOptions} onChange={handleChange()}
@@ -437,6 +450,10 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
                                     Option: CustomOption,
                                 }}
                             />
+=======
+                            <div className="text-lg text-gray-400 mt-1">Select vendor:</div>
+                            <Select className="w-72" value={selectedVendor} options={vendorOptions} onChange={handleChange()} />
+>>>>>>> ec27647 (fix: fixed several routes & navigations and removed/updated page headings)
                             <Sheet>
                                 <SheetTrigger className="text-blue-500">
                                     <div className="text-base text-blue-400 flex items-center gap-1" >

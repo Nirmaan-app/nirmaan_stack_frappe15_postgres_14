@@ -409,10 +409,10 @@ export const ProcurementOrder = () => {
     return (
         <>
             {page == 'approve' &&
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1 pb-4">
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
                         {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate(-1)} /> */}
-                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Summary </h2>
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Summary</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />
                     <div className="overflow-x-auto">

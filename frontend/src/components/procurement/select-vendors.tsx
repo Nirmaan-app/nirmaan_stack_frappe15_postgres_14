@@ -711,10 +711,10 @@ export const SelectVendors = () => {
     return (
         <>
             {page == 'updatequotation' &&
-                <div className="flex-1 space-y-2 md:space-y-4">
-                    <div className="flex items-center pt-1  pb-4">
-                        {/* <ArrowLeft onClick={() => navigate("/select-vendor-list")} /> */}
-                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Choose Vendor/Item Quotes</h2>
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
+                        {/* <ArrowLeft onClick={() => navigate("/choose-vendor")} /> */}
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Choose Vendor/Item Quotes</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />
                     {orderData?.category_list?.list.map((cat) => {
