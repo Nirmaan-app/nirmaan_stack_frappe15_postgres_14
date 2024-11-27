@@ -152,7 +152,7 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
 
                   {/* Last Item */}
                   <BreadcrumbItem>
-                    <BreadcrumbPage>{locationsPaths[locationsPaths.length - 1]?.toUpperCase()}</BreadcrumbPage>
+                    <BreadcrumbPage className='max-sm:text-xs'>{locationsPaths[locationsPaths.length - 1]?.toUpperCase()}</BreadcrumbPage>
                   </BreadcrumbItem>
                 </>
               ) : (
@@ -179,7 +179,8 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
               )}
             </BreadcrumbList>
           </Breadcrumb>
-                    </div>
+                     </div>
+                     {/*
                     {isMobile ? (
                     <div className='flex items-center space-x-4 mr-4'>
                         <Notifications isMobileMain />
@@ -187,7 +188,8 @@ export const MainLayout = ({children} : {children : React.ReactNode}) => {
                     </div>
                     ) : (
                         projectData && <Badge className='mr-4'>{projectData?.project_name}</Badge>
-                    )}
+                    )} */}
+                    {projectData && <Badge className='sm:mr-4 mr-2 max-sm:text-[11px]'>{projectData?.project_name}</Badge>}
                 </header>
                 <main 
                     className={`flex flex-1 flex-col py-4 px-2 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
