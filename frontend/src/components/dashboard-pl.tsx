@@ -13,8 +13,8 @@ export const ProjectLead = () => {
             <div className="flex justify-between gap-2 max-sm:flex-col">
                 <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Project Lead Dashboard</h2>
                 <div className="flex gap-2">
-                    <Button onClick={() => navigate("/prs&milestones/procurement-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
-                    <Button onClick={() => navigate("/service-request")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Service Request</Button>
+                    <Button onClick={() => navigate("/prs&milestones/procurement-requests")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
+                    <Button onClick={() => navigate("/service-requests")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Service Request</Button>
                 </div>
             </div>
             <div className=" space-y-2">
