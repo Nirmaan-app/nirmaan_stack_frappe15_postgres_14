@@ -1373,8 +1373,38 @@ export const ReleasePONew = ({ not }) => {
                                                             <>
                                                                 <div className="text-gray-600 text-sm py-2">Payment Terms</div>
                                                                 <div className="text-sm text-gray-900">
-                                                                    {advance}% advance {advance === 100 ? "" : `, ${materialReadiness}% on material readiness, ${afterDelivery}% after delivery to the site and ${xDaysAfterDelivery}% after 30 days of delivering the material(s)!`}
+                                                                    {(() => {
+                                                                        // Check if any of the variables is 100
+                                                                        if (advance === 100) {
+                                                                            return `${advance}% advance`;
+                                                                        } else if (materialReadiness === 100) {
+                                                                            return `${materialReadiness}% on material readiness`;
+                                                                        } else if (afterDelivery === 100) {
+                                                                            return `${afterDelivery}% after delivery to the site`;
+                                                                        } else if (xDaysAfterDelivery === 100) {
+                                                                            return `${xDaysAfterDelivery}% after 30 days of delivering the material(s)`;
+                                                                        }
+                                                                    
+                                                                        // If none of the variables is 100, render non-zero values
+                                                                        const parts = [];
+                                                                        if (advance > 0) {
+                                                                            parts.push(`${advance}% advance`);
+                                                                        }
+                                                                        if (materialReadiness > 0) {
+                                                                            parts.push(`${materialReadiness}% on material readiness`);
+                                                                        }
+                                                                        if (afterDelivery > 0) {
+                                                                            parts.push(`${afterDelivery}% after delivery to the site`);
+                                                                        }
+                                                                        if (xDaysAfterDelivery > 0) {
+                                                                            parts.push(`${xDaysAfterDelivery}% after 30 days of delivering the material(s)`);
+                                                                        }
+                                                                    
+                                                                        // Join the parts with commas and return
+                                                                        return parts.join(", ");
+                                                                    })()}
                                                                 </div>
+
                                                             </>
                                                         ) : ""}
 
