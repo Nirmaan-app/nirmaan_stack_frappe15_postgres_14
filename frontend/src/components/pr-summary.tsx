@@ -178,10 +178,12 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
             // console.log(i, ":", po_data[i])
             for (let j = 0; j < po_data[i].order_list.list.length; j++) {
                 // console.log(j, ": ", po_data[i].order_list.list[j])
-                if (po_data[i].order_list.list[j].name === itemJson.name)
-                    if (po_data[i].status === "PO Approved") {
-                        return "PO WIP"
-                    } else return "Ordered"
+                if (po_data[i].order_list.list[j].name === itemJson.name) {
+                    // if (po_data[i].status === "PO Approved") {
+                    //     return "PO WIP"
+                    // } else return "Ordered"
+                    return "Ordered"
+                }
             }
         }
         return "In Progress"

@@ -164,7 +164,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList("Procurement Orders", {
     fields: ["*"],
-    filters: [["project", "=", projectId]], // removed ["status", "!=", "PO Approved"] for now
+    filters: [["project", "=", projectId], ["merged", "!=", "true"]], // removed ["status", "!=", "PO Approved"] for now
     limit: 1000,
     orderBy: { field: "creation", order: "desc" }
   },
