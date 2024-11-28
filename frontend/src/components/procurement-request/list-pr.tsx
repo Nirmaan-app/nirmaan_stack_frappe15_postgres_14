@@ -73,7 +73,7 @@ export default function ListPR() {
                 <h2 className="text-xl  font-bold tracking-tight">Procurement Requests</h2>
             </div> */}
 
-            <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
+            <div className="gap-4 border border-gray-200 rounded-lg p-0.5">
                 <ProjectSelect onChange={handleChange} />
                 {project && <div className="mx-0 px-0 pt-4">
                     <h2 className="text-lg pl-2 font-semibold tracking-normal py-2">Created By {userData?.full_name}</h2>
