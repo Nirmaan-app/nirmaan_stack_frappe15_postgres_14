@@ -1,4 +1,4 @@
-import { ArrowBigUpDash, ArrowLeft, CheckCheck, MessageCircleMore, Pencil, Undo2 } from 'lucide-react';
+import { ArrowBigUpDash, ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, Pencil, SendToBack, Undo2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
@@ -649,6 +649,53 @@ export const SelectVendors = () => {
             })
     }
 
+    console.log("orderData", orderData?.procurement_list?.list)
+
+    const generateActionSummary = () => {
+        let allDelayedItems = [];
+        let vendorWiseApprovalItems = {};
+        let delayedItemsOverallTotal = 0;
+        let approvalOverallTotal = 0;
+    
+        orderData.procurement_list?.list.forEach((item) => {
+            const vendor = selectedVendors[item.name];
+            const quote = getPrice(vendor, item?.name);
+            if (!vendor) {
+                // Delayed items
+                allDelayedItems.push(item);
+                delayedItemsOverallTotal += item.quantity * quote;
+            } else {
+                // Approval items segregated by vendor
+                const itemTotal = item.quantity * quote;
+                if (!vendorWiseApprovalItems[vendor]) {
+                    vendorWiseApprovalItems[vendor] = {
+                        items: [],
+                        total: 0,
+                    };
+                }
+                vendorWiseApprovalItems[vendor].items.push(item);
+                vendorWiseApprovalItems[vendor].total += itemTotal;
+                approvalOverallTotal += itemTotal;
+            }
+        });
+    
+        return {
+            allDelayedItems,
+            delayedItemsOverallTotal,
+            vendorWiseApprovalItems,
+            approvalOverallTotal,
+        };
+    };
+    
+    const {
+        allDelayedItems,
+        delayedItemsOverallTotal,
+        vendorWiseApprovalItems,
+        approvalOverallTotal,
+    } = generateActionSummary();
+    
+    
+
     // const getPercentdiff = (a: number, b: number) => {
     //     if (a === 0 && b === 0) {
     //         return 0;
@@ -835,151 +882,70 @@ export const SelectVendors = () => {
                             <h2 className="text-base pl-2 font-bold tracking-tight">Comparison</h2>
                         </div>
                         <ProcurementHeaderCard orderData={orderData} />
-                        {/* {orderData?.category_list?.list.map((cat) => {
-                            const curCategory = cat.name
-                            let total: number = 0;
-                            const lowest = getLowest(cat.name);
-                            let count: number = 0;
-
-                            return <div className="grid grid-cols-2 gap-4 w-full">
-
-                                <div className="col-span-2 font-bold text-xl py-2">{cat.name}</div>
-                                <Card className="flex w-full shadow-none border border-grey-500" >
-                                    <CardHeader className="w-full">
-                                        <CardTitle>
-                                            <div className="flex justify-between border-b">
-                                                <div className="font-bold text-lg py-2 border-gray-200">Total</div>
-                                                <div className="font-bold text-2xl text-red-500 py-2 border-gray-200">{getTotal(curCategory)}</div>
-                                            </div>
-                                        </CardTitle>
-                                        {orderData?.procurement_list.list.map((item) => {
-                                            if (count === 2) { return }
-                                            if (item.category === curCategory) {
-                                                count++;
-                                                const price = getPrice(selectedVendors[item.name], item.name);
-                                                total += price ? parseFloat(price) : 0;
-                                                return <div className="flex justify-between py-2">
-                                                    <div className="text-sm">{item.item}</div>
-                                                    <div className="text-sm">{selectedVendors[item.name] ? price * item.quantity : "Delayed"}</div>
-                                                </div>
-                                            }
-                                        })}
-                                        <div className="flex justify-between py-2">
-                                            <Dialog>
-                                                <DialogTrigger asChild>
-                                                    <div className="text-sm text-blue-500 cursor-pointer">View All</div>
-                                                </DialogTrigger>
-                                                <DialogContent className="md:min-w-[825px]">
-                                                    <DialogHeader>
-                                                        <DialogTitle>Items List</DialogTitle>
-                                                        <DialogDescription>
-                                                            <div className="grid grid-cols-12 font-medium text-black justify-between">
-                                                                <div className="text-sm col-span-2 border p-2">Items</div>
-                                                                <div className="text-sm border p-2">Unit</div>
-                                                                <div className="text-sm border p-2">Qty</div>
-                                                                <div className="text-sm border p-2">Rate</div>
-                                                                <div className="text-sm border p-2">Amount</div>
-                                                                <div className="text-sm col-span-2 border p-2">Selected Vendor</div>
-                                                                <div className="text-sm col-span-2 border p-2">Lowest Quoted Vendor</div>
-                                                                <div className="text-sm col-span-2 border p-2">3 months Lowest Amount</div>
-                                                            </div>
-                                                            {orderData?.procurement_list?.list.map((item) => {
-                                                                if (item.category === curCategory) {
-                                                                    const price = getPrice(selectedVendors[item.name], item.name);
-                                                                    total += price ? parseFloat(price) : 0;
-
-                                                                    const lowest2 = getLowest2(item.name)
-
-                                                                    const quotesForItem = quote_data
-                                                                        ?.filter(value => value.item_id === item.name && value.quote)
-                                                                        ?.map(value => value.quote);
-                                                                    let minQuote;
-                                                                    if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-
-                                                                    return <div className="grid grid-cols-12">
-                                                                        <div className="text-sm col-span-2 border p-2">{item.item}</div>
-                                                                        <div className="text-sm border p-2">{item.unit}</div>
-                                                                        <div className="text-sm border p-2">{item.quantity}</div>
-                                                                        <div className="text-sm border p-2">{selectedVendors[item.name] ? price : "Delayed"}</div>
-                                                                        <div className="text-sm border p-2">{selectedVendors[item.name] ? price * item.quantity : "Delayed"}</div>
-                                                                        <div className="text-sm col-span-2 border p-2">{selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed"}</div>
-                                                                        <div className="text-sm col-span-2 border p-2">{lowest2 ? lowest2 * item.quantity : "N/A"}</div>
-                                                                        <div className="text-sm col-span-2 border p-2">{minQuote ? minQuote * item.quantity : "N/A"}</div>
-                                                                    </div>
-                                                                }
-                                                            })}
-                                                        </DialogDescription>
-                                                    </DialogHeader>
-                                                </DialogContent>
-                                            </Dialog>
-                                        </div>
-                                    </CardHeader>
-                                </Card>
-
-                                <div>
-                                    <div className="h-[50%] p-5 rounded-lg border border-grey-500">
-                                        <div className="flex justify-between">
-                                            <div className="text-sm font-medium text-gray-400">Lowest Quoted Vendor</div>
-                                            <div className="font-bold text-2xl text-gray-500 border-gray-200 py-0">{lowest.quote}
-                                                <div className='flex'>
-                                                    {
-                                                        (lowest?.quote < getTotal(curCategory)) ?
-                                                            <TrendingDown className="text-red-500" /> : <CheckCheck className="text-blue-500" />
-                                                    }
-                                                    <span className={`pl-2 text-base font-medium ${(lowest?.quote < getTotal(curCategory)) ? "text-red-500" : "text-blue-500"}`}>{getPercentdiff(lowest?.quote, getTotal(curCategory))}%</span>
-                                                </div>
-
-                                            </div>
-                                        </div>
-                                        <div className="flex justify-between font-medium text-gray-700 text-sm">
-                                            {getVendorName(lowest.vendor)}
-                                            <div className="text-end text-sm text-gray-400">Delivery Time: {getLeadTime(selectedVendors[curCategory], curCategory)} Days</div>
-                                        </div>
-
-                                    </div>
-                                    <div className="mt-2 h-[45%] p-5 rounded-lg border border-grey-500">
-                                        <div className="flex justify-between">
-                                            <div className="text-sm font-medium text-gray-400">Last 3 months Metric</div>
-                                            <div className="font-bold text-2xl text-gray-500 border-gray-200">{getLowest3(curCategory)}
-                                                <div className='flex'>
-                                                    {
-                                                        (getLowest3(curCategory) > getTotal(curCategory)) ?
-                                                            <TrendingUp className="text-green-500" /> : ((getLowest3(curCategory) < getTotal(curCategory)) ? <TrendingDown className="text-red-500" /> : <CheckCheck className="text-blue-500" />)
-                                                    }
-                                                    <span className={`pl-2 text-base font-medium ${(getLowest3(curCategory) < getTotal(curCategory)) ? "text-red-500" : ((getLowest3(curCategory) > getTotal(curCategory)) ? "text-green-500" : "text-blue-500")}`}>{getPercentdiff(getTotal(curCategory), getLowest3(curCategory))}%</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="font-medium text-gray-700 text-sm">
-                                            Last 3 months Lowest Amount
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        })} */}
-                        {/* <div className='p-10'></div> */}
-                        {/* <div className="flex flex-col justify-end items-end">
-                            <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button>
-                                        Send for Approval
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent className="sm:max-w-[425px]">
-                                    <DialogHeader>
-                                        <DialogTitle>Have you cross-checked your selections?</DialogTitle>
-                                        <DialogDescription>
-                                            Remainder: Items whose quotes are not selected will have a delayed status attached to them. If confirmed, Delayed sent back request will be created for those Items.
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    <DialogClose>
-                                        <Button variant="secondary">Go Back</Button>
-                                        <Button variant="secondary" onClick={() => handleSubmit()}>Confirm</Button>
-                                    </DialogClose>
-                                </DialogContent>
-                            </Dialog>
-                        </div> */}
                     </div>
+
+                    <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200 mt-4">
+                        <h2 className="text-lg font-bold mb-3 flex items-center">
+                            <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
+                            Actions Summary
+                        </h2>
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {/* Delayed Items Summary */}
+                            {allDelayedItems.length > 0 && (
+                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                    <div className="flex items-center mb-2">
+                                        <SendToBack className="h-5 w-5 text-red-500 mr-2" />
+                                        <h3 className="font-medium text-gray-700">Delayed Items</h3>
+                                    </div>
+                                    <p className="text-sm text-gray-600">
+                                        These items are delayed and a <strong>new Delayed Sent Back</strong> will be created:
+                                    </p>
+                                    <ul className="mt-1 list-disc pl-5">
+                                        {allDelayedItems.map((item) => (
+                                            <li key={item.name}>
+                                                {item.item} - {item.quantity} {item.unit}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Approval Items Summary */}
+                            {Object.keys(vendorWiseApprovalItems).length > 0 && (
+                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                    <div className="flex items-center mb-2">
+                                        <ListChecks className="h-5 w-5 text-green-500 mr-2" />
+                                        <h3 className="font-medium text-gray-700">Approval Items</h3>
+                                    </div>
+                                    <p className="text-sm text-gray-600">
+                                        These items will be sent to the project lead for approval.
+                                    </p>
+                                    {Object.entries(vendorWiseApprovalItems).map(([vendor, { items, total }]) => (
+                                        <div key={vendor} className="mt-2">
+                                            <h4 className="text-sm font-medium text-gray-800">
+                                                {getVendorName(vendor)}:
+                                            </h4>
+                                            <ul className="list-disc pl-5 text-sm text-gray-600">
+                                                {items.map((item) => (
+                                                    <li key={item.name}>
+                                                        {item.item} - {item.quantity} {item.unit} - 
+                                                        {formatToIndianRupee(item.quantity * getPrice(vendor, item?.name))}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                            <p className="text-sm font-medium mt-1">
+                                                Vendor Total: {formatToIndianRupee(total)}
+                                            </p>
+                                        </div>
+                                    ))}
+                                    <p className="mt-2 font-medium">
+                                        Overall Total: {formatToIndianRupee(approvalOverallTotal)}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
                     <div className='pt-6 overflow-x-auto'>
                         <ConfigProvider
                             theme={{
@@ -1014,9 +980,8 @@ export const SelectVendors = () => {
                                 <DialogHeader>
                                     <DialogTitle>Have you cross-checked your selections?</DialogTitle>
                                     <DialogDescription>
-                                        Remainder: Items whose quotes are not selected will have a delayed status attached to them. If confirmed, Delayed sent back request will be created for those Items.
-
-
+                                        Remainder: Items whose quotes are not selected will have a delayed status 
+                                        attached to them. If confirmed, Delayed sent back request will be created for those Items.
                                         {Object.keys(delayedItems).length !== 0 ? (
                                             <div className='flex flex-col gap-2 mt-2 text-start'>
                                                 <h4 className='font-bold'>some items are delayed, any reason?</h4>

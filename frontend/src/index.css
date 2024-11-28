@@ -175,6 +175,22 @@ body, html {
   background: #555;
 }
 
+.card-enter {
+  @apply transition-opacity opacity-0;
+}
+
+.card-enter-active {
+  @apply opacity-100;
+}
+
+.card-leave {
+  @apply transition-opacity opacity-100;
+}
+
+.card-leave-active {
+  @apply opacity-0;
+}
+
 
 
 /* @media (max-width: 600px) {

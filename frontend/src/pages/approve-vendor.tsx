@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2 } from 'lucide-react';
+import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2 } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
@@ -279,7 +279,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         setPriceMap(newPriceMap);
     }, [quotation_request_list]);
 
-
     // Setting initial data
     useEffect(() => {
         // console.log("calling useEffect 2, settingOrderData and updating procurement_list and category_list");
@@ -443,6 +442,10 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         onSelectAll: (selected, selectedRows, changeRows) => { },
     };
 
+    const { toast } = useToast();
+    const userData = useUserData()
+    const [isLoading, setIsLoading] = useState<string | null>(null);
+
     const BATCH_SIZE = 10; // Adjust the batch size based on your needs
 
     const createDocBatch = async (doctype, docs) => {
@@ -457,12 +460,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         }
         return results;
     };
-
-    const { toast } = useToast();
-    const userData = useUserData()
-    const [isLoading, setIsLoading] = useState<string | null>(null);
-
-    // console.log("selectedItems", selectedItems)
 
     const newHandleApprove = async () => {
         try {
@@ -721,6 +718,86 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         return `${vendor}-${item}`;
     };
 
+    const generateActionSummary = (actionType) => {
+    if (actionType === "approve") {
+        const groupedVendors = selectedItems?.reduce((acc, item) => {
+            const vendor = selectedVendors[item.key];
+            if (vendor) {
+                if (!acc[vendor]) acc[vendor] = [];
+                acc[vendor].push(item);
+            }
+            return acc;
+        }, {});
+
+        if (!groupedVendors || Object.keys(groupedVendors).length === 0) {
+            return "No valid items selected for approval.";
+        }
+
+        const vendorTotals = Object.entries(groupedVendors).map(([vendor, items]) => ({
+            vendor,
+            total: items.reduce((sum, item) => sum + (item.amount || 0), 0),
+        }));
+        const overallTotal = vendorTotals.reduce((sum, { total }) => sum + total, 0);
+
+        return (
+            <div>
+                <p>Upon approval, the following actions will be taken:</p>
+                <ul className="mt-2 list-disc pl-5">
+                    {Object.entries(groupedVendors).map(([vendor, items]) => (
+                        <li key={vendor}>
+                            A <strong>new PO</strong> will be created for vendor <strong>{getVendorName(vendor)}</strong>:
+                            <ul className="mt-1 list-disc pl-5">
+                                {items.map((item) => (
+                                    <li key={item.key}>
+                                        {item.item} - {item.quantity} {item.unit} ({formatToIndianRupee(item.amount)})
+                                    </li>
+                                ))}
+                            </ul>
+                            <p className="mt-1 text-gray-600">
+                                Vendor Total: <strong>{formatToIndianRupee(vendorTotals.find(v => v.vendor === vendor)?.total)}</strong>
+                            </p>
+                        </li>
+                    ))}
+                </ul>
+                <p className="mt-3 text-gray-800">
+                    Overall Total: <strong>{formatToIndianRupee(overallTotal)}</strong>
+                </p>
+            </div>
+        );
+    } else if (actionType === "sendBack") {
+        const itemsToSendBack = selectedItems?.filter(item => item.unit && item.quantity);
+
+        if (!itemsToSendBack || itemsToSendBack.length === 0) {
+            return "No valid items selected for sending back.";
+        }
+
+        const totalAmount = itemsToSendBack.reduce((sum, item) => sum + (item.amount || 0), 0);
+
+        return (
+            <div>
+                <p>Upon sending back, the following actions will be taken:</p>
+                <ul className="mt-2 list-disc pl-5">
+                    <li>
+                        A <strong>new rejected type sent-back</strong> will be created with the following items:
+                        <ul className="mt-1 list-disc pl-5">
+                            {itemsToSendBack.map((item) => (
+                                <li key={item.key}>
+                                    {item.item} - {item.quantity} {item.unit} ({formatToIndianRupee(item.amount)})
+                                </li>
+                            ))}
+                        </ul>
+                        <p className="mt-1 text-gray-600">
+                            Total: <strong>{formatToIndianRupee(totalAmount)}</strong>
+                        </p>
+                    </li>
+                </ul>
+            </div>
+        );
+    }
+
+    return "No valid action details available.";
+    };
+
     return (
         <>
             {page == 'approvequotation' &&
@@ -729,30 +806,38 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                         <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-vendor")} />
                         <h2 className="text-base pl-2 font-bold tracking-tight">Approve PO: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
-                    {/* <Card className="flex flex-wrap lg:grid lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
-                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Date:</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{formatDate(orderData?.creation?.split(" ")[0])}</p>
-                        </div>
-                        <div className="border-0 flex flex-col justify-center">
-                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{project_data?.project_name}</p>
-                        </div>
-                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Project Location</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{`${project_data?.project_city}, ${project_data?.project_state}`}</p>
-                        </div>
-                        <div className="border-0 flex flex-col justify-center">
-                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Package</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{orderData?.work_package}</p>
-                        </div>
-                        <div className="border-0 flex flex-col justify-center max-sm:hidden">
-                            <p className="text-left py-1 font-light text-sm text-sm text-red-700">Procurement By</p>
-                            <p className="text-left font-bold py-1 font-bold text-base text-black">{owner_data?.full_name}</p>
-                        </div>
-                    </Card> */}
                     <ProcurementActionsHeaderCard orderData={orderData} po={true} />
                 </div>}
+                {selectedItems?.length > 0 && (
+                    <div className="mt-4">
+                        <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200">
+                            <h2 className="text-lg font-bold mb-3 flex items-center">
+                                <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
+                                Actions Summary
+                            </h2>
+                            <div className="grid md:grid-cols-2 gap-4">
+                                {/* Send Back Action Summary */}
+                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                    <div className="flex items-center mb-2">
+                                        <SendToBack className="h-5 w-5 text-red-500 mr-2" />
+                                        <h3 className="font-medium text-gray-700">Send Back</h3>
+                                    </div>
+                                    <p className="text-sm text-gray-600">{generateActionSummary("sendBack")}</p>
+                                </div>
+
+                                {/* Approve Action Summary */}
+                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                    <div className="flex items-center mb-2">
+                                        <ListChecks className="h-5 w-5 text-green-500 mr-2" />
+                                        <h3 className="font-medium text-gray-700">Approve</h3>
+                                    </div>
+                                    <p className="text-sm text-gray-600">{generateActionSummary("approve")}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
             <div className='overflow-x-auto pt-6'>
                 <ConfigProvider
                     theme={{
