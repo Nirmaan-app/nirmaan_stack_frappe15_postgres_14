@@ -155,9 +155,9 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                 )}
             </div>
  
-            <div className="rounded-md border max-h-[70vh] overflow-y-auto">
-                <Table>
-                    <TableHeader>
+            <div className="rounded-md border max-h-[70vh] overflow-y-auto relative">
+                <Table className="min-w-full">
+                    <TableHeader className="sticky top-0 bg-white z-[1000]">
                         {table.getHeaderGroups().map((headerGroup) => (
                             <TableRow key={headerGroup.id}>
                                 <DataTableViewOptions table={table} />
