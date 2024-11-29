@@ -56,8 +56,9 @@ export const PRList = () => {
             if (quotesForItem && quotesForItem.length > 0) {
                 minQuote = Math.min(...quotesForItem);
                 const estimateQuotes = quote_data
-                ?.filter(value => value.item_id === item.name && parseFloat(value.quote) === parseFloat(minQuote))
-                usedQuotes = {...usedQuotes, [item.item] : {items : estimateQuotes, amount : minQuote * item.quantity}}
+                ?.filter(value => value.item_id === item.name && parseFloat(value.quote) === parseFloat(minQuote))?.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+                const latestQuote = estimateQuotes?.length > 0 ? estimateQuotes[0] : null;
+                usedQuotes = {...usedQuotes, [item.item] : {items : latestQuote, amount : minQuote, quantity:  item.quantity}}
             }
             total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
         })
@@ -203,12 +204,10 @@ export const PRList = () => {
                                     <div className="flex flex-col gap-4">
                                     {Object.entries(prUsedQuotes)?.map(([item, quotes]) => (
                                         <div key={item} className="flex flex-col gap-2">
-                                            <p className="font-semibold">{item}({formatToIndianRupee(quotes?.amount)})</p>
+                                            <p className="font-semibold">{item}({quotes?.quantity} * ₹{quotes?.amount} = {formatToIndianRupee(quotes?.quantity * quotes?.amount)})</p>
                                             <ul className="list-disc ">
-                                                {quotes?.items?.length ? (
-                                                    quotes?.items?.map((quote) => (
-                                                        <li className="ml-4 text-gray-600 underline hover:underline-offset-2" key={quote?.name}><Link to={`/debug/${quote?.procurement_order?.replaceAll("/", "&=")}`}>{quote?.procurement_order}</Link></li>
-                                                    ))
+                                            {quotes?.items ? (
+                                                        <li className="ml-4 text-gray-600 underline hover:underline-offset-2" key={quotes?.items?.name}><Link to={`/debug/${quotes?.items?.procurement_order?.replaceAll("/", "&=")}`}>{quotes?.items?.procurement_order}</Link></li>
                                                 ) : (
                                                     <p className="text-xs">No previous Quotes found for this item</p>
                                                 )}
