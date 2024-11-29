@@ -785,7 +785,7 @@ export default function DeliveryNote() {
                                                         type="text"
                                                         value={modifiedOrder?.list.find((mod) => mod.name === item.name).received || ''}
                                                         onChange={(e) => handleReceivedChange(item.item, e.target.value)}
-                                                        placeholder="Qty"
+                                                        placeholder={item?.quantity}
                                                     />
                                                     {/* <span className='text-sm font-light text-red-500'>{validateMessage[item.item]}</span> */}
                                                 </div>
