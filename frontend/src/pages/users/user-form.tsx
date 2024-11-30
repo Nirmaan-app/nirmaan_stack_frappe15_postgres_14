@@ -64,7 +64,10 @@ export const UserForm = () => {
         "Role Profile"
     );
     const options: SelectOption[] = role_profile_list?.map(item => ({
-        label: item.role_profile,
+        label: item?.role_profile
+        .split(' ')
+        .filter((word) => word !== 'Nirmaan' && word !== 'Profile')
+        .join(' '),
         value: item.name
     })) || [];
 
