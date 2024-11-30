@@ -60,6 +60,7 @@ import { ApprovedSR } from './components/service-request/approved-sr'
 import { SidebarProvider } from './components/ui/sidebar'
 import { SentBackSummary } from './components/procurement/sent-back-summary'
 import { ManPowerReport } from './components/ManPowerReport'
+import { NotificationsPage } from './components/nav/notifications'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -258,6 +259,10 @@ const router = createBrowserRouter(
 						<Route path="new" element={<NewCustomer />} />
 						<Route path=":customerId" lazy={() => import('@/pages/customers/customer')} />
 						<Route path=":id/edit" element={<EditCustomer />} />
+					</Route>
+
+					<Route path='notifications'>
+						<Route index element={<NotificationsPage />} />
 					</Route>
 
 					<Route path="roles">
