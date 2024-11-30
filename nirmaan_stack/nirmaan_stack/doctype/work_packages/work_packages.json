@@ -30,7 +30,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-11-23 14:34:53.082342",
+ "modified": "2024-11-30 13:03:23.333305",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Work Packages",
@@ -94,6 +94,18 @@
    "read": 1,
    "report": 1,
    "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
    "share": 1,
    "write": 1
   }

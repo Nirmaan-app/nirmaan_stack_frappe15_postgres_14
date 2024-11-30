@@ -14,4 +14,6 @@ export interface VendorCategory{
 	vendor?: string
 	/**	Category : Link - Category	*/
 	category?: string
+	/**	Vendor Name : Data	*/
+	vendor_name?: string
 }

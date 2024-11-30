@@ -1,231 +1,243 @@
 {
-    "actions": [],
-    "allow_rename": 1,
-    "creation": "2024-04-20 15:12:55.022485",
-    "doctype": "DocType",
-    "engine": "InnoDB",
-    "field_order": [
-        "links_section",
-        "project",
-        "vendor",
-        "procurement_request",
-        "category",
-        "merged",
-        "procurement_order_details_section",
-        "attachment",
-        "project_name",
-        "project_address",
-        "vendor_name",
-        "vendor_address",
-        "vendor_gst",
-        "order_list",
-        "category_list",
-        "payment_terms_section",
-        "advance",
-        "loading_charges",
-        "freight_charges",
-        "notes",
-        "tracking_details_section",
-        "status",
-        "delivery_contact"
-    ],
-    "fields": [
-        {
-            "fieldname": "links_section",
-            "fieldtype": "Section Break",
-            "label": "Links"
-        },
-        {
-            "fieldname": "project",
-            "fieldtype": "Link",
-            "label": "Project",
-            "options": "Projects"
-        },
-        {
-            "fieldname": "procurement_order_details_section",
-            "fieldtype": "Section Break",
-            "label": "Procurement Order Details"
-        },
-        {
-            "fieldname": "attachment",
-            "fieldtype": "Data",
-            "label": "Attachment"
-        },
-        {
-            "fieldname": "vendor",
-            "fieldtype": "Link",
-            "label": "Vendor",
-            "options": "Vendors"
-        },
-        {
-            "fieldname": "procurement_request",
-            "fieldtype": "Link",
-            "label": "Procurement Request",
-            "options": "Procurement Requests"
-        },
-        {
-            "fieldname": "category",
-            "fieldtype": "Link",
-            "label": "Category",
-            "options": "Category"
-        },
-        {
-            "fieldname": "project_name",
-            "fieldtype": "Data",
-            "label": "Project Name"
-        },
-        {
-            "fieldname": "project_address",
-            "fieldtype": "Data",
-            "label": "Project Address"
-        },
-        {
-            "fieldname": "vendor_name",
-            "fieldtype": "Data",
-            "label": "Vendor Name"
-        },
-        {
-            "fieldname": "vendor_address",
-            "fieldtype": "Data",
-            "label": "Vendor Address"
-        },
-        {
-            "fieldname": "vendor_gst",
-            "fieldtype": "Data",
-            "label": "Vendor GST"
-        },
-        {
-            "fieldname": "order_list",
-            "fieldtype": "JSON",
-            "label": "Order List"
-        },
-        {
-            "fieldname": "payment_terms_section",
-            "fieldtype": "Section Break",
-            "label": "Payment Details "
-        },
-        {
-            "default": "0",
-            "fieldname": "advance",
-            "fieldtype": "Data",
-            "label": "Advance"
-        },
-        {
-            "default": "0",
-            "fieldname": "loading_charges",
-            "fieldtype": "Data",
-            "label": "Loading Charges"
-        },
-        {
-            "default": "0",
-            "fieldname": "freight_charges",
-            "fieldtype": "Data",
-            "label": "Freight Charges"
-        },
-        {
-            "fieldname": "tracking_details_section",
-            "fieldtype": "Section Break",
-            "label": "Tracking Details"
-        },
-        {
-            "default": "PO Approved",
-            "fieldname": "status",
-            "fieldtype": "Data",
-            "label": "Status"
-        },
-        {
-            "fieldname": "category_list",
-            "fieldtype": "JSON",
-            "label": "Category List",
-            "options": "Category"
-        },
-        {
-            "fieldname": "notes",
-            "fieldtype": "Data",
-            "label": "Notes"
-        },
-        {
-            "fieldname": "delivery_contact",
-            "fieldtype": "Data",
-            "label": "Delivery Contact"
-        },
-        {
-            "fieldname": "merged",
-            "fieldtype": "Data",
-            "label": "Merged"
-        }
-    ],
-    "index_web_pages_for_search": 1,
-    "links": [],
-    "modified": "2024-11-25 20:19:21.171013",
-    "modified_by": "Administrator",
-    "module": "Nirmaan Stack",
-    "name": "Procurement Orders",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Nirmaan Design Executive",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Nirmaan Procurement Executive",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Nirmaan Project Lead",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Nirmaan Project Manager",
-            "share": 1,
-            "write": 1
-        }
-    ],
-    "sort_field": "modified",
-    "sort_order": "DESC",
-    "states": [],
-    "track_changes": 1
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-04-20 15:12:55.022485",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "project",
+  "vendor",
+  "procurement_request",
+  "category",
+  "merged",
+  "procurement_order_details_section",
+  "attachment",
+  "project_name",
+  "project_address",
+  "vendor_name",
+  "vendor_address",
+  "vendor_gst",
+  "order_list",
+  "category_list",
+  "payment_terms_section",
+  "advance",
+  "loading_charges",
+  "freight_charges",
+  "notes",
+  "tracking_details_section",
+  "status",
+  "delivery_contact"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "procurement_order_details_section",
+   "fieldtype": "Section Break",
+   "label": "Procurement Order Details"
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Data",
+   "label": "Attachment"
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors"
+  },
+  {
+   "fieldname": "procurement_request",
+   "fieldtype": "Link",
+   "label": "Procurement Request",
+   "options": "Procurement Requests"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "label": "Category",
+   "options": "Category"
+  },
+  {
+   "fieldname": "project_name",
+   "fieldtype": "Data",
+   "label": "Project Name"
+  },
+  {
+   "fieldname": "project_address",
+   "fieldtype": "Data",
+   "label": "Project Address"
+  },
+  {
+   "fieldname": "vendor_name",
+   "fieldtype": "Data",
+   "label": "Vendor Name"
+  },
+  {
+   "fieldname": "vendor_address",
+   "fieldtype": "Data",
+   "label": "Vendor Address"
+  },
+  {
+   "fieldname": "vendor_gst",
+   "fieldtype": "Data",
+   "label": "Vendor GST"
+  },
+  {
+   "fieldname": "order_list",
+   "fieldtype": "JSON",
+   "label": "Order List"
+  },
+  {
+   "fieldname": "payment_terms_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Details "
+  },
+  {
+   "default": "0",
+   "fieldname": "advance",
+   "fieldtype": "Data",
+   "label": "Advance"
+  },
+  {
+   "default": "0",
+   "fieldname": "loading_charges",
+   "fieldtype": "Data",
+   "label": "Loading Charges"
+  },
+  {
+   "default": "0",
+   "fieldname": "freight_charges",
+   "fieldtype": "Data",
+   "label": "Freight Charges"
+  },
+  {
+   "fieldname": "tracking_details_section",
+   "fieldtype": "Section Break",
+   "label": "Tracking Details"
+  },
+  {
+   "default": "PO Approved",
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  },
+  {
+   "fieldname": "category_list",
+   "fieldtype": "JSON",
+   "label": "Category List",
+   "options": "Category"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Data",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "delivery_contact",
+   "fieldtype": "Data",
+   "label": "Delivery Contact"
+  },
+  {
+   "fieldname": "merged",
+   "fieldtype": "Data",
+   "label": "Merged"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-11-30 13:02:43.375759",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Procurement Orders",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }

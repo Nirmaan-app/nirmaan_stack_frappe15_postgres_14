@@ -1,5 +1,5 @@
 
-export interface ProcurementOrders {
+export interface ProcurementOrders{
 	name: string
 	creation: string
 	modified: string

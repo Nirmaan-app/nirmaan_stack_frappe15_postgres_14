@@ -18,7 +18,7 @@ export interface Items{
 	unit_name: string
 	/**	Make Name : Data	*/
 	make_name?: string
-	/**	Image Url : Data	*/
+	/**	Image Url : Attach	*/
 	image_url?: string
 	/**	Category : Link - Category	*/
 	category: string
