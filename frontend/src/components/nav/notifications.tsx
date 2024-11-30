@@ -7,6 +7,18 @@ import { useNavigate } from "react-router-dom";
 import { format, isToday, isYesterday } from "date-fns";
 import { SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, useSidebar } from "../ui/sidebar";
 
+const formatNotificationDate = (creationDate) => {
+    const date = new Date(creationDate);
+
+    if (isToday(date)) {
+        return `Today, ${format(date, 'HH:mm')}`;
+    } else if (isYesterday(date)) {
+        return `Yesterday, ${format(date, 'HH:mm')}`;
+    }
+
+    return format(date, 'MMM dd, yyyy, HH:mm');
+};
+
 export function Notifications({isMobileMain = false}) {
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const navigate = useNavigate();
@@ -40,18 +52,6 @@ export function Notifications({isMobileMain = false}) {
         }
     };
 
-    const formatNotificationDate = (creationDate) => {
-        const date = new Date(creationDate);
-
-        if (isToday(date)) {
-            return `Today, ${format(date, 'HH:mm')}`;
-        } else if (isYesterday(date)) {
-            return `Yesterday, ${format(date, 'HH:mm')}`;
-        }
-    
-        return format(date, 'MMM dd, yyyy, HH:mm');
-    };
-
     return (
         <DropdownMenu open={isDropdownOpen} onOpenChange={setDropdownOpen}>
             <DropdownMenuTrigger asChild>
@@ -65,18 +65,18 @@ export function Notifications({isMobileMain = false}) {
                             <span className="font-medium">Notifications</span>
                         </div>
                         {(state === "collapsed" && !isMobile) && (
-                                <span className="absolute -top-1 right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
-                                    {notificationsCount}
+                                <span className="absolute -top-2 right-0 bg-gray-200 text-sidebar-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs">
+                                    {notificationsCount > 10 ? "10+" : notificationsCount}
                                 </span>
                             )}
-                            <SidebarMenuBadge className="mr-2">{notificationsCount}</SidebarMenuBadge>
+                            <SidebarMenuBadge className="mr-2">{notificationsCount > 10 ? "10+" : notificationsCount}</SidebarMenuBadge>
                     </SidebarMenuButton>
                 ) : (
 
                 <div className="relative mt-1 cursor-pointer">
                     <Bell className="h-6 w-6" />
                     <span className="absolute -top-1 -right-1 bg-gray-200 text-sidebar-foreground rounded-full h-4 w-4 flex items-center justify-center text-xs">
-                        {notificationsCount}
+                        {notificationsCount > 10 ? "10+" : notificationsCount}
                     </span>
                 </div>
                 )}
@@ -91,7 +91,7 @@ export function Notifications({isMobileMain = false}) {
                     {notifications.length !== 0 ? (
                         <div className="space-y-4">
                             <ul className="space-y-3">
-                                {notifications.map((notification) => (
+                                {notifications.slice(0, 10).map((notification) => (
                                     <li
                                         key={notification.name}
                                         className={`border-t first:border-t-0 rounded-sm transition-all ${notification.seen === "false" ? "bg-red-200 hover:bg-red-100" : "hover:bg-gray-100"}`}
@@ -135,6 +135,22 @@ export function Notifications({isMobileMain = false}) {
                                     </li>
                                 ))}
                             </ul>
+                            {notifications.length > 10 && (
+                            <div className="text-center mt-2">
+                                <button
+                                    className="text-primary font-semibold underline hover:text-blue-500"
+                                    onClick={() => {
+                                        setDropdownOpen(false);
+                                        if(isMobile && !isMobileMain) {
+                                            toggleSidebar()
+                                        }
+                                        navigate('/notifications')
+                                    }}
+                                >
+                                    Show More
+                                </button>
+                            </div>
+                        )}
                         </div>
                     ) : (
                         <h1 className="text-center text-gray-500">NO NEW NOTIFICATIONS</h1>
@@ -144,3 +160,82 @@ export function Notifications({isMobileMain = false}) {
         </DropdownMenu>
     );
 }
+
+export const NotificationsPage = () => {
+    const { db } = useContext(FrappeContext) as FrappeConfig;
+    const { notifications, mark_seen_notification } = useNotificationStore();
+    const navigate = useNavigate();
+
+    const handleMarkAllAsRead = () => {
+        notifications.forEach((notification) => {
+            if (notification.seen === "false") {
+                mark_seen_notification(db, notification);
+            }
+        });
+    };
+
+    const handleNavigate = (url, notification) => {
+        if (url) {
+            if (notification.seen === "false") {
+                mark_seen_notification(db, notification);
+            }
+            navigate(`/${url}`);
+        }
+    };
+
+    return (
+        <div className="px-6 py-8">
+            <header className="flex justify-between items-center border-b pb-4 mb-6">
+                <h1 className="text-2xl font-semibold">Notifications({notifications.length})</h1>
+                <button
+                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500"
+                    onClick={handleMarkAllAsRead}
+                >
+                    Mark All as Read
+                </button>
+            </header>
+
+            <div className="mb-4">
+                <input
+                    type="text"
+                    placeholder="Search notifications..."
+                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+            </div>
+
+            <ul className="space-y-4">
+                {notifications.map((notification) => (
+                    <li
+                        onClick={() => handleNavigate(notification?.action_url, notification)}
+                        key={notification.name}
+                        className={`p-4 border rounded-lg shadow-sm cursor-pointer ${notification.seen === "false" ? "bg-red-50" : "bg-white"} transition-all hover:shadow-md`}
+                    >
+                        <div className="flex justify-between">
+                            <h3 className="text-lg font-semibold text-blue-600">{notification.title}</h3>
+                            <span className="text-sm text-gray-500">{formatNotificationDate(notification.creation)}</span>
+                        </div>
+                        <p className="text-gray-600">{notification.description}</p>
+                        <div className="text-sm text-gray-500 mt-2">
+                            <p>Project: {notification.project}</p>
+                            <p>Work Package: {notification.work_package}</p>
+                            <p>Action By: {notification?.sender || "Administrator"}</p>
+                        </div>
+                        <div className="flex justify-end mt-2">
+                            {notification.seen === "true" ? (
+                                <span className="text-green-500">Seen</span>
+                            ) : (
+                                <button
+                                    className="text-primary underline hover:text-red-400"
+                                    onClick={() => mark_seen_notification(db, notification)}
+                                >
+                                    Mark as Read
+                                </button>
+                            )}
+                        </div>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
