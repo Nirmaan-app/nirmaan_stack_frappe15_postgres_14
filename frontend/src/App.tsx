@@ -208,6 +208,7 @@ const router = createBrowserRouter(
 							<Route path=":id" element={<POSummary />} />
 							<Route path="dn/:id" element={<DeliveryNote />} />
 						</Route>
+						<Route path=":projectId/po/:id" element={<POSummary />} />
 					</Route>
 
 					{/* User Paths */}
