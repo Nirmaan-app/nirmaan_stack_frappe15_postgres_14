@@ -767,28 +767,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         id: "totalWithoutGST",
         header: ({ column }) => {
           return (
-            <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
+            <DataTableColumnHeader column={column} title="Amount" />
           )
         },
         cell: ({ row }) => {
           return (
             <div className="font-medium">
               {formatToIndianRupee(getPOTotal(row.getValue("name")).totalWithoutGST)}
-            </div>
-          )
-        }
-      },
-      {
-        id: "totalWithGST",
-        header: ({ column }) => {
-          return (
-            <DataTableColumnHeader column={column} title="Amt (inc. GST)" />
-          )
-        },
-        cell: ({ row }) => {
-          return (
-            <div className="font-medium">
-              {formatToIndianRupee(getPOTotal(row.getValue("name")).totalWithGST)}
             </div>
           )
         }
