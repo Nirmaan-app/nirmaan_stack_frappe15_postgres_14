@@ -26,7 +26,7 @@ export const PRList = () => {
             fields: ['name', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', "category_list", 'creation', 'modified'],
             filters: [["workflow_state", "=", "Approved"]],
             limit: 1000,
-            orderBy: {field: "modified", order: "desc"}
+            orderBy: { field: "modified", order: "desc" }
         });
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
@@ -56,22 +56,22 @@ export const PRList = () => {
             if (quotesForItem && quotesForItem.length > 0) {
                 minQuote = Math.min(...quotesForItem);
                 const estimateQuotes = quote_data
-                ?.filter(value => value.item_id === item.name && parseFloat(value.quote) === parseFloat(minQuote))?.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+                    ?.filter(value => value.item_id === item.name && parseFloat(value.quote) === parseFloat(minQuote))?.sort((a, b) => new Date(b.modified) - new Date(a.modified));
                 const latestQuote = estimateQuotes?.length > 0 ? estimateQuotes[0] : null;
-                usedQuotes = {...usedQuotes, [item.item] : {items : latestQuote, amount : minQuote, quantity:  item.quantity}}
+                usedQuotes = { ...usedQuotes, [item.item]: { items: latestQuote, amount: minQuote, quantity: item.quantity } }
             }
             total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
         })
-        return {total : total || "N/A", usedQuotes : usedQuotes}
+        return { total: total || "N/A", usedQuotes: usedQuotes }
     }
 
-    const {notifications, mark_seen_notification} = useNotificationStore()
+    const { notifications, mark_seen_notification } = useNotificationStore()
 
     const project_values = projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || []
 
-    const {db} = useContext(FrappeContext) as FrappeConfig
+    const { db } = useContext(FrappeContext) as FrappeConfig
     const handleNewPRSeen = (notification) => {
-        if(notification) {
+        if (notification) {
             mark_seen_notification(db, notification)
         }
     }
@@ -193,31 +193,32 @@ export const PRList = () => {
                             </div>
                         ) : (
                             <HoverCard>
-                            <HoverCardTrigger>
-                            <div className="font-medium underline">
-                                {formatToIndianRupee(total)}
-                            </div>
-                            </HoverCardTrigger>
-                            <HoverCardContent>
-                                <div>
-                                    <h2 className="text-primary font-semibold mb-4">PO Quotes used for calculating this Estimation!</h2>
-                                    <div className="flex flex-col gap-4">
-                                    {Object.entries(prUsedQuotes)?.map(([item, quotes]) => (
-                                        <div key={item} className="flex flex-col gap-2">
-                                            <p className="font-semibold">{item}({quotes?.quantity} * ₹{quotes?.amount} = {formatToIndianRupee(quotes?.quantity * quotes?.amount)})</p>
-                                            <ul className="list-disc ">
-                                            {quotes?.items ? (
-                                                        <li className="ml-4 text-gray-600 underline hover:underline-offset-2" key={quotes?.items?.name}><Link to={`/debug/${quotes?.items?.procurement_order?.replaceAll("/", "&=")}`}>{quotes?.items?.procurement_order}</Link></li>
-                                                ) : (
-                                                    <p className="text-xs">No previous Quotes found for this item</p>
-                                                )}
-                                            </ul>
-                                        </div>
-                                    ))}
+                                <HoverCardTrigger>
+                                    <div className="font-medium underline">
+                                        {formatToIndianRupee(total)}
                                     </div>
-                                </div>
-                            </HoverCardContent>
-                        </HoverCard>
+                                </HoverCardTrigger>
+                                <HoverCardContent>
+                                    <div>
+                                        <h2 className="text-primary font-semibold mb-4">Estimate Summary:</h2>
+                                        <div className="flex flex-col gap-4">
+                                            {Object.entries(prUsedQuotes)?.map(([item, quotes]) => (
+                                                <div key={item} className="flex flex-col gap-2">
+                                                    <p className="font-semibold">{item}</p>
+                                                    <p className="font-semibold">({quotes?.quantity} * ₹{quotes?.amount} = {formatToIndianRupee(quotes?.quantity * quotes?.amount)})</p>
+                                                    <ul className="list-disc ">
+                                                        {quotes?.items ? (
+                                                            <li className="ml-4 text-gray-600 underline hover:underline-offset-2" key={quotes?.items?.name}><Link to={`/debug/${quotes?.items?.procurement_order?.replaceAll("/", "&=")}`}>{quotes?.items?.procurement_order}</Link></li>
+                                                        ) : (
+                                                            <p className="text-xs">No previous Quotes found for this item</p>
+                                                        )}
+                                                    </ul>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </HoverCardContent>
+                            </HoverCard>
                         )
                     )
                 }

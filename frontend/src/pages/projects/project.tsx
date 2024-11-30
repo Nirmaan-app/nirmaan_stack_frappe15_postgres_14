@@ -36,6 +36,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { DownOutlined } from '@ant-design/icons';
 import { v4 as uuidv4 } from 'uuid';
 import logo from "@/assets/logo-svg.svg"
+import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders"
 
 const projectStatuses = [
   { value: 'WIP', label: 'WIP', color: 'text-yellow-500', icon: HardHat },
@@ -171,6 +172,14 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     `Procurement Orders ${projectId}`
   )
 
+  const { data: po_data_for_posummary, isLoading: po_data_for_posummary_loading } = useFrappeGetDocList("Procurement Orders", {
+    fields: ["*"],
+    filters: [["project", "=", projectId], ["status", "!=", "Merged"]], // removed ["status", "!=", "PO Approved"] for now
+    limit: 1000,
+    orderBy: { field: "creation", order: "desc" }
+  }
+  )
+
   const { data: allServiceRequestsData, isLoading: allServiceRequestsDataLoading } = useFrappeGetDocList("Service Requests", {
     fields: ["*"],
     filters: [["project", "=", projectId]],
@@ -293,17 +302,21 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       label: 'Project Tracking',
       key: 'projectTracking',
     } : null,
-    role !== "Nirmaan Estimates Executive Profile" ? {
-      label: 'Procurement Summary',
-      key: 'procurementSummary',
-    } : null,
-    role !== "Nirmaan Estimates Executive Profile" ? {
+    {
+      label: 'PR Summary',
+      key: 'prsummary',
+    },
+    {
       label: 'SR Summary',
       key: 'SRSummary',
-    } : null,
-    ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role)  ? {
+    },
+    {
       label: 'PO Summary',
-      key: 'POSummary',
+      key: 'posummary',
+    },
+    ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role) ? {
+      label: 'Project Spends',
+      key: 'projectspends',
     } : null,
   ];
 
@@ -471,7 +484,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     { label: "Approved PO", value: "Approved PO" },
   ]
 
-  const procurementSummaryColumns = [
+  const prSummaryColumns = [
     {
       accessorKey: "name",
       header: ({ column }) => {
@@ -656,6 +669,139 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
     ],
     [projectId, allServiceRequestsData]
+  )
+
+  const getPOTotal = (order_id: string) => {
+    let total: number = 0;
+    let totalWithGST: number = 0;
+
+    const orderData = po_data_for_posummary?.find(item => item.name === order_id)?.order_list;
+
+    orderData?.list.map((item) => {
+      const price = parseFloat(item?.quote) || 0;
+      const quantity = parseFloat(item?.quantity) || 1;
+      const gst = parseFloat(item?.tax) || 0;
+
+      total += price * quantity;
+
+      const gstAmount = (price * gst) / 100;
+      totalWithGST += (price + gstAmount) * quantity;
+    });
+
+    return {
+      totalWithoutGST: total,
+      totalWithGST: totalWithGST
+    };
+  };
+
+  const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
+    () => [
+      {
+        accessorKey: "name",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="ID" />
+          )
+        },
+        cell: ({ row }) => {
+          const id = row.getValue("name")
+          return (
+            <div className="font-medium flex items-center gap-2 relative">
+              <Link
+                className="underline hover:underline-offset-2"
+                to={`po/${id.replaceAll("/", "&=")}`}
+              >
+                {id}
+              </Link>
+            </div>
+          )
+        }
+      },
+      {
+        accessorKey: "creation",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Date" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="font-medium">
+              {formatDate(row.getValue("creation")?.split(" ")[0])}
+            </div>
+          )
+        }
+      },
+      {
+        accessorKey: "vendor_name",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Vendor" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="font-medium">
+              {row.getValue("vendor_name")}
+            </div>
+          )
+        },
+        filterFn: (row, id, value) => {
+          return value.includes(row.getValue(id))
+        }
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Status" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <Badge variant={row.getValue("status") === "PO Approved" ? "default" : row.getValue("status") === "PO Sent" ? "yellow" : row.getValue("status") === "Dispatched" ? "orange" : "green"}>{row.getValue("status") === "Partially Delivered" ? "Delivered" : row.getValue("status")}</Badge>
+          )
+        }
+      },
+      {
+        id: "totalWithoutGST",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="font-medium">
+              {formatToIndianRupee(getPOTotal(row.getValue("name")).totalWithoutGST)}
+            </div>
+          )
+        }
+      },
+      {
+        id: "totalWithGST",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Amt (inc. GST)" />
+          )
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="font-medium">
+              {formatToIndianRupee(getPOTotal(row.getValue("name")).totalWithGST)}
+            </div>
+          )
+        }
+      },
+      {
+        accessorKey: 'order_list',
+        header: ({ column }) => {
+          return <h1 className="hidden">:</h1>
+        },
+        cell: ({ row }) => <span className="hidden">hh</span>
+      }
+    ],
+    [projectId, po_data_for_posummary]
   )
 
   const [current, setCurrent] = useState('overview')
@@ -1256,7 +1402,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       )}
 
       {
-        current === "procurementSummary" && (
+        current === "prsummary" && (
           <div>
             <Card className="flex border border-gray-100 rounded-lg p-4">
               <CardContent className="w-full flex flex-row items-center justify-around">
@@ -1271,13 +1417,35 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               </CardContent>
             </Card>
             {prData_loading ? (<TableSkeleton />) :
-              <DataTable columns={procurementSummaryColumns} data={pr_data || []} statusOptions={statusOptions} />
+              <DataTable columns={prSummaryColumns} data={pr_data || []} statusOptions={statusOptions} />
+            }
+          </div>
+        )
+      }
+      {
+        current === "posummary" && (
+          <div>
+            {/* <Card className="flex border border-gray-100 rounded-lg p-4">
+              <CardContent className="w-full flex flex-row items-center justify-around">
+                <CardHeader className=" w-full">
+                {Object.entries(statusCounts)?.map(([status, count]) => (
+                  <div className="flex items-center gap-1 pt-3">
+                    <h3 className="font-semibold">{status}: </h3>
+                    <p className="italic">{count}</p>
+                  </div>
+                ))}
+                </CardHeader>
+              </CardContent>
+            </Card> */}
+            {po_data_for_posummary_loading ? (<TableSkeleton />) :
+              <DataTable columns={poColumns} data={po_data_for_posummary || []} statusOptions={statusOptions} />
+              // <p>RESOLVE PO TABLE</p>
             }
           </div>
         )
       }
 
-      {current === "POSummary" && (
+      {current === "projectspends" && (
         <>
           {
             options && (
@@ -1743,7 +1911,7 @@ export const CategoryAccordion = ({ categorizedData, selectedPackage, projectEst
                               <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
                               {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
                               <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
-                              <TableCell className={`px-4 py-2 ${estimateItem?.quantity_estimate !== undefined ? (updated_estd_amt > (estimateItem?.rate_estimate * estimateItem?.quantity_estimate) ? "text-red-500" : "text-green-500") : ""}`}>{estimateItem?.quantity_estimate !== undefined ?  formatToIndianRupee(updated_estd_amt) : "--"}{estimateItem?.quantity_estimate !== undefined && ` (${percentage_change}%)`}</TableCell>
+                              <TableCell className={`px-4 py-2 ${estimateItem?.quantity_estimate !== undefined ? (updated_estd_amt > (estimateItem?.rate_estimate * estimateItem?.quantity_estimate) ? "text-red-500" : "text-green-500") : ""}`}>{estimateItem?.quantity_estimate !== undefined ? formatToIndianRupee(updated_estd_amt) : "--"}{estimateItem?.quantity_estimate !== undefined && ` (${percentage_change}%)`}</TableCell>
                             </TableRow>
                           })}
                         </TableBody>
@@ -1840,7 +2008,7 @@ export const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }
                             <TableCell className="px-4 py-2">{estimateItem?.quantity_estimate || "--"}</TableCell>
                             <TableCell className="px-4 py-2">₹{parseFloat(item.amount).toLocaleString()}</TableCell>
                             <TableCell className="px-4 py-2">{formatToIndianRupee(estimateItem?.rate_estimate * estimateItem?.quantity_estimate)}</TableCell>
-                            <TableCell className={`px-4 py-2 ${estimateItem?.quantity_estimate !== undefined ? (updated_estd_amt > (estimateItem?.rate_estimate * estimateItem?.quantity_estimate) ? "text-red-500" : "text-green-500") : ""}`}>{estimateItem?.quantity_estimate !== undefined ?  formatToIndianRupee(updated_estd_amt) : "--"}{estimateItem?.quantity_estimate !== undefined && ` (${percentage_change}%)`}</TableCell>
+                            <TableCell className={`px-4 py-2 ${estimateItem?.quantity_estimate !== undefined ? (updated_estd_amt > (estimateItem?.rate_estimate * estimateItem?.quantity_estimate) ? "text-red-500" : "text-green-500") : ""}`}>{estimateItem?.quantity_estimate !== undefined ? formatToIndianRupee(updated_estd_amt) : "--"}{estimateItem?.quantity_estimate !== undefined && ` (${percentage_change}%)`}</TableCell>
                           </TableRow>
                         })}
                       </TableBody>

@@ -214,7 +214,7 @@ export const ReleasePONew = ({ not }) => {
             if (curOrder?.status === "PO Approved") {
                 const mergeablePOs = procurement_order_list.filter((item) => (item.project === curOrder?.project && item.vendor === curOrder?.vendor && item.status === "PO Approved" && item.name !== orderId))
                 setMergeablePOs(mergeablePOs)
-                if(curOrder?.merged === "true") {
+                if (curOrder?.merged === "true") {
                     const mergedPOs = procurement_order_list.filter((po) => po?.merged === orderId)
                     setPrevMergedPos(mergedPOs)
                 }
@@ -459,7 +459,7 @@ export const ReleasePONew = ({ not }) => {
             mergedItems.map(async (po) => {
                 try {
                     await updateDoc("Procurement Orders", po, {
-                        status : "Merged",
+                        status: "Merged",
                         merged: newDoc?.name
                     });
                     // return { po, success: true };
@@ -470,14 +470,14 @@ export const ReleasePONew = ({ not }) => {
             })
 
             await updateDoc("Procurement Orders", orderData?.name, {
-                status : "Merged",
+                status: "Merged",
                 merged: newDoc?.name
             })
 
             toast({
-                 title: "Success!",
-                 description: `Successfully merged PO(s)`,
-                 variant: "success",
+                title: "Success!",
+                description: `Successfully merged PO(s)`,
+                variant: "success",
             });
 
             setMergeablePOs([])
@@ -547,7 +547,7 @@ export const ReleasePONew = ({ not }) => {
             prevMergedPOs.map(async (po) => {
                 try {
                     await updateDoc("Procurement Orders", po?.name, {
-                        status : "PO Approved",
+                        status: "PO Approved",
                         merged: null
                     });
                     // return { po, success: true };
@@ -563,9 +563,9 @@ export const ReleasePONew = ({ not }) => {
                 title: "Success!",
                 description: `Successfully unmerged PO(s)`,
                 variant: "success",
-           });
+            });
 
-           navigate(-1)
+            navigate(-1)
 
         } catch (error) {
             console.log("error while unmerging po's", error)
@@ -700,16 +700,16 @@ export const ReleasePONew = ({ not }) => {
 
     const treeData = [
         {
-          title: orderData?.name,
-          key: "mainPO",
-          children: prevMergedPOs?.map((po, idx) => ({
-            title: po?.name,
-            key: `po-${idx}`,
-            children: po?.order_list?.list.map((item, itemIdx) => ({
-              title: item?.item,
-              key: `item-${idx}-${itemIdx}`,
+            title: orderData?.name,
+            key: "mainPO",
+            children: prevMergedPOs?.map((po, idx) => ({
+                title: po?.name,
+                key: `po-${idx}`,
+                children: po?.order_list?.list.map((item, itemIdx) => ({
+                    title: item?.item,
+                    key: `item-${idx}-${itemIdx}`,
+                })),
             })),
-          })),
         },
     ];
 
@@ -1013,14 +1013,14 @@ export const ReleasePONew = ({ not }) => {
 
                                                         <Card className='mb-4'>
                                                             <CardHeader className="flex flex-row justify-between items-center">
-                                                            <div className="flex flex-col">
-                                                              <span className="text-sm text-gray-500">Project:</span>
-                                                              <p className="text-base font-medium tracking-tight text-black">{orderData?.project_name}</p>
-                                                            </div>
-                                                            <div className="flex flex-col">
-                                                              <span className="text-sm text-gray-500">Vendor:</span>
-                                                              <p className="text-base font-medium tracking-tight text-black">{orderData?.vendor_name}</p>
-                                                            </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-sm text-gray-500">Project:</span>
+                                                                    <p className="text-base font-medium tracking-tight text-black">{orderData?.project_name}</p>
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-sm text-gray-500">Vendor:</span>
+                                                                    <p className="text-base font-medium tracking-tight text-black">{orderData?.vendor_name}</p>
+                                                                </div>
                                                             </CardHeader>
                                                         </Card>
 
@@ -1038,30 +1038,30 @@ export const ReleasePONew = ({ not }) => {
                                                                     </TableRow>
                                                                 </TableHeader>
                                                                 <TableBody>
-                                                                <TableRow key={orderData.name}>
-                                                                                <TableCell>{orderData.name.slice(3, 6)}</TableCell>
-                                                                                {/* <TableCell>{po.project.split("-").slice(1).join("-")}</TableCell> */}
-                                                                                {/* <TableCell>{orderData.project_name}</TableCell> */}
-                                                                                {/* <TableCell>{orderData.vendor_name}</TableCell> */}
-                                                                                {/* <TableCell>{po.status}</TableCell> */}
-                                                                                <TableCell>{orderData.order_list.list.filter((i) => !i?.po)?.length}</TableCell>
-                                                                                <TableCell>
-                                                                                    <ul className='list-disc'>
-                                                                                        {orderData?.order_list?.list?.filter((i) => !i?.po)?.map((j) => (
-                                                                                            <li>{j?.item} <span>(Qty-{j?.quantity})</span></li>
-                                                                                        ))}
-                                                                                    </ul>
-                                                                                </TableCell>
-                                                                                <TableCell><Button
-                                                                                            className='flex items-center gap-1'
-                                                                                            danger
-                                                                                            disabled
-                                                                                        >
-                                                                                            <Split className='w-4 h-4' />
-                                                                                            Split
-                                                                                        </Button>
-                                                                                </TableCell>
-                                                                </TableRow>
+                                                                    <TableRow key={orderData.name}>
+                                                                        <TableCell>{orderData.name.slice(3, 6)}</TableCell>
+                                                                        {/* <TableCell>{po.project.split("-").slice(1).join("-")}</TableCell> */}
+                                                                        {/* <TableCell>{orderData.project_name}</TableCell> */}
+                                                                        {/* <TableCell>{orderData.vendor_name}</TableCell> */}
+                                                                        {/* <TableCell>{po.status}</TableCell> */}
+                                                                        <TableCell>{orderData.order_list.list.filter((i) => !i?.po)?.length}</TableCell>
+                                                                        <TableCell>
+                                                                            <ul className='list-disc'>
+                                                                                {orderData?.order_list?.list?.filter((i) => !i?.po)?.map((j) => (
+                                                                                    <li>{j?.item} <span>(Qty-{j?.quantity})</span></li>
+                                                                                ))}
+                                                                            </ul>
+                                                                        </TableCell>
+                                                                        <TableCell><Button
+                                                                            className='flex items-center gap-1'
+                                                                            danger
+                                                                            disabled
+                                                                        >
+                                                                            <Split className='w-4 h-4' />
+                                                                            Split
+                                                                        </Button>
+                                                                        </TableCell>
+                                                                    </TableRow>
                                                                     {mergeablePOs.map((po) => {
                                                                         // Helper function to check if merge should be disabled
                                                                         const isMergeDisabled = po.order_list.list.some((poItem) => {
@@ -1384,7 +1384,7 @@ export const ReleasePONew = ({ not }) => {
                                                                         } else if (xDaysAfterDelivery === 100) {
                                                                             return `${xDaysAfterDelivery}% after 30 days of delivering the material(s)`;
                                                                         }
-                                                                    
+
                                                                         // If none of the variables is 100, render non-zero values
                                                                         const parts = [];
                                                                         if (advance > 0) {
@@ -1399,7 +1399,7 @@ export const ReleasePONew = ({ not }) => {
                                                                         if (xDaysAfterDelivery > 0) {
                                                                             parts.push(`${xDaysAfterDelivery}% after 30 days of delivering the material(s)`);
                                                                         }
-                                                                    
+
                                                                         // Join the parts with commas and return
                                                                         return parts.join(", ");
                                                                     })()}
@@ -1752,38 +1752,38 @@ export const ReleasePONew = ({ not }) => {
                                                         <DialogHeader>
                                                             <DialogTitle>Confirm PO Sending</DialogTitle>
                                                             <DialogDescription className="pt-2 flex flex-col gap-2">
-                                                            <div>
-                                                                <Label htmlFor="personName" className="text-sm font-medium">
-                                                                    Person Name <span className="text-gray-400">(optional)</span>
-                                                                </Label>
-                                                                <Input
-                                                                    id="personName"
-                                                                    type='text'
-                                                                    value={contactPerson.name}
-                                                                    placeholder='Enter person name'
-                                                                    onChange={(e) => setContactPerson((prev) => ({
-                                                                        ...prev,
-                                                                        name: e.target.value
-                                                                    }))}
-                                                                    className="mt-1"
-                                                                />
-                                                            </div>
-                                                            <div>
-                                                                <Label htmlFor="contactNumber" className="text-sm font-medium">
-                                                                    Contact Number <span className="text-gray-400">(optional)</span>
-                                                                </Label>
-                                                                <Input
-                                                                    id="contactNumber"
-                                                                    type='tel'
-                                                                    value={contactPerson.number}
-                                                                    placeholder='Enter 10-digit number'
-                                                                    onChange={(e) => setContactPerson((prev) => ({
-                                                                        ...prev,
-                                                                        number: e.target.value.slice(0, 10)
-                                                                    }))}
-                                                                    className="mt-1"
-                                                                />
-                                                            </div>
+                                                                <div>
+                                                                    <Label htmlFor="personName" className="text-sm font-medium">
+                                                                        Person Name <span className="text-gray-400">(optional)</span>
+                                                                    </Label>
+                                                                    <Input
+                                                                        id="personName"
+                                                                        type='text'
+                                                                        value={contactPerson.name}
+                                                                        placeholder='Enter person name'
+                                                                        onChange={(e) => setContactPerson((prev) => ({
+                                                                            ...prev,
+                                                                            name: e.target.value
+                                                                        }))}
+                                                                        className="mt-1"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <Label htmlFor="contactNumber" className="text-sm font-medium">
+                                                                        Contact Number <span className="text-gray-400">(optional)</span>
+                                                                    </Label>
+                                                                    <Input
+                                                                        id="contactNumber"
+                                                                        type='tel'
+                                                                        value={contactPerson.number}
+                                                                        placeholder='Enter 10-digit number'
+                                                                        onChange={(e) => setContactPerson((prev) => ({
+                                                                            ...prev,
+                                                                            number: e.target.value.slice(0, 10)
+                                                                        }))}
+                                                                        className="mt-1"
+                                                                    />
+                                                                </div>
                                                             </DialogDescription>
                                                         </DialogHeader>
                                                         {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
@@ -1914,84 +1914,84 @@ export const ReleasePONew = ({ not }) => {
                             }
                             {(orderData?.status === "PO Approved" && orderData?.merged === "true") && (
                                 <Card className="border-indigo-500 shadow-lg overflow-hidden">
-                                <CardHeader className="bg-indigo-500/10 border-b border-indigo-500/20">
-                                    <CardTitle className="text-2xl text-indigo-500 flex items-center">
-                                        <Split className="w-6 h-6 mr-2" />
-                                        Unmerge PO
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent className='p-6'>
-                                    <CardDescription>                                        
-                                        <div className="space-y-6">
-                                        <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
-                                                <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
-                                                    <List className="w-5 h-5 mr-2" />
-                                                    Associated Merged PO's
-                                                </h3>
-                                                <Tree treeData={treeData} defaultExpandedKeys={["mainPO"]} />
-                                        </div>
-                                            <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
-                                                <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
-                                                    <AlertTriangle className="w-5 h-5 mr-2" />
-                                                    Important Notes
-                                                </h3>
-                                                <ul className="list-disc list-inside space-y-1 text-sm text-indigo-500/80">
-                                                    <li>If you need to <span className='italic'>Amend or Cancel</span>, You should proceed with this option.</li>
-                                                    <li>This action will delete the current PO, unmerge all <span className="text-primary font-semibold">the above listed merged PO(s)</span> and make them available in the table!</li>
-                                                </ul>
+                                    <CardHeader className="bg-indigo-500/10 border-b border-indigo-500/20">
+                                        <CardTitle className="text-2xl text-indigo-500 flex items-center">
+                                            <Split className="w-6 h-6 mr-2" />
+                                            Unmerge PO
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className='p-6'>
+                                        <CardDescription>
+                                            <div className="space-y-6">
+                                                <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
+                                                    <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
+                                                        <List className="w-5 h-5 mr-2" />
+                                                        Associated Merged PO's
+                                                    </h3>
+                                                    <Tree treeData={treeData} defaultExpandedKeys={["mainPO"]} />
+                                                </div>
+                                                <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
+                                                    <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
+                                                        <AlertTriangle className="w-5 h-5 mr-2" />
+                                                        Important Notes
+                                                    </h3>
+                                                    <ul className="list-disc list-inside space-y-1 text-sm text-indigo-500/80">
+                                                        <li>If you need to <span className='italic text-primary font-bold'>Amend / Cancel</span>, You should proceed with this option.</li>
+                                                        <li>This action will delete the current PO, unmerge all <span className="text-primary font-semibold">the above listed merged PO(s)</span> and make them available in the table!</li>
+                                                    </ul>
+                                                </div>
+
+                                                <div className="flex justify-end">
+                                                    <AlertDialog>
+                                                        <AlertDialogTrigger asChild>
+                                                            <ShadButton
+                                                                variant={"outline"}
+                                                                className="flex border-primary items-center gap-1"
+                                                            >
+                                                                <Split className="h-4 w-4 mr-1" />
+                                                                Unmerge
+                                                            </ShadButton>
+                                                        </AlertDialogTrigger>
+                                                        <AlertDialogContent>
+                                                            <AlertDialogHeader>
+                                                                <AlertDialogTitle>
+                                                                    Are you sure?
+                                                                </AlertDialogTitle>
+                                                            </AlertDialogHeader>
+                                                            <AlertDialogDescription className='space-y-2'>
+                                                                <div>
+                                                                    Please be informed that, the following are the PO(s) that are going to be unmerged and be available in the table, it is advised to note these PO numbers!
+                                                                </div>
+
+                                                                <ul className='list-disc list-inside'>
+                                                                    {prevMergedPOs?.map((po) => (
+                                                                        <li key={po?.name}>{po?.name}</li>
+                                                                    ))}
+                                                                </ul>
+
+                                                                <p className=''>Click on confirm to proceed with unmerging!</p>
+                                                            </AlertDialogDescription>
+                                                            {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                                                                <div className='flex justify-end items-center gap-2'>
+                                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                    <AlertDialogAction asChild>
+                                                                        <ShadButton
+                                                                            onClick={handleUnmergePOs}
+                                                                            className="flex items-center gap-1"
+                                                                        >
+                                                                            <Split className="h-4 w-4 mr-1" />
+                                                                            Confirm
+                                                                        </ShadButton>
+                                                                    </AlertDialogAction>
+                                                                </div>
+                                                            )}
+                                                        </AlertDialogContent>
+                                                    </AlertDialog>
+                                                </div>
                                             </div>
-
-                                            <div className="flex justify-end">
-                                            <AlertDialog>
-                                                <AlertDialogTrigger asChild>
-                                                <ShadButton
-                                                    variant={"outline"}
-                                                    className="flex border-primary items-center gap-1"
-                                                >
-                                                    <Split className="h-4 w-4 mr-1" />
-                                                    Unmerge
-                                                </ShadButton>
-                                                </AlertDialogTrigger>
-                                                <AlertDialogContent>
-                                                    <AlertDialogHeader>
-                                                        <AlertDialogTitle>
-                                                            Are you sure?
-                                                        </AlertDialogTitle>
-                                                    </AlertDialogHeader>
-                                                    <AlertDialogDescription className='space-y-2'>
-                                                        <div>
-                                                            Please be informed that, the following are the PO(s) that are going to be unmerged and be available in the table, it is advised to note these PO numbers!
-                                                        </div>
-                                                        
-                                                        <ul className='list-disc list-inside'>
-                                                            {prevMergedPOs?.map((po) => (
-                                                                <li key={po?.name}>{po?.name}</li>
-                                                            ))}
-                                                        </ul>
-
-                                                        <p className=''>Click on confirm to proceed with unmerging!</p>
-                                                    </AlertDialogDescription>
-                                                    {clicked ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                                        <div className='flex justify-end items-center gap-2'>
-                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                        <AlertDialogAction asChild>
-                                                        <ShadButton
-                                                            onClick={handleUnmergePOs}
-                                                            className="flex items-center gap-1"
-                                                        >
-                                                            <Split className="h-4 w-4 mr-1" />
-                                                            Confirm
-                                                        </ShadButton>
-                                                        </AlertDialogAction>
-                                                    </div>
-                                                    )}
-                                                </AlertDialogContent>
-                                            </AlertDialog> 
-                                            </div> 
-                                        </div>
-                                    </CardDescription>
-                                </CardContent>
-                            </Card>
+                                        </CardDescription>
+                                    </CardContent>
+                                </Card>
                             )}
                             <Card className="border-primary shadow-lg overflow-hidden">
                                 <CardHeader className="bg-primary/10 border-b border-primary/20">
@@ -2015,7 +2015,7 @@ export const ReleasePONew = ({ not }) => {
                                             </div>
 
                                             <div className="flex justify-end">
-                                                { (["PO Approved"].includes(orderData?.status) && orderData?.merged !== "true") ? (
+                                                {(["PO Approved"].includes(orderData?.status) && orderData?.merged !== "true") ? (
                                                     <ShadButton
                                                         onClick={() => document.getElementById("amendAlertTrigger")?.click()}
                                                         className="flex items-center gap-1"
@@ -2036,7 +2036,7 @@ export const ReleasePONew = ({ not }) => {
                                                                 <div>As this is a <span className='text-primary'>Merged PO</span>, in order to Amend this, you should unmerge the POs first!</div>
                                                             ) : (
                                                                 <div>
-                                                                <span className="text-primary underline">Amendment</span> not allowed for this PO as its delivery note or status has already been updated!</div>
+                                                                    <span className="text-primary underline">Amendment</span> not allowed for this PO as its delivery note or status has already been updated!</div>
                                                             )}
                                                         </HoverCardContent>
                                                     </HoverCard>
@@ -2273,7 +2273,7 @@ export const ReleasePONew = ({ not }) => {
 
                                             <div className="flex justify-end">
                                                 {(["PO Approved"].includes(orderData?.status) && orderData?.merged !== "true"
-                                                //  && (orderData?.order_list.list.some(item => 'po' in item) === false)
+                                                    //  && (orderData?.order_list.list.some(item => 'po' in item) === false)
                                                 ) ? (
                                                     <ShadButton
                                                         onClick={() => document.getElementById("alertTrigger")?.click()}
@@ -2291,13 +2291,13 @@ export const ReleasePONew = ({ not }) => {
                                                             </ShadButton>
                                                         </HoverCardTrigger>
                                                         <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                                        {orderData?.merged === "true" ? (
+                                                            {orderData?.merged === "true" ? (
                                                                 <div>As this is a <span className='text-primary'>Merged PO</span>, in order to Cancel this, you should unmerge the POs first!</div>
                                                             ) : (
-                                                            <div>
-                                                                <span className="text-primary underline">Cancellation</span>is not allowed for this PO. This might be due to the status is not PO Approved.
-                                                            </div>
-                                                        )}
+                                                                <div>
+                                                                    <span className="text-primary underline">Cancellation</span>is not allowed for this PO. This might be due to the status is not PO Approved.
+                                                                </div>
+                                                            )}
                                                         </HoverCardContent>
                                                     </HoverCard>
                                                 )}
