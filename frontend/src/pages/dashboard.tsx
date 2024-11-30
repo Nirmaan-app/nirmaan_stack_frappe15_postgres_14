@@ -98,8 +98,9 @@ import { Default } from "@/components/dashboard-default";
 import { useContext } from "react";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { ProjectManager } from "@/components/dashboard-pm";
-import { ProjectLead } from "@/components/dashboard-pl";
 import ProcurementDashboard from "@/components/procurement/procurement-dashboard";
+import { EstimatesExecutive } from "@/components/estimates-executive-dashboard";
+import { ProjectLead } from "@/components/dashboard-pl";
 
 export default function Dashboard() { 
 
@@ -127,6 +128,7 @@ export default function Dashboard() {
              <>{role == 'Nirmaan Project Manager Profile' && <ProjectManager />}
              {role == 'Nirmaan Project Lead Profile' && <ProjectLead />}
              {role == 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
+             {role == 'Nirmaan Estimates Executive Profile' && <EstimatesExecutive />}
              </>
             }   
             </>

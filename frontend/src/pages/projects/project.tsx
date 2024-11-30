@@ -314,7 +314,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       label: 'PO Summary',
       key: 'posummary',
     },
-    role === "Nirmaan Admin Profile" ? {
+    ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role) ? {
       label: 'Project Spends',
       key: 'projectspends',
     } : null,
