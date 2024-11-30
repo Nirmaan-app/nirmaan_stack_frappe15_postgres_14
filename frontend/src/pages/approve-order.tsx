@@ -67,7 +67,7 @@ const ApprovePRList = () => {
     if (pr_error || project_error || owner_error || usersListError) return <h1>Error</h1>
     if (pr?.workflow_state !== "Pending") {
         return (
-            <div className="flex items-center justify-center h-full">
+            <div className="flex items-center justify-center h-screen">
                 <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                     <h2 className="text-2xl font-semibold text-gray-800">
                         Heads Up!
