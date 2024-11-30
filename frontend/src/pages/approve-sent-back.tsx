@@ -131,7 +131,7 @@ const ApproveSentBack = () => {
     if (sb_loading || project_loading || owner_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     if (sb_error || project_error || owner_error) return <h1>Error</h1>
     if (!["Vendor Selected", "Partially Approved"].includes(sb?.workflow_state) && !sb?.item_list?.list?.some((i) => i?.status === "Pending")) return (
-        <div className="flex items-center justify-center h-full">
+        <div className="flex items-center justify-center h-screen">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
                     Heads Up!

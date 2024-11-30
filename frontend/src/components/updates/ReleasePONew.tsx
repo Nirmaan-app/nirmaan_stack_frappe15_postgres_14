@@ -608,7 +608,7 @@ export const ReleasePONew = ({ not }) => {
     if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
     if (procurement_order_list_error || address_list_error || vendor_error) return <h1>Error</h1>
     if (!not && orderData?.status !== "PO Approved") return (
-        <div className="flex items-center justify-center h-full">
+        <div className="flex items-center justify-center h-screen">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
                     Heads Up!
