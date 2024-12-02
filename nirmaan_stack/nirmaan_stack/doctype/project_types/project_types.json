@@ -32,7 +32,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-06 18:35:44.468751",
+ "modified": "2024-11-30 13:22:16.405282",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Types",
@@ -59,36 +59,57 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Project Lead",
+   "role": "Nirmaan Design Executive",
    "share": 1,
    "write": 1
   },
   {
+   "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Project Manager",
-   "share": 1
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
   },
   {
+   "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Procurement Executive",
-   "share": 1
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
   },
   {
+   "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Design Executive",
-   "share": 1
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
   }
  ],
  "sort_field": "modified",

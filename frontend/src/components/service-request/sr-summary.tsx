@@ -22,6 +22,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { useReactToPrint } from "react-to-print";
 import redlogo from "@/assets/red-logo.png"
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
+import logo from "@/assets/logo-svg.svg"
 
 const SrSummary = () => {
 
@@ -407,7 +408,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                         <div className="flex justify-between border-gray-600 pb-1">
                                                             <div className="mt-2 flex justify-between">
                                                                 <div>
-                                                                    <img className="w-44" src={redlogo} alt="Nirmaan" />
+                                                                    <img src={logo} alt="Nirmaan" width="180" height="52" />
                                                                     <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
                                                                 </div>
                                                             </div>
@@ -536,7 +537,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                         <div className="flex justify-between border-gray-600 pb-1">
                                                             <div className="mt-2 flex justify-between">
                                                                 <div>
-                                                                    <img className="w-44" src={redlogo} alt="Nirmaan" />
+                                                                    <img src={logo} alt="Nirmaan" width="180" height="52" />
                                                                     <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
                                                                 </div>
                                                             </div>

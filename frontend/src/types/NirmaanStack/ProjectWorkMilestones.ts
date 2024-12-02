@@ -18,4 +18,12 @@ export interface ProjectWorkMilestones{
 	scope_of_work?: string
 	/**	Milestone : Data	*/
 	milestone?: string
+	/**	Start Date : Date	*/
+	start_date?: string
+	/**	End Date : Date	*/
+	end_date?: string
+	/**	Status : Data	*/
+	status?: string
+	/**	Status List : JSON	*/
+	status_list?: any
 }

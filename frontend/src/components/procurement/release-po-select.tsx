@@ -1,6 +1,6 @@
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
-import { useContext, useMemo } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -24,11 +24,13 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
-            filters: [["status", not ? "not in" : "in", not ? [status, "PO Amendment"] : [status]]],
+            filters: [["status", not ? "not in" : "in", not ? [status, "PO Amendment", "Merged"] : [status]]],
             limit: 1000,
             orderBy: { field: "modified", order: "desc" }
         },
     );
+
+    // console.log("data", procurement_order_list)
 
     useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
         await mutate()
@@ -258,7 +260,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                     <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">{not ? "Released" : "Approved"} PO</h2>
                 </div>
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurement_order_list?.filter((po) => po.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
+                    <DataTable columns={columns} data={procurement_order_list?.filter((po) => po?.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
                 )}
             </div>
 

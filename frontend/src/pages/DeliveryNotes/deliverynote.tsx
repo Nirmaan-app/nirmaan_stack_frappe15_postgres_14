@@ -466,6 +466,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useToast } from '@/components/ui/use-toast';
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import redlogo from "@/assets/red-logo.png"
+import logo from "@/assets/logo-svg.svg"
 import { useReactToPrint } from 'react-to-print'
 import {
     AlertDialog,
@@ -784,7 +785,7 @@ export default function DeliveryNote() {
                                                         type="text"
                                                         value={modifiedOrder?.list.find((mod) => mod.name === item.name).received || ''}
                                                         onChange={(e) => handleReceivedChange(item.item, e.target.value)}
-                                                        placeholder="Qty"
+                                                        placeholder={item?.quantity}
                                                     />
                                                     {/* <span className='text-sm font-light text-red-500'>{validateMessage[item.item]}</span> */}
                                                 </div>
@@ -816,7 +817,7 @@ export default function DeliveryNote() {
                                         <div className="flex justify-between border-gray-600 pb-1">
                                             <div className="mt-2 flex justify-between">
                                                 <div>
-                                                    <img className="w-44" src={redlogo} alt="Nirmaan" />
+                                                    <img src={logo} alt="Nirmaan" width="180" height="52" />
                                                     <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
                                                 </div>
                                             </div>

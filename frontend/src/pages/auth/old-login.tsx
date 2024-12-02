@@ -81,6 +81,12 @@ export default function Login() {
                     type="password"
                     placeholder="***********" />
                 </div>
+
+              <div className="text-end">
+                <Link className="hover:text-blue-600" to={"/forgot-password"}>
+                      Forgot Password?
+                </Link>
+                </div>
                 {errors?.password && <h1>{errors.password?.message}</h1>}
                 <Button className="w-full" type="submit" onClick={handleSubmit(onSubmit)}>
                   Login

@@ -74,7 +74,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-09-16 13:39:43.022468",
+ "modified": "2024-11-30 13:18:18.761554",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Customers",
@@ -131,6 +131,18 @@
    "report": 1,
    "role": "Nirmaan Design Executive",
    "share": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
   }
  ],
  "sort_field": "modified",

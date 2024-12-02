@@ -16,6 +16,10 @@ export interface ApprovedQuotations{
 	vendor?: string
 	/**	Procurement Order : Link - Procurement Orders	*/
 	procurement_order?: string
+	/**	Category : Link - Category	*/
+	category?: string
+	/**	Procurement Package : Link - Procurement Packages	*/
+	procurement_package?: string
 	/**	Item Name : Data	*/
 	item_name?: string
 	/**	Unit : Data	*/

@@ -18,6 +18,8 @@ export interface ProcurementOrders{
 	procurement_request?: string
 	/**	Category : Link - Category	*/
 	category?: string
+	/**	Merged : Data	*/
+	merged?: string
 	/**	Attachment : Data	*/
 	attachment?: string
 	/**	Project Name : Data	*/

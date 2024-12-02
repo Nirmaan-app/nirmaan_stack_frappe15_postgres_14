@@ -58,12 +58,13 @@ import { SelectServiceVendorList } from './components/service-request/select-ser
 import { ApprovedSRList } from './components/service-request/approved-sr-list'
 import { ApprovedSR } from './components/service-request/approved-sr'
 import { ManPowerReport } from './components/ManPowerReport'
+import ForgotPassword from './pages/auth/forgot-password'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
 		<>
 			<Route path='/login' element={<Login />} />
-			<Route path='/forgot-password' lazy={() => import('@/pages/auth/forgot-password')} />
+			<Route path='/forgot-password' element={<ForgotPassword />} />
 			<Route path='/' element={<ProtectedRoute />}>
 
 				<Route path='/' element={<MainLayout />}>
@@ -208,6 +209,7 @@ const router = createBrowserRouter(
 							<Route path=":id" element={<POSummary />} />
 							<Route path="dn/:id" element={<DeliveryNote />} />
 						</Route>
+						<Route path=":projectId/po/:id" element={<POSummary />} />
 					</Route>
 
 					{/* User Paths */}

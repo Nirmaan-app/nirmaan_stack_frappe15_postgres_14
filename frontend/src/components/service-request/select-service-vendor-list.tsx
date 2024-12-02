@@ -166,7 +166,7 @@ export const SelectServiceVendorList = () => {
     return (
         <div className="flex-1 md:space-y-4">
             <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Choose Vendor PR</h2>
+                <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Select Vendor SR</h2>
             </div>
             {(projects_loading || service_list_loading) ? (<TableSkeleton />) : (
                 <DataTable columns={columns} data={service_list || []} project_values={project_values} />

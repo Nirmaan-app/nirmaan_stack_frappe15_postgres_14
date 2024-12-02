@@ -115,5 +115,20 @@
     "role": "Nirmaan Project Manager"
    }
   ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2024-11-30 12:59:30.125953",
+  "name": "Nirmaan Estimates Executive Profile",
+  "role_profile": "Nirmaan Estimates Executive Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Estimates Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Estimates Executive"
+   }
+  ]
  }
 ]

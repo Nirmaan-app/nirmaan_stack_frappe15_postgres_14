@@ -114,7 +114,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     const { data: procurementOrders, isLoading: procurementOrdersLoading, error: procurementOrdersError } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
-            filters: [['vendor', '=', vendorId]],
+            filters: [['vendor', '=', vendorId], ["status", "!=", "Merged"]],
             limit: 10000
         },
         `Procurement Orders ${vendorId}`
@@ -508,7 +508,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
 
             {current === "openOrders" && (
                 (procurementOrdersLoading || procurementRequestsLoading) ? (<TableSkeleton />) : (
-                    <DataTable columns={columns} data={procurementOrders?.filter((po) => ["PO Approved", "PO Sent"].includes(po.status))} />
+                    <DataTable columns={columns} data={procurementOrders?.filter((po) => ["PO Approved", "PO Sent", "PO Amendment"].includes(po.status))} />
                 )
             )}
 

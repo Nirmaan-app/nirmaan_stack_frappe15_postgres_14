@@ -131,14 +131,17 @@ doc_events = {
 		# "on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
 	},
     "Nirmaan Users": {
-        "on_trash": "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash"
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash",
+            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        ],
     },
     "User Permission": {
         "after_insert": [
             "nirmaan_stack.integrations.controllers.user_permission.after_insert",
             "nirmaan_stack.integrations.controllers.user_permission.add_nirmaan_user_permissions"
         ],
-        "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash" 
+        "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash"
     },
     "Projects": {
         "after_insert": [
@@ -160,7 +163,10 @@ doc_events = {
         # "before_insert": "nirmaan_stack.integrations.controllers.procurement_requests.before_insert",
         "after_insert": "nirmaan_stack.integrations.controllers.procurement_requests.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.procurement_requests.on_update",
-        "on_trash": "nirmaan_stack.integrations.controllers.procurement_requests.on_trash",
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.procurement_requests.on_trash",
+            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions"
+        ],
         "after_delete": "nirmaan_stack.integrations.controllers.procurement_requests.after_delete"
     },
     "Procurement Orders": {
@@ -180,8 +186,14 @@ doc_events = {
             ]
     },
     "Service Requests": {
-        "on_trash": "nirmaan_stack.integrations.controllers.service_requests.on_trash",
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.service_requests.on_trash",
+            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions"
+        ],
         "on_update": "nirmaan_stack.integrations.controllers.service_requests.on_update"
+    },
+    "Project Estimates" : {
+        "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     }
 }
 

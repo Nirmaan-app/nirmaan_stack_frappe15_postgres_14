@@ -29,5 +29,5 @@ export interface Vendors{
 	/**	Vendor Email : Data	*/
 	vendor_email?: string
 	/**	Vendor GST : Data	*/
-	vendor_gst: string
+	vendor_gst?: string
 }
