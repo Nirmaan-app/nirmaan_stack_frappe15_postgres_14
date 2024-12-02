@@ -457,8 +457,6 @@ export function NewSidebar() {
         ),
     ];
 
-    console.log("pathname", location?.pathname.slice(1).split("/"))
-
     const allKeys = [
         "projects", "users", "items", "vendors", "customers",
         "prs&milestones", "approve-new-pr", "approve-po",
