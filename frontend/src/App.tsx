@@ -61,6 +61,8 @@ import { SidebarProvider } from './components/ui/sidebar'
 import { SentBackSummary } from './components/procurement/sent-back-summary'
 import { ManPowerReport } from './components/ManPowerReport'
 import { NotificationsPage } from './components/nav/notifications'
+import { NewProcurementRequest } from './components/procurement-request/new-new-pr'
+import { WPSelection } from './components/procurement-request/wp_selection'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -79,7 +81,11 @@ const router = createBrowserRouter(
 						{/* Procurement Request Paths */}
 						<Route path="procurement-requests">
 							<Route index element={<ListPR />} />
-							<Route path=":id/new" lazy={() => import('@/components/procurement-request/new-pr')} />
+							{/* <Route path=":id/new" lazy={() => import('@/components/procurement-request/new-pr')} /> */}
+							<Route path=":projectId/new">
+								<Route index element={<WPSelection />} />
+								<Route path=':workPackage' element={<NewProcurementRequest />} />
+							</Route>
 							<Route path=":id">
 								<Route index lazy={() => import('@/components/pr-summary')} />
 								<Route path=":id" element={<POSummary />} />
