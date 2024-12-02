@@ -303,154 +303,160 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 </Alert>
                             </div>
                         )} */}
-                        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                            <Card className="w-full">
-                                <CardHeader>
-                                    <CardTitle className="text-xl text-red-600 flex items-center justify-between">
-                                        PR Details
-                                        <Badge variant={`${pr_data?.workflow_state === "Rejected" ? "red" : pr_data?.workflow_state === "Pending" ? "yellow" : pr_data?.workflow_state === "Draft" ? "indigo" : statusRender(pr_data?.workflow_state) === "Open PR" ? "orange" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "green" : undefined}`}>
-                                            {pr_data?.workflow_state === "Rejected" ? "Rejected" : pr_data?.workflow_state === "Pending" ? "Approval Pending" : pr_data?.workflow_state === "Draft" ? "Draft" : statusRender(pr_data?.workflow_state) === "Open PR" ? "In Progress" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "Ordered" : ""}
-                                        </Badge>
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent className="flex flex-col gap-4">
-                                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                                        <div className="space-y-1">
-                                            <Label className="text-slim text-red-300">Project:</Label>
-                                            <p className="font-semibold">{project?.project_name}</p>
+                        <div className="flex max-lg:flex-col gap-4">
+                            <div className="flex flex-col gap-4 flex-1">
+                                <Card className="w-full">
+                                    <CardHeader>
+                                        <CardTitle className="text-xl text-red-600 flex items-center justify-between">
+                                            PR Details
+                                            <Badge variant={`${pr_data?.workflow_state === "Rejected" ? "red" : pr_data?.workflow_state === "Pending" ? "yellow" : pr_data?.workflow_state === "Draft" ? "indigo" : statusRender(pr_data?.workflow_state) === "Open PR" ? "orange" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "green" : undefined}`}>
+                                                {pr_data?.workflow_state === "Rejected" ? "Rejected" : pr_data?.workflow_state === "Pending" ? "Approval Pending" : pr_data?.workflow_state === "Draft" ? "Draft" : statusRender(pr_data?.workflow_state) === "Open PR" ? "In Progress" : statusRender(pr_data?.workflow_state) === "Approved PO" ? "Ordered" : ""}
+                                            </Badge>
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="flex flex-col gap-4">
+                                        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                                            <div className="space-y-1">
+                                                <Label className="text-slim text-red-300">Project:</Label>
+                                                <p className="font-semibold">{project?.project_name}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-slim text-red-300">Package:</Label>
+                                                <p className="font-semibold">{pr_data?.work_package}</p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-slim text-red-300">Date Created:</Label>
+                                                <p className="font-semibold">{new Date(pr_data?.creation).toDateString()}</p>
+                                            </div>
                                         </div>
-                                        <div className="space-y-1">
-                                            <Label className="text-slim text-red-300">Package:</Label>
-                                            <p className="font-semibold">{pr_data?.work_package}</p>
+                            
+                                        <div className="space-y-1 flex flex-col items-start justify-start">
+                                            <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
+                                            <Timeline
+                                                className="w-full"
+                                                mode={'left'}
+                                                items={itemsTimelineList}
+                                            />
                                         </div>
-                                        <div className="space-y-1">
-                                            <Label className="text-slim text-red-300">Date Created:</Label>
-                                            <p className="font-semibold">{new Date(pr_data?.creation).toDateString()}</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-1 flex flex-col items-start justify-start">
-                                        <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
-                                        <Timeline
-                                            className="w-full"
-                                            mode={'left'}
-                                            items={itemsTimelineList}
-                                        />
-                                    </div>
-                                </CardContent>
-                            </Card>
-                            <Card className="w-full">
-                                <CardHeader>
-                                    <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
-                                </CardHeader>
-
-                                <div className="overflow-x-auto">
-
-                                    <div className="min-w-full inline-block align-middle">
-                                        {JSON.parse(pr_data?.category_list).list.map((cat: any) => {
-                                            return <div className="p-5">
-                                                {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
+                                    </CardContent>
+                                </Card>
+                                {userData.role !== "Nirmaan Project Manager Profile" && 
+                                <Card className="w-full">
+                                    <CardHeader>
+                                        <CardTitle className="text-xl text-red-600">Associated POs:</CardTitle>
+                                        <div className="overflow-x-auto">
+                                            <div className="min-w-full inline-block align-middle">
+                                            </div>
+                                            {po_data?.length === 0 ? <p>No POs generated as of now</p>
+                                                :
                                                 <Table>
                                                     <TableHeader>
                                                         <TableRow className="bg-red-100">
-                                                            <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
-                                                            <TableHead className="w-[15%]">UOM</TableHead>
-                                                            <TableHead className="w-[15%]">Qty</TableHead>
-                                                            <TableHead className="w-[20%]">Status</TableHead>
+                                                            <TableHead className="w-[40%]">PO Number</TableHead>
+                                                            <TableHead className="w-[30%]">Date Created</TableHead>
+                                                            <TableHead className="w-[30%]">Status</TableHead>
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
-                                                        {JSON.parse(pr_data?.procurement_list).list.map((item: any) => {
-                                                            // console.log(item)
-                                                            if (item.category === cat.name) {
-                                                                return (
-                                                                    <TableRow key={item.item}>
-                                                                        <TableCell>{item.item}
-                                                                            <div className="flex gap-1 pt-2 items-start">
-                                                                                <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
-                                                                                <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
-                                                                            </div>
-                                                                        </TableCell>
-                                                                        <TableCell>{item.unit}</TableCell>
-                                                                        <TableCell>{item.quantity}</TableCell>
-                                                                        <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge></TableCell>
-                                                                    </TableRow>
-                                                                )
-                                                            }
+                                                        {po_data?.map((po) => {
+                                                            return (
+                                                                <TableRow key={po.name}>
+                                                                    <TableCell>
+                                                                        <Link to={po?.name.replaceAll("/", "&=")} className="text-blue-500 underline">{po?.name}</Link>
+                                                                    </TableCell>
+                                                                    <TableCell>{formatDate(po.creation)}</TableCell>
+                                                                    <TableCell><Badge variant="outline">{po.status}</Badge></TableCell>
+                                                                </TableRow>
+                                                            )
                                                         })}
                                                     </TableBody>
-                                                </Table>
+                                                </Table>}
+                                        </div>
+                                    </CardHeader>
+                                </Card>}
+                                <Card className="w-full">
+                                    <CardHeader>
+                                        <CardTitle className="text-xl text-red-600">Associated Delivery Notes:</CardTitle>
+                                        <div className="overflow-x-auto">
+                                            <div className="min-w-full inline-block align-middle">
                                             </div>
-                                        })}
-                                    </div>
-                                </div>
-                            </Card>
-                            {userData.role !== "Nirmaan Project Manager Profile" && <Card className="w-full">
-                                <CardHeader>
-                                    <CardTitle className="text-xl text-red-600">Associated POs:</CardTitle>
-                                    <div className="overflow-x-auto">
-                                        <div className="min-w-full inline-block align-middle">
+                                            {po_data?.filter(item => ["Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).length === 0 ? <p>No DNs generated as of now</p>
+                                                :
+                                                <Table>
+                                                    <TableHeader>
+                                                        <TableRow className="bg-red-100">
+                                                            <TableHead className="w-[40%]">DN No.</TableHead>
+                                                            <TableHead className="w-[30%]">Date Created</TableHead>
+                                                            <TableHead className="w-[30%]">Status</TableHead>
+                                                        </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                        {po_data?.filter(item => ["Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).map((po) => {
+                                                            return (
+                                                                <TableRow key={po.name}>
+                                                                    <TableCell>
+                                                                        <Link to={`dn/${po?.name.replaceAll("/", "&=")}`} className="text-blue-500 underline">DN-{po?.name.split("/")[1]}</Link>
+                                                                    </TableCell>
+                                                                    <TableCell>{formatDate(po.creation)}</TableCell>
+                                                                    <TableCell><Badge variant="outline">{po.status}</Badge></TableCell>
+                                                                </TableRow>
+                                                            )
+                                                        })}
+                                                    </TableBody>
+                                                </Table>}
                                         </div>
-                                        {po_data?.length === 0 ? <p>No POs generated as of now</p>
-                                            :
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow className="bg-red-100">
-                                                        <TableHead className="w-[40%]">PO Number</TableHead>
-                                                        <TableHead className="w-[30%]">Date Created</TableHead>
-                                                        <TableHead className="w-[30%]">Status</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {po_data?.map((po) => {
-                                                        return (
-                                                            <TableRow key={po.name}>
-                                                                <TableCell>
-                                                                    <Link to={po?.name.replaceAll("/", "&=")} className="text-blue-500 underline">{po?.name}</Link>
-                                                                </TableCell>
-                                                                <TableCell>{formatDate(po.creation)}</TableCell>
-                                                                <TableCell><Badge variant="outline">{po.status}</Badge></TableCell>
-                                                            </TableRow>
-                                                        )
-                                                    })}
-                                                </TableBody>
-                                            </Table>}
-                                    </div>
-                                </CardHeader>
-                            </Card>}
-                            <Card className="w-full">
-                                <CardHeader>
-                                    <CardTitle className="text-xl text-red-600">Associated Delivery Notes:</CardTitle>
+                                    </CardHeader>
+                                </Card>
+                            </div>
+                            <div className="flex flex-col flex-1">
+                                <Card className="w-full">
+                                    <CardHeader>
+                                        <CardTitle className="text-xl text-red-600">Order Details</CardTitle>
+                                    </CardHeader>
+
                                     <div className="overflow-x-auto">
+
                                         <div className="min-w-full inline-block align-middle">
-                                        </div>
-                                        {po_data?.filter(item => ["Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).length === 0 ? <p>No DNs generated as of now</p>
-                                            :
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow className="bg-red-100">
-                                                        <TableHead className="w-[40%]">DN No.</TableHead>
-                                                        <TableHead className="w-[30%]">Date Created</TableHead>
-                                                        <TableHead className="w-[30%]">Status</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {po_data?.filter(item => ["Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).map((po) => {
-                                                        return (
-                                                            <TableRow key={po.name}>
-                                                                <TableCell>
-                                                                    <Link to={`dn/${po?.name.replaceAll("/", "&=")}`} className="text-blue-500 underline">DN-{po?.name.split("/")[1]}</Link>
-                                                                </TableCell>
-                                                                <TableCell>{formatDate(po.creation)}</TableCell>
-                                                                <TableCell><Badge variant="outline">{po.status}</Badge></TableCell>
+                                            {JSON.parse(pr_data?.category_list).list.map((cat: any) => {
+                                                return <div className="p-5">
+                                                    {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
+                                                    <Table>
+                                                        <TableHeader>
+                                                            <TableRow className="bg-red-100">
+                                                                <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
+                                                                <TableHead className="w-[15%]">UOM</TableHead>
+                                                                <TableHead className="w-[15%]">Qty</TableHead>
+                                                                <TableHead className="w-[20%]">Status</TableHead>
                                                             </TableRow>
-                                                        )
-                                                    })}
-                                                </TableBody>
-                                            </Table>}
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {JSON.parse(pr_data?.procurement_list).list.map((item: any) => {
+                                                                // console.log(item)
+                                                                if (item.category === cat.name) {
+                                                                    return (
+                                                                        <TableRow key={item.item}>
+                                                                            <TableCell>{item.item}
+                                                                                <div className="flex gap-1 pt-2 items-start">
+                                                                                    <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                                                                                    <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
+                                                                                </div>
+                                                                            </TableCell>
+                                                                            <TableCell>{item.unit}</TableCell>
+                                                                            <TableCell>{item.quantity}</TableCell>
+                                                                            <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge></TableCell>
+                                                                        </TableRow>
+                                                                    )
+                                                                }
+                                                            })}
+                                                        </TableBody>
+                                                    </Table>
+                                                </div>
+                                            })}
+                                        </div>
                                     </div>
-                                </CardHeader>
-                            </Card>
+                                </Card>
+                                <div />
+                            </div>
                         </div>
                     </>
                 )}

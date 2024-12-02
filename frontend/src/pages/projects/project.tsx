@@ -993,6 +993,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       options?.push({ label: "Tool & Equipments", value: "Tool & Equipments" })
       options?.push({ label: "Services", value: "Services" })
 
+      options.sort((a, b) => {
+        if (a.label === "All") return -1;
+        if (b.label === "All") return 1;
+        return a.label.localeCompare(b.label);
+      });
+
       setOptions(options)
       setSelectedPackage("All")
     }
@@ -1483,7 +1489,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   <h2 className="font-semibold text-gray-500">Work Packages</h2>
                   <ArrowDown className="w-4 h-4" />
                 </div>
-                {JSON.parse(data?.project_work_packages)?.work_packages?.map((wp) => (
+                {JSON.parse(data?.project_work_packages)?.work_packages?.sort((a,b) => a?.work_package_name?.localeCompare(b?.work_package_name))?.map((wp) => (
                   <div key={wp?.work_package_name}>
                     <h3 className="text-sm font-semibold py-4">{wp?.work_package_name}</h3>
                     <CategoryAccordion categorizedData={categorizedData} selectedPackage={wp?.work_package_name} projectEstimates={project_estimates?.filter((i) => i?.work_package === wp?.work_package_name) || []} />
@@ -1831,7 +1837,7 @@ export const CategoryAccordion = ({ categorizedData, selectedPackage, projectEst
         <div className="flex flex-col gap-4">
           {defaultValues?.length > 0 && (
             <Accordion type="multiple" className="space-y-4" defaultValue={defaultValues || []}>
-              {Object.entries(selectedData).map(([category, items]) => {
+              {Object.entries(selectedData)?.sort(([a], [b]) => a?.localeCompare(b))?.map(([category, items]) => {
                 const totalAmount = items.reduce((sum, item) =>
                   sum + parseFloat(item?.amount),
                   0
@@ -1927,7 +1933,7 @@ export const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }
       {selectedData ? (
         <div className="flex flex-col gap-4">
           <Accordion type="multiple" className="space-y-4">
-            {Object.entries(selectedData).map(([category, items]) => {
+            {Object.entries(selectedData)?.sort(([a], [b]) => a?.localeCompare(b))?.map(([category, items]) => {
               const totalAmount = items.reduce((sum, item) =>
                 sum + parseFloat(item?.amount),
                 0
@@ -2021,6 +2027,8 @@ export const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) =
     }
   }, [segregatedData]);
 
+  console.log("segregatedData", segregatedData)
+
   // Main table columns
   const columns = [
     {
@@ -2080,7 +2088,7 @@ export const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) =
         <div className="pt-6 overflow-x-auto">
           <ConfigProvider>
             <AntTable
-              dataSource={segregatedData.map((key) => ({
+              dataSource={segregatedData?.sort((a,b) => Object.keys(a)[0]?.localeCompare(Object.keys(b)[0]))?.map((key) => ({
                 key: Object.values(key)[0]?.key,
                 amount: Object.values(key)[0]?.amount,
                 estimate_total: Object.values(key)[0]?.estimate_total,
