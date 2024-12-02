@@ -192,6 +192,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     limit: 1000
   })
 
+  const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+    fields: ["vendor_name", 'vendor_type'],
+    filters: [["vendor_type", "=", "Material"]],
+    limit: 1000
+    }
+  )
+
+  const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
+
   useEffect(() => {
     if (usersList && projectAssignees) {
       const options = usersList?.filter(user => !projectAssignees?.some((i) => i?.user === user?.name) && user?.role_profile !== "Nirmaan Admin Profile")?.map((op) => ({
@@ -694,6 +703,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     };
   };
 
+  const getWorkPackageName = (pr) => {
+    return pr_data?.find((i) => i?.name === pr)?.work_package
+  }
+
   const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
     () => [
       {
@@ -728,6 +741,22 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           return (
             <div className="font-medium">
               {formatDate(row.getValue("creation")?.split(" ")[0])}
+            </div>
+          )
+        }
+      },
+      {
+        accessorKey: "procurement_request",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Work Package" />
+          )
+        },
+        cell: ({ row }) => {
+          const pr = row.getValue("procurement_request")
+          return (
+            <div className="font-medium">
+              {getWorkPackageName(pr)}
             </div>
           )
         }
@@ -1429,7 +1458,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               </CardContent>
             </Card> */}
             {po_data_for_posummary_loading ? (<TableSkeleton />) :
-              <DataTable columns={poColumns} data={po_data_for_posummary || []} statusOptions={statusOptions} />
+              <DataTable columns={poColumns} data={po_data_for_posummary || []} vendorOptions={vendorOptions} itemSearch={true} />
               // <p>RESOLVE PO TABLE</p>
             }
           </div>
