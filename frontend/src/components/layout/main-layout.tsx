@@ -16,7 +16,7 @@ import { Badge } from '../ui/badge';
 import nLogoBlack from "@/assets/icons.svg"
 import { ArrowLeft } from 'lucide-react';
 
-export const MainLayout = ({children} : {children : React.ReactNode}) => {
+export const MainLayout = () => {
 
     const {setProcurementRequestError, setProcurementRequestList, setProcurementRequestLoading, setProjects, setProjectsError, setProjectsLoading} = useFrappeDataStore()
 

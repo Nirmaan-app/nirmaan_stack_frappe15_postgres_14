@@ -89,6 +89,8 @@ const router = createBrowserRouter(
 								<Route path=':workPackage' element={<NewProcurementRequest />} />
 							</Route>
 							<Route path=":id">
+								<Route path='resolve' element={<NewProcurementRequest resolve={true} />} />
+								<Route path='edit' element={<NewProcurementRequest edit={true} />} />
 								<Route index lazy={() => import('@/components/pr-summary')} />
 								<Route path=":id" element={<POSummary />} />
 							</Route>
