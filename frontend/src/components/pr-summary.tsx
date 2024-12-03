@@ -200,7 +200,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
             })
 
             await pr_data_mutate()
-            setSection("edit-pr")
+            navigate("edit")
         } catch (error) {
             console.log("error while marking pr as draft", error)
             toast({
@@ -293,7 +293,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 }
                                 {pr_data?.workflow_state === "Rejected" && (
 
-                                    <Button className="flex items-center gap-1" onClick={() => setSection("resolve-pr")}>
+                                    <Button className="flex items-center gap-1" onClick={() => navigate("resolve")}>
                                         <Settings2 className="h-4 w-4" />
                                         Resolve</Button>
                                 )}

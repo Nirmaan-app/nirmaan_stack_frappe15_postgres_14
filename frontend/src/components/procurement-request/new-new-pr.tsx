@@ -1,19 +1,24 @@
-import ReactSelect from 'react-select';
+import ReactSelect, {components} from 'react-select';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { useEffect, useState } from 'react';
-import { useFrappeCreateDoc, useFrappeGetDocList, useSWRConfig } from 'frappe-react-sdk';
+import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from 'frappe-react-sdk';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CheckCheck, ListChecks, MessageCircleMore, Pencil, Trash2, Undo } from 'lucide-react';
+import { CheckCheck, ListChecks, MessageCircleMore, MessageCircleWarning, Pencil, Trash2, Undo } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from '../ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose, DialogFooter } from "../ui/dialog"
 import { TailSpin } from 'react-loader-spinner';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Card } from '../ui/card';
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { formatDate } from '@/utils/FormatDate';
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 
-export const NewProcurementRequest = () => {
-    const { workPackage, projectId } = useParams();
+export const NewProcurementRequest = ({resolve = false, edit = false}) => {
+    const { workPackage, projectId, id } = useParams();
     const userData = useUserData();
     const {mutate} = useSWRConfig()
     const navigate = useNavigate()
@@ -28,6 +33,33 @@ export const NewProcurementRequest = () => {
     const [selectedCategories, setSelectedCategories] = useState([])
     const [editItem, setEditItem] = useState({})
     const [newPRComment, setNewPRComment] = useState("")
+    const [newItem, setNewItem] = useState({})
+    const [open, setOpen] = useState(false)
+
+    const toggleSidebar = () => {
+        setOpen(prevState => !prevState)
+        setNewItem({})
+    }
+
+    const {data : dynamic_pr, mutate : dynamic_pr_mutate} = useFrappeGetDoc("Procurement Requests", id, id ? undefined : null)
+
+    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+        fields: ["*"],
+        filters: [["reference_name", "=", id]],
+        orderBy: { field: "creation", order: "desc" }
+    },
+        id ? undefined : null
+    )
+
+    const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
+        fields: ["*"],
+        limit: 1000,
+        // filters: [["role_profile", "=", "Nirmaan Project Lead Profile"]]
+    })
+
+    // console.log("universalCommnets", universalComments)
+
+    // console.log("dynamic_Pr", dynamic_pr)
 
     const { data: category_list } = useFrappeGetDocList('Category', {
         fields: ['category_name', 'work_package', 'image_url', 'tax'],
@@ -35,19 +67,24 @@ export const NewProcurementRequest = () => {
         limit: 1000,
     });
 
-    const { data: item_list } = useFrappeGetDocList('Items', {
+    const { data: item_list, mutate: item_list_mutate } = useFrappeGetDocList('Items', {
         fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
         orderBy: { field: 'creation', order: 'desc' },
         limit: 10000,
     });
 
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
+    const { updateDoc, loading: updateLoading, error: update_error } = useFrappeUpdateDoc()
 
     useEffect(() => {
-        if (workPackage) {
+        if((resolve || edit) && dynamic_pr) {
+            setSelectedWP(dynamic_pr?.work_package)
+            setProcList(JSON.parse(dynamic_pr?.procurement_list)?.list)
+            setSelectedCategories(JSON.parse(dynamic_pr?.category_list)?.list)
+        } else if (!resolve && !edit && workPackage) {
             setSelectedWP(workPackage);
         }
-    }, [workPackage]);
+    }, [workPackage,dynamic_pr, id, resolve, edit]);
 
     useEffect(() => {
         if (curCategory && item_list) {
@@ -105,6 +142,10 @@ export const NewProcurementRequest = () => {
             prevCategories.filter((category) => categoriesInProcList.includes(category.name))
         );
     }, [procList]);
+
+    const getFullName = (id) => {
+        return usersList?.find((user) => user.name == id)?.full_name
+    }
 
     const handleUpdateItem = (item) => {
         const updateItem = procList?.find((i) => i?.name === item);
@@ -237,6 +278,74 @@ export const NewProcurementRequest = () => {
         }
     };
 
+    const handleResolve = async () => {
+        try {
+            const res = await updateDoc("Procurement Requests", id, {
+                category_list: {list : selectedCategories},
+                procurement_list: {list : procList},
+                workflow_state: "Pending"
+            })
+
+            if (newPRComment) {
+                await createDoc("Nirmaan Comments", {
+                    comment_type: "Comment",
+                    reference_doctype: "Procurement Requests",
+                    reference_name: id,
+                    comment_by: userData?.user_id,
+                    content: newPRComment,
+                    subject: edit ? "editing pr" : "resolving pr"
+                })
+            }
+            // console.log("newPR", res)
+            await mutate(`Procurement Requests ${res?.project}`)
+            await mutate(`Procurement Orders ${res?.project}`)
+            await mutate(`Procurement Requests ${id}`)
+            await mutate(`Nirmaan Comments ${id}`)
+
+            navigate(`/prs&milestones/procurement-requests/${id}`)
+
+            toast({
+                title: "Success!",
+                description: `PR: ${id} Resolved successfully and Sent for Approval!`,
+                variant: "success"
+            })
+        } catch (error) {
+            console.log(`Error while resolving Rejected PR`, error, update_error)
+            toast({
+                title: "Failed!",
+                description: `Resolving PR: ${id} Failed!`,
+                variant: "destructive"
+            })
+        }
+    }
+
+
+    const handleAddItem = async () => {
+        try {
+            const itemData = {...newItem, category: curCategory.value}
+
+            const res = await createDoc('Items', itemData)
+
+            await item_list_mutate()
+
+            toggleSidebar()
+
+            setNewItem({})
+
+            toast({
+                title: "Success!",
+                description: `New Item: ${res?.item_name} created successfully!`,
+                variant: "success",
+            });
+        } catch (error) {
+            console.log("error", error)
+            toast({
+                title: "Failed!",
+                description: `Item Creation failed!`,
+                variant: "destructive",
+            });
+        }
+    }
     // console.log("selectedCategories", selectedCategories)
 
     // console.log("curItem", curItem)
@@ -249,6 +358,14 @@ export const NewProcurementRequest = () => {
 
     return (
         <div className="flex-1 space-y-4 px-4">
+            {edit && (
+                    <div>
+                        <Alert variant="warning" className="">
+                            <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
+                            <AlertDescription className="py-2 px-4">This PR is now marked as "Draft", please either cancel or update!</AlertDescription>
+                        </Alert>
+                    </div>
+                )}
             <div className="flex items-center justify-between">
                 <div className="space-y-1">
                     <h3 className="text-sm">Package</h3>
@@ -266,14 +383,14 @@ export const NewProcurementRequest = () => {
                     />
                 </div>
             </div>
-            <div className="">
-                <ReactSelect
-                    value={curItem}
-                    isDisabled={!curCategory}
-                    options={itemOptions}
-                    onChange={(e) => setCurItem(e)}
-                />
-            </div>
+            <ReactSelect
+                value={curItem}
+                isDisabled={!curCategory}
+                options={itemOptions}
+                onChange={(e) => setCurItem(e)}
+                components={{ MenuList: CustomMenuList }}
+                onAddItemClick={toggleSidebar} // Pass handler as a prop
+            />
             <div className="flex items-center gap-4">
                 <div className="w-1/2">
                     <h3>Comment</h3>
@@ -304,7 +421,7 @@ export const NewProcurementRequest = () => {
                 Add Item
             </Button>
             <div className='flex flex-col justify-between h-[65vh]'>
-            <div className=''>
+            <div>
                 <div className="flex justify-between items-center max-md:py-2 py-4">
                     <h2 className='font-semibold'>Order List</h2>
                     {stack.length !== 0 && (
@@ -326,7 +443,7 @@ export const NewProcurementRequest = () => {
                         </div>
                     )}
                 </div>
-                <div className='max-h-[50vh] overflow-y-auto'>
+                <div className='max-h-[40vh] overflow-y-auto'>
                 {procList.length !== 0 ? (
                     selectedCategories?.map((cat, index) => {
                         return <div className=" mb-4 mx-0 px-0">
@@ -433,35 +550,166 @@ export const NewProcurementRequest = () => {
                 )}
                 </div>
             </div>
-
+            <div>
+                {(resolve || edit) && (
+                <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
+                    <h3 className="font-bold flex items-center gap-1"><MessageCircleMore className="w-5 h-5" />Previous Comments</h3>
+                    {universalComments?.filter((comment) => comment?.subject === (resolve ? "rejecting pr" : "creating pr"))?.map((cmt) => (
+                    <div key={cmt.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg w-full">
+                        <Avatar>
+                            <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${cmt.comment_by}`} />
+                            <AvatarFallback>{cmt.comment_by[0]}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1">
+                            <p className="font-medium text-sm text-gray-900">{cmt.content}</p>
+                            <div className="flex justify-between items-center mt-2">
+                                <p className="text-sm text-gray-500">
+                                    {cmt.comment_by === "Administrator" ? "Administrator" : getFullName(cmt.comment_by)}
+                                </p>
+                                <p className="text-xs text-gray-400">
+                                    {formatDate(cmt.creation.split(" ")[0])} {cmt.creation.split(" ")[1].substring(0, 5)}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    ))}
+                </Card>
+                )}
                 <Dialog>
                     <DialogTrigger asChild>
                         <Button disabled={!procList.length} variant={`${!procList.length ? "secondary" : "destructive"}`} className="h-8 mt-4 w-full">
                             <div className="flex items-center gap-1"><ListChecks className="h-4 w-4" />
-                            Submit</div>
+                            {resolve ? "Resolve" : edit ? "Update" : "Submit"}</div>
                         </Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
                             <DialogTitle>Are you Sure?</DialogTitle>
                             <DialogDescription>
-                            If there is any pending PR created by you with the same Project & Package, then the older PRs will be merged with this PR. Are you sure you want to continue?
+                            {resolve ? "Click on Confirm to resolve and send the PR for Approval" 
+                            : edit ? "Click on Confirm to update and send the PR for Approval" :  "If there is any pending PR created by you with the same Project & Package, then the older PRs will be merged with this PR. Are you sure you want to continue?"}
                             </DialogDescription>
                         </DialogHeader>
-                        <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder="Write comments here..." value={newPRComment} onChange={(e) => setNewPRComment(e.target.value)} />
+                        <textarea className="w-full border rounded-lg p-2 min-h-12" placeholder={`${resolve ? "Write Resolving Comments here..." : edit ? "Write Editing Comments here..." : "Write Comments here..."}`} value={newPRComment} onChange={(e) => setNewPRComment(e.target.value)} />
                         <DialogDescription className="flex justify-center">
-                                {createLoading ? <TailSpin width={60} color={"red"} /> :
+                            {(resolve || edit) ? (
+                                (updateLoading || createLoading) ? <TailSpin width={60} color={"red"} /> : (
+                                    <Button onClick={handleResolve} className="flex items-center gap-1">
+                                        <CheckCheck className="h-4 w-4" />
+                                        Confirm
+                                    </Button>
+                                )
+                            ) : ( 
+                                createLoading ? <TailSpin width={60} color={"red"} /> :
                                     <Button onClick={handleSubmit} className="flex items-center gap-1">
                                         <CheckCheck className="h-4 w-4" />
                                         Confirm
                                     </Button>
-                                }
+                            )}
                         </DialogDescription>
 
-                        <DialogClose className="hidden" id="dialogCloseforNewPR">Close</DialogClose>
+                        {/* <DialogClose className="hidden" id="dialogCloseforNewPR">Close</DialogClose> */}
                     </DialogContent>
                 </Dialog>
             </div>
+
+                <AlertDialog open={open} onOpenChange={toggleSidebar}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Create New <span className='text-primary'>{curCategory.value}</span> Item</AlertDialogTitle>
+                            <AlertDialogDescription>
+                <div className='flex flex-col gap-2'>
+                    <div className='flex flex-col gap-1'>
+                        <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="text-sm text-red-600">*</sup></label>
+                        <Input
+                            type="text"
+                            id="itemName"
+                            value={newItem?.item_name || ""}
+                            onChange={(e) => setNewItem(prevState => ({...prevState, "item_name" : e.target.value}))}
+                        />
+                    </div>
+                   <div className='flex flex-col gap-1'> 
+                        <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(N/A)</label>
+                        <Input
+                            type="text"
+                            id="makeName"
+                            disabled={true}
+                            value={newItem?.make_name || ""}
+                            placeholder="disabled"
+                            onChange={(e) => setNewItem(prevState => ({...prevState, "make_name" : e.target.value}))}
+                        />
+                    </div>
+                
+                <div className="flex flex-col gap-1">
+                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="text-sm text-red-600">*</sup></label>
+                    <Select onValueChange={(value) => setNewItem(prevState => ({...prevState, "unit_name" : value}))}>
+                        <SelectTrigger>
+                            <SelectValue className="text-gray-200" placeholder="Select Unit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {/* <SelectItem value="PCS">PCS</SelectItem> */}
+                            <SelectItem value="BOX">BOX</SelectItem>
+                            <SelectItem value="ROLL">ROLL</SelectItem>
+                            {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                            <SelectItem value="LENGTH">LTH</SelectItem>
+                            <SelectItem value="MTR">MTR</SelectItem>
+                            <SelectItem value="NOS">NOS</SelectItem>
+                            <SelectItem value="KGS">KGS</SelectItem>
+                            <SelectItem value="PAIRS">PAIRS</SelectItem>
+                            <SelectItem value="PACKS">PACKS</SelectItem>
+                            <SelectItem value="DRUM">DRUM</SelectItem>
+                            <SelectItem value="SQMTR">SQMTR</SelectItem>
+                            <SelectItem value="LTR">LTR</SelectItem>
+                            <SelectItem value="BUNDLE">BUNDLE</SelectItem>
+                            <SelectItem value="FEET">FEET</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+                </div>
+                         </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <div className='flex gap-2 justify-end items-center'>
+                            {createLoading ? <TailSpin width={30} height={30} color={"red"} /> :
+                            (
+                            <>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            {(newItem?.item_name && newItem?.unit_name) ?
+                                <Button variant={"default"} onClick={handleAddItem} className=" flex items-center gap-1"><ListChecks className="h-4 w-4" /> Submit</Button>
+                                :
+                                <Button disabled={true} variant="secondary" className="flex items-center gap-1"> <ListChecks className="h-4 w-4" /> Submit</Button>
+                            }
+                            </>
+                            )}
+                        </div>
+                    </AlertDialogContent>
+            </AlertDialog>
+            </div>
+        </div>
+    );
+};
+
+
+const CustomMenuList = (props) => {
+    const {
+        children, // options rendered as children
+        selectProps: { onAddItemClick }, // custom handler for "Add Item"
+    } = props;
+
+    return (
+        <div>
+            <div className='sticky top-0 z-10 bg-white'>
+                <Button
+                    variant={"outline"}
+                    className='w-full border-primary rounded-none'
+                    onClick={onAddItemClick}
+                >
+                    Create New Item
+                </Button>
+            </div>
+            {/* Scrollable options */}
+            <components.MenuList {...props}>
+                <div>{children}</div>
+            </components.MenuList>
         </div>
     );
 };
