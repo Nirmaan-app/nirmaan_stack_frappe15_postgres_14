@@ -469,6 +469,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       return "New PR";
     }
 
+    if(itemList?.some((i) => i?.status === "Deleted")) {
+      return "Open PR"
+    }
+
     const filteredPOs = po_data?.filter(po => po?.procurement_request === prId) || [];
     const allItemsApproved = itemList.every(item => { return getItemStatus(item, filteredPOs); });
 
@@ -703,9 +707,17 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     };
   };
 
-  const getWorkPackageName = (pr) => {
-    return pr_data?.find((i) => i?.name === pr)?.work_package
+  const getWorkPackageName = (poId) => {
+    const po = po_data_for_posummary?.find((j) => j?.name === poId)
+    return pr_data?.find((i) => i?.name === po?.procurement_request)?.work_package
   }
+
+  const wpOptions = data && JSON.parse(data?.project_work_packages)?.work_packages?.map((wp) => ({
+    label : wp?.work_package_name,
+    value: wp?.work_package_name
+  }))
+
+  // console.log("wpOtions", wpOptions)
 
   const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
     () => [
@@ -746,19 +758,28 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         }
       },
       {
-        accessorKey: "procurement_request",
+        accessorKey: "name",
+        id: "wp",
         header: ({ column }) => {
           return (
             <DataTableColumnHeader column={column} title="Work Package" />
           )
         },
         cell: ({ row }) => {
-          const pr = row.getValue("procurement_request")
+          const po = row.getValue("name")
           return (
             <div className="font-medium">
-              {getWorkPackageName(pr)}
+              {getWorkPackageName(po)}
             </div>
           )
+        },
+        filterFn: (row, id, value) => {
+          const rowValue = row.getValue(id)
+          console.log("rowvalue", rowValue)
+          console.log("value", value)
+          const renderValue = getWorkPackageName(rowValue)
+          console.log("renderValue", renderValue)
+          return value.includes(renderValue)
         }
       },
       {
@@ -815,7 +836,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => <span className="hidden">hh</span>
       }
     ],
-    [projectId, po_data_for_posummary]
+    [projectId, po_data_for_posummary, data]
   )
 
   const [current, setCurrent] = useState('overview')
@@ -1458,7 +1479,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               </CardContent>
             </Card> */}
             {po_data_for_posummary_loading ? (<TableSkeleton />) :
-              <DataTable columns={poColumns} data={po_data_for_posummary || []} vendorOptions={vendorOptions} itemSearch={true} />
+              <DataTable columns={poColumns} data={po_data_for_posummary || []} vendorOptions={vendorOptions} itemSearch={true} wpOptions={[...wpOptions, {label : "Tool & Equipments", value : "Tool & Equipments"}] || []} />
               // <p>RESOLVE PO TABLE</p>
             }
           </div>
