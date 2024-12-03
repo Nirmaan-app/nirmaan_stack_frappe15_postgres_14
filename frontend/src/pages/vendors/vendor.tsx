@@ -108,7 +108,7 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
     const { data: vendorAddress, isLoading: vendorAddressLoading, error: vendorAddressError } = useFrappeGetDoc(
         "Address",
         data?.vendor_address,
-        `Address ${data?.vendor_address}`
+        data?.vendor_address ? `Address ${data?.vendor_address}` : null
     )
 
     const { data: procurementOrders, isLoading: procurementOrdersLoading, error: procurementOrdersError } = useFrappeGetDocList("Procurement Orders",

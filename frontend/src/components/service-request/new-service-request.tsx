@@ -308,7 +308,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                 </div>
                 {
                     orderList?.list?.length ? (
-                        <div className="container mb-4 mx-0 px-0">
+                        <div className="mb-4 mx-0 px-0">
                             {/* <h3 className="text-sm font-semibold py-2">{item?.category}</h3> */}
                             <table className="table-auto md:w-full">
                                 <thead>
