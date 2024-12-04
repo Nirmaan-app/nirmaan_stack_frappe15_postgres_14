@@ -412,7 +412,7 @@ export const UpdateQuote = () => {
                         </div>
                         <div className="flex items-center justify-between">
                         <Sheet>
-                            <SheetTrigger className="text-blue-500"><div className="flex items-center gap-1 sm:pl-8 pl-2"><CirclePlus className="w-4 h-4" />Add New Vendor</div></SheetTrigger>
+                            <SheetTrigger className="text-blue-500"><div className="sm:pl-8 pl-2"><CirclePlus className="w-4 h-4 inline mr-1 mb-1" />Add New Vendor</div></SheetTrigger>
                             <SheetContent className="overflow-auto">
                                 <SheetHeader className="text-start">
                                     <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>

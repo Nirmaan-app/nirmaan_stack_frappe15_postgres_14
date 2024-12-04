@@ -572,8 +572,8 @@ export const ProcurementOrder = () => {
                                 </div>
                                 <Sheet>
                                     <SheetTrigger className="text-blue-500">
-                                        <div className="text-base text-blue-400 flex items-center gap-1" >
-                                            <CirclePlus className="w-5 h-5" />Add Vendor
+                                        <div className="text-base text-blue-400" >
+                                            Add Vendor<CirclePlus className="w-4 h-4 inline-block mb-1 ml-1" />
                                         </div>
                                     </SheetTrigger>
                                     <SheetContent className='overflow-auto'>
@@ -594,13 +594,15 @@ export const ProcurementOrder = () => {
                                     </SheetContent>
                                 </Sheet>
                             </div>
-                            <Select options={getCategoryByName(cat.name)} onChange={handleChange(cat.name)}
-                             isMulti 
-                             components={{
-                                SingleValue: CustomSingleValue,
-                                Option: CustomOption,
-                             }}
-                             />
+                            {(vendor_category_list && vendor_list) && (
+                                <Select options={getCategoryByName(cat.name)} onChange={handleChange(cat.name)}
+                                isMulti 
+                                components={{
+                                   SingleValue: CustomSingleValue,
+                                   Option: CustomOption,
+                                }}
+                                />
+                            )}
                         </div>
                     })}
                     <div className="flex flex-col justify-end items-end max-md:py-6 pb-10">

@@ -31,7 +31,7 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
   }, [orderData])
 
   return (
-    <Card className="flex flex-wrap md:grid md:grid-cols-4 justify-around border border-gray-100 rounded-lg p-4">
+    <Card className="flex flex-wrap md:grid md:grid-cols-4 justify-between border border-gray-100 rounded-lg p-4">
       <div className="border-0 flex flex-col justify-center max-sm:hidden">
         <p className="text-left py-1 font-light text-sm text-red-700">Date:</p>
         <p className="text-left font-bold py-1 text-base text-black">
