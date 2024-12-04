@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { useEffect, useState } from 'react';
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from 'frappe-react-sdk';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CheckCheck, ListChecks, MessageCircleMore, MessageCircleWarning, Pencil, Trash2, Undo } from 'lucide-react';
+import { CheckCheck, CircleX, ListChecks, MessageCircleMore, MessageCircleWarning, Pencil, Trash2, Undo } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from '../ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
@@ -346,6 +346,32 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
             });
         }
     }
+
+    const handleCancelDraft = async () => {
+        try {
+            await updateDoc("Procurement Requests", id, {
+                workflow_state: "Pending"
+            })
+
+            await mutate(`Procurement Requests ${id}`)
+
+            navigate(-1)
+
+            toast({
+                title: "Success!",
+                description: `PR: ${id} Draft Cancelled!`,
+                variant: "success"
+            })
+
+        } catch (error) {
+            console.log("error while cancelling pr draft", error)
+            toast({
+                title: "Failed!",
+                description: `PR: ${id} Draft Cancellation failed!`,
+                variant: "destructive"
+            })
+        }
+    }
     // console.log("selectedCategories", selectedCategories)
 
     // console.log("curItem", curItem)
@@ -362,10 +388,13 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                     <div>
                         <Alert variant="warning" className="">
                             <AlertTitle className="text-sm flex items-center gap-2"><MessageCircleWarning className="h-4 w-4" />Heads Up</AlertTitle>
-                            <AlertDescription className="py-2 px-4">This PR is now marked as "Draft", please either cancel or update!</AlertDescription>
+                            <AlertDescription className="py-2 px-4 flex justify-between items-center">
+                                This PR is now marked as "Draft", please either cancel or update!
+                                <Button disabled={updateLoading} onClick={handleCancelDraft} className="flex items-center gap-2">{updateLoading ? <TailSpin width={20} height={16} color="white" /> : <><CircleX className="w-4 h-4" /><span>Cancel Draft</span></>}</Button>
+                            </AlertDescription>
                         </Alert>
                     </div>
-                )}
+            )}
             <div className="flex items-center justify-between">
                 <div className="space-y-1">
                     <h3 className="text-sm">Package</h3>
@@ -446,7 +475,7 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                 <div className='max-h-[40vh] overflow-y-auto'>
                 {procList.length !== 0 ? (
                     selectedCategories?.map((cat, index) => {
-                        return <div className=" mb-4 mx-0 px-0">
+                        return <div className="mb-4">
                             <div className='flex items-center gap-4 ml-4'>
                                 <div className='flex items-center gap-2'>
                                     <div className='w-1 h-1 rounded-full bg-black' />
@@ -454,7 +483,7 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                                 </div>
                                 <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
                             </div>
-                            <table className="table-auto md:w-full">
+                            <table className="table-auto w-full">
                                 <thead>
                                     <tr className="bg-gray-200">
                                         <th className="w-[60%] text-left px-4 py-1 text-xs">Item Name</th>

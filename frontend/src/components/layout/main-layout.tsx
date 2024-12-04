@@ -15,12 +15,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Badge } from '../ui/badge';
 import nLogoBlack from "@/assets/icons.svg"
 import { ArrowLeft } from 'lucide-react';
+import { DownOutlined } from '@ant-design/icons';
+import { ConfigProvider, Dropdown, Menu, Space } from 'antd';
+import svg from "@/assets/Vector.svg"
 
 export const MainLayout = () => {
 
     const {setProcurementRequestError, setProcurementRequestList, setProcurementRequestLoading, setProjects, setProjectsError, setProjectsLoading} = useFrappeDataStore()
-
-    const [locationsPaths, setLocationsPaths] = useState(null)
 
     const [project, setProject] = useState(null)
 
@@ -42,9 +43,35 @@ export const MainLayout = () => {
 
     const location = useLocation()
 
+    const [locationsPaths, setLocationsPaths] = useState([])
+    const [currentRoute, setCurrentRoute] = useState(null);
+
     useEffect(() => {
-        const locations = location.pathname?.slice(1)?.split("/")
-        setLocationsPaths(locations)
+        const locations = location.pathname?.slice(1)?.split("/") || [];
+
+        const menuItems = locations.map((item, index) => {
+          const path = `/${locations.slice(0, index + 1).join("/")}`;
+        
+          return {
+            label: (
+              <Link to={path}>{item?.includes("%20") ? item?.replace(/%20/g, " ")?.toUpperCase() : item?.includes("PO&=") ? item?.replace(/&=/g, "/")?.toUpperCase() : item?.toUpperCase()}</Link>
+            ),
+            key: String(index),
+          };
+        }).reverse();
+
+        if(location.pathname !== "/") {
+          menuItems.push({type: "divider"})
+
+          menuItems.push({label: (
+            <Link to={"/"}>Dashboard</Link>
+          ),
+          key: "1000"})
+        }
+
+        setLocationsPaths(menuItems?.slice(1));
+        setCurrentRoute(menuItems[0]?.label || "");
+
         const project = locations?.find((i) => i?.includes("PROJ"))
         const prId = locations?.find((i) => i?.includes("PR-"))
         const poId = locations?.find((i) => i?.includes("PO&="))?.replaceAll("&=", "/")
@@ -92,6 +119,8 @@ export const MainLayout = () => {
 
     const {state, isMobile} = useSidebar()
 
+    const menu = <Menu items={locationsPaths} />;
+
     return (
         <>
             <div className='flex w-full relative h-auto'>
@@ -114,71 +143,77 @@ export const MainLayout = () => {
                       )} */}
                       <ArrowLeft onClick={() => navigate(-1)} className='text-primary cursor-pointer' />
                        <Separator orientation="vertical" className="mr-1 h-4" />
-                       <Breadcrumb>
-            <BreadcrumbList>
-              {locationsPaths?.length > (isMobile ? 1 : 2) ? (
-                <>
-                  {/* First Item */}
-                  {!isMobile && (
-                    <>
-                    <BreadcrumbItem>
-                    <Link to={`/${locationsPaths[0]}`}>
-                      <BreadcrumbLink>{locationsPaths[0]?.toUpperCase()}</BreadcrumbLink>
-                    </Link>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                     </>
-                  )}
-
-                  {/* Ellipsis Dropdown */}
-                  <BreadcrumbItem>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger className="flex items-center gap-1">
-                        <BreadcrumbEllipsis className="h-4 w-4" />
-                        <span className="sr-only">Toggle menu</span>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        {locationsPaths.slice((isMobile ? 0 : 1), -1).map((route, index) => (
-                          <DropdownMenuItem key={index}>
-                            <Link to={`/${locationsPaths.slice(0, index + (isMobile ? 1 : 2)).join('/')}`}>
-                              {route.toUpperCase()}
-                            </Link>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-
-                  {/* Last Item */}
-                  <BreadcrumbItem>
-                    <BreadcrumbPage className='max-sm:text-xs'>{locationsPaths[locationsPaths.length - 1]?.includes("&=") ? locationsPaths[locationsPaths.length - 1]?.replaceAll("&=", "/") : locationsPaths[locationsPaths.length - 1]?.toUpperCase()}</BreadcrumbPage>
-                  </BreadcrumbItem>
-                </>
-              ) : (
-                // Render normally if paths are less than or equal to 2
-                locationsPaths?.map((route, index) => {
-                  const toNavigate = locationsPaths.slice(0, index + 1).join('/');
-                  return (
-                    index < locationsPaths.length - 1 ? (
-                      <React.Fragment key={index}>
-                        <BreadcrumbItem>
-                          <Link to={`/${toNavigate}`}>
-                            <BreadcrumbLink>{route?.toUpperCase()}</BreadcrumbLink>
-                          </Link>
-                        </BreadcrumbItem>
-                        <BreadcrumbSeparator />
-                      </React.Fragment>
-                    ) : (
-                      <BreadcrumbItem key={index}>
-                        <BreadcrumbPage>{route?.includes("&=") ? route?.replaceAll("&=", "/") : route?.toUpperCase()}</BreadcrumbPage>
-                      </BreadcrumbItem>
-                    )
-                  );
-                })
-              )}
-            </BreadcrumbList>
-          </Breadcrumb>
+                       {/* <Breadcrumb>
+                          <BreadcrumbList>
+                            {locationsPaths?.length > (isMobile ? 1 : 2) ? (
+                              <>
+                                First Item
+                                {!isMobile && (
+                                  <>
+                                  <BreadcrumbItem>
+                                  <Link to={`/${locationsPaths[0]}`}>
+                                    <BreadcrumbLink>{locationsPaths[0]?.toUpperCase()}</BreadcrumbLink>
+                                  </Link>
+                                </BreadcrumbItem>
+                                <BreadcrumbSeparator />
+                                   </>
+                                )}
+              
+                                Ellipsis Dropdown
+                                <BreadcrumbItem>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger className="flex items-center gap-1">
+                                      <BreadcrumbEllipsis className="h-4 w-4" />
+                                      <span className="sr-only">Toggle menu</span>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="start">
+                                      {locationsPaths.slice((isMobile ? 0 : 1), -1).map((route, index) => (
+                                        <DropdownMenuItem key={index}>
+                                          <Link to={`/${locationsPaths.slice(0, index + (isMobile ? 1 : 2)).join('/')}`}>
+                                            {route.toUpperCase()}
+                                          </Link>
+                                        </DropdownMenuItem>
+                                      ))}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </BreadcrumbItem>
+                                <BreadcrumbSeparator />
+                                    
+                                Last Item
+                                <BreadcrumbItem>
+                                  <BreadcrumbPage className='max-sm:text-xs'>{locationsPaths[locationsPaths.length - 1]?.toUpperCase()}</BreadcrumbPage>
+                                </BreadcrumbItem>
+                              </>
+                            ) : (
+                              // Render normally if paths are less than or equal to 2
+                              locationsPaths?.map((route, index) => {
+                                const toNavigate = locationsPaths.slice(0, index + 1).join('/');
+                                return (
+                                  index < locationsPaths.length - 1 ? (
+                                    <React.Fragment key={index}>
+                                      <BreadcrumbItem>
+                                        <Link to={`/${toNavigate}`}>
+                                          <BreadcrumbLink>{route?.toUpperCase()}</BreadcrumbLink>
+                                        </Link>
+                                      </BreadcrumbItem>
+                                      <BreadcrumbSeparator />
+                                    </React.Fragment>
+                                  ) : (
+                                    <BreadcrumbItem key={index}>
+                                      <BreadcrumbPage>{route?.includes("&=") ? route?.replaceAll("&=", "/") : route?.toUpperCase()}</BreadcrumbPage>
+                                    </BreadcrumbItem>
+                                  )
+                                );
+                              })
+                            )}
+                          </BreadcrumbList>
+                        </Breadcrumb> */}
+                      <Dropdown overlay={menu} trigger={['click']}>
+                            <div onClick={(e) => e.preventDefault()} className='flex items-center gap-1'>
+                              {currentRoute}
+                              {locationsPaths?.length !== 0 && (<img src={svg} />)}
+                            </div>
+                      </Dropdown> 
                      </div>
                      {/*
                     {isMobile ? (
