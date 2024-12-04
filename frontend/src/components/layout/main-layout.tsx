@@ -61,7 +61,9 @@ export const MainLayout = () => {
         }).reverse();
 
         if(location.pathname !== "/") {
-          menuItems.push({type: "divider"})
+          if(locations?.length > 1) {
+            menuItems.push({type: "divider"})
+          }
 
           menuItems.push({label: (
             <Link to={"/"}>Dashboard</Link>
@@ -209,9 +211,9 @@ export const MainLayout = () => {
                           </BreadcrumbList>
                         </Breadcrumb> */}
                       <Dropdown overlay={menu} trigger={['click']}>
-                            <div onClick={(e) => e.preventDefault()} className='flex items-center gap-1'>
-                              {currentRoute}
-                              {locationsPaths?.length !== 0 && (<img src={svg} />)}
+                            <div onClick={(e) => e.preventDefault()} className='text-sm hover:text-gray-500'>
+                               {currentRoute}
+                              {locationsPaths?.length !== 0 && (<img className='inline-block ml-1 mb-1' src={svg} />)}
                             </div>
                       </Dropdown> 
                      </div>

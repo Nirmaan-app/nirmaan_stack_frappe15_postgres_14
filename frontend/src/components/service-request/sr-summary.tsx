@@ -201,7 +201,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                         <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-1 flex-wrap">
                                     {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                                    <h2 className="text-xl max-md:text-lg font-bold tracking-tight text-pageheader">Summary</h2>
+                                    <h2 className="text-xl max-md:text-lg font-bold tracking-tight text-pageheader ml-2">Summary</h2>
                                     {/* <span className="text-red-500 text-2xl max-md:text-xl">SR-{sr_no}</span> */}
                                 </div>
                             <div className="flex gap-4 items-center">
