@@ -21,6 +21,7 @@
   "procurement_lead",
   "design_lead",
   "project_manager",
+  "estimates_exec",
   "project_work_details_section",
   "status",
   "project_work_packages",
@@ -150,11 +151,16 @@
    "fieldname": "project_work_packages",
    "fieldtype": "JSON",
    "label": "Project Work Packages"
+  },
+  {
+   "fieldname": "estimates_exec",
+   "fieldtype": "Data",
+   "label": "Estimates Executive"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-11-30 13:17:19.446332",
+ "modified": "2024-12-06 16:15:40.146055",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
