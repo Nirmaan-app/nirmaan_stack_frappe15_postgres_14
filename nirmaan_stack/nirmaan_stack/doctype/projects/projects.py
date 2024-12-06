@@ -26,7 +26,9 @@ def generateUserPermissions(project, method=None):
 	if(project.design_lead!=""):
 		user_permissions.add(project.design_lead)
 	if(project.project_manager!=""):	
-		user_permissions.add(project.project_manager)	
+		user_permissions.add(project.project_manager)
+	if(project.estimates_exec!=""):	
+		user_permissions.add(project.estimates_exec)	
 	if(len(user_permissions)!=0):
 		for user in user_permissions:
 			doc = frappe.new_doc("User Permission")

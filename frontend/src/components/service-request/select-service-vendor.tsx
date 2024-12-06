@@ -188,7 +188,6 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
         if (vendor_list) {
             const currOptions = vendor_list?.map((item) => ({
                 value: item.name,
-                label: item.vendor_name + ` (${item?.vendor_city}, ${item?.vendor_state})`,
                 vendor_name: item.vendor_name,
                 city: item?.vendor_city,
                 state: item?.vendor_state,
@@ -306,10 +305,16 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
         setIsNextEnabled(allAmountsFilled && allAmountsCount);
     }, [amounts]);
 
+    console.log("selecedVendor", selectedVendor)
+
     useEffect(() => {
         if ((resolve || sr_data?.status === "Rejected") && vendor_list) {
             const vendor = vendor_list?.find((ven) => ven?.name === sr_data?.vendor)
-            const selectedVendor = { value: vendor?.name, label: vendor?.vendor_name }
+            const selectedVendor = { 
+                value: vendor?.name, 
+                vendor_name: vendor?.vendor_name,
+                city: vendor?.vendor_city,
+                state: vendor?.vendor_state }
             setSelectedvendor(selectedVendor)
         }
         if ((resolve || sr_data?.status === "Rejected")) {
