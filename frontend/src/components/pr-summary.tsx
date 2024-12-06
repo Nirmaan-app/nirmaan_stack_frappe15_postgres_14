@@ -85,12 +85,7 @@ interface PRSummaryPageProps {
 
 const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList, pr_data_mutate }: PRSummaryPageProps) => {
     const navigate = useNavigate();
-    const pr_no = pr_data?.name.split("-").slice(-1)
     const userData = useUserData()
-
-    const orderData = { name: pr_data?.name, work_package: pr_data?.work_package, comment: pr_data?.comment, project: pr_data?.project, category_list: JSON.parse(pr_data?.category_list), procurement_list: JSON.parse(pr_data?.procurement_list) }
-
-    const [section, setSection] = useState("pr-summary")
     const { deleteDoc } = useFrappeDeleteDoc()
 
 
@@ -194,7 +189,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
             })
 
             await pr_data_mutate()
-            setSection("edit-pr")
+            navigate("edit")
         } catch (error) {
             console.log("error while marking pr as draft", error)
             toast({
@@ -229,10 +224,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
     }
 
     return (
-        <>
-            <div className={`${section === "pr-summary" ? "flex-1 space-y-2 md:space-y-4" : ""}`}>
-                {section === "pr-summary" && (
-                    <>
+            <div className={`flex-1 space-y-2 md:space-y-4`}>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1 flex-wrap ml-2">
                                 {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
@@ -252,7 +244,10 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 )}
 
                                 {pr_data?.workflow_state === "Draft" && (
-                                    <Button disabled={updateLoading} onClick={handleSendForAppr}>{updateLoading ? <TailSpin width={20} height={16} color="white" /> : "Send for Approval"}</Button>
+                                    <div className="flex items-center gap-2">
+                                        <Button onClick={() => navigate("edit")}>Continue Editing</Button>
+                                        <Button disabled={updateLoading} onClick={handleSendForAppr}>{updateLoading ? <TailSpin width={20} height={16} color="white" /> : "Send for Approval"}</Button>
+                                    </div>
                                 )}
                                 {
                                     [...((!["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) && userData?.user_id === pr_data?.owner) ? ["Rejected", "Pending"] : []), ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) ? ["Approved", "Rejected", "Pending"] : []),].includes(pr_data?.workflow_state) && (
@@ -287,7 +282,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 }
                                 {pr_data?.workflow_state === "Rejected" && (
 
-                                    <Button className="flex items-center gap-1" onClick={() => setSection("resolve-pr")}>
+                                    <Button className="flex items-center gap-1" onClick={() => navigate("resolve")}>
                                         <Settings2 className="h-4 w-4" />
                                         Resolve</Button>
                                 )}
@@ -450,13 +445,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 </CardHeader>
                             </Card>
                         </div>
-                    </>
-                )}
-
-                {(section === "resolve-pr" || section === "edit-pr") && <NewPRPage project={project} rejected_pr_data={orderData} setSection={setSection} section={section} />}
-
             </div>
-        </>
     );
 
 }
