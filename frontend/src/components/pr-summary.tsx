@@ -50,7 +50,7 @@ const PRSummary = () => {
     // const { data: address, error: address_error, isLoading: addressLoading } = useFrappeGetDoc("Address", project_address);
     const { data: procurementOrdersList, error: procurementOrdersError, isLoading: procurementOrdersLoading } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
         fields: ["*"],
-        filters: [['procurement_request', '=', id]],
+        filters: [['procurement_request', '=', id], ["merged", "!=", "true"]],
         limit: 1000
     })
 
@@ -117,6 +117,10 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
         if (["Approved", "RFQ Generated", "Quote Updated", "Vendor Selected"].includes(status)) {
             return "Open PR";
         }
+
+        if(itemList?.some((i) => i?.status === "Deleted")) {
+            return "Open PR"
+          }
 
         const allItemsApproved = itemList.every(item => { return getPOItemStatus(item, po_data); });
 
@@ -443,7 +447,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                                                             </TableCell>
                                                                             <TableCell>{item.unit}</TableCell>
                                                                             <TableCell>{item.quantity}</TableCell>
-                                                                            <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : getItemStatus(item)}</Badge></TableCell>
+                                                                            <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : item.status === "Deleted" ? "Deleted" : getItemStatus(item)}</Badge></TableCell>
                                                                         </TableRow>
                                                                     )
                                                                 }

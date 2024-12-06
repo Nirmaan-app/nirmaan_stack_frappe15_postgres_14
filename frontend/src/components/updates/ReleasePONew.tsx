@@ -1028,7 +1028,7 @@ export const ReleasePONew = ({ not }) => {
                                                             <Table>
                                                                 <TableHeader>
                                                                     <TableRow className="bg-red-100">
-                                                                        <TableHead className="w-[15%]">PO Id</TableHead>
+                                                                        <TableHead className="w-[15%]">ID(PO/Project)</TableHead>
                                                                         {/* <TableHead>Project</TableHead> */}
                                                                         {/* <TableHead>Vendor</TableHead> */}
                                                                         {/* <TableHead>Status</TableHead> */}
@@ -1039,7 +1039,7 @@ export const ReleasePONew = ({ not }) => {
                                                                 </TableHeader>
                                                                 <TableBody>
                                                                     <TableRow key={orderData.name}>
-                                                                        <TableCell>{orderData.name.slice(3, 6)}</TableCell>
+                                                                        <TableCell>{orderData.name.slice(3, 12)}</TableCell>
                                                                         {/* <TableCell>{po.project.split("-").slice(1).join("-")}</TableCell> */}
                                                                         {/* <TableCell>{orderData.project_name}</TableCell> */}
                                                                         {/* <TableCell>{orderData.vendor_name}</TableCell> */}
@@ -1073,7 +1073,7 @@ export const ReleasePONew = ({ not }) => {
 
                                                                         return (
                                                                             <TableRow key={po.name}>
-                                                                                <TableCell>{po.name.slice(3, 6)}</TableCell>
+                                                                                <TableCell>{po.name.slice(3, 12)}</TableCell>
                                                                                 {/* <TableCell>{po.project.split("-").slice(1).join("-")}</TableCell> */}
                                                                                 {/* <TableCell>{po.project_name}</TableCell> */}
                                                                                 {/* <TableCell>{po.vendor_name}</TableCell> */}
@@ -2134,10 +2134,10 @@ export const ReleasePONew = ({ not }) => {
                                                                                                             </AlertDialogAction>
                                                                                                         }
                                                                                                         <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)} className="flex gap-1 items-center" asChild>
-                                                                                                            <Button>
+                                                                                                            <ShadButton variant={"outline"}>
                                                                                                                 <ListChecks className="h-4 w-4" />
                                                                                                                 Save
-                                                                                                            </Button>
+                                                                                                            </ShadButton>
                                                                                                         </AlertDialogAction>
                                                                                                     </div>
                                                                                                 </AlertDialogDescription>
