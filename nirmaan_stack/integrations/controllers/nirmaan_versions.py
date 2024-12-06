@@ -44,16 +44,25 @@ def remove_amend_version(doc, method):
         nirmaan_version_doc = frappe.get_doc("Nirmaan Versions", nvs[0].name)
         nv_data = json.loads(nirmaan_version_doc.data)
 
-        # Extract original and changed order lists
+        # Extract the original order list
         original_list = next(
             (change[1]["list"] for change in nv_data['changed'] if change[0] == "order_list"), []
         )
+
+        # Extract the changed order list from the incoming document
         changed_list = next(
-            (change[2]["list"] for change in data['changed'] if change[0] == "order_list"), []
+            (change[2]["list"] for change in data['changed'] if change[0] == "order_list"), None
         )
+
+        # If `changed_list` is not present, derive it from `nv_data`
+        if changed_list is None:
+            changed_list = next(
+                (change[2]["list"] for change in nv_data['changed'] if change[0] == "order_list"), []
+            )
 
         # Compare lengths
         if len(changed_list) >= len(original_list):
+            frappe.delete_doc("Nirmaan Versions", nvs[0].name)
             return
 
         # Find items removed in the changed list
@@ -76,6 +85,8 @@ def remove_amend_version(doc, method):
                     item["status"] = "Deleted"
 
             procurement_request.save(ignore_permissions=True)
+            
+        frappe.delete_doc("Nirmaan Versions", nvs[0].name)
     else:
         # No action if the status hasn't changed to "PO Approved"
         pass

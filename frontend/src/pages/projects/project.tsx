@@ -192,6 +192,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     limit: 1000
   })
 
+  const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useFrappeGetDocList("Vendors", {
+    fields: ["vendor_name", 'vendor_type'],
+    filters: [["vendor_type", "=", "Material"]],
+    limit: 1000
+    }
+  )
+
+  const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
+
   useEffect(() => {
     if (usersList && projectAssignees) {
       const options = usersList?.filter(user => !projectAssignees?.some((i) => i?.user === user?.name) && user?.role_profile !== "Nirmaan Admin Profile")?.map((op) => ({
@@ -460,6 +469,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       return "New PR";
     }
 
+    if(itemList?.some((i) => i?.status === "Deleted")) {
+      return "Open PR"
+    }
+
     const filteredPOs = po_data?.filter(po => po?.procurement_request === prId) || [];
     const allItemsApproved = itemList.every(item => { return getItemStatus(item, filteredPOs); });
 
@@ -694,6 +707,18 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     };
   };
 
+  const getWorkPackageName = (poId) => {
+    const po = po_data_for_posummary?.find((j) => j?.name === poId)
+    return pr_data?.find((i) => i?.name === po?.procurement_request)?.work_package
+  }
+
+  const wpOptions = data && JSON.parse(data?.project_work_packages)?.work_packages?.map((wp) => ({
+    label : wp?.work_package_name,
+    value: wp?.work_package_name
+  }))
+
+  // console.log("wpOtions", wpOptions)
+
   const poColumns: ColumnDef<ProcurementOrdersType>[] = useMemo(
     () => [
       {
@@ -730,6 +755,31 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               {formatDate(row.getValue("creation")?.split(" ")[0])}
             </div>
           )
+        }
+      },
+      {
+        accessorKey: "name",
+        id: "wp",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader column={column} title="Work Package" />
+          )
+        },
+        cell: ({ row }) => {
+          const po = row.getValue("name")
+          return (
+            <div className="font-medium">
+              {getWorkPackageName(po)}
+            </div>
+          )
+        },
+        filterFn: (row, id, value) => {
+          const rowValue = row.getValue(id)
+          console.log("rowvalue", rowValue)
+          console.log("value", value)
+          const renderValue = getWorkPackageName(rowValue)
+          console.log("renderValue", renderValue)
+          return value.includes(renderValue)
         }
       },
       {
@@ -786,7 +836,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => <span className="hidden">hh</span>
       }
     ],
-    [projectId, po_data_for_posummary]
+    [projectId, po_data_for_posummary, data]
   )
 
   const [current, setCurrent] = useState('overview')
@@ -992,6 +1042,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
       options?.push({ label: "Tool & Equipments", value: "Tool & Equipments" })
       options?.push({ label: "Services", value: "Services" })
+
+      options.sort((a, b) => {
+        if (a.label === "All") return -1;
+        if (b.label === "All") return 1;
+        return a.label.localeCompare(b.label);
+      });
 
       setOptions(options)
       setSelectedPackage("All")
@@ -1423,7 +1479,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               </CardContent>
             </Card> */}
             {po_data_for_posummary_loading ? (<TableSkeleton />) :
-              <DataTable columns={poColumns} data={po_data_for_posummary || []} statusOptions={statusOptions} />
+              <DataTable columns={poColumns} data={po_data_for_posummary || []} vendorOptions={vendorOptions} itemSearch={true} wpOptions={[...wpOptions, {label : "Tool & Equipments", value : "Tool & Equipments"}] || []} />
               // <p>RESOLVE PO TABLE</p>
             }
           </div>
@@ -1483,7 +1539,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   <h2 className="font-semibold text-gray-500">Work Packages</h2>
                   <ArrowDown className="w-4 h-4" />
                 </div>
-                {JSON.parse(data?.project_work_packages)?.work_packages?.map((wp) => (
+                {JSON.parse(data?.project_work_packages)?.work_packages?.sort((a,b) => a?.work_package_name?.localeCompare(b?.work_package_name))?.map((wp) => (
                   <div key={wp?.work_package_name}>
                     <h3 className="text-sm font-semibold py-4">{wp?.work_package_name}</h3>
                     <CategoryAccordion categorizedData={categorizedData} selectedPackage={wp?.work_package_name} projectEstimates={project_estimates?.filter((i) => i?.work_package === wp?.work_package_name) || []} />
@@ -1831,7 +1887,7 @@ export const CategoryAccordion = ({ categorizedData, selectedPackage, projectEst
         <div className="flex flex-col gap-4">
           {defaultValues?.length > 0 && (
             <Accordion type="multiple" className="space-y-4" defaultValue={defaultValues || []}>
-              {Object.entries(selectedData).map(([category, items]) => {
+              {Object.entries(selectedData)?.sort(([a], [b]) => a?.localeCompare(b))?.map(([category, items]) => {
                 const totalAmount = items.reduce((sum, item) =>
                   sum + parseFloat(item?.amount),
                   0
@@ -1927,7 +1983,7 @@ export const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }
       {selectedData ? (
         <div className="flex flex-col gap-4">
           <Accordion type="multiple" className="space-y-4">
-            {Object.entries(selectedData).map(([category, items]) => {
+            {Object.entries(selectedData)?.sort(([a], [b]) => a?.localeCompare(b))?.map(([category, items]) => {
               const totalAmount = items.reduce((sum, item) =>
                 sum + parseFloat(item?.amount),
                 0
@@ -2021,6 +2077,8 @@ export const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) =
     }
   }, [segregatedData]);
 
+  console.log("segregatedData", segregatedData)
+
   // Main table columns
   const columns = [
     {
@@ -2080,7 +2138,7 @@ export const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) =
         <div className="pt-6 overflow-x-auto">
           <ConfigProvider>
             <AntTable
-              dataSource={segregatedData.map((key) => ({
+              dataSource={segregatedData?.sort((a,b) => Object.keys(a)[0]?.localeCompare(Object.keys(b)[0]))?.map((key) => ({
                 key: Object.values(key)[0]?.key,
                 amount: Object.values(key)[0]?.amount,
                 estimate_total: Object.values(key)[0]?.estimate_total,

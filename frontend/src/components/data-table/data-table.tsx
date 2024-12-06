@@ -50,11 +50,12 @@ interface DataTableProps<TData, TValue> {
     itemSearch?: boolean
     approvedQuotesVendors?: any
     itemOptions?: any
+    wpOptions?: any
 }
 
 
 
-export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined, itemSearch = false, approvedQuotesVendors = undefined, itemOptions = undefined }: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined, itemSearch = false, approvedQuotesVendors = undefined, itemOptions = undefined, wpOptions  = undefined}: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([
         {
             id: "creation",
@@ -128,6 +129,8 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
     //   {table.getFilteredRowModel().rows.length} row(s) selected.
     // </div>
 
+    console.log("wpOptions", wpOptions)
+
     return (
         <div className="space-y-4">
             {/* Look for data-table-toolbar in tasks example */}
@@ -157,7 +160,7 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
  
             <div className="rounded-md border max-h-[70vh] overflow-y-auto relative">
                 <Table className="min-w-full">
-                    <TableHeader className="sticky top-0 bg-white z-[1000]">
+                    <TableHeader className="sticky top-0 bg-white z-10">
                         {table.getHeaderGroups().map((headerGroup) => (
                             <TableRow key={headerGroup.id}>
                                 <DataTableViewOptions table={table} />
@@ -175,6 +178,16 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
                                                                     column={table.getColumn("workflow_state")}
                                                                     title={"Status"}
                                                                     options={statusOptions || []}
+                                                                />
+                                                            ) : null
+                                                        )}
+
+                                                        {(wpOptions && header.id === table.getColumn("wp")?.id) && (
+                                                            table.getColumn("wp") ? (
+                                                                <DataTableFacetedFilter
+                                                                    column={table.getColumn("wp")}
+                                                                    title={"Work Package"}
+                                                                    options={wpOptions || []}
                                                                 />
                                                             ) : null
                                                         )}

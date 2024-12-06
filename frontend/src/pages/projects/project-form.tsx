@@ -110,6 +110,9 @@ const projectFormSchema = z.object({
     procurement_lead: z
         .string()
         .optional(),
+    estimates_exec: z
+        .string()
+        .optional(),
     project_work_packages: z
         .object({
             work_packages: z.array(
@@ -211,6 +214,7 @@ export const ProjectForm = () => {
         project_type: "",
         project_lead: "",
         procurement_lead: "",
+        estimates_exec: "",
         design_lead: "",
         project_manager: "",
         subdivisions: "",
@@ -343,6 +347,7 @@ export const ProjectForm = () => {
                     project_state: values.project_state,
                     project_lead: values.project_lead,
                     procurement_lead: values.procurement_lead,
+                    estimates_exec: values.estimates_exec,
                     design_lead: values.design_lead,
                     project_manager: values.project_manager,
                     project_work_packages: values.project_work_packages,
@@ -420,6 +425,11 @@ export const ProjectForm = () => {
         value: item.name
     })) || [];
 
+    const estimates_exec_options: SelectOption[] = user?.filter(item => item.role_profile === "Nirmaan Estimates Executive Profile").map(item => ({
+        label: item.full_name, // Adjust based on your data structure
+        value: item.name
+    })) || [];
+
     const wp_list: wpType[] = work_package_list?.map(item => ({
         work_package_name: item.work_package_name, // Adjust based on your data structure
     })) || [];
@@ -482,7 +492,7 @@ export const ProjectForm = () => {
             case "projectTimeline":
                 return ["project_start_date", "project_end_date"];
             case "projectAssignees":
-                return ["project_lead", "project_manager", "design_lead", "procurement_lead"];
+                return ["project_lead", "project_manager", "design_lead", "procurement_lead", "estimates_exec"];
             case "packageSelection":
                 return ["project_work_packages", "project_scopes"];
             default:
@@ -1056,6 +1066,70 @@ export const ProjectForm = () => {
 
                                 <FormField
                                     control={form.control}
+                                    name="procurement_lead"
+                                    render={({ field }) => (
+                                        <FormItem className="lg:flex lg:items-center gap-4">
+                                            <FormLabel className="md:basis-2/12">Procurement Lead</FormLabel>
+                                            <div className="md:basis-2/4">
+                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                    <div className="flex flex-col items-start">
+                                                        <FormControl>
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Select procurement lead" />
+                                                            </SelectTrigger>
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </div>
+                                                    <SelectContent>
+                                                        {user_isLoading && <div>Loading...</div>}
+                                                        {user_error && <div>Error: {user_error.message}</div>}
+                                                        {procurement_lead_options.map(option => (
+                                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <FormDescription>
+                                                Select Procurement Lead
+                                            </FormDescription>
+                                        </FormItem>
+                                    )}
+                                />
+
+                                <FormField
+                                    control={form.control}
+                                    name="estimates_exec"
+                                    render={({ field }) => (
+                                        <FormItem className="lg:flex lg:items-center gap-4">
+                                            <FormLabel className="md:basis-2/12">Estimates Executive</FormLabel>
+                                            <div className="md:basis-2/4">
+                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                    <div className="flex flex-col items-start">
+                                                        <FormControl>
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Select Estimates Executive" />
+                                                            </SelectTrigger>
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </div>
+                                                    <SelectContent>
+                                                        {user_isLoading && <div>Loading...</div>}
+                                                        {user_error && <div>Error: {user_error.message}</div>}
+                                                        {estimates_exec_options.map(option => (
+                                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <FormDescription>
+                                                Select Estimates Executive
+                                            </FormDescription>
+                                        </FormItem>
+                                    )}
+                                />
+
+                                <FormField
+                                    control={form.control}
                                     name="design_lead"
                                     render={({ field }) => (
                                         <FormItem className="lg:flex lg:items-center gap-4">
@@ -1086,37 +1160,6 @@ export const ProjectForm = () => {
                                     )}
                                 />
 
-                                <FormField
-                                    control={form.control}
-                                    name="procurement_lead"
-                                    render={({ field }) => (
-                                        <FormItem className="lg:flex lg:items-center gap-4">
-                                            <FormLabel className="md:basis-2/12">Procurement Lead</FormLabel>
-                                            <div className="md:basis-2/4">
-                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                    <div className="flex flex-col items-start">
-                                                        <FormControl>
-                                                            <SelectTrigger>
-                                                                <SelectValue placeholder="Select procurement lead" />
-                                                            </SelectTrigger>
-                                                        </FormControl>
-                                                        <FormMessage />
-                                                    </div>
-                                                    <SelectContent>
-                                                        {user_isLoading && <div>Loading...</div>}
-                                                        {user_error && <div>Error: {user_error.message}</div>}
-                                                        {procurement_lead_options.map(option => (
-                                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <FormDescription>
-                                                Select Procurement Lead
-                                            </FormDescription>
-                                        </FormItem>
-                                    )}
-                                />
                                 <div className="flex items-center justify-end gap-2">
                                     <Button variant={"outline"} onClick={() => {
                                         setSection("projectTimeline")
