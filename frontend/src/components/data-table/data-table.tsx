@@ -29,6 +29,8 @@ import DebouncedInput from "./debounced-input"
 import { DataTableViewOptions } from "./data-table-view-options";
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
 import { useFilterStore } from "@/zustand/useFilterStore";
+import { useSearchParams } from "react-router-dom";
+import { Input } from "../ui/input";
 
 type ProjectOptions = {
     label: string,
@@ -53,6 +55,16 @@ interface DataTableProps<TData, TValue> {
     wpOptions?: any
 }
 
+function debounce<T extends (...args: any[]) => void>(func: T, wait: number) {
+    let timeout: NodeJS.Timeout;
+    return (...args: Parameters<T>) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+            func(...args);
+        }, wait);
+    };
+}
+
 
 
 export function DataTable<TData, TValue>({ columns, data, project_values, category_options, vendorOptions = undefined, projectTypeOptions = undefined, roleTypeOptions = undefined, statusOptions = undefined, totalPOsRaised = undefined, itemSearch = false, approvedQuotesVendors = undefined, itemOptions = undefined, wpOptions = undefined }: DataTableProps<TData, TValue>) {
@@ -62,35 +74,71 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
             desc: true
         }
     ]);
+
+    const [searchParams, setSearchParams] = useSearchParams();
     const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
     const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
 
     const [rowSelection, setRowSelection] = React.useState({})
 
-    const currentRoute = window.location.pathname;
+    // const currentRoute = window.location.pathname;
 
-    const globalSearch = useFilterStore((state) => state.getTextSearch(currentRoute));
-    const [globalFilter, setGlobalFilter] = React.useState(globalSearch || '')
+    // const globalSearch = useFilterStore((state) => state.getTextSearch(currentRoute));
+    // const [globalFilter, setGlobalFilter] = React.useState(globalSearch || '')
+
+    // React.useEffect(() => {
+    //     if (globalSearch) {
+    //         setGlobalFilter(globalSearch);
+    //     }
+    // }, [globalSearch]);
+
+    // const handleGlobalFilterChange = (value: string) => {
+    //     setGlobalFilter(value);
+    //     useFilterStore.getState().setTextSearch(currentRoute, value);
+    // };
+
+    // const customGlobalFilter = (row, columnId, filterValue) => {
+    //     const name = row.getValue("name");
+    //     const vendorName = row.getValue("vendor_name");
+    //     const orderList = row.getValue("order_list");
+
+    //     // Combine all fields into a single string for searching
+    //     const combinedString = `${name || ""} ${vendorName || ""} ${JSON.stringify(orderList) || ""
+    //         }`.toLowerCase();
+
+    //     return combinedString.includes(filterValue.toLowerCase());
+    // };
+
+    const initialGlobalSearch = searchParams.get("search") || "";
+    const [globalFilter, setGlobalFilter] = React.useState(initialGlobalSearch);
 
     React.useEffect(() => {
-        if (globalSearch) {
-            setGlobalFilter(globalSearch);
+        if (initialGlobalSearch) {
+            setGlobalFilter(initialGlobalSearch);
         }
-    }, [globalSearch]);
+    }, [initialGlobalSearch]);
 
-    const handleGlobalFilterChange = (value: string) => {
-        setGlobalFilter(value);
-        useFilterStore.getState().setTextSearch(currentRoute, value);
-    };
+    const handleGlobalFilterChange = React.useCallback(
+        debounce((value: string) => {
+            // setGlobalFilter(value);
+    
+            if (value) {
+                setSearchParams({ ...Object.fromEntries(searchParams), search: value });
+            } else {
+                const params = new URLSearchParams(searchParams);
+                params.delete("search");
+                setSearchParams(params);
+            }
+        }, 1000),
+        [searchParams]
+    );
 
     const customGlobalFilter = (row, columnId, filterValue) => {
         const name = row.getValue("name");
         const vendorName = row.getValue("vendor_name");
         const orderList = row.getValue("order_list");
 
-        // Combine all fields into a single string for searching
-        const combinedString = `${name || ""} ${vendorName || ""} ${JSON.stringify(orderList) || ""
-            }`.toLowerCase();
+        const combinedString = `${name || ""} ${vendorName || ""} ${JSON.stringify(orderList) || ""}`.toLowerCase();
 
         return combinedString.includes(filterValue.toLowerCase());
     };
@@ -137,14 +185,15 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
 
             <div className="flex justify-between items-center">
                 <div className="flex gap-2 items-center py-4 sm:w-full">
-                    <DebouncedInput
+                    <Input
+                        id="globalFilter"
                         placeholder="Search..."
                         //value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
                         value={globalFilter ?? ''}
-                        // onChange={(event) =>
-                        //     table.getColumn("name")?.setFilterValue(event.target.value)
-                        // }
-                        onChange={(value) => handleGlobalFilterChange(String(value))}
+                        onChange={(e) => {
+                            setGlobalFilter(e.target.value); // Update local state
+                            handleGlobalFilterChange(e.target.value); // Debounced update
+                        }}
                         className="max-w-sm"
                     />
                     {/* <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} statusOptions={statusOptions} roleTypeOptions={roleTypeOptions}/> */}
