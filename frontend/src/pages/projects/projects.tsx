@@ -273,9 +273,9 @@ export default function Projects() {
                         {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                     </CardContent>
                 </Card>
-                {role === "Nirmaan Admin Profile" && <Button asChild data-cy="add-project-button">
-                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
-                </Button>}
+                {/* {role === "Nirmaan Admin Profile" && <Button asChild data-cy="add-project-button">
+                    <Link to="new-project"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Project</span></Link>
+                </Button>} */}
             </div>
             <div className="pl-0 pr-2">
                 {isLoading || projectTypesListLoading ? (

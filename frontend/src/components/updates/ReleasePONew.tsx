@@ -72,7 +72,7 @@ export const ReleasePONew = ({ not }) => {
     const [clicked, setClicked] = useState(false)
 
 
-    const { id } = useParams<{ id: string }>()
+    const { poId : id } = useParams<{ poId: string }>()
     const orderId = id?.replaceAll("&=", "/")
 
     const navigate = useNavigate()

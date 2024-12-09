@@ -35,7 +35,7 @@ import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActions
 
 const ApprovePRList = () => {
 
-    const { id } = useParams<{ id: string }>()
+    const { prId : id } = useParams<{ prId: string }>()
     const [project, setProject] = useState()
     const [owner, setOwner] = useState(null)
     const { data: pr, isLoading: pr_loading, error: pr_error } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", id);

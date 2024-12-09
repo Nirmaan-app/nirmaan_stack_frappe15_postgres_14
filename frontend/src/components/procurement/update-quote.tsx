@@ -31,7 +31,7 @@ import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
 import { TailSpin } from "react-loader-spinner";
 
 export const UpdateQuote = () => {
-    const { orderId } = useParams<{ orderId: string }>()
+    const { prId : orderId } = useParams<{ prId: string }>()
     const navigate = useNavigate();
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",

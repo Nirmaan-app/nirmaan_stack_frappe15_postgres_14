@@ -210,11 +210,11 @@ Total - ${total.toString().padStart(2, '0')} Nos.
         <>
             {page === "list" &&
                 <div className="flex-1 space-y-2 md:space-y-4">
-                    <div className="flex items-center ">
+                    {/* <div className="flex items-center ">
                         <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
                         <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">MANPOWER REPORT</h2>
-                    </div>
-                    <div className="font-bold text-xl">FOR PROJECT:</div>
+                    </div> */}
+                    {/* <div className="font-bold text-xl">FOR PROJECT:</div> */}
                     <ProjectSelect onChange={handleChange} />
                     {project && (
                         <div className="mx-0 px-0 pt-4">

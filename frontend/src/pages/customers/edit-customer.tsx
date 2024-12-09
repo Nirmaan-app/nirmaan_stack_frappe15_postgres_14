@@ -58,7 +58,7 @@ const EditCustomer = () => {
 
     const navigate = useNavigate();
 
-    const { id } = useParams<{ id: string }>();
+    const { customerId : id } = useParams<{ customerId: string }>();
 
     const { data, mutate: customerMutate } = useFrappeGetDoc("Customers", id, `Customers ${id}`, {
         revalidateIfStale: false

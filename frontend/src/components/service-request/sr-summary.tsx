@@ -25,7 +25,7 @@ import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 
 const SrSummary = () => {
 
-    const { id } = useParams<{ id: any }>();
+    const { srId : id } = useParams<{ srId: any }>();
 
     const [project, setProject] = useState<string | undefined>()
 
@@ -223,7 +223,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 // </div>
                                 }
                                 {sr_data?.status === "Rejected" && (
-                                    <Button onClick={() => setPage("Resolve")} className="flex items-center gap-1">
+                                    <Button onClick={() => navigate("resolve-sr")} className="flex items-center gap-1">
                                         <Settings2 className="h-4 w-4" />
                                         Resolve</Button>
                                 )}
@@ -627,9 +627,9 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                     </>
                 )
             }
-            {page === "Resolve" && (
+            {/* {page === "Resolve" && (
                 <SelectServiceVendorPage resolve={true} sr_data={sr_data} universalComments={universalComments?.filter((com) => com?.subject === "rejecting sr")} setPage={setPage} />
-            )}
+            )} */}
         </div>
     )
 }

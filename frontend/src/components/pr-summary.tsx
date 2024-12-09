@@ -24,9 +24,7 @@ import { TailSpin } from "react-loader-spinner";
 
 const PRSummary = () => {
 
-    const { id } = useParams<{ id: string }>();
-
-    const project_id = id?.split('-')[1];
+    const { prId : id } = useParams<{ prId: string }>();
 
     const [project, setProject] = useState()
     // const [projectAddress, setProjectAddress] = useState()
@@ -189,7 +187,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
             })
 
             await pr_data_mutate()
-            navigate("edit")
+            navigate("edit-pr")
         } catch (error) {
             console.log("error while marking pr as draft", error)
             toast({
@@ -245,7 +243,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
 
                                 {pr_data?.workflow_state === "Draft" && (
                                     <div className="flex items-center gap-2">
-                                        <Button onClick={() => navigate("edit")}>Continue Editing</Button>
+                                        <Button onClick={() => navigate("edit-pr")}>Continue Editing</Button>
                                         <Button disabled={updateLoading} onClick={handleSendForAppr}>{updateLoading ? <TailSpin width={20} height={16} color="white" /> : "Send for Approval"}</Button>
                                     </div>
                                 )}
@@ -282,7 +280,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                 }
                                 {pr_data?.workflow_state === "Rejected" && (
 
-                                    <Button className="flex items-center gap-1" onClick={() => navigate("resolve")}>
+                                    <Button className="flex items-center gap-1" onClick={() => navigate("resolve-pr")}>
                                         <Settings2 className="h-4 w-4" />
                                         Resolve</Button>
                                 )}
