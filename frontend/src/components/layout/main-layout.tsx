@@ -1,6 +1,6 @@
 import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
 import { NavBar } from '../nav/nav-bar';
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { useFrappeDataStore } from '@/zustand/useFrappeDataStore';
 import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '../ui/sidebar';
 import { NewSidebar } from './NewSidebar';
@@ -14,10 +14,12 @@ import { Notifications } from '../nav/notifications';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { Badge } from '../ui/badge';
 import nLogoBlack from "@/assets/icons.svg"
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CirclePlus } from 'lucide-react';
 import { DownOutlined } from '@ant-design/icons';
 import { ConfigProvider, Dropdown, Menu, Space } from 'antd';
 import svg from "@/assets/Vector.svg"
+import { Button } from '../ui/button';
+import { UserContext } from '@/utils/auth/UserProvider';
 
 export const MainLayout = () => {
 
@@ -27,7 +29,9 @@ export const MainLayout = () => {
 
     const navigate = useNavigate()
 
-    // console.log("project", project)
+    const {selectedProject} = useContext(UserContext)
+
+    // console.log("selectedProject", selectedProject)
 
     const [prId, setPrId] = useState(null)
     const [poId, setPoId] = useState(null)
@@ -45,6 +49,27 @@ export const MainLayout = () => {
 
     const [locationsPaths, setLocationsPaths] = useState([])
     const [currentRoute, setCurrentRoute] = useState(null);
+
+    // console.log('selectedProject', selectedProject)
+
+    const newButtonRoutes = {
+      "/projects" : {
+        label : "New Project",
+        route: "projects/new-project"
+      },
+      "/users" : {
+        label : "New User",
+        route: "users/new-user"
+      },
+      "/vendors" : {
+        label : "New Vendor",
+        route: "vendors/new-vendor"
+      },
+      "/customers" : {
+        label : "New Customer",
+        route: "customers/new-customer"
+      }
+    }
 
     useEffect(() => {
         const locations = location.pathname?.slice(1)?.split("/") || [];
@@ -72,7 +97,7 @@ export const MainLayout = () => {
         }
 
         setLocationsPaths(menuItems?.slice(1));
-        setCurrentRoute(menuItems[0]?.label || "");
+        setCurrentRoute((locations[locations?.length - 1]?.includes("%20") ? locations[locations?.length - 1]?.replace(/%20/g, " ")?.toUpperCase() : locations[locations?.length - 1]?.includes("PO&=") ? locations[locations?.length - 1]?.replace(/&=/g, "/")?.toUpperCase() : locations[locations?.length - 1]?.toUpperCase()) || "");
 
         const project = locations?.find((i) => i?.includes("PROJ"))
         const prId = locations?.find((i) => i?.includes("PR-"))
@@ -120,6 +145,8 @@ export const MainLayout = () => {
     }, [projects, projects_loading, projects_error])
 
     const {state, isMobile} = useSidebar()
+
+    // console.log("currentRoute", currentRoute)
 
     const menu = <Menu items={locationsPaths} />;
 
@@ -211,7 +238,7 @@ export const MainLayout = () => {
                           </BreadcrumbList>
                         </Breadcrumb> */}
                       <Dropdown overlay={menu} trigger={['click']}>
-                            <div onClick={(e) => e.preventDefault()} className='text-sm hover:text-gray-500'>
+                            <div className='text-sm hover:text-gray-500'>
                                {currentRoute}
                               {locationsPaths?.length !== 0 && (<img className='inline-block ml-1 mb-1' src={svg} />)}
                             </div>
@@ -226,7 +253,25 @@ export const MainLayout = () => {
                     ) : (
                         projectData && <Badge className='mr-4'>{projectData?.project_name}</Badge>
                     )} */}
-                    {projectData && <Badge className='sm:mr-4 mr-2 max-sm:text-[11px]'>{projectData?.project_name}</Badge>}
+                    {Object.keys(newButtonRoutes)?.includes(location.pathname) ? (
+                      <Button className='sm:mr-4 mr-2' onClick={() => navigate(newButtonRoutes[location.pathname]?.route)}>
+                        <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">{newButtonRoutes[location.pathname]?.label}</span>
+                    </Button>
+                    ) : (
+                      location.pathname === "/prs&milestones/procurement-requests" ? (
+                        selectedProject && (<Button className='sm:mr-4 mr-2' onClick={() => navigate(`/prs&milestones/procurement-requests/${selectedProject}/new-pr`)}>
+                                                <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">New PR</span>
+                                          </Button>)
+                      ) : (
+                        location.pathname === "/service-requests" ? (
+                          selectedProject && (<Button className='sm:mr-4 mr-2' onClick={() => navigate(`/service-requests/${selectedProject}/new-sr`)}>
+                                                  <CirclePlus className="w-5 h-5 pr-1 " />Add <span className="hidden md:flex pl-1">New SR</span>
+                                            </Button>)
+                        ) : (
+                        projectData && <Badge className='sm:mr-4 mr-2 max-sm:text-[11px]'>{projectData?.project_name}</Badge>
+                      )
+                    )
+                    )}
                 </header>
                 <main 
                     className={`flex flex-1 flex-col py-4 px-2 pt-0 transition-all duration-300 ease-in-out overflow-auto  ${state === "expanded" ? "max-h-[93.5vh]" : "max-h-[94.5vh]"}`}
