@@ -10,27 +10,25 @@ import { useUserData } from "@/hooks/useUserData";
 import { Badge } from "../ui/badge";
 import { ProcurementRequestsSkeleton } from "../ui/skeleton";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { UserContext } from "@/utils/auth/UserProvider";
 
 export default function ListPR() {
 
     const navigate = useNavigate();
     const userData = useUserData()
-    const [project, setProject] = useState(() => {
-        // Initialize state from session storage
-        const savedProject = sessionStorage.getItem('selectedProject');
-        return savedProject ? JSON.parse(savedProject) : null;
-    });
+
+    const {setSelectedProject, selectedProject} = useContext(UserContext)
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error, mutate: prListMutate } = useFrappeGetDocList<ProcurementRequests>("Procurement Requests",
         {
             fields: ["*"],
-            filters: [["project", "=", project]],
+            filters: [["project", "=", selectedProject]],
             orderBy: { field: "modified", order: "desc" },
             limit: 1000
         },
-        project ? `Procurement Requests ${project}` : null
+        selectedProject ? `Procurement Requests ${selectedProject}` : null
     );
 
     useFrappeDocTypeEventListener("Procurement Requests", async (event) => {
@@ -39,10 +37,10 @@ export default function ListPR() {
 
     const { data: procurementOrdersList } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
-        filters: [["project", "=", project]],
+        filters: [["project", "=", selectedProject]],
         limit: 1000
     },
-        project ? `Procurement Orders ${project}` : null
+        selectedProject ? `Procurement Orders ${selectedProject}` : null
     )
 
     const checkPoToPr = (prId) => {
@@ -50,8 +48,7 @@ export default function ListPR() {
     }
 
     const handleChange = (selectedItem: any) => {
-        // console.log('Selected item:', selectedItem);
-        setProject(selectedItem ? selectedItem.value : null);
+        setSelectedProject(selectedItem ? selectedItem.value : null)
         sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
     };
 
@@ -75,7 +72,7 @@ export default function ListPR() {
 
             <div className="gap-4 border border-gray-200 rounded-lg p-0.5">
                 <ProjectSelect onChange={handleChange} />
-                {project && <div className="mx-0 px-0 pt-4">
+                {selectedProject && <div className="mx-0 px-0 pt-4">
                     <h2 className="text-lg pl-2 font-semibold tracking-normal py-2">Created By {userData?.full_name}</h2>
                     <Table>
                         <TableHeader className="bg-red-100">
@@ -113,7 +110,7 @@ export default function ListPR() {
                     </Table>
                 </div>}
 
-                {project && <div className="mx-0 px-0 pt-4">
+                {selectedProject && <div className="mx-0 px-0 pt-4">
                     <h2 className="text-lg pl-2 font-semibold tracking-normal py-2">Created By Others</h2>
                     <Table>
                         <TableHeader className="bg-red-100">
@@ -150,9 +147,9 @@ export default function ListPR() {
                     </Table>
                 </div>}
 
-                <div className="flex flex-col justify-end items-end fixed bottom-10 right-4">
+                {/* <div className="flex flex-col justify-end items-end fixed bottom-10 right-4">
                     {project && <Button className="font-normal py-2 px-6 shadow-red-950">
-                        <Link to={`${project}/new`}>
+                        <Link to={`${project}/new-pr`}>
                             <div className="flex">
                                 <CirclePlus className="w-5 h-5 mt- pr-1" />
                                 Create New PR
@@ -160,7 +157,7 @@ export default function ListPR() {
 
                         </Link>
                     </Button>}
-                </div>
+                </div> */}
             </div>
             <div className="pt-10"></div>
         </div>
