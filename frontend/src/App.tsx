@@ -65,6 +65,7 @@ import { ManPowerReport } from './components/ManPowerReport'
 import { NotificationsPage } from './components/nav/notifications'
 import { NewProcurementRequest } from './components/procurement-request/new-new-pr'
 import { WPSelection } from './components/procurement-request/wp_selection'
+import { SelectServiceVendorPage } from '@/components/service-request/select-service-vendor'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -84,26 +85,26 @@ const router = createBrowserRouter(
 						<Route path="procurement-requests">
 							<Route index element={<ListPR />} />
 							{/* <Route path=":id/new" lazy={() => import('@/components/procurement-request/new-pr')} /> */}
-							<Route path=":projectId/new">
-								<Route index element={<WPSelection />} />
-								<Route path=':workPackage' element={<NewProcurementRequest />} />
+							<Route path=":projectId/new-pr">
+								{/* <Route index element={<WPSelection />} /> */}
+								<Route index element={<NewProcurementRequest />} />
 							</Route>
-							<Route path=":id">
-								<Route path='resolve' element={<NewProcurementRequest resolve={true} />} />
-								<Route path='edit' element={<NewProcurementRequest edit={true} />} />
+							<Route path=":prId">
+								<Route path='resolve-pr' element={<NewProcurementRequest resolve={true} />} />
+								<Route path='edit-pr' element={<NewProcurementRequest edit={true} />} />
 								<Route index lazy={() => import('@/components/pr-summary')} />
-								<Route path=":id" element={<POSummary />} />
+								<Route path=":poId" element={<POSummary />} />
 							</Route>
 						</Route>
 
 						{/* Delivery Notes Paths */}
 						<Route path='delivery-notes'>
 							<Route index element={<DeliveryNotes />} />
-							<Route path=":id">
+							<Route path=":dnId">
 								<Route index element={<DeliveryNote />} />
-								<Route path=":id">
+								<Route path=":prId">
 									<Route index lazy={() => import('@/components/pr-summary')} />
-									<Route path=":id" element={<POSummary />} />
+									<Route path=":poId" element={<POSummary />} />
 								</Route>
 							</Route>
 						</Route>
@@ -113,84 +114,87 @@ const router = createBrowserRouter(
 					{/* Service Requests Paths */}
 					<Route path='service-requests'>
 						<Route index element={<ListSR />} />
-						<Route path=":project/new" lazy={() => import('@/components/service-request/new-service-request')} />
-						<Route path=":id" lazy={() => import('@/components/service-request/sr-summary')} />
+						<Route path=":project/new-sr" lazy={() => import('@/components/service-request/new-service-request')} />
+						<Route path=":srId">
+							<Route index lazy={() => import('@/components/service-request/sr-summary')} />
+							<Route path='resolve-sr' lazy={() => import('@/components/service-request/select-service-vendor')} />
+						</Route>
 					</Route>
 
 					<Route path='choose-service-vendor'>
 						<Route index element={<SelectServiceVendorList />} />
-						<Route path=":id" lazy={() => import('@/components/service-request/select-service-vendor')} />
+						<Route path=":srId" lazy={() => import('@/components/service-request/select-service-vendor')} />
 					</Route>
 
 					{/* Approve PR Paths  */}
 					<Route path="approve-new-pr">
 						<Route index element={<ApprovePR />} />
-						<Route path=":id" lazy={() => import('@/pages/approve-order')} />
+						<Route path=":prId" lazy={() => import('@/pages/approve-order')} />
 					</Route>
 
 					{/* Approve PO Paths  */}
 					<Route path="approve-po">
 						<Route index element={<ApproveSelectVendor />} />
-						<Route path=":orderId" lazy={() => import('@/pages/approve-vendor')} />
+						<Route path=":prId" lazy={() => import('@/pages/approve-vendor')} />
 					</Route>
 
 					{/* Approve Amended PO Paths  */}
 					<Route path="approve-amended-po">
 						<Route index element={<ApproveSelectAmendPO />} />
-						<Route path=":po" lazy={() => import('@/pages/approve-amend-po')} />
+						<Route path=":poId" lazy={() => import('@/pages/approve-amend-po')} />
 					</Route>
 
 					{/* Approve Sent Back Paths  */}
 					<Route path="approve-sent-back">
 						<Route index element={<ApproveSelectSentBack />} />
-						<Route path=":id" lazy={() => import('@/pages/approve-sent-back')} />
+						<Route path=":sbId" lazy={() => import('@/pages/approve-sent-back')} />
 					</Route>
 
 					{/* Approve Service Request Paths  */}
 					<Route path="approve-service-request">
 						<Route index element={<ApproveSelectSR />} />
-						<Route path=":id" element={<ApproveServiceRequest />} />
+						<Route path=":srId" element={<ApproveServiceRequest />} />
 					</Route>
 
 					<Route path='approved-sr'>
 						<Route index element={<ApprovedSRList />} />
-						<Route path=":id" element={<ApprovedSR />} />
+						<Route path=":srId" element={<ApprovedSR />} />
 					</Route>
 
 					{/* New PR Request Paths  */}
 					<Route path="new-procure-request">
 						<Route index element={<PRList />} />
-						<Route path=":orderId" element={<ProcurementOrder />} />
+						<Route path=":prId" element={<ProcurementOrder />} />
 					</Route>
 
 					{/* Update Quote Paths  */}
 					<Route path='update-quote'>
 						<Route index element={<QuoteUpdateSelect />} />
-						<Route path=":orderId" element={<UpdateQuote />} />
+						<Route path=":prId" element={<UpdateQuote />} />
 					</Route>
 
 					{/* Select Vendor Paths  */}
 					<Route path="choose-vendor">
 						<Route index element={<SelectVendorList />} />
-						<Route path=":orderId" element={<SelectVendors />} />
+						<Route path=":prId" element={<SelectVendors />} />
 					</Route>
 
 					{/* Approved PO Paths  */}
 					<Route path="approved-po">
 						<Route index element={<ReleasePOSelect not={false} status="PO Approved" />} />
-						<Route path=":id" element={<ReleasePONew not={false} />} />
+						<Route path=":poId" element={<ReleasePONew not={false} />} />
 					</Route>
 
 					{/* Released PO Paths  */}
 					<Route path="released-po">
 						<Route index element={<ReleasePOSelect not={true} status="PO Approved" />} />
-						<Route path=":id" element={<ReleasePONew not={true} />} />
+						<Route path=":poId" element={<ReleasePONew not={true} />} />
 					</Route>
 
 					{/* Sent Back Paths */}
 					<Route path='rejected-sb'>
 						<Route index element={<SentBackRequest type="Rejected" />} />
-						<Route path=":id">
+						<Route path=":sbId">
 							<Route index element={<SentBackSummary />} />
 							<Route path="update-quote">
 								<Route index element={<SentBackUpdateQuote />} />
@@ -201,7 +205,7 @@ const router = createBrowserRouter(
 
 					<Route path='delayed-sb'>
 						<Route index element={<SentBackRequest type="Delayed" />} />
-						<Route path=":id">
+						<Route path=":sbId">
 							<Route index element={<SentBackSummary />} />
 							<Route path="update-quote">
 								<Route index element={<SentBackUpdateQuote />} />
@@ -212,7 +216,7 @@ const router = createBrowserRouter(
 
 					<Route path='cancelled-sb'>
 						<Route index element={<SentBackRequest type="Cancelled" />} />
-						<Route path=":id">
+						<Route path=":sbId">
 							<Route index element={<SentBackSummary />} />
 							<Route path="update-quote">
 								<Route index element={<SentBackUpdateQuote />} />
@@ -224,17 +228,17 @@ const router = createBrowserRouter(
 					{/* Project Paths */}
 					<Route path="projects">
 						<Route index element={<Projects />} />
-						<Route path="new" element={<ProjectForm />} />
+						<Route path="new-project" element={<ProjectForm />} />
 						<Route
 							path=":projectId"
 							lazy={() => import('@/pages/projects/project')}
 						/>
 						<Route path=":projectId/add-estimates" lazy={() => import('@/components/add-project-estimates')} />
 						<Route path=":projectId/edit" element={<EditProjectForm />} />
-						<Route path=":projectId/:id">
+						<Route path=":projectId/:prId">
 							<Route index lazy={() => import('@/components/pr-summary')} />
-							<Route path=":id" element={<POSummary />} />
-							<Route path="dn/:id" element={<DeliveryNote />} />
+							<Route path=":poId" element={<POSummary />} />
+							<Route path="dn/:dnId" element={<DeliveryNote />} />
 						</Route>
 						<Route path=":projectId/po/:id" element={<POSummary />} />
 					</Route>
@@ -242,9 +246,9 @@ const router = createBrowserRouter(
 					{/* User Paths */}
 					<Route path="users">
 						<Route index element={<Users />} />
-						<Route path="new" element={<UserForm />} />
-						<Route path=":id" element={<Profile />} />
-						<Route path=':id/edit' element={<EditUserForm />} />
+						<Route path="new-user" element={<UserForm />} />
+						<Route path=":userId" element={<Profile />} />
+						<Route path=':userId/edit' element={<EditUserForm />} />
 					</Route>
 
 					{/* Item Paths  */}
@@ -256,20 +260,20 @@ const router = createBrowserRouter(
 					{/* Vendor Paths  */}
 					<Route path="vendors">
 						<Route index element={<Vendors />} />
-						<Route path="new" element={<NewVendor />} />
+						<Route path="new-vendor" element={<NewVendor />} />
 						<Route path=":vendorId" >
 							<Route index lazy={() => import('@/pages/vendors/vendor')} />
-							<Route path=":id" element={<POSummary />} />
+							<Route path=":poId" element={<POSummary />} />
+							<Route path="edit" element={<EditVendor />} />
 						</Route>
-						<Route path=":id/edit" element={<EditVendor />} />
 					</Route>
 
 					{/* Customer Paths */}
 					<Route path="customers">
 						<Route index element={<Customers />} />
-						<Route path="new" element={<NewCustomer />} />
+						<Route path="new-customer" element={<NewCustomer />} />
 						<Route path=":customerId" lazy={() => import('@/pages/customers/customer')} />
-						<Route path=":id/edit" element={<EditCustomer />} />
+						<Route path=":customerId/edit" element={<EditCustomer />} />
 					</Route>
 
 					<Route path='notifications'>
@@ -284,7 +288,7 @@ const router = createBrowserRouter(
 					<Route path="debug">
 						{/* <Route index element={<Debug />} /> */}
 						<Route index element={<ApprovedQuotationsTable />} />
-						<Route path=':id' element={<POSummary />} />
+						<Route path=':poId' element={<POSummary />} />
 					</Route>
 
 					{/* Other routes */}

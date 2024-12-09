@@ -483,7 +483,7 @@ import { useUserData } from '@/hooks/useUserData';
 
 
 export default function DeliveryNote() {
-    const { id } = useParams();
+    const { dnId : id } = useParams();
     const userData = useUserData();
     const poId = id?.replaceAll("&=", "/");
     const { data, isLoading, mutate: poMutate } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);

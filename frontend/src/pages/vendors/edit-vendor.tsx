@@ -69,7 +69,7 @@ interface SelectOption {
 
 export const EditVendor = () => {
     const navigate = useNavigate()
-    const { id } = useParams<{ id: string }>()
+    const { vendorId : id } = useParams<{ vendorId: string }>()
     const { data, mutate: vendorMutate } = useFrappeGetDoc(
         'Vendors',
         `${id}`,

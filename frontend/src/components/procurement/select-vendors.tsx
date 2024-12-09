@@ -133,7 +133,7 @@ const columns: TableColumnsType<DataType> = [
 
 export const SelectVendors = () => {
 
-    const { orderId } = useParams<{ orderId: string }>()
+    const { prId : orderId } = useParams<{ prId: string }>()
     const navigate = useNavigate()
 
     const [page, setPage] = useState<string>('updatequotation')

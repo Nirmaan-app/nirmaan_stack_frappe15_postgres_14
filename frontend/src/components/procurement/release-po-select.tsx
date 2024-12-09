@@ -267,6 +267,3 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
         </>
     )
 }
-
-
-

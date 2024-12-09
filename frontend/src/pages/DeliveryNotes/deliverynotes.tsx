@@ -2,10 +2,11 @@ import ProjectSelect from "@/components/custom-select/project-select"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { UserContext } from "@/utils/auth/UserProvider"
 import { formatDate } from "@/utils/FormatDate"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import { ArrowLeft } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useContext, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 
 const DeliveryNotes = () => {
@@ -32,7 +33,7 @@ const DeliveryNotes = () => {
         return procurementOrdersList?.filter((po) => po.procurement_request === prId) || []
     }
 
-    const [project, setProject] = useState(null)
+    const {setSelectedProject, selectedProject} = useContext(UserContext)
 
     // const columns = useMemo(
     //     () => [
@@ -119,7 +120,7 @@ const DeliveryNotes = () => {
 
     const handleChange = (selectedItem: any) => {
         // console.log(selectedItem)
-        setProject(selectedItem ? selectedItem.value : null);
+        setSelectedProject(selectedItem ? selectedItem.value : null);
         sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
     };
 
@@ -138,7 +139,7 @@ const DeliveryNotes = () => {
             <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
 
                 <ProjectSelect onChange={handleChange} />
-                {project && <div className="mx-0 px-0 pt-4">
+                {selectedProject && <div className="mx-0 px-0 pt-4">
                     {/* <h2 className="text-lg pl-2 font-semibold tracking-normal py-2">Created By {userData?.full_name}</h2> */}
                     <Table>
                         <TableHeader className="bg-red-100">
@@ -151,7 +152,7 @@ const DeliveryNotes = () => {
                         </TableHeader>
                         <TableBody>
                             {procurementRequestsList?.map((item) => {
-                                if (item.project === project) {
+                                if (item.project === selectedProject) {
                                     return (
                                         <TableRow key={item.name}>
                                             <TableCell className="text-sm">{item.name.split("-")[2]}</TableCell>

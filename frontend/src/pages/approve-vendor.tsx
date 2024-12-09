@@ -129,7 +129,7 @@ const columns: TableColumnsType<DataType> = [
 
 const ApproveVendor = () => {
 
-    const { orderId } = useParams<{ orderId: string }>()
+    const { prId : orderId } = useParams<{ prId: string }>()
     const [project, setProject] = useState()
     const [owner, setOwner] = useState()
     const { data: pr, isLoading: pr_loading, error: pr_error, mutate: pr_mutate } = useFrappeGetDoc<ProcurementRequestsType>("Procurement Requests", orderId);

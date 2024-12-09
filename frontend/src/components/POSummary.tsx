@@ -41,7 +41,7 @@ const chartConfig = {
 export const POSummary = () => {
 
   const [address, setAddress] = useState()
-  const { id } = useParams();
+  const { poId : id } = useParams();
   const poId = id?.replaceAll("&=", "/");
 
 

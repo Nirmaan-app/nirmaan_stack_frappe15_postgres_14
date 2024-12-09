@@ -25,7 +25,7 @@ const { Sider, Content } = Layout;
 
 export const ApprovedSR = () => {
 
-    const { id } = useParams()
+    const { srId : id } = useParams()
 
     const navigate = useNavigate()
 
