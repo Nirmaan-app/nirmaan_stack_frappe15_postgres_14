@@ -133,13 +133,13 @@ Project - ${projectData?.project_name}
 Date - ${new Date().toLocaleDateString()}
 
 ${filteredDetails
-  .map(
-    (item, index) =>
-      `${index + 1}. ${item.role} - ${item.count
-        .toString()
-        .padStart(2, "0")} Nos.`
-  )
-  .join("\n")}
+        .map(
+          (item, index) =>
+            `${index + 1}. ${item.role} - ${item.count
+              .toString()
+              .padStart(2, "0")} Nos.`
+        )
+        .join("\n")}
 
 Total - ${total.toString().padStart(2, "0")} Nos.
     `.trim();
@@ -229,15 +229,7 @@ Total - ${total.toString().padStart(2, "0")} Nos.
   return (
     <>
       {page === "list" && (
-        <div className="flex-1 space-y-2 md:space-y-4">
-          <div className="flex items-center ">
-            <Link to="/prs&milestones">
-              <ArrowLeft className="" />
-            </Link>
-            <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">
-              MANPOWER REPORT
-            </h2>
-          </div>
+        <div className="flex-1 space-y-4 min-h-[50vh]">
           <div className="flex items-center gap-2">
             <div className="flex-1">
               <ProjectSelect onChange={handleChange} />
@@ -332,12 +324,12 @@ Total - ${total.toString().padStart(2, "0")} Nos.
                                                   ...prevState.report.data,
                                                 ];
                                                 updatedData[existingItemIndex] =
-                                                  {
-                                                    ...updatedData[
-                                                      existingItemIndex
-                                                    ],
-                                                    count: newValue,
-                                                  };
+                                                {
+                                                  ...updatedData[
+                                                  existingItemIndex
+                                                  ],
+                                                  count: newValue,
+                                                };
                                                 return {
                                                   ...prevState,
                                                   report: {

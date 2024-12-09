@@ -510,10 +510,10 @@ export const UpdateQuote = () => {
                       <HoverCardTrigger>
                         <div
                           className={`w-2 h-2 ${checkItemQuoteStatus(item) === "All Filled"
-                              ? "bg-green-500"
-                              : checkItemQuoteStatus(item) === "Not filled"
-                                ? "bg-red-500"
-                                : "bg-yellow-500"
+                            ? "bg-green-500"
+                            : checkItemQuoteStatus(item) === "Not filled"
+                              ? "bg-red-500"
+                              : "bg-yellow-500"
                             }  rounded-full`}
                         />
                       </HoverCardTrigger>

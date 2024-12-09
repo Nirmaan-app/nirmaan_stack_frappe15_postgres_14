@@ -80,6 +80,7 @@ interface SelectOption {
   value: string;
 }
 
+<<<<<<< HEAD
 export const EditVendor = ({ toggleEditSheet }) => {
   const navigate = useNavigate();
   const { vendorId: id } = useParams<{ vendorId: string }>();
@@ -88,6 +89,16 @@ export const EditVendor = ({ toggleEditSheet }) => {
     `${id}`,
     `Vendors ${id}`
   );
+=======
+export const EditVendor = () => {
+    const navigate = useNavigate()
+    const { vendorId : id } = useParams<{ vendorId: string }>()
+    const { data, mutate: vendorMutate } = useFrappeGetDoc(
+        'Vendors',
+        `${id}`,
+        `Vendors ${id}`
+    );
+>>>>>>> af8403c (fix: fixed routes to have the meaningful id params, added new doc creation buttons to the top bar, minor ui fixes)
 
   const {
     data: vendorAddress,

@@ -74,7 +74,7 @@ export const ReleasePONew = ({ not }) => {
     const [prevMergedPOs, setPrevMergedPos] = useState([])
 
 
-    const { id } = useParams<{ id: string }>()
+    const { poId : id } = useParams<{ poId: string }>()
     const orderId = id?.replaceAll("&=", "/")
 
     const navigate = useNavigate()

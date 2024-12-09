@@ -146,7 +146,7 @@ const columns: TableColumnsType<DataType> = [
 
 
 export const SentBackSelectVendor = () => {
-    const { id } = useParams<{ id: string }>()
+    const { sbId : id } = useParams<{ sbId: string }>()
     const navigate = useNavigate()
 
     const userData  = useUserData()

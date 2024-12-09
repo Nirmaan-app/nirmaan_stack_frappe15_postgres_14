@@ -73,14 +73,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
 
   const { customerId: id } = useParams<{ customerId: string }>();
 
-  const { data, mutate: customerMutate } = useFrappeGetDoc(
-    "Customers",
-    id,
-    `Customers ${id}`,
-    {
-      revalidateIfStale: false,
-    }
-  );
+  const { customerId: id } = useParams<{ customerId: string }>();
 
   const companyAddress = data?.company_address;
 

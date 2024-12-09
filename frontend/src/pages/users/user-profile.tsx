@@ -33,7 +33,7 @@ export default function Profile() {
     const [curProj, setCurProj] = useState('')
     const [loadingState, setLoadingState] = useState(false)
 
-    const { id } = useParams<{ id: string }>()
+    const { userId : id } = useParams<{ userId: string }>()
     const navigate = useNavigate()
     const { toast } = useToast()
     const userData = useUserData()
