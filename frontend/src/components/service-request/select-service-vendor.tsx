@@ -24,18 +24,9 @@ import { toast } from "../ui/use-toast"
 import { TailSpin } from "react-loader-spinner"
 
 const SelectServiceVendor = () => {
-    const { id }: any = useParams()
-    const [project, setProject] = useState<string>()
+    const { srId: id }: any = useParams()
 
     const { data: sr_data, isLoading: sr_data_loading, error: sr_data_error } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id)
-
-    useEffect(() => {
-        if (sr_data) {
-            setProject(sr_data?.project)
-        }
-    }, [sr_data])
-
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc<ProjectsType>("Projects", project)
 
     const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
         fields: ["*"],
@@ -49,22 +40,20 @@ const SelectServiceVendor = () => {
         orderBy: { field: "creation", order: "desc" }
     })
 
-    console.log("universalComments", universalComments)
+    // console.log("universalComments", universalComments)
 
     return (
-        <>  {(sr_data_loading || project_loading || userLoading || universalCommentsLoading) ? <NewPRSkeleton /> : <SelectServiceVendorPage sr_data={sr_data} project_data={project_data} universalComments={universalComments} usersList={usersList} />}
-            {(sr_data_error || project_error || userError || universalCommentsError) && <h1>Error</h1>}
+        <>  {(sr_data_loading || userLoading || universalCommentsLoading) ? <NewPRSkeleton /> : <SelectServiceVendorPage sr_data={sr_data} universalComments={universalComments} usersList={usersList} />}
+            {(sr_data_error || userError || universalCommentsError) && <h1>Error</h1>}
         </>
     )
 };
 
 interface SelectServiceVendorPageProps {
     sr_data: ServiceRequestsType | undefined
-    project_data?: ProjectsType | undefined
     usersList?: NirmaanUsersType[] | undefined
     universalComments: NirmaanCommentsType[] | undefined
     resolve?: boolean
-    setPage?: any
 }
 
 interface DataType {
@@ -77,7 +66,7 @@ interface DataType {
     children?: DataType[];
 }
 
-export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, universalComments, resolve = false, setPage }: SelectServiceVendorPageProps) => {
+export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments }: SelectServiceVendorPageProps) => {
 
     const navigate = useNavigate()
     const userData = useUserData()
@@ -90,8 +79,6 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     const [order, setOrder] = useState(sr_data && JSON.parse(sr_data?.service_order_list)?.list);
     const [isNextEnabled, setIsNextEnabled] = useState(false);
     const [expandedRowKeys, setExpandedRowKeys] = useState([]);
-
-    console.log("sr_data", JSON.parse(sr_data?.service_order_list))
 
     const groupedData = useMemo(() => {
         return order?.reduce((acc, item) => {
@@ -269,7 +256,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     }
 
     const handleChange = () => (vendor: any) => {
-        console.log("vendor", vendor)
+        // console.log("vendor", vendor)
         setSelectedvendor(vendor)
     }
 
@@ -281,10 +268,10 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     // console.log("amounts", amounts)
 
     const handleSaveAmounts = () => {
-        console.log("Amounts to save:", amounts);
+        // console.log("Amounts to save:", amounts);
         let newOrderData = []
         for (let item of order) {
-            console.log("item", item)
+            // console.log("item", item)
             let entry: any = {}
             entry.id = item.id
             entry.category = item.category
@@ -309,7 +296,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     console.log("selecedVendor", selectedVendor)
 
     useEffect(() => {
-        if ((resolve || sr_data?.status === "Rejected") && vendor_list) {
+        if ((sr_data?.status === "Rejected") && vendor_list) {
             const vendor = vendor_list?.find((ven) => ven?.name === sr_data?.vendor)
             const selectedVendor = {
                 value: vendor?.name,
@@ -319,14 +306,14 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
             }
             setSelectedvendor(selectedVendor)
         }
-        if ((resolve || sr_data?.status === "Rejected")) {
+        if (sr_data?.status === "Rejected") {
             let amounts = {}
             JSON.parse(sr_data?.service_order_list)?.list?.forEach((item) => {
                 amounts = { ...amounts, [item.id]: item?.rate }
             })
             setAmounts(amounts)
         }
-    }, [resolve, sr_data, vendor_list])
+    }, [sr_data, vendor_list])
 
     // console.log("amounts", amounts)
     // console.log("sr_data", sr_data)
@@ -394,8 +381,8 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                 variant: "success",
             });
 
-            if (resolve) {
-                setPage("Summary")
+            if (sr_data?.status === "Rejected") {
+                navigate(`/service-requests/${sr_data?.name}`)
             } else {
                 navigate("/choose-service-vendor");
             }
@@ -419,14 +406,14 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
             {section === 'choose-vendor' && <>
                 <div className="flex-1 space-y-4">
                     <div className="flex items-center">
-                        {resolve && (
+                        {/* {resolve && (
                             <ArrowLeft className='cursor-pointer' onClick={() => setPage("Summary")} />
-                        )}
-                        {resolve ? (
+                        )} */}
+                        {/* {sr_data?.status === "Rejected" ? (
                             <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Resolve</h2>
                         ) : (
                             <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Choose Service Vendor </h2>
-                        )}
+                        )} */}
                     </div>
                     <ProcurementHeaderCard orderData={sr_data} sr={true} />
 
@@ -585,18 +572,18 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button className="flex items-center gap-1">
-                                    {(resolve || sr_data?.status === "Rejected") ?
+                                    {sr_data?.status === "Rejected" ?
                                         <Settings2 className="h-4 w-4" /> :
                                         <ArrowBigUpDash className="" />
                                     }
-                                    {(resolve || sr_data?.status === "Rejected") ? "Resolve" : "Send for Approval"}
+                                    {sr_data?.status === "Rejected" ? "Resolve" : "Send for Approval"}
                                 </Button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
                                     <DialogTitle>Are you sure?</DialogTitle>
                                     <DialogDescription>
-                                        Click on Confirm to {(resolve || sr_data?.status === "Rejected") ? "resolve and send for approval" : "Submit"}!
+                                        Click on Confirm to {sr_data?.status === "Rejected" ? "resolve and send for approval" : "Submit"}!
                                         <Textarea className="mt-4" placeholder={`Optional`} onChange={(e: any) => setComment(e.target.value === "" ? null : e.target.value)} value={comment || ""} />
                                     </DialogDescription>
                                 </DialogHeader>
@@ -605,7 +592,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                                         <Undo2 className="h-4 w-4" />
                                         Cancel</Button>
                                     </DialogClose>
-                                    {(resolve || sr_data?.status === "Rejected") ? (
+                                    {sr_data?.status === "Rejected" ? (
                                         <Button variant="default" className="flex items-center gap-1" onClick={handleResolveSR} disabled={create_loading || update_loading}>
                                             {create_loading || update_loading ? (
                                                 <TailSpin width={20} height={20} color="white" />
