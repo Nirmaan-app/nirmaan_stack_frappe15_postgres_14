@@ -48,17 +48,17 @@ export function DataTableFacetedFilter<TData, TValue>({
 
     // const handleSelect = (option) => {
     //     const newSelectedValues = new Set(selectedValues);
-    
+
     //     if (newSelectedValues.has(option.value)) {
     //         newSelectedValues.delete(option.value);
     //     } else {
     //         newSelectedValues.add(option.value);
     //     }
     //     setSelectedValues(newSelectedValues);
-    
+
     //     const filterValues = Array.from(newSelectedValues);
     //     column?.setFilterValue(filterValues.length ? filterValues : undefined);
-    
+
     //     useFilterStore.getState().setFilters(currentRoute, title, filterValues);
     // };
 
@@ -122,49 +122,49 @@ export function DataTableFacetedFilter<TData, TValue>({
         const urlParams = new URLSearchParams(window.location.search);
         const filterParam = urlParams.get(title);
         if (filterParam) {
-          const values = new Set(filterParam.split(","));
-          setSelectedValues(values);
-          column?.setFilterValue(Array.from(values));
+            const values = new Set(filterParam.split(","));
+            setSelectedValues(values);
+            column?.setFilterValue(Array.from(values));
         } else {
-          setSelectedValues(new Set());
-          column?.setFilterValue(undefined);
+            setSelectedValues(new Set());
+            column?.setFilterValue(undefined);
         }
-      }, [title, column]);
-    
-      const updateURL = (key: string, value: string[] | undefined) => {
+    }, [title, column]);
+
+    const updateURL = (key: string, value: string[] | undefined) => {
         const url = new URL(window.location.href);
         if (value && value.length) {
-          url.searchParams.set(key, value.join(","));
+            url.searchParams.set(key, value.join(","));
         } else {
-          url.searchParams.delete(key);
+            url.searchParams.delete(key);
         }
         window.history.pushState({}, "", url);
-      };
-    
-      const handleSelect = (option: { value: string }) => {
+    };
+
+    const handleSelect = (option: { value: string }) => {
         const newSelectedValues = new Set(selectedValues);
-    
+
         if (newSelectedValues.has(option.value)) {
-          newSelectedValues.delete(option.value);
+            newSelectedValues.delete(option.value);
         } else {
-          newSelectedValues.add(option.value);
+            newSelectedValues.add(option.value);
         }
-    
+
         const filterValues = Array.from(newSelectedValues);
         setSelectedValues(newSelectedValues);
         column?.setFilterValue(filterValues.length ? filterValues : undefined);
-    
+
         // Update URL parameters
         updateURL(title, filterValues.length ? filterValues : undefined);
-      };
-    
-      const clearFilters = () => {
+    };
+
+    const clearFilters = () => {
         setSelectedValues(new Set());
         column?.setFilterValue(undefined);
-    
+
         // Clear filter from URL parameters
         updateURL(title, undefined);
-      };
+    };
 
 
     return (
@@ -174,7 +174,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                     {selectedValues.size > 0 ? (
                         <FilterX className={`text-primary h-4 w-4 ${selectedValues.size > 0 && "animate-bounce"}`} />
                     ) : (
-                        <Filter  className="text-primary h-4 w-4" />
+                        <Filter className="text-primary h-4 w-4" />
                     )}
                     {/* Filter by {title} */}
                     {/* {selectedValues?.size > 0 && (
@@ -229,7 +229,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                 <Command>
                     <CommandInput placeholder={`Search ${title}..`} />
                     <div className="relative">
-                        <CommandList  className={`overflow-y-auto ${selectedValues.size > 0 && "mb-10"}`}> {/* Adjust max height as needed */}
+                        <CommandList className={`overflow-y-auto ${selectedValues.size > 0 && "mb-10"}`}> {/* Adjust max height as needed */}
                             <CommandEmpty>{"No Filter results"}</CommandEmpty>
                             <CommandGroup>
                                 {options.map((option) => {
