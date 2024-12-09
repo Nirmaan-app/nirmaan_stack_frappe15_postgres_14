@@ -11,6 +11,8 @@ interface UserContextProps {
     login: (username: string, password: string) => Promise<void>,
     logout: () => Promise<void>,
     updateCurrentUser: VoidFunction,
+    selectedProject: string | undefined,
+    setSelectedProject: any
     
 }
 
@@ -20,6 +22,8 @@ export const UserContext = createContext<UserContextProps>({
     login: () => Promise.resolve(),
     logout: () => Promise.resolve(),
     updateCurrentUser: () => { },
+    selectedProject: '',
+    setSelectedProject: () => {}
 })
 
 export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
@@ -27,6 +31,15 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
     const { mutate } = useSWRConfig()
     const { login, logout, currentUser, updateCurrentUser, isLoading } = useFrappeAuth()
     const [authStatus, setAuthStatus] = useState<'idle' | 'loggedOut' | 'loggedIn'>('idle')
+
+    const [selectedProject, setSelectedProject] = useState();
+
+    useEffect(() => {
+      const savedProject = sessionStorage.getItem('selectedProject');
+       setSelectedProject(savedProject ? JSON.parse(savedProject) : null)
+    }, [])
+
+    console.log("selectedProject", selectedProject)
 
     // const navigate  = useNavigate();
 
@@ -82,7 +95,7 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
         // setAuthStatus('loggedIn')
     }
     return (
-        <UserContext.Provider value={{ isLoading, updateCurrentUser, login: handleLogin, logout: handleLogout, currentUser: currentUser ?? "" }}>
+        <UserContext.Provider value={{ isLoading, updateCurrentUser, login: handleLogin, logout: handleLogout, currentUser: currentUser ?? "", selectedProject, setSelectedProject }}>
             {children}
         </UserContext.Provider>
     )

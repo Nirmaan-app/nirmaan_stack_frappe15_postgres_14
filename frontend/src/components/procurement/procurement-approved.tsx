@@ -27,7 +27,9 @@ export const PRList = () => {
             filters: [["workflow_state", "=", "Approved"]],
             limit: 1000,
             orderBy: {field: "modified", order: "desc"}
-        });
+        },
+        "Procurement Requests PRList"
+    );
     const { data: projects, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ["name", "project_name"],
         limit: 1000

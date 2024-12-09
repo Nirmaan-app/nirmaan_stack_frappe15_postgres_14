@@ -12,7 +12,7 @@ import { TailSpin } from "react-loader-spinner";
 
 export const SentBackSummary = () => {
 
-    const { id } = useParams<{ id: string }>()
+    const { sbId : id } = useParams<{ sbId: string }>()
     const navigate = useNavigate();
 
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",

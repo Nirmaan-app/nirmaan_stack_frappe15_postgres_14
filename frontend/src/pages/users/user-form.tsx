@@ -106,17 +106,11 @@ export const UserForm = () => {
 
     return (
         <div className="flex-1">
-            <div className="flex gap-2">
-                {/* <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/users")} /> */}
-                <div className="flex flex-col">
-                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Add New User</h2>
-                    <p className="text-muted-foreground">
-                        Fill all the marked details to create a new User
-                    </p>
-                </div>
-            </div>
+            <p className="text-muted-foreground ml-6 max-md:ml-2">
+                Fill all the marked details to create a new User
+            </p>
 
-            <Separator className="my-6 max-md:my-2" />
+            <Separator className="my-4 max-md:my-2" />
             <Form {...form}>
                 <form onSubmit={(event) => {
                     event.stopPropagation();

@@ -49,7 +49,7 @@ const EditUserForm = () => {
 
     const navigate = useNavigate()
 
-    const {id} = useParams()
+    const {userId : id} = useParams()
 
     const {data, mutate} = useFrappeGetDoc("Nirmaan Users", id, id ? `Nirmaan Users ${id}` : null)
 

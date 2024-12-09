@@ -14,7 +14,7 @@ import { TailSpin } from "react-loader-spinner"
 import { ProcurementActionsHeaderCard } from "../ui/ProcurementActionsHeaderCard"
 
 export const ApproveServiceRequest = () => {
-    const { id } = useParams<{ id: string }>()
+    const { srId : id } = useParams<{ srId: string }>()
     const navigate = useNavigate()
     const [project, setProject] = useState()
     const [owner, setOwner] = useState()

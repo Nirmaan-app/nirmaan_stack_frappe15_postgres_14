@@ -33,7 +33,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { TailSpin } from "react-loader-spinner";
 
 export const SentBackUpdateQuote = () => {
-    const { id } = useParams<{ id: string }>()
+    const { sbId : id } = useParams<{ sbId: string }>()
     const navigate = useNavigate();
 
     const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {

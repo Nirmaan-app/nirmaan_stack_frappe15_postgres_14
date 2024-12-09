@@ -26,7 +26,7 @@ import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActions
 
 const ApproveAmendPO = () => {
 
-    const { po } = useParams<{ po: string }>()
+    const { poId: po } = useParams<{ poId: string }>()
     const orderId = po?.replaceAll("&=", "/")
 
     const [project, setProject] = useState<String | undefined>()

@@ -112,7 +112,7 @@ const columns: TableColumnsType<DataType> = [
 
 
 export const SentBackSelectVendor = () => {
-    const { id } = useParams<{ id: string }>()
+    const { sbId : id } = useParams<{ sbId: string }>()
     const navigate = useNavigate()
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",

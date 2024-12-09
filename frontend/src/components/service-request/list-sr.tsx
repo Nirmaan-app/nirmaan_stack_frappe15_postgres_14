@@ -11,16 +11,14 @@ import { ProcurementRequestsSkeleton } from "../ui/skeleton";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
 import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
+import { UserContext } from "@/utils/auth/UserProvider";
 
 export default function ListSR() {
 
     const navigate = useNavigate();
     const userData = useUserData()
-    const [project, setProject] = useState<string | undefined>(() => {
-        // Initialize state from session storage
-        const savedProject = sessionStorage.getItem('selectedProject');
-        return savedProject ? JSON.parse(savedProject) : null;
-    });
+
+    const {setSelectedProject, selectedProject} = useContext(UserContext)
 
     // const {notifications, mark_seen_notification} = useNotificationStore()
 
@@ -30,7 +28,7 @@ export default function ListSR() {
             orderBy: { field: "creation", order: "desc" },
             limit: 1000
         },
-        project ? undefined : null
+        selectedProject ? undefined : null
     );
 
     useFrappeDocTypeEventListener("Service Requests", async (event) => {
@@ -49,7 +47,7 @@ export default function ListSR() {
     // }
 
     const handleChange = (selectedItem: any) => {
-        setProject(selectedItem ? selectedItem.value : null);
+        setSelectedProject(selectedItem ? selectedItem.value : null);
         sessionStorage.setItem('selectedProject', JSON.stringify(selectedItem.value));
     };
 
@@ -73,7 +71,7 @@ export default function ListSR() {
 
             <div className="gap-4 border border-gray-200 rounded-lg p-0.5">
                 <ProjectSelect onChange={handleChange} />
-                {project && <div className="mx-0 px-0 pt-4">
+                {selectedProject && <div className="mx-0 px-0 pt-4">
                     <h2 className="text-lg pl-2 font-semibold tracking-normal py-2">Created By {userData?.full_name}</h2>
                     <Table>
                         <TableHeader className="bg-red-100">
@@ -85,7 +83,7 @@ export default function ListSR() {
                         </TableHeader>
                         <TableBody>
                             {service_request_list?.map((item) => {
-                                if (item.project === project && item.owner === userData.user_id) {
+                                if (item.project === selectedProject && item.owner === userData.user_id) {
                                     // const isNew = notifications.find(
                                     //     (i) =>  i.docname === item?.name && i.seen === "false" && i.event_id === "pr:rejected"
                                     // )
@@ -113,7 +111,7 @@ export default function ListSR() {
                     </Table>
                 </div>}
 
-                {project && <div className="mx-0 px-0 pt-4">
+                {selectedProject && <div className="mx-0 px-0 pt-4">
                     <h2 className="text-lg pl-2 font-semibold tracking-normal py-2">Created By Others</h2>
                     <Table>
                         <TableHeader className="bg-red-100">
@@ -125,7 +123,7 @@ export default function ListSR() {
                         </TableHeader>
                         <TableBody>
                             {service_request_list?.map((item) => {
-                                if (item.project === project && item.owner !== userData.user_id) {
+                                if (item.project === selectedProject && item.owner !== userData.user_id) {
                                     // const isNew = notifications.find(
                                     //     (i) =>  i.docname === item?.name && i.seen === "false" && i.event_id === "pr:rejected"
                                     // )
@@ -152,9 +150,9 @@ export default function ListSR() {
                     </Table>
                 </div>}
 
-                <div className="flex flex-col justify-end items-end fixed bottom-10 right-4">
-                    {project && <Button className="font-normal py-2 px-6 shadow-red-950">
-                        <Link to={`${project}/new`}>
+                {/* <div className="flex flex-col justify-end items-end fixed bottom-10 right-4">
+                    {selectedProject && <Button className="font-normal py-2 px-6 shadow-red-950">
+                        <Link to={`${selectedProject}/new`}>
                             <div className="flex">
                                 <CirclePlus className="w-5 h-5 mt- pr-1" />
                                 Create SR
@@ -162,7 +160,7 @@ export default function ListSR() {
 
                         </Link>
                     </Button>}
-                </div>
+                </div> */}
             </div>
             {/* <div className="pt-10"></div> */}
         </div>

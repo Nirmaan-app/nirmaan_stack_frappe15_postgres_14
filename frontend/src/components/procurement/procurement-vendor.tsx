@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/sheet"
 import { ArrowBigRightDash, ArrowLeft, CirclePlus, ListChecks, MessageCircleMore } from 'lucide-react';
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom";
@@ -32,8 +32,9 @@ import { TailSpin } from "react-loader-spinner";
 
 export const ProcurementOrder = () => {
 
-    const { orderId } = useParams<{ orderId: string }>()
+    const { prId : orderId } = useParams<{ prId: string }>()
     const navigate = useNavigate();
+    const {mutate} = useSWRConfig()
 
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
 
@@ -73,7 +74,7 @@ export const ProcurementOrder = () => {
             filters: [["name", "=", orderId]],
             limit: 1000
         },
-        `Procurement Requests, filters(name,${orderId})`
+        `Procurement Requests ${orderId}`
     );
     const { data: vendor_category_list, isLoading: vendor_category_list_loading, error: vendor_category_list_error, mutate: vendor_category_mutate } = useFrappeGetDocList("Vendor Category",
         {
@@ -279,7 +280,6 @@ export const ProcurementOrder = () => {
     }, [vendor_category_list, vendor_list]);
 
     const handleChange = (category) => (selectedOptions) => {
-        console.log("selectedOptions", selectedOptions)
         const updatedCategories = { ...selectedCategories };
         const newVendors = [];
         selectedOptions?.map((item) => {
@@ -349,22 +349,27 @@ export const ProcurementOrder = () => {
 
         try {
             await Promise.all(promises);
-            updateDoc('Procurement Requests', orderId, {
+            await updateDoc('Procurement Requests', orderId, {
                 workflow_state: "RFQ Generated",
             })
-                .then(() => {
-                    console.log(orderId)
-                    navigate(`/update-quote/${orderId}`);
-                }).catch(() => {
-                    console.log("error", update_error)
-                })
+            await mutate("Procurement Requests PRList")
+            await mutate(`Procurement Requests ${orderId}`)
+            setOrderData({
+                project: '',
+                work_package: '',
+                procurement_list: {
+                    list: []
+                },
+                category_list: {
+                    list: []
+                }
+            })
+            navigate(`/update-quote/${orderId}`);
 
         } catch (error) {
             console.error("Error in creating documents:", error);
         }
     };
-
-    // console.log("orderdata", orderData)
 
     if(vendor_category_list_loading || vendor_list_loading || procurement_request_list_loading || category_list_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"}  /> </div>
 
