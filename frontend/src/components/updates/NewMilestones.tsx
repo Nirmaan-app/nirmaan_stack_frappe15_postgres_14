@@ -276,7 +276,7 @@ export default function NewMilestones() {
     const checkPendingMilestones = () => {
         const pendingMilestones = project_work_milestones_list?.filter(milestone => (milestone.status === "Pending" &&
             new Date(milestone.start_date) <= new Date(today)) || (!["Completed", "Pending"].includes(milestone.status) && isMoreThan72Hours(milestone.modified)))
-        console.log("pendingMilestnoes", pendingMilestones)
+        // console.log("pendingMilestnoes", pendingMilestones)
         return pendingMilestones
     }
 

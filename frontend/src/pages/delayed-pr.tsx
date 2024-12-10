@@ -229,7 +229,7 @@ export const DelayedPR = () => {
             ? orderData.procurement_list?.list.filter(item => selectedVendors[item.name])
             : [];
         setSelectedItem({ list: updatedSelectedList });
-        console.log("selectedItem", updatedSelectedList)
+        // console.log("selectedItem", updatedSelectedList)
     };
 
     const handleTrigger = () => {
@@ -339,15 +339,15 @@ export const DelayedPR = () => {
 
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
-            console.log("onChange")
-            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+            // console.log("onChange")
+            // console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
             setSelectedItems(selectedRows)
         },
         onSelect: (record, selected, selectedRows) => {
-            console.log(record, selected, selectedRows);
+            // console.log(record, selected, selectedRows);
         },
         onSelectAll: (selected, selectedRows, changeRows) => {
-            console.log(selected, selectedRows, changeRows);
+            // console.log(selected, selectedRows, changeRows);
         },
     };
 

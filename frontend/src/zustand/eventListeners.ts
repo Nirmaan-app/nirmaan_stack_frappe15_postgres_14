@@ -19,7 +19,7 @@ async function handleNotification(db, event, add_new_notification) {
                 work_package: newNotificationData?.work_package,
                 action_url: newNotificationData?.action_url,
             });
-            console.log("Updated notifications state with new data", newNotificationData);
+            // console.log("Updated notifications state with new data", newNotificationData);
         }
     }
 }

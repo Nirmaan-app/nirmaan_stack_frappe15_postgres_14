@@ -191,7 +191,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
         return total;
     }
 
-    console.log("sr_data", sr_data)
+    // console.log("sr_data", sr_data)
 
     return (
         <div className="flex-1 space-y-2 md:space-y-4">

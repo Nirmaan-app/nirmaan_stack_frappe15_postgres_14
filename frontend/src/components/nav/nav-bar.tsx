@@ -300,7 +300,7 @@ export const NavBar = () => {
                         serviceWorkerRegistration: registration
                     });
                     if (data?.fcm_token !== token) {
-                        console.log("running fcm token updating")
+                        // console.log("running fcm token updating")
                         // Update token if it's different from the stored one
                         await updateDoc("Nirmaan Users", user_id, {
                             fcm_token: token,
@@ -406,6 +406,7 @@ export const NavBar = () => {
                         { key: '/items', label: 'Items' },
                         { key: '/vendors', label: 'Vendors' },
                         { key: '/customers', label: 'Customers' },
+                        { key: '/procurement-packages', label: 'Procurement Packages' },
                     ],
                 },
             ]
@@ -729,7 +730,7 @@ export const NavBar = () => {
         "prs&milestones", "approve-order", "approve-vendor",
         "approve-sent-back", "approve-amended-po", "procure-request", "update-quote",
         "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
-        "service-request", "approve-service-request", "select-service-vendor", "approved-sr"
+        "service-request", "approve-service-request", "select-service-vendor", "approved-sr", "procurement-packages"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";

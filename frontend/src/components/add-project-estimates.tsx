@@ -306,7 +306,7 @@ const AddProjectEstimatesPage = ({ project_data, estimates_data, estimates_data_
             key: "edit-delete-actions",
             width: "10%",
             render: (text, record) => {
-                console.log("recordeditdelete", record)
+                // console.log("recordeditdelete", record)
                 return (
                     <div className="flex items-center gap-2">
                         <Dialog>
@@ -995,7 +995,7 @@ export const CategoryWiseEstimateCard = ({ selectedPackage, categorizedData, col
     handleRateChange, loadingState, handleSubmit, showRateDialog, setShowRateDialog, errorItem, setErrorItem, handleAlertSubmit, create_loading
 }) => {
 
-    console.log("categorywiseestimes", categorizedData)
+    // console.log("categorywiseestimes", categorizedData)
     return (
         <div className="flex flex-col gap-6">
             <div className=" overflow-x-auto border-b border-gray-100">

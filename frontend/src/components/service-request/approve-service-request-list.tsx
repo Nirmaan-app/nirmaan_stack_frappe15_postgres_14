@@ -64,7 +64,7 @@ export const ApproveSelectSR = () => {
         }
     }
 
-    console.log("service list", service_request_list)
+    // console.log("service list", service_request_list)
     const columns: ColumnDef<PRTable>[] = useMemo(
         () => [
             {

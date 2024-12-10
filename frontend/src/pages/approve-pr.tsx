@@ -54,7 +54,7 @@ export const ApprovePR = () => {
 
     const { notifications, mark_seen_notification } = useNotificationStore()
 
-    console.log('quotes', quote_data)
+    // console.log('quotes', quote_data)
 
     const getTotal = (order_id: string) => {
         let total: number = 0;

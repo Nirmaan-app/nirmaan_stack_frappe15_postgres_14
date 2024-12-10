@@ -290,12 +290,12 @@
   "work_package": "FA System"
  },
  {
-  "category_name": "Fire Alarm Panel",
+  "category_name": "Conventional Fire Alarm Panel",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fa/fa-panel.png",
   "modified": "2024-11-23 14:28:30.789078",
-  "name": "Fire Alarm Panel",
+  "name": "Conventional Fire Alarm Panel",
   "tax": "18",
   "work_package": "FA System"
  },
@@ -748,5 +748,15 @@
   "name": "Civil & Interior",
   "tax": "18",
   "work_package": "Civil & Interior"
+ },
+ {
+  "category_name": "Addressable Fire Alarm Panel",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-12-10 18:43:28.491877",
+  "name": "Addressable Fire Alarm Panel",
+  "tax": "18",
+  "work_package": "FA System"
  }
 ]

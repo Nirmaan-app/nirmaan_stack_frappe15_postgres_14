@@ -137,7 +137,7 @@ export const EditProjectForm = () => {
         `${projectId}`
     );
 
-    console.log("projectData", data)
+    // console.log("projectData", data)
 
     const navigate = useNavigate()
 
@@ -197,7 +197,7 @@ export const EditProjectForm = () => {
         },
     })
 
-    console.log("formValues", form.getValues())
+    // console.log("formValues", form.getValues())
 
     useEffect(() => {
         if (data && project_address) {

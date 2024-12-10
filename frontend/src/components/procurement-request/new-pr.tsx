@@ -130,7 +130,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package', 'image_url', 'tax'],
+            fields: ['category_name', 'work_package', 'image_url', 'tax', 'new_items', "name"],
             orderBy: { field: 'category_name', order: 'asc' },
             limit: 1000
         });
@@ -545,9 +545,9 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                         {wp_list?.filter((item) => {
-                            let wp_arr = JSON.parse(project.project_work_packages).work_packages.map((item) => item.work_package_name)
-                            if (item.work_package_name === "Tool & Equipments" || wp_arr.includes(item.work_package_name)) return true
-                        }).map((item) => (
+                            let wp_arr = JSON.parse(project?.project_work_packages || "[]")?.work_packages?.map((item) => item?.work_package_name)
+                            if (item?.work_package_name === "Tool & Equipments" || wp_arr?.includes(item?.work_package_name)) return true
+                        })?.map((item) => (
                             <Card className="flex flex-col items-center shadow-none text-center border border-grey-500 hover:animate-shadow-drop-center" onClick={() => handleWPClick(item.work_package_name, 'categorylist')}>
                                 <CardHeader className="flex flex-col items-center justify-center space-y-0 p-2">
                                     <CardTitle className="flex flex-col items-center text-sm font-medium text-center">
@@ -673,7 +673,18 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     </div>
                 </div>
                 <div className="flex justify-between md:space-x-0 mt-2">
-                    <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button>
+                    {(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(userData?.role)) ? (
+                    <HoverCard>
+                        <HoverCardTrigger asChild>
+                            <button disabled className="text-sm py-2 md:text-lg text-blue-300 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button>
+                        </HoverCardTrigger>
+                        <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                            New Items Creation is disabled for this Category, please contact your Project Lead or Administrator!
+                        </HoverCardContent>
+                    </HoverCard>
+                    ) : (
+                        <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button>
+                    )}
                     {(curItem && Number(quantity)) ?
                         <Button variant="default" className="flex items-center gap-1" onClick={() => handleAdd()}> <CirclePlus className="w-4 h-4" />Add</Button>
                         :

@@ -50,7 +50,7 @@ export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= f
 
     function onSubmit() {
         let category_json = Object.values(categories).map((object) => { return object["value"] })
-        console.log(category_json)
+        // console.log(category_json)
 
         updateDoc('Vendors', `${id}`, {
             vendor_category: { "categories": category_json }
@@ -92,7 +92,7 @@ export const AddVendorCategories = ({vendor_name, isSheet = false, isSentBack= f
 
     const handleChange = (selectedOptions) => {
         setCategories(selectedOptions)
-        console.log(categories)
+        // console.log(categories)
     }
 
     return (
