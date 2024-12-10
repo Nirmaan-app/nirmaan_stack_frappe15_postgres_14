@@ -545,7 +545,8 @@ const SidebarMenuButton = React.forwardRef<
   React.ComponentProps<"button"> & {
     asChild?: boolean
     isActive?: boolean
-    tooltip?: string | React.ComponentProps<typeof TooltipContent>
+    tooltip?: string | React.ComponentProps<typeof TooltipContent> | any
+    selectedKeys?: any
   } & VariantProps<typeof sidebarMenuButtonVariants>
 >(
   (
@@ -556,6 +557,7 @@ const SidebarMenuButton = React.forwardRef<
       size = "default",
       tooltip,
       className,
+      selectedKeys,
       ...props
     },
     ref
@@ -585,38 +587,48 @@ const SidebarMenuButton = React.forwardRef<
     }
 
     return (
+      // <Tooltip>
+      //   <TooltipTrigger asChild>{button}</TooltipTrigger>
+      //   <TooltipContent
+      //     side="right"
+      //     align="center"
+      //     hidden={state !== "collapsed" || isMobile}
+      //     {...tooltip}
+      //   />
+      // </Tooltip>
       <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent
-          side="right"
-          align="start"
-          hidden={state !== "collapsed" || isMobile}
-          className="w-60"
-        >
-          {Array.isArray(tooltip) ? (
-            <SidebarMenu className="space-y-1">
-              {tooltip.map((subitem) => (
-                <SidebarMenuItem className="relative" key={subitem.key}>
-                  <SidebarMenuButton
-                    className={`${`/${selectedKeys}` === subitem.key
-                        ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
-                        : ""
-                      } rounded-md w-54`}
-                    asChild
-                  >
-                    <Link to={subitem.key}>
-                      <span className="text-xs text-sidebar-foreground">{subitem.label}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                  <SidebarMenuBadge>{subitem?.count}</SidebarMenuBadge>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          ) : (
-            <p className={`${!selectedKeys ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} rounded-md px-2 py-1`}><Link to="/">{tooltip.children}</Link></p>
-          )}
-        </TooltipContent>
-      </Tooltip>
+    <TooltipTrigger asChild>{button}</TooltipTrigger>
+    <TooltipContent
+      side="right"
+      align="start"
+      hidden={state !== "collapsed" || isMobile}
+      className="w-60 bg-white shadow-2xl"
+    >
+      {Array.isArray(tooltip) ? (
+        <SidebarMenu className="space-y-1">
+          {tooltip.map((subitem) => (
+            <SidebarMenuItem className="relative" key={subitem.key}>
+              <SidebarMenuButton
+                className={`${
+                  `/${selectedKeys}` === subitem.key
+                    ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
+                    : ""
+                } rounded-md w-54`}
+                asChild
+              >
+                <Link to={subitem.key}>
+                  <span className="text-xs text-sidebar-foreground">{subitem.label}</span>
+                </Link>
+              </SidebarMenuButton>
+              <SidebarMenuBadge>{subitem?.count}</SidebarMenuBadge>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      ) : (
+        <p className={`${!selectedKeys ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} rounded-md px-2 py-1`}><Link to="/">{tooltip.children}</Link></p>
+      )}
+    </TooltipContent>
+  </Tooltip>
     )
   }
 )
@@ -644,7 +656,7 @@ const SidebarMenuAction = React.forwardRef<
         "peer-data-[size=lg]/menu-button:top-2.5",
         "group-data-[collapsible=icon]:hidden",
         showOnHover &&
-        "group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 peer-data-[active=true]/menu-button:text-sidebar-accent-foreground md:opacity-0",
+          "group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 peer-data-[active=true]/menu-button:text-sidebar-accent-foreground md:opacity-0",
         className
       )}
       {...props}

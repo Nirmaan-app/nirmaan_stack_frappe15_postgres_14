@@ -214,12 +214,12 @@ export default function Customers() {
                         </div>
                     </CardContent>
                 </Card>
-                <Button asChild>
+                {/* <Button asChild>
                     <Link to="new">
                         <CirclePlus className="w-5 h-5 pr-1 " />
                         Add <span className="hidden md:flex pl-1"> New Customer</span>
                     </Link>
-                </Button>
+                </Button> */}
             </div>
 
             <div className="pl-0 pr-2">
