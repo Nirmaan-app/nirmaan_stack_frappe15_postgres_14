@@ -59,6 +59,7 @@ import { ApprovedSRList } from './components/service-request/approved-sr-list'
 import { ApprovedSR } from './components/service-request/approved-sr'
 import { ManPowerReport } from './components/ManPowerReport'
 import ForgotPassword from './pages/auth/forgot-password'
+import { ProcurementPackages } from './components/procurement-packages'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -258,6 +259,7 @@ const router = createBrowserRouter(
 
 					{/* Other routes */}
 					<Route path="wp" element={<WorkPackages />} />
+					<Route path="procurement-packages" element={<ProcurementPackages />} />
 					<Route path="pdf" element={<PDF />} />
 					<Route path='milestone-update' element={<NewMilestones />} />
 					<Route path="delayed-pr" element={<DelayedPRSelect />} />
@@ -276,7 +278,7 @@ const App: FC = () => {
 	useEffect(() => {
 		// Firebase onMessage handler for foreground notifications
 		onMessage(messaging, (payload) => {
-			console.log('Message received in the foreground: ', payload);
+			// console.log('Message received in the foreground: ', payload);
 
 			const notificationTitle = payload?.notification?.title || "";
 			const notificationOptions = {

@@ -10,7 +10,8 @@
   "category_name",
   "work_package",
   "image_url",
-  "tax"
+  "tax",
+  "new_items"
  ],
  "fields": [
   {
@@ -44,11 +45,17 @@
    "fieldname": "tax",
    "fieldtype": "Data",
    "label": "Tax"
+  },
+  {
+   "default": "true",
+   "fieldname": "new_items",
+   "fieldtype": "Data",
+   "label": "New Items Addition"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-11-30 13:03:37.499365",
+ "modified": "2024-12-10 17:39:14.052304",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Category",

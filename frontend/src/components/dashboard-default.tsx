@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { useFrappeGetDocCount } from "frappe-react-sdk";
-import { HardHat, UsersRound, Package, ShoppingCart, SquareUserRound } from "lucide-react";
+import { HardHat, UsersRound, Package, ShoppingCart, SquareUserRound, Boxes } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
@@ -19,6 +19,8 @@ export const Default = () => {
     const { data: items_count, isLoading: items_count_loading, error: items_count_error } = useFrappeGetDocCount("Items");
 
     const { data: vendors_count, isLoading: vendors_count_loading, error: vendors_count_error } = useFrappeGetDocCount("Vendors");
+
+    const { data: proc_packages_count, isLoading: proc_packages_count_loading, error: proc_packages_count_error } = useFrappeGetDocCount("Procurement Packages");
 
     // const {data : customers_count, isLoading: customers_count_loading, error: customers_count_error} = useQuery({
     //     queryKey: ["docCount", "Customers"],
@@ -181,6 +183,23 @@ export const Default = () => {
                                 <div className="text-2xl font-bold">
                                     {(customers_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (customers_count)}
                                     {customers_count_error && <p>Error</p>}
+                                </div>
+                                {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
+                            </CardContent>
+                        </Link>
+                    </Card>
+                    <Card className="hover:animate-shadow-drop-center" >
+                        <Link to="/procurement-packages">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium">
+                                    Procurement Packages
+                                </CardTitle>
+                                <Boxes className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">
+                                    {(proc_packages_count_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (proc_packages_count)}
+                                    {proc_packages_count_error && <p>Error</p>}
                                 </div>
                                 {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                             </CardContent>
