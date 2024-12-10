@@ -196,9 +196,9 @@ export default function Vendors() {
                         {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                     </CardContent>
                 </Card>
-                <Button asChild>
+                {/* <Button asChild>
                     <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
-                </Button>
+                </Button> */}
             </div>
             <div className="pl-0 pr-2">
                 {(isLoading || category_loading) ? (

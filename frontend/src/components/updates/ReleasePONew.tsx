@@ -1794,7 +1794,7 @@ export const ReleasePONew = ({ not }) => {
                                                                         Cancel
                                                                     </ShadButton>
                                                                 </DialogClose>
-                                                                <ShadButton onClick={handleSendPO} className="bg-yellow-500 hover:bg-yellow-600">
+                                                                <ShadButton onClick={handleDispatchPO} className="bg-yellow-500 hover:bg-yellow-600">
                                                                     <CheckCheck className="h-4 w-4 mr-2" />
                                                                     Confirm
                                                                 </ShadButton>

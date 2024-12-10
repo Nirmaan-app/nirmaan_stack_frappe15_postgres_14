@@ -39,7 +39,7 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
        setSelectedProject(savedProject ? JSON.parse(savedProject) : null)
     }, [])
 
-    console.log("selectedProject", selectedProject)
+    // console.log("selectedProject", selectedProject)
 
     // const navigate  = useNavigate();
 

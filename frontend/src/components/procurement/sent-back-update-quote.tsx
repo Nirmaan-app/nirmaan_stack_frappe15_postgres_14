@@ -323,84 +323,11 @@ export const SentBackUpdateQuote = () => {
 
     return (
         <>
-            {page == 'summary' &&
-                <div className="flex-1 space-y-2 md:space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center pt-1 pb-4">
-                            {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                            <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Summary</h2>
-                        </div>
-                        <Badge variant={orderData?.type === "Rejected" ? "destructive" : orderData?.type === "Delayed" ? "orange" : "gray"}>{orderData?.type}</Badge>
-                    </div>
-                    <ProcurementHeaderCard orderData={orderData} sentBack />
-                    <div className="pt-5 text-red-700 font-light text-base underline">{orderData?.type} Items</div>
-                    <div className="overflow-x-auto">
-                        <Table className="min-w-full divide-gray-200">
-                            <TableHeader className="bg-red-100">
-                                <TableRow>
-                                    <TableHead className="w-[60%]">Items</TableHead>
-                                    <TableHead className="w-[10%]">UOM</TableHead>
-                                    <TableHead className="w-[10%]">Quantity</TableHead>
-                                    {/* <TableHead className="w-[10%]">Rate</TableHead>
-                                        <TableHead className="w-[10%]">Amount</TableHead> */}
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody className="bg-white divide-y divide-gray-200">
-                                {orderData.item_list?.list.map(item => (
-                                    <TableRow key={item.name}>
-                                        <TableCell>{item.item}</TableCell>
-                                        <TableCell>{item.unit}</TableCell>
-                                        <TableCell>{item.quantity}</TableCell>
-                                        {/* <TableCell>{item.quote}</TableCell>
-                                            <TableCell>{item.quote * item.quantity}</TableCell> */}
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </div>
-                    <div className="flex items-center space-y-2 pt-8">
-                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Sent Back Comments</h2>
-                    </div>
-                    <div className="border border-gray-200 rounded-lg p-4">
-                        {/* {universalComments && (universalComments[0]?.content ? universalComments[0].content : "No Comments")} */}
-                        {
-                            universalComments?.length ? (
-                                <div className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
-                                    <Avatar>
-                                        <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${universalComments[0]?.comment_by}`} />
-                                        <AvatarFallback>{universalComments[0]?.comment_by[0]}</AvatarFallback>
-                                    </Avatar>
-                                    <div className="flex-1">
-                                        <p className="font-medium text-sm text-gray-900">{universalComments[0]?.content}</p>
-                                        <div className="flex justify-between items-center mt-2">
-                                            <p className="text-sm text-gray-500">
-                                                {universalComments[0]?.comment_by === "Administrator" ? "Administrator" : getFullName(universalComments[0]?.comment_by)}
-                                            </p>
-                                            <p className="text-xs text-gray-400">
-                                                {formatDate(universalComments[0]?.creation.split(" ")[0])} {universalComments[0]?.creation.split(" ")[1].substring(0, 5)}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <span className="font-semibold text-xs">No Comments Found</span>
-                            )
-                        }
-                    </div>
-                    <div className="flex flex-col justify-end items-end">
-                        <Button onClick={() => setPage('quotation')} className="flex items-center gap-1">
-                            Next
-                            <ArrowBigRightDash className="max-md:w-4 max-md:h-4" />
-                        </Button>
-                    </div>
-                </div>}
-            {
-                page == 'quotation' &&
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1  pb-4">
-                        <ArrowLeft className="cursor-pointer" onClick={() => setPage('summary')} />
-                        <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">SB-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
-                    </div>
+            <div className="flex-1 space-y-4">
+                    {/* <div className="flex items-center">
+                        <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                        <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Add Vendors/Update Quote</h2>
+                    </div> */}
                     <ProcurementHeaderCard orderData={orderData} sentBack />
                     <div className="flex justify-between">
                         <div className="p-2 sm:pl-7 font-light underline text-red-700">Selected Vendor List</div>

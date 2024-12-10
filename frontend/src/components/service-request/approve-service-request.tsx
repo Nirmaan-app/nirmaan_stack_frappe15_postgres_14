@@ -275,7 +275,6 @@ export const ApproveServiceRequest = () => {
                     </div>
                 </Card> */}
                 <ProcurementActionsHeaderCard orderData={service_request} sr={true} />
-            </div>
 
             <div className="overflow-x-auto">
                 <ConfigProvider
@@ -330,7 +329,7 @@ export const ApproveServiceRequest = () => {
                     </AlertDialogTrigger>
                     <AlertDialogContent className="sm:max-w-[425px]">
                         <AlertDialogHeader>
-                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                            <AlertDialogTitle>Are you Sure?</AlertDialogTitle>
                             <AlertDialogDescription>
                                 Add Comments and Reject.
                                 <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
@@ -369,7 +368,7 @@ export const ApproveServiceRequest = () => {
                     </AlertDialogTrigger>
                     <AlertDialogContent className="sm:max-w-[425px]">
                         <AlertDialogHeader>
-                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                            <AlertDialogTitle>Are you Sure?</AlertDialogTitle>
                             <AlertDialogDescription>
                                 Click on Confirm to Approve.
                             </AlertDialogDescription>
@@ -391,6 +390,7 @@ export const ApproveServiceRequest = () => {
                         </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
+            </div>
             </div>
         </>
 
