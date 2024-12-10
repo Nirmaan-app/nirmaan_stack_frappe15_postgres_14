@@ -279,7 +279,7 @@ export const ProcurementOrder = () => {
     }, [vendor_category_list, vendor_list]);
 
     const handleChange = (category) => (selectedOptions) => {
-        console.log("selectedOptions", selectedOptions)
+        // console.log("selectedOptions", selectedOptions)
         const updatedCategories = { ...selectedCategories };
         const newVendors = [];
         selectedOptions?.map((item) => {

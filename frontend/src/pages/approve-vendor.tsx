@@ -435,7 +435,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
-            console.log(`selectedRowKeys : ${selectedRowKeys}, selectedRows: ${selectedRows}`)
+            // console.log(`selectedRowKeys : ${selectedRowKeys}, selectedRows: ${selectedRows}`)
             setSelectedItems(selectedRows)
         },
         onSelect: (record, selected, selectedRows) => { },

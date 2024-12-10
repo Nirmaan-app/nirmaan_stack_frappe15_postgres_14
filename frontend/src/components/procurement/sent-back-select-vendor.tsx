@@ -260,7 +260,7 @@ export const SentBackSelectVendor = () => {
                     newData.push(node);
                 }
             });
-            console.log("newData", newData)
+            // console.log("newData", newData)
             setData(newData)
         }
     }, [orderData, selectedVendors]);
@@ -269,14 +269,14 @@ export const SentBackSelectVendor = () => {
 
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
-            console.log("onChange")
-            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+            // console.log("onChange")
+            // console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
         },
         onSelect: (record, selected, selectedRows) => {
-            console.log(record, selected, selectedRows);
+            // console.log(record, selected, selectedRows);
         },
         onSelectAll: (selected, selectedRows, changeRows) => {
-            console.log(selected, selectedRows, changeRows);
+            // console.log(selected, selectedRows, changeRows);
         },
     };
 
@@ -349,7 +349,7 @@ export const SentBackSelectVendor = () => {
                 const newPrice = quotation_request_list.find(value =>
                     value.item === item.name && value.vendor === selectedVendors[item.name] && value.procurement_task === prevState.procurement_request
                 )?.quote
-                console.log(newPrice)
+                // console.log(newPrice)
                 return {
                     ...item,
                     quote: newPrice,

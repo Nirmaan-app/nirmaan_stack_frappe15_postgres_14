@@ -75,7 +75,7 @@ export const WPCard: React.FC<WPCardProps> = ({ wp }) => {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
         values.work_package = current;
-        console.log("values ", values)
+        // console.log("values ", values)
 
         createDoc('Scopes of Work', values)
             .then(() => {

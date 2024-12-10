@@ -215,7 +215,7 @@ export const SelectVendors = () => {
         setDelayedItems(delayedItems);
     };
 
-    console.log("delayedItems", delayedItems)
+    // console.log("delayedItems", delayedItems)
     // const [checkStrictly, setCheckStrictly] = useState(false);
 
     // console.log("orderData", orderData)
@@ -649,7 +649,7 @@ export const SelectVendors = () => {
             })
     }
 
-    console.log("orderData", orderData?.procurement_list?.list)
+    // console.log("orderData", orderData?.procurement_list?.list)
 
     const generateActionSummary = () => {
         let allDelayedItems = [];

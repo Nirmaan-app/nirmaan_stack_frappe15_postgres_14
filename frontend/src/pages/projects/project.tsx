@@ -775,10 +775,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         },
         filterFn: (row, id, value) => {
           const rowValue = row.getValue(id)
-          console.log("rowvalue", rowValue)
-          console.log("value", value)
+          // console.log("rowvalue", rowValue)
+          // console.log("value", value)
           const renderValue = getWorkPackageName(rowValue)
-          console.log("renderValue", renderValue)
+          // console.log("renderValue", renderValue)
           return value.includes(renderValue)
         }
       },

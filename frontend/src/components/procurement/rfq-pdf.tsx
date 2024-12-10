@@ -20,14 +20,14 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
 
     const [collapsed, setCollapsed] = useState(true);
 
-    console.log("BOQ Attachments", boqAttachments)
+    // console.log("BOQ Attachments", boqAttachments)
 
     const [pdfImages, setPdfImages] = useState({});
 
     const [categoryForVendor, setCategoryVendor] = useState(new Set())
     const [displayBOQ, setDisplayBOQ] = useState({})
     
-    console.log("displayBOQ", displayBOQ)
+    // console.log("displayBOQ", displayBOQ)
 
     const loadPdfAsImages = async (pdfData, category) => {
       try {
@@ -84,7 +84,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
         })
     }, [boqAttachments]);
 
-    console.log("pdfImages", pdfImages)
+    // console.log("pdfImages", pdfImages)
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
@@ -191,7 +191,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
     };
 
 
-    console.log("categories", categoryForVendor)
+    // console.log("categories", categoryForVendor)
 
     return (
             <Layout>
