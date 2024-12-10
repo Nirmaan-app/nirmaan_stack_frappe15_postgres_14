@@ -98,8 +98,8 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
       }
     }, [approvedQuotations])
 
-    console.log("itemIds", itemIds)
-    console.log("approvedItems", approvedItems)
+    // console.log("itemIds", itemIds)
+    // console.log("approvedItems", approvedItems)
 
     const  findVendorName = (id) => {
         if(vendorsList) {

@@ -49,7 +49,7 @@ const SelectServiceVendor = () => {
         orderBy: { field: "creation", order: "desc" }
     })
 
-    console.log("universalComments", universalComments)
+    // console.log("universalComments", universalComments)
 
     return (
         <>  {(sr_data_loading || project_loading || userLoading || universalCommentsLoading) ? <NewPRSkeleton /> : <SelectServiceVendorPage sr_data={sr_data} project_data={project_data} universalComments={universalComments} usersList={usersList} />}
@@ -91,7 +91,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     const [isNextEnabled, setIsNextEnabled] = useState(false);
     const [expandedRowKeys, setExpandedRowKeys] = useState([]);
 
-    console.log("sr_data", JSON.parse(sr_data?.service_order_list))
+    // console.log("sr_data", JSON.parse(sr_data?.service_order_list))
 
     const groupedData = useMemo(() => {
         return order?.reduce((acc, item) => {
@@ -268,7 +268,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     }
 
     const handleChange = () => (vendor: any) => {
-        console.log("vendor", vendor)
+        // console.log("vendor", vendor)
         setSelectedvendor(vendor)
     }
 
@@ -280,10 +280,10 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     // console.log("amounts", amounts)
 
     const handleSaveAmounts = () => {
-        console.log("Amounts to save:", amounts);
+        // console.log("Amounts to save:", amounts);
         let newOrderData = []
         for (let item of order) {
-            console.log("item", item)
+            // console.log("item", item)
             let entry: any = {}
             entry.id = item.id
             entry.category = item.category
@@ -305,7 +305,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
         setIsNextEnabled(allAmountsFilled && allAmountsCount);
     }, [amounts]);
 
-    console.log("selecedVendor", selectedVendor)
+    // console.log("selecedVendor", selectedVendor)
 
     useEffect(() => {
         if ((resolve || sr_data?.status === "Rejected") && vendor_list) {

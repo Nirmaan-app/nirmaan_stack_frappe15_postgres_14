@@ -28,7 +28,8 @@ export const PDF = () => {
             setOrderData(procurement_order_list[0]);
         }
     }, [procurement_order_list]);
-    console.log(procurement_order_list)
+    
+    // console.log(procurement_order_list)
 
     const [isPrinting, setIsPrinting] = useState(false);
     const componentRef = React.useRef();

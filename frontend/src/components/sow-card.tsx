@@ -72,7 +72,7 @@ export const SOWCard: React.FC<SOWCardProps> = ({ sow_id, sow_name }) => {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
         values.scope_of_work = current;
-        console.log("values ", values)
+        // console.log("values ", values)
 
         createDoc('Milestones', values)
             .then(() => {

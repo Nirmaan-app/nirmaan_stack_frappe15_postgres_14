@@ -55,7 +55,7 @@ export const ApprovedSR = () => {
 
     useEffect(() => {
         if (service_request) {
-            console.log("running")
+            // console.log("running")
             setOrderData(service_request)
             const notes = service_request?.notes && JSON.parse(service_request?.notes)?.list
             setNotes(notes || [])
@@ -194,7 +194,7 @@ export const ApprovedSR = () => {
             <Layout>
                 <Sider theme='light' collapsedWidth={0} width={400} trigger={null} collapsible collapsed={collapsed}>
                     {gstEnabled !== null && (
-                        <div className="flex flex-col gap-2 py-6 border-b border-gray-200">
+                    <div className="flex flex-col gap-2 py-6 border-b border-gray-200">
                         <p className="font-semibold">Enable/Disable Tax Calculation</p>
                         <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)}  /> 
                     </div>
