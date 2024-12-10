@@ -71,6 +71,8 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
     isDarkMode = false,
   }) => {
 
+    const [itemIds, setItemIds] = useState([])
+
     const {data : approvedQuotations, isLoading: approvedQuotationsLoading, mutate: approvedQuotationsMutate} = useFrappeGetDocList("Approved Quotations", {
         fields: ["*"],
         limit: 10000
@@ -80,6 +82,24 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
         fields: ["*"],
         limit: 1000
     })
+
+    const {data : approvedItems} = useFrappeGetDocList("Items", {
+      fields: ["*"],
+      filters: [["name", "not in", itemIds]],
+      limit: 10000
+    },
+    itemIds?.length ? undefined : null
+  )
+
+    useEffect(() => {
+      if(approvedQuotations) {
+        const itemIds = approvedQuotations?.map((ap) => ap?.item_id)
+        setItemIds(itemIds)
+      }
+    }, [approvedQuotations])
+
+    console.log("itemIds", itemIds)
+    console.log("approvedItems", approvedItems)
 
     const  findVendorName = (id) => {
         if(vendorsList) {
@@ -229,7 +249,12 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
     // AG GRID CONFIGURATION STARTS FROM HERE
 
   const [rowData, setRowData] = useState([]);
+
+  const [rowData2, setRowData2] = useState([]);
+
   const gridRef = useRef<AgGridReact>(null);
+
+  const gridRef2 = useRef<AgGridReact>(null)
 
   const navigate = useNavigate()
 
@@ -238,6 +263,12 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
         setRowData(approvedQuotations)
     }
   }, [approvedQuotations])
+
+  useEffect(() => {
+    if(approvedItems) {
+        setRowData2(approvedItems)
+    }
+  }, [approvedItems])
 
 
   const colDefs = useMemo<ColDef[]>(
@@ -310,6 +341,58 @@ export const ApprovedQuotationsTable: React.FC<Props> = ({
     [vendorsList, approvedQuotations]
   );
 
+  const colDefs2 = useMemo<ColDef[]>(
+    () => [
+      {
+        field: "name",
+        headerName: "Item ID",
+        chartDataType: "category",
+        minWidth: 100,
+        editable: true,
+      },
+      {
+        headerName: "Creation",
+        chartDataType: "category",
+        cellDataType: "text",
+        valueGetter: ({data} : ValueGetterParams) => data && formatDate(data?.creation), 
+        minWidth: 120,
+      },
+      {
+        field: "item_name",
+        chartDataType: "category",
+        headerName: "Item",
+        cellDataType: "text",
+        minWidth: 300,
+        onCellClicked: ({data}) =>  navigate(`/items/${data?.item_id}`),
+        cellClass: "underline hover:underline-offset-2 hover:text-blue-500 cursor-pointer"
+      },
+    {
+        field: "unit_name",
+        headerName: "Unit",
+        chartDataType: "category",
+        cellDataType: "text",
+        // type: "rightAligned",
+        minWidth: 100,
+      },
+      {
+        field: "make_name",
+        headerName: "Make Name",
+        chartDataType: "category",
+        cellDataType: "text",
+        // type: "rightAligned",
+        minWidth: 100,
+      },
+      {
+        field: "category",
+        chartDataType: "category",
+        cellDataType: "text",
+        // type: "rightAligned",
+        minWidth: 100,
+      }
+    ],
+    [approvedItems, itemIds]
+  );
+
   const defaultColDef: ColDef = useMemo(
     () => ({
       flex: 1,
@@ -358,6 +441,10 @@ const onBtnExport = useCallback(() => {
     gridRef.current!.api.exportDataAsCsv();
 }, []);
 
+const onBtnExport2 = useCallback(() => {
+  gridRef2.current!.api.exportDataAsCsv();
+}, []);
+
   const themeClass = `${gridTheme}${isDarkMode ? "-dark" : ""}`;
 
   return (
@@ -384,6 +471,35 @@ const onBtnExport = useCallback(() => {
             rowData={rowData}
             columnDefs={colDefs}
             defaultColDef={defaultColDef}
+            cellSelection = {true}
+            enableCharts={true}
+            chartToolPanelsDef={chartToolPanelsDef}
+            rowSelection={rowSelection}
+            rowGroupPanelShow={"always"}
+            suppressAggFuncInHeader
+            groupDefaultExpanded={-1}
+            statusBar={statusBar}
+            pagination={pagination}
+            paginationPageSize={paginationPageSize}
+            paginationPageSizeSelector={paginationPageSizeSelector}
+            onCellValueChanged={(e) => console.log("New Cell Value: ", e)} // when editing a column value, we can track that using this event
+            masterDetail
+          />
+        </div>
+      </div>
+    </div>
+
+    <div className={styles.wrapper}>
+    <h2 className="font-semibold text-lg py-4 text-primary">AG Grid Table (inc. Enterprise, Recommended for flexible, dynamic and robust interface)</h2>
+    <Button onClick={onBtnExport2}>Download CSV export file</Button>
+      <div className={styles.container}>
+        <div className={`${themeClass} ${styles.grid}`}>
+          <AgGridReact
+            ref={gridRef2}
+            getRowId={getRowId}
+            rowData={rowData2}
+            columnDefs={colDefs2}
+            defaultColDef={defaultColDef}
             // cellSelection = {true}
             // enableCharts={true}
             chartToolPanelsDef={chartToolPanelsDef}
@@ -391,7 +507,7 @@ const onBtnExport = useCallback(() => {
             rowGroupPanelShow={"always"}
             suppressAggFuncInHeader
             groupDefaultExpanded={-1}
-            // statusBar={statusBar}
+            statusBar={statusBar}
             pagination={pagination}
             paginationPageSize={paginationPageSize}
             paginationPageSizeSelector={paginationPageSizeSelector}
