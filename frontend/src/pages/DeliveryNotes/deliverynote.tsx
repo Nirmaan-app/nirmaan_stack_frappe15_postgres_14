@@ -668,14 +668,8 @@ export default function DeliveryNote() {
 
     return (
         <div className="container mx-auto px-0 max-w-3xl">
-            <div className='flex items-center justify-between'>
-                <div className="flex items-center mb-4 gap-1">
-                    {/* <Button onClick={() => navigate(-1)} variant="ghost" className="p-0">
-                        <ArrowLeft />
-                        <span className="sr-only">Back</span>
-                    </Button> */}
-                    <h1 className="text-2xl max-md:text-xl font-bold">DN-{poId.split('/')[1]}</h1>
-                </div>
+            <div className='flex items-center justify-between mb-4'>
+                <h1 className="text-2xl max-md:text-xl font-bold ml-2">DN-{poId.split('/')[1]}</h1>
                 <Button onClick={handlePrint} className="flex items-center gap-1">
                     <Printer className="h-4 w-4" />
                     Print</Button>

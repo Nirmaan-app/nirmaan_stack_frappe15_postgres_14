@@ -182,21 +182,9 @@ export const ApprovedSR = () => {
     return (
         <div className='flex-1 space-y-4'>
             <div className="flex justify-between items-center">
-<<<<<<< HEAD
-<<<<<<< HEAD
                 <div className=" flex items-center gap-1 ml-8">
                     {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
                     <div className="font-semibold text-xl md:text-2xl text-pageheader">SR PDF</div>
-=======
-                <div className="py-4 flex items-center gap-1">
-                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                    <div className="font-semibold text-xl md:text-2xl">{(orderData?.name)?.toUpperCase()}</div>
->>>>>>> f5a5ff9 (fix: removed left arrows for the following components.)
-=======
-                <div className=" flex items-center gap-1 ml-8">
-                    {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-                    <div className="font-semibold text-xl md:text-2xl text-pageheader">SR PDF</div>
->>>>>>> ec27647 (fix: fixed several routes & navigations and removed/updated page headings)
                 </div>
                 <ShadButton className='flex items-center gap-2' onClick={handlePrint}>
                     <Printer className='h-4 w-4' />

@@ -404,13 +404,13 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
     return (
         <>
             {section === 'choose-vendor' && <>
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1 pb-4">
-                        {resolve && (
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center">
+                        {/* {resolve && (
                             <ArrowLeft className='cursor-pointer' onClick={() => setPage("Summary")} />
-                        )}
-                        {resolve ? (
-                            <h2 className="text-base pl-2 font-bold tracking-tight">Resolve: <span className="text-red-700">SR-{sr_data?.name?.slice(-4)}</span></h2>
+                        )} */}
+                        {/* {sr_data?.status === "Rejected" ? (
+                            <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Resolve</h2>
                         ) : (
                             <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Choose Service Vendor </h2>
                         )} */}

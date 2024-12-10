@@ -406,7 +406,6 @@ export const UpdateQuote = () => {
                                 </Sheet>
                             </div>
                         </div>
-                        </div>
             })}
             <div className="font-light text-sm text-slate-500 max-sm:px-2 px-8 py-6">
                 <span className="text-red-700">Notes:</span> You can download RFQ PDFs for individual vendors for getting quotes

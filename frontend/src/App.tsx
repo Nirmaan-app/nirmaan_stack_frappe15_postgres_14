@@ -65,8 +65,8 @@ import { NewProcurementRequest } from './components/procurement-request/new-new-
 import { WPSelection } from './components/procurement-request/wp_selection'
 import { SelectServiceVendorPage } from '@/components/service-request/select-service-vendor'
 import { SidebarProvider } from './components/ui/sidebar'
-import { SentBackSummary } from './components/procurement/sent-back-summary'
-import { ManPowerReport } from './components/ManPowerReport'
+// import { SentBackSummary } from './components/procurement/sent-back-summary'
+// import { ManPowerReport } from './components/ManPowerReport'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(

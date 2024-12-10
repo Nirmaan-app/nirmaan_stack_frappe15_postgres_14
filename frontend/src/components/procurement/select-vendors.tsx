@@ -946,7 +946,7 @@ export const SelectVendors = () => {
                         </div>
                     </div>
 
-                    <div className='pt-6 overflow-x-auto'>
+                    <div className='mt-6 overflow-x-auto'>
                         <ConfigProvider
                             theme={{
                                 token: {

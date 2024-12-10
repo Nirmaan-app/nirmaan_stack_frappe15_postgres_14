@@ -318,15 +318,9 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
         <>
             <div className={`flex-1 space-x-2 ${navigation ? "flex-1 md:space-y-4" : ""} `}>
                 {navigation && (
-                    <div className="flex gap-1">
-                        <Link to="/vendors"><ArrowLeft className="mt-1.5" /></Link>
-                        <div>
-                            <h2 className="text-2xl font-bold tracking-tight">Add New Vendor</h2>
-                            <p className="text-muted-foreground">
-                                Fill all the marked fields to create a new Vendor
-                            </p>
-                        </div>
-                    </div>
+                    <p className="text-muted-foreground max-md:ml-4 ml-8">
+                        Fill all the marked fields to create a new Vendor
+                    </p>
                 )}
 
                 <div className="flex flex-col items-start mt-2 px-6 max-md:px-2 space-y-2">
