@@ -817,7 +817,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         id: "totalWithoutGST",
         header: ({ column }) => {
           return (
-            <DataTableColumnHeader column={column} title="Amount" />
+            <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
           )
         },
         cell: ({ row }) => {
@@ -829,12 +829,20 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         }
       },
       {
-        accessorKey: 'order_list',
+        id: "totalWithGST",
         header: ({ column }) => {
-          return <h1 className="hidden">:</h1>
+            return (
+                <DataTableColumnHeader column={column} title="Amt (inc. GST)" />
+            )
         },
-        cell: ({ row }) => <span className="hidden">hh</span>
-      }
+        cell: ({ row }) => {
+            return (
+                <div className="font-medium">
+                    {formatToIndianRupee(getPOTotal(row.getValue("name")).totalWithGST)}
+                </div>
+            )
+        }
+    }
     ],
     [projectId, po_data_for_posummary, data]
   )

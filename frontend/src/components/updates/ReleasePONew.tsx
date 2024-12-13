@@ -300,15 +300,18 @@ export const ReleasePONew = ({ not }) => {
 
     const handleCancelPo = async () => {
 
+        setClicked(true)
+
         const categories = []
 
         const itemList = []
 
         orderData?.order_list?.list.map((item) => {
-            categories.push({ name: item.category })
+            if(categories?.every((i) => i?.name !== item.category)) {
+                categories.push({ name: item.category })
+            }
             itemList.push({ ...item, status: "Pending" })
         })
-        setClicked(true)
         try {
             await updateDoc("Procurement Orders", orderId, {
                 status: "Cancelled"
