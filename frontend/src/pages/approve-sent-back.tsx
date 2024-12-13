@@ -16,6 +16,7 @@ import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
 import { TailSpin } from 'react-loader-spinner';
 import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -159,7 +160,7 @@ const ApproveSentBack = () => {
         </div>
     );
     return (
-        <ApproveSentBackPage sb_data={sb} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
+        <ApproveSentBackPage sb_data={sb} project_data={project_data} usersList={usersList} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
     )
 }
 
@@ -168,10 +169,11 @@ interface ApproveSentBackPageProps {
     project_data: ProjectsType | undefined
     owner_data: NirmaanUsersType | undefined | { full_name: String }
     sent_back_list_mutate: any
+    usersList?: any
 }
 
 
-const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
+const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
     // const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
 
@@ -181,6 +183,11 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             filters: [["vendor_type", "=", "Material"]],
             limit: 200
         });
+
+        const { data: universalComment } = useFrappeGetDocList("Nirmaan Comments", {
+            fields: ["*"],
+            filters: [["reference_name", "=", sb_data.name], ["subject", "=", "sr vendors selected"]]
+        })
     // const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
     //     {
     //         fields: ['name', 'project_name', 'project_address'],
@@ -207,6 +214,10 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
 
     const [data, setData] = useState<DataType>([])
     const [checkStrictly, setCheckStrictly] = useState(false);
+
+    const getFullName = (id) => {
+        return usersList?.find((user) => user?.name == id)?.full_name
+    }
 
     useEffect(() => {
         // if (sent_back_list) {
@@ -850,6 +861,35 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
+
+            <div className="flex items-center space-y-2 mt-2">
+                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Procurement Comments</h2>
+            </div>
+            <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2 mb-2">
+                {universalComment?.length !== 0 ? (
+                    universalComment?.map((comment) => (
+                    <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                            <Avatar>
+                                <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment?.comment_by}`} />
+                                <AvatarFallback>{comment?.comment_by[0]}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                                <p className="font-medium text-sm text-gray-900">{comment?.content}</p>
+                                <div className="flex justify-between items-center mt-2">
+                                    <p className="text-sm text-gray-500">
+                                        {comment?.comment_by === "Administrator" ? "Administrator" : getFullName(comment?.comment_by)}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {formatDate(comment?.creation?.split(" ")[0])} {comment?.creation?.split(" ")[1].substring(0, 5)}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <span className="text-xs font-semibold">No Comments Found</span>
+                )}
+            </div>
         </>
     )
 }

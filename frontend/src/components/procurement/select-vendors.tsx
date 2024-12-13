@@ -153,7 +153,10 @@ export const SelectVendors = () => {
     const userData = useUserData()
 
     const [data, setData] = useState<DataType>([])
-    const [comment, setComment] = useState('')
+    const [comment, setComment] = useState({
+        approving : "",
+        delaying : ""
+    });
     const [delayedItems, setDelayedItems] = useState({})
 
     const [priceMap, setPriceMap] = useState(new Map<string, string>());
@@ -417,27 +420,8 @@ export const SelectVendors = () => {
     // }
 
     const handleSubmit = async () => {
-        setSubmitClicked(true)
         try {
             const delayedItems: string[] = [];
-
-            // Update quotation request status to "Selected" if condition matches
-            if (quotation_request_list) {
-                await Promise.all(
-                    quotation_request_list.map(async (item) => {
-                        if (selectedVendors[item.item] === item.vendor) {
-                            try {
-                                await updateDoc("Quotation Requests", item.name, {
-                                    status: "Selected",
-                                });
-                                console.log("item", item.name);
-                            } catch (error) {
-                                console.log("update_submit_error", error);
-                            }
-                        }
-                    })
-                );
-            }
 
             const itemlist: any[] = [];
             orderData.procurement_list?.list.map((value) => {
@@ -485,17 +469,35 @@ export const SelectVendors = () => {
                 type: "Delayed",
             };
 
+            // Update quotation request status to "Selected" if condition matches
+            if (quotation_request_list) {
+                await Promise.all(
+                    quotation_request_list.map(async (item) => {
+                        if (selectedVendors[item.item] === item.vendor) {
+                            try {
+                                await updateDoc("Quotation Requests", item.name, {
+                                    status: "Selected",
+                                });
+                                console.log("item", item.name);
+                            } catch (error) {
+                                console.log("update_submit_error", error);
+                            }
+                        }
+                    })
+                );
+            }
+
             // Create new document if there are any items in the itemlist
             if (itemlist.length > 0) {
                 try {
                     const res = await createDoc("Sent Back Category", newSendBack);
-                    if (comment) {
+                    if (comment?.delaying) {
                         await createDoc("Nirmaan Comments", {
                             comment_type: "Comment",
                             reference_doctype: "Sent Back Category",
                             reference_name: res.name,
                             comment_by: userData?.user_id,
-                            content: comment,
+                            content: comment?.delaying,
                             subject: "creating sent-back(delayed)"
                         })
                     }
@@ -527,7 +529,19 @@ export const SelectVendors = () => {
                         workflow_state: "Vendor Selected",
                         procurement_list: { list: updatedProcurementList },
                     });
-                    console.log(orderId);
+
+                    if (comment?.approving) {
+                        await createDoc("Nirmaan Comments", {
+                            comment_type: "Comment",
+                            reference_doctype: "Procurement Requests",
+                            reference_name: orderId,
+                            comment_by: userData?.user_id,
+                            content: comment?.approving,
+                            subject: "pr vendors selected"
+                        })
+                    }
+
+                    // console.log(orderId);
                     toast({
                         title: "Success!",
                         description: `Items Sent for Approval`,
@@ -980,23 +994,38 @@ export const SelectVendors = () => {
                                 <DialogHeader>
                                     <DialogTitle>Have you cross-checked your selections?</DialogTitle>
                                     <DialogDescription>
-                                        Remainder: Items whose quotes are not selected will have a delayed status 
-                                        attached to them. If confirmed, Delayed sent back request will be created for those Items.
+                                    {Object.keys(delayedItems).length !== 0 && (
+                                        <p>
+                                            Remainder: Items whose quotes are not selected will have a delayed status 
+                                            attached to them. If confirmed, Delayed sent back request will be created for those Items.
+                                        </p>
+                                    )}
+
+                                    {Object.keys(selectedVendors).length !== 0 && (
+                                        <div className='flex flex-col gap-2 mt-2 text-start'>
+                                            <h4 className='font-bold'>Any remarks for the Project Lead?</h4>
+                                            <TextArea className='border-green-400 focus:border-green-800 bg-green-200' placeholder='type here...' value={comment?.approving} onChange={(e) => setComment({...comment, "approving" : e.target.value})} />
+                                        </div>
+                                    )}
+
                                         {Object.keys(delayedItems).length !== 0 ? (
                                             <div className='flex flex-col gap-2 mt-2 text-start'>
                                                 <h4 className='font-bold'>some items are delayed, any reason?</h4>
-                                                <TextArea placeholder='type here...' value={comment} onChange={(e) => setComment(e.target.value)} />
+                                                <TextArea className='border-primary focus:border-red-800 bg-red-200' placeholder='type here...' value={comment?.delaying} onChange={(e) => setComment({...comment, "delaying" : e.target.value})} />
                                             </div>
                                         ) : <></>}
                                     </DialogDescription>
                                 </DialogHeader>
                                 <DialogDescription className='flex items-center justify-center gap-2'>
-                                    {(update_loading || create_loading) ? <TailSpin width={60} color={"red"}  /> : (
+                                    {(update_loading || create_loading || submitClicked) ? <TailSpin width={60} color={"red"}  /> : (
                                         <>
                                         <DialogClose><Button variant="secondary" className="flex items-center gap-1">
                                         <Undo2 className="h-4 w-4" />
                                         Cancel</Button></DialogClose>
-                                    <Button variant="default" onClick={() => handleSubmit()} disabled={submitClicked} className="flex items-center gap-1">
+                                    <Button variant="default" onClick={() => {
+                                        setSubmitClicked(true)
+                                        handleSubmit()
+                                    }} disabled={submitClicked} className="flex items-center gap-1">
                                         <CheckCheck className="h-4 w-4" />
                                         Confirm</Button>
                                         </>
