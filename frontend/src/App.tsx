@@ -60,6 +60,7 @@ import { ApprovedSR } from './components/service-request/approved-sr'
 import { ManPowerReport } from './components/ManPowerReport'
 import ForgotPassword from './pages/auth/forgot-password'
 import { ProcurementPackages } from './components/procurement-packages'
+import { EstimatedPriceOverview } from './components/procurement/EstimatedPriceOverview'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -193,6 +194,11 @@ const router = createBrowserRouter(
 						<Route index element={<SentBackRequest type="Cancelled" />} />
 						<Route path=":id" element={<SentBackUpdateQuote />} />
 						<Route path="select-vendor/:id" element={<SentBackSelectVendor />} />
+					</Route>
+
+
+					<Route path='estimate-overview'>
+						<Route index element={<EstimatedPriceOverview />} />
 					</Route>
 
 					{/* Project Paths */}
