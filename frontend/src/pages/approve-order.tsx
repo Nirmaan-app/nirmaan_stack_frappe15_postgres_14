@@ -116,7 +116,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
 
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
-            fields: ['category_name', 'work_package', 'image_url', 'tax'],
+            fields: ['category_name', 'work_package', 'image_url', 'tax', 'new_items', "name"],
             orderBy: { field: 'category_name', order: 'asc' },
             limit: 1000
         });
@@ -731,10 +731,20 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                     <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value === "" ? null : parseInt(e.target.value))} value={quantity} type="number" />
                                 </div>
                             </div>
-                            <div className="flex justify-between mt-4">
-                                <div className="mt-3">
-                                    <button className="text-sm  md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create New Item</button>
-                                </div>
+                            <div className="flex justify-between mt-4 items-center">
+                                {(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)) ? (
+                                    <HoverCard>
+                                        <HoverCardTrigger asChild>
+                                            <button disabled className="text-sm py-2 md:text-lg text-blue-300 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create new item</button>
+                                        </HoverCardTrigger>
+                                        <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                            New Items Creation is disabled for this Category, please contact the Administrator!
+                                        </HoverCardContent>
+                                    </HoverCard>
+                                    ) : (
+                                        <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create new item</button>
+                                )}
+
                                 {(curItem && Number(quantity)) ?
                                     <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
                                     :
@@ -1066,10 +1076,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                 </table> */}
                                 </div>
                             })}
-                            <div className="flex flex-col gap-2 py-4 px-4">
-                                <h2 className="text-base font-bold tracking-tight">Add Comments</h2>
-                                <TextArea placeholder="type here..." defaultValue={universalComment || ""} onChange={handleUniversalCommentChange} />
-                            </div>
 
                             {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) ||
                                 (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr" || comment.subject === "editing pr"))).length !== 0 && (
@@ -1170,7 +1176,14 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                         {dynamicPage === "reject" ? "Click on Confirm to Reject." : "Click on Confirm to Approve."}
                                     </DialogDescription>
                                 </DialogHeader>
-                                <DialogDescription className="flex items-center justify-center">
+                                <DialogDescription className="flex items-center flex-col gap-2">
+                                    
+                                <div className="flex flex-col gap-2 w-full">
+                                    <h2 className="text-base font-bold tracking-tight">Add Comments</h2>
+                                    <TextArea placeholder="type here..." defaultValue={universalComment || ""} onChange={handleUniversalCommentChange} />
+                                </div>
+
+                                <div className="flex items-center justify-center">
                                     {
                                         dynamicPage === "reject" ? (
                                             createLoading || updateLoading || callLoading ? <TailSpin width={60} color={"red"} /> :
@@ -1184,6 +1197,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data }: ApprovePRListP
                                                     Confirm</Button>
                                         )
                                     }
+                                </div>
                                 </DialogDescription>
                                 <DialogClose className="hidden" id="dialogCloseforApproveOrder">Close</DialogClose>
                             </DialogContent>
