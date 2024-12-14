@@ -61,6 +61,7 @@ import { ManPowerReport } from './components/ManPowerReport'
 import ForgotPassword from './pages/auth/forgot-password'
 import { ProcurementPackages } from './components/procurement-packages'
 import { EstimatedPriceOverview } from './components/procurement/EstimatedPriceOverview'
+import { NotificationsPage } from './components/nav/notifications'
 
 const router = createBrowserRouter(
 	createRoutesFromElements(
@@ -199,6 +200,10 @@ const router = createBrowserRouter(
 
 					<Route path='estimate-overview'>
 						<Route index element={<EstimatedPriceOverview />} />
+					</Route>
+
+					<Route path='notifications'>
+						<Route index element={<NotificationsPage />} />
 					</Route>
 
 					{/* Project Paths */}
