@@ -2204,14 +2204,15 @@ const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedDat
     });
 
     // Add service requests total as a standalone item
-    treeData?.push({
-      title: `Service Requests Total: ₹${parseFloat(totalServiceOrdersAmt).toLocaleString()}`,
-      key: 'service-requests-total',
-    });
+    if(totalServiceOrdersAmt) {
+      treeData?.push({
+        title: `Service Requests Total: ₹${parseFloat(totalServiceOrdersAmt).toLocaleString()}`,
+        key: 'service-requests-total',
+      });
+    }
 
     return treeData;
   };
-
 
   return (
     <HoverCard>
@@ -2224,18 +2225,19 @@ const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedDat
         </div>
       </HoverCardTrigger>
       <HoverCardContent className="overflow-y-auto max-h-[80vh]">
-        {/* {[...Array(20)].map((_, index) => (
-        <div>We plugged in the entire chancejs API surface in the $tweak. namespace that enables a myriad of use cases! You can literally pick any method directly from the chancejs API!</div>
-      ))} */}
-        <div>
-          <h3 className="font-semibold text-lg mb-2">Total Spent Breakdown</h3>
-          <Tree
-            showLine
-            switcherIcon={<DownOutlined />}
-            defaultExpandedKeys={['0-0']}
-            treeData={generateTreeData()}
-          />
-        </div>
+        {generateTreeData()?.length !== 0 ? (
+            <div>
+            <h3 className="font-semibold text-lg mb-2">Total Spent Breakdown</h3>
+            <Tree
+              showLine
+              switcherIcon={<DownOutlined />}
+              defaultExpandedKeys={['0-0']}
+              treeData={generateTreeData()}
+            />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center font-semibold text-xs">Empty!</div>
+        )}
       </HoverCardContent>
     </HoverCard>
   );

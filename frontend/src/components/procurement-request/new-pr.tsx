@@ -673,13 +673,13 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     </div>
                 </div>
                 <div className="flex justify-between md:space-x-0 mt-2">
-                    {(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(userData?.role)) ? (
+                    {(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)) ? (
                     <HoverCard>
                         <HoverCardTrigger asChild>
                             <button disabled className="text-sm py-2 md:text-lg text-blue-300 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button>
                         </HoverCardTrigger>
                         <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                            New Items Creation is disabled for this Category, please contact your Project Lead or Administrator!
+                            New Items Creation is disabled for this Category, please contact the Administrator!
                         </HoverCardContent>
                     </HoverCard>
                     ) : (
