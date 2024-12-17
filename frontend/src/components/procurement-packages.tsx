@@ -121,12 +121,12 @@ export const ProcurementPackages = () => {
     }
   );
 
-  const {data : categoryMakeList, isLoading: categoryMakeListLoading, mutate : categoryMakeListMutate} = useFrappeGetDocList("Category Makelist", {
+  const { data: categoryMakeList, isLoading: categoryMakeListLoading, mutate: categoryMakeListMutate } = useFrappeGetDocList("Category Makelist", {
     fields: ["*"],
     limit: 10000,
   })
 
-  const {data : makeList, isLoading: makeListLoading, mutate : makeListMutate} = useFrappeGetDocList("Makelist", {
+  const { data: makeList, isLoading: makeListLoading, mutate: makeListMutate } = useFrappeGetDocList("Makelist", {
     fields: ["*"],
     limit: 10000,
   })
@@ -225,7 +225,7 @@ export const ProcurementPackages = () => {
 
       const currentCategoryMakes = categoryMakeList?.filter((i) => i?.category === editCategory?.name)
 
-      if(currentCategoryMakes?.length !== defaultOptions?.length) {
+      if (currentCategoryMakes?.length !== defaultOptions?.length) {
 
         const toDeleteMakes = currentCategoryMakes?.filter((i) => !defaultOptions?.some((j) => j?.make === i?.make))
 
@@ -242,7 +242,7 @@ export const ProcurementPackages = () => {
         await categoryMakeListMutate();
       }
 
-      if(currentCategory?.new_items !== editCategory?.new_items || currentCategory?.tax !== editCategory?.tax) {
+      if (currentCategory?.new_items !== editCategory?.new_items || currentCategory?.tax !== editCategory?.tax) {
         await updateDoc("Category", editCategory?.name, {
           tax: editCategory?.tax,
           new_items: editCategory?.new_items,
@@ -252,7 +252,7 @@ export const ProcurementPackages = () => {
         await categoriesListMutate();
       }
 
-      if(newCategoryMakes?.length > 0) {
+      if (newCategoryMakes?.length > 0) {
         await Promise.all(
           newCategoryMakes?.map(async (item) => {
             try {
@@ -267,7 +267,7 @@ export const ProcurementPackages = () => {
         );
 
         setNewCategoryMakes([])
-  
+
         await categoryMakeListMutate()
       }
 
@@ -292,18 +292,18 @@ export const ProcurementPackages = () => {
   };
 
   useEffect(() => {
-    if(makeList && editCategory && categoryMakeList) {
+    if (makeList && editCategory && categoryMakeList) {
       const categoryMakes = categoryMakeList?.filter((catMake) => catMake?.category === editCategory?.name)
 
       let makeOptionsList = []
-      if(categoryMakes?.length > 0) {
+      if (categoryMakes?.length > 0) {
         makeOptionsList = makeList?.filter((i) => categoryMakes?.every((j) => j?.make !== i?.name))?.map((k) => ({ label: k?.name, value: k?.name })) || [];
       } else {
         makeOptionsList = makeList?.map((i) => ({ label: i?.name, value: i?.name })) || [];
       }
 
       setMakeOptions(makeOptionsList)
-      
+
       setDefaultOptions(categoryMakes)
 
     }
@@ -317,7 +317,7 @@ export const ProcurementPackages = () => {
     try {
       setLoadingFunc("handleAddNewMake")
       await createDoc("Makelist", {
-        make_name : newMake
+        make_name: newMake
       })
 
       await makeListMutate()
@@ -344,7 +344,7 @@ export const ProcurementPackages = () => {
 
   // const handleCreateCategoryMakes = async () => {
   //   try {
-      
+
   //     await Promise.all(
   //       newCategoryMakes?.map(async (item) => {
   //         try {
@@ -365,7 +365,7 @@ export const ProcurementPackages = () => {
   //       description: `Category makes updated successfully!`,
   //       variant: "success",
   //     });
-      
+
   //   } catch (error) {
   //     console.log("error while updating category makes", error);
   //     toast({
@@ -380,7 +380,7 @@ export const ProcurementPackages = () => {
 
   return (
     <div className="flex-1 space-y-4">
-      <div className="flex items-center justify-between mb-2 space-y-2">
+      {/* <div className="flex items-center justify-between mb-2 space-y-2">
         <div className="flex">
           <ArrowLeft
             className="mt-1.5 cursor-pointer"
@@ -389,8 +389,8 @@ export const ProcurementPackages = () => {
           <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">
             Procurement Packages
           </h2>
-        </div>
-        {/* <div className="flex items-center space-x-2">
+        </div> */}
+      {/* <div className="flex items-center space-x-2">
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button variant="secondary">
@@ -435,31 +435,31 @@ export const ProcurementPackages = () => {
                             </DialogContent>
                         </Dialog>
                     </div> */}
-      </div>
+      {/* </div> */}
       <div className="flex flex-col gap-4">
         {isLoading || categoriesListLoading || itemListLoading
           ? [...Array(5)].map((_, index) => (
-              <div key={index}>
-                <WPSkeleton />
-              </div>
-            ))
+            <div key={index}>
+              <WPSkeleton />
+            </div>
+          ))
           : procurementPackages
-              ?.sort((a, b) =>
-                a?.work_package_name?.localeCompare(b?.work_package_name)
-              )
-              ?.map((d) => (
-                <div key={d?.work_package_name}>
-                  {/* <WPCard wp={d.work_package_name} /> */}
-                  <Card className="hover:animate-shadow-drop-center">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <CardTitle className="text-sm font-medium">
-                        {d?.work_package_name}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="overflow-auto">
-                      {categoriesList?.filter(
-                        (i) => i?.work_package === d?.work_package_name
-                      )?.length !== 0 && (
+            ?.sort((a, b) =>
+              a?.work_package_name?.localeCompare(b?.work_package_name)
+            )
+            ?.map((d) => (
+              <div key={d?.work_package_name}>
+                {/* <WPCard wp={d.work_package_name} /> */}
+                <Card className="hover:animate-shadow-drop-center">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">
+                      {d?.work_package_name}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="overflow-auto">
+                    {categoriesList?.filter(
+                      (i) => i?.work_package === d?.work_package_name
+                    )?.length !== 0 && (
                         <Table>
                           <TableHeader className="bg-red-100">
                             <TableRow>
@@ -490,11 +490,11 @@ export const ProcurementPackages = () => {
                                   <TableCell>{cat?.name}</TableCell>
                                   <TableCell>
                                     <div className="flex gap-1 flex-wrap">
-                                    {categoryMakeList?.filter((i) => i?.category === cat?.name)?.length > 0 ?
-                                    categoryMakeList?.filter((i) => i?.category === cat?.name)?.map((i) => (
-                                      <Badge>{i?.make}</Badge>
-                                    )) : "--"
-                                    }
+                                      {categoryMakeList?.filter((i) => i?.category === cat?.name)?.length > 0 ?
+                                        categoryMakeList?.filter((i) => i?.category === cat?.name)?.map((i) => (
+                                          <Badge>{i?.make}</Badge>
+                                        )) : "--"
+                                      }
                                     </div>
                                   </TableCell>
                                   <TableCell className="flex  items-center gap-1">
@@ -528,22 +528,22 @@ export const ProcurementPackages = () => {
                                         cat?.new_items === "true"
                                           ? "green"
                                           : cat?.new_items === "false"
-                                          ? "red"
-                                          : "gray"
+                                            ? "red"
+                                            : "gray"
                                       }
                                     >
                                       {cat?.new_items === "true"
                                         ? "Enabled"
                                         : cat?.new_items === "false"
-                                        ? "Disabled"
-                                        : "Not Set"}
+                                          ? "Disabled"
+                                          : "Not Set"}
                                     </Badge>
                                   </TableCell>
                                   <TableCell>
                                     <AlertDialog>
                                       <AlertDialogTrigger
                                         onClick={() => setEditCategory(cat)}
-                                      asChild>
+                                        asChild>
                                         <Pencil className="text-blue-600 cursor-pointer" />
                                       </AlertDialogTrigger>
                                       <AlertDialogContent>
@@ -596,9 +596,9 @@ export const ProcurementPackages = () => {
                                             <div className="flex gap-1 flex-wrap mb-4">
                                               {defaultOptions?.length > 0 && (
                                                 defaultOptions?.map((i) => (
-                                                    <Badge>{i?.make}
+                                                  <Badge>{i?.make}
                                                     <X onClick={() => setDefaultOptions(defaultOptions?.filter((j) => j?.make !== i?.make))} className="ml-1 text-gray-200 w-6 h-6 cursor-pointer" />
-                                                    </Badge>
+                                                  </Badge>
                                                 ))
                                               )}
                                             </div>
@@ -607,13 +607,13 @@ export const ProcurementPackages = () => {
                                                 Add existing makes to <span className="text-primary">{editCategory?.name}</span>:
                                               </Label>
                                               {categoryMakeList && makeList && (
-                                                  <ReactSelect options={makeOptions} onChange={handleChange} isMulti />
+                                                <ReactSelect options={makeOptions} onChange={handleChange} isMulti />
                                               )}
                                             </div>
 
-                                            
+
                                             {showNewMakeInput ? (
-                                            <AddMakeComponent makeList={makeList} loadingFunc={loadingFunc} handleAddNewMake={handleAddNewMake} />
+                                              <AddMakeComponent makeList={makeList} loadingFunc={loadingFunc} handleAddNewMake={handleAddNewMake} />
                                             ) : (
                                               <Button className="mt-4" onClick={() => setShowNewMakeInput(true)}>Create New Make</Button>
                                             )}
@@ -622,26 +622,26 @@ export const ProcurementPackages = () => {
                                                 <TailSpin color={"red"} height={40} width={40} />
                                               ) : (
                                                 <>
-                                                <AlertDialogCancel disabled={loadingFunc !== ""} className="flex items-center gap-1">
-                                                <X className="h-4 w-4" />
-                                                Cancel
-                                              </AlertDialogCancel>
-                                              <Button
-                                                className="flex items-center gap-1"
-                                                onClick={handleEditCategory}
-                                                disabled={
-                                                  (cat?.tax ===
-                                                    editCategory?.tax &&
-                                                  cat?.new_items ===
-                                                    editCategory?.new_items &&
-                                                    !newCategoryMakes?.length > 0 &&
-                                                    categoryMakeList?.filter((catMake) => catMake?.category === editCategory?.name)?.length === defaultOptions?.length) || 
-                                                    loadingFunc !== ""
-                                                }
-                                              >
-                                                <CheckCheck className="h-4 w-4" />
-                                                Confirm
-                                              </Button>
+                                                  <AlertDialogCancel disabled={loadingFunc !== ""} className="flex items-center gap-1">
+                                                    <X className="h-4 w-4" />
+                                                    Cancel
+                                                  </AlertDialogCancel>
+                                                  <Button
+                                                    className="flex items-center gap-1"
+                                                    onClick={handleEditCategory}
+                                                    disabled={
+                                                      (cat?.tax ===
+                                                        editCategory?.tax &&
+                                                        cat?.new_items ===
+                                                        editCategory?.new_items &&
+                                                        !newCategoryMakes?.length > 0 &&
+                                                        categoryMakeList?.filter((catMake) => catMake?.category === editCategory?.name)?.length === defaultOptions?.length) ||
+                                                      loadingFunc !== ""
+                                                    }
+                                                  >
+                                                    <CheckCheck className="h-4 w-4" />
+                                                    Confirm
+                                                  </Button>
                                                 </>
                                               )}
                                             </div>
@@ -656,10 +656,10 @@ export const ProcurementPackages = () => {
                           </TableBody>
                         </Table>
                       )}
-                    </CardContent>
-                  </Card>
-                </div>
-              ))}
+                  </CardContent>
+                </Card>
+              </div>
+            ))}
       </div>
     </div>
   );
@@ -697,8 +697,8 @@ const AddMakeComponent = ({ makeList, loadingFunc, handleAddNewMake }) => {
 
   return (
     <div className="flex flex-col gap-1 mt-4">
-        <Label>Add New Make:</Label>
-        <div className="flex items-center gap-1">
+      <Label>Add New Make:</Label>
+      <div className="flex items-center gap-1">
         <Input
           type="text"
           placeholder="Enter new make name..."
@@ -706,25 +706,24 @@ const AddMakeComponent = ({ makeList, loadingFunc, handleAddNewMake }) => {
           onChange={(e) => setNewMake(e.target.value)}
         />
         <div className="w-[80px]">
-        {loadingFunc === "handleAddNewMake" ? (
-          <TailSpin color={"red"} height={30} width={30} />
-        ) : (
-          <Button disabled={!newMake || isDuplicate || checking} onClick={() => handleAddNewMake(newMake, setNewMake)}>
-            Submit
-          </Button>
-        )}
+          {loadingFunc === "handleAddNewMake" ? (
+            <TailSpin color={"red"} height={30} width={30} />
+          ) : (
+            <Button disabled={!newMake || isDuplicate || checking} onClick={() => handleAddNewMake(newMake, setNewMake)}>
+              Submit
+            </Button>
+          )}
         </div>
 
-        </div>
-        {/* Feedback for duplicate make */}
-        {isDuplicate && (
-          <p className="text-sm text-red-500 mt-1">
-            This make name already exists in the database.
-          </p>
-        )}
+      </div>
+      {/* Feedback for duplicate make */}
+      {isDuplicate && (
+        <p className="text-sm text-red-500 mt-1">
+          This make name already exists in the database.
+        </p>
+      )}
     </div>
   );
 };
 
 export default AddMakeComponent;
-

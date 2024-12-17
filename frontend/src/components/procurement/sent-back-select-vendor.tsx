@@ -49,30 +49,30 @@ const columns: TableColumnsType<DataType> = [
         render: (text, record) => {
             return (
                 <>
-                <div className="inline items-baseline">
-                    <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
-                        {text}
-                    </span>
-                    {(!record.children && record.comment) && (
-                        <HoverCard>
-                            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
-                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                <div className="relative pb-4">
-                                    <span className="block">{record.comment}</span>
-                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
-                                </div>
+                    <div className="inline items-baseline">
+                        <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+                            {text}
+                        </span>
+                        {(!record.children && record.comment) && (
+                            <HoverCard>
+                                <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                                <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                    <div className="relative pb-4">
+                                        <span className="block">{record.comment}</span>
+                                        <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                    </div>
 
-                            </HoverCardContent>
-                        </HoverCard>
+                                </HoverCardContent>
+                            </HoverCard>
+                        )}
+                    </div>
+                    {(record?.makes?.filter(m => m?.enabled === "true")?.length > 0) && (
+                        <div className="text-xs text-gray-500 lg:ml-10">
+                            <span className='text-primary'>makes</span> - {record?.makes?.filter(m => m?.enabled === "true")?.map((i, index, arr) => (
+                                <i className='font-semibold'>{i?.make}{index < arr.length - 1 && ", "}</i>
+                            ))}
+                        </div>
                     )}
-                </div>
-                {(record?.makes?.filter(m => m?.enabled === "true")?.length > 0) && (
-                <div className="text-xs text-gray-500 lg:ml-10">
-                    <span className='text-primary'>makes</span> - {record?.makes?.filter(m => m?.enabled === "true")?.map((i, index, arr) => (
-                        <i className='font-semibold'>{i?.make}{index < arr.length - 1 && ", "}</i>
-                      ))}
-                  </div>
-                )}
                 </>
             )
         }
@@ -138,7 +138,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                { text === "N/A" ? text : formatToIndianRupee(text) }
+                {text === "N/A" ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -146,10 +146,10 @@ const columns: TableColumnsType<DataType> = [
 
 
 export const SentBackSelectVendor = () => {
-    const { sbId : id } = useParams<{ sbId: string }>()
+    const { sbId: id } = useParams<{ sbId: string }>()
     const navigate = useNavigate()
 
-    const userData  = useUserData()
+    const userData = useUserData()
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
@@ -185,7 +185,7 @@ export const SentBackSelectVendor = () => {
 
     const [comment, setComment] = useState('')
 
-    const {data: filtered_quotation_data} = useFrappeGetDocList("Quotation Requests", {
+    const { data: filtered_quotation_data } = useFrappeGetDocList("Quotation Requests", {
         fields: ["*"],
         filters: [["procurement_task", "=", orderData?.procurement_request]],
         limit: 2000
@@ -224,8 +224,6 @@ export const SentBackSelectVendor = () => {
     const [data, setData] = useState<DataType>([])
 
     const [delayedItems, setDelayedItems] = useState({})
-
-    console.log("data", data)
 
     const delayedItemsCheck = () => {
         let delayedItems = {};
@@ -349,10 +347,6 @@ export const SentBackSelectVendor = () => {
         });
 
     };
-
-    console.log("delayedItems", delayedItems)
-
-    console.log("selectedVendors", selectedVendors)
 
     const handleChangeWithParam = (item, vendor) => {
         return () => handleRadioChange(item, vendor);
@@ -556,15 +550,15 @@ export const SentBackSelectVendor = () => {
                                     </div>
                                     <table className="w-full min-w-[600px]">
                                         <thead className="w-full border-b border-black bg-gray-200">
-                                        <tr className='w-full'>
+                                            <tr className='w-full'>
                                                 <th className="p-2 font-semibold text-left w-[30%]">Items<p className='py-2 font-light text-sm text-slate-600'>Delivery Time:</p></th>
                                                 <th className='w-[50%] '>
                                                     <div className='flex p-2'>
-                                                    {selectedCategories[curCategory]?.map((ven) => {
-                                                        return <div key={ven} className="font-semibold flex-1 flex flex-col items-start"><p>{getVendorName(ven)}</p>
-                                                            <p className={`py-2 font-light text-sm text-opacity-50`}>{getLeadTime(ven, cat.name) || "--"} Days</p>
-                                                        </div>
-                                                    })}
+                                                        {selectedCategories[curCategory]?.map((ven) => {
+                                                            return <div key={ven} className="font-semibold flex-1 flex flex-col items-start"><p>{getVendorName(ven)}</p>
+                                                                <p className={`py-2 font-light text-sm text-opacity-50`}>{getLeadTime(ven, cat.name) || "--"} Days</p>
+                                                            </div>
+                                                        })}
                                                     </div>
                                                 </th>
                                                 <th className="p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
@@ -591,37 +585,37 @@ export const SentBackSelectVendor = () => {
                                                         </td>
                                                         <td className='w-[50%]'>
                                                             <div className='flex p-2'>
-                                                            {selectedCategories[curCategory]?.map((ven) => {
-                                                            const price = getPrice(ven, item.name);
-                                                            // total += (price ? parseFloat(price) : 0)*item.quantity;
-                                                            const isSelected = selectedVendors[item.name] === ven;
-                                                            const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                            return <div className={`text-sm flex gap-1 items-center  ${dynamicClass}`}>
-                                                                <input disabled={price === "-" || price === 0} type="radio" id={`${item.name}-${ven}`} name={item.name} value={`${item.name}-${ven}`} onChange={handleChangeWithParam(item.name, ven)} />
-                                                                {Number.isNaN((price * item.quantity)) ? "N/A" : formatToIndianRupee(price * item.quantity)}
-                                                                {(price !== "-" && price !== 0) && (
-                                                                <HoverCard>
-                                                                    <HoverCardTrigger><Info className="w-4 h-4 text-blue-500" /></HoverCardTrigger>
-                                                                    <HoverCardContent>
-                                                                        {getItemQuoteMakes(item?.name, curCategory, ven)?.filter(k => k?.enabled === "true")?.length > 0 ?
-                                                                        (
-                                                                            <div>
-                                                                                <h2 className='font-bold text-primary mb-2'>Selected Makes:</h2>
-                                                                                <ul className='list-disc pl-4'>
-                                                                                    {
-                                                                                        getItemQuoteMakes(item?.name, curCategory, ven)?.map(m => {
-                                                                                            if(m?.enabled === "true") {
-                                                                                                return <li key={m?.make}><strong>{m?.make}</strong></li>
-                                                                                            }
-                                                                                        })
-                                                                                    }
-                                                                                </ul>
-                                                                            </div>
-                                                                        ) : <strong>No selected makes found for this item!</strong>}
-                                                                    </HoverCardContent>
-                                                                </HoverCard>
-                                                                )}
-                                                            </div>
+                                                                {selectedCategories[curCategory]?.map((ven) => {
+                                                                    const price = getPrice(ven, item.name);
+                                                                    // total += (price ? parseFloat(price) : 0)*item.quantity;
+                                                                    const isSelected = selectedVendors[item.name] === ven;
+                                                                    const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
+                                                                    return <div className={`text-sm flex gap-1 items-center  ${dynamicClass}`}>
+                                                                        <input disabled={price === "-" || price === 0} type="radio" id={`${item.name}-${ven}`} name={item.name} value={`${item.name}-${ven}`} onChange={handleChangeWithParam(item.name, ven)} />
+                                                                        {Number.isNaN((price * item.quantity)) ? "N/A" : formatToIndianRupee(price * item.quantity)}
+                                                                        {(price !== "-" && price !== 0) && (
+                                                                            <HoverCard>
+                                                                                <HoverCardTrigger><Info className="w-4 h-4 text-blue-500" /></HoverCardTrigger>
+                                                                                <HoverCardContent>
+                                                                                    {getItemQuoteMakes(item?.name, curCategory, ven)?.filter(k => k?.enabled === "true")?.length > 0 ?
+                                                                                        (
+                                                                                            <div>
+                                                                                                <h2 className='font-bold text-primary mb-2'>Selected Makes:</h2>
+                                                                                                <ul className='list-disc pl-4'>
+                                                                                                    {
+                                                                                                        getItemQuoteMakes(item?.name, curCategory, ven)?.map(m => {
+                                                                                                            if (m?.enabled === "true") {
+                                                                                                                return <li key={m?.make}><strong>{m?.make}</strong></li>
+                                                                                                            }
+                                                                                                        })
+                                                                                                    }
+                                                                                                </ul>
+                                                                                            </div>
+                                                                                        ) : <strong>No selected makes found for this item!</strong>}
+                                                                                </HoverCardContent>
+                                                                            </HoverCard>
+                                                                        )}
+                                                                    </div>
                                                                 })}
                                                             </div>
                                                         </td>
@@ -635,11 +629,11 @@ export const SentBackSelectVendor = () => {
                                                 <td className="py-4 text-sm px-2 font-semibold w-[30%]">Total</td>
                                                 <td className='w-[50%]'>
                                                     <div className='flex '>
-                                                    {selectedCategories[curCategory]?.map((value) => {
-                                                        return <div className={`py-2 flex-1 text-sm max-sm:pl-2 pl-8 font-bold`}>
-                                                            {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
-                                                        </div>
-                                                    })}
+                                                        {selectedCategories[curCategory]?.map((value) => {
+                                                            return <div className={`py-2 flex-1 text-sm max-sm:pl-2 pl-8 font-bold`}>
+                                                                {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
+                                                            </div>
+                                                        })}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -849,15 +843,15 @@ export const SentBackSelectVendor = () => {
                                 <DialogDescription className='flex items-center justify-center gap-2'>
                                     {(update_loading || create_loading) ? (<TailSpin width={80} color='red' />) : (
                                         <>
-                                        <Button variant={"secondary"} onClick={() => setPage("updatequotation")} className="flex items-center gap-1">
-                                            <Undo2 className="h-4 w-4" />
-                                            Go Back
-                                        </Button>
-                                        <Button onClick={() => handleSubmit()} className="flex items-center gap-1">
-                                            <CheckCheck className="h-4 w-4" />
-                                            Confirm
-                                        </Button>
-                                    </>
+                                            <Button variant={"secondary"} onClick={() => setPage("updatequotation")} className="flex items-center gap-1">
+                                                <Undo2 className="h-4 w-4" />
+                                                Go Back
+                                            </Button>
+                                            <Button onClick={() => handleSubmit()} className="flex items-center gap-1">
+                                                <CheckCheck className="h-4 w-4" />
+                                                Confirm
+                                            </Button>
+                                        </>
                                     )}
                                 </DialogDescription>
                             </DialogContent>

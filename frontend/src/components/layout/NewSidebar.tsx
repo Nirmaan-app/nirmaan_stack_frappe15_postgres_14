@@ -357,6 +357,7 @@ export function NewSidebar() {
                         { key: '/items', label: 'Items' },
                         { key: '/vendors', label: 'Vendors' },
                         { key: '/customers', label: 'Customers' },
+                        { key: '/procurement-packages', label: 'Procurement Packages' },
                     ],
                 },
             ]
@@ -458,7 +459,7 @@ export function NewSidebar() {
     ];
 
     const allKeys = [
-        "projects", "users", "items", "vendors", "customers",
+        "projects", "users", "items", "vendors", "customers","procurement-packages",
         "prs&milestones", "approve-new-pr", "approve-po",
         "approve-sent-back", "approve-amended-po", "new-procure-request", "update-quote",
         "choose-vendor", "approved-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
@@ -467,7 +468,7 @@ export function NewSidebar() {
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location?.pathname.slice(1).split("/")?.[0] === key) : "";
 
-    const openKey = ["projects", "users", "items", "vendors", "customers"].includes(selectedKeys) ? "admin-actions" : ["prs&milestones", "approve-new-pr", "approve-po",
+    const openKey = ["projects", "users", "items", "vendors", "customers", "procurement-packages"].includes(selectedKeys) ? "admin-actions" : ["prs&milestones", "approve-new-pr", "approve-po",
         "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["new-procure-request", "update-quote",
             "choose-vendor"].includes(selectedKeys) ? "pe-actions" : ["service-requests", "choose-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ["approved-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" : 
             ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-requests", "choose-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
