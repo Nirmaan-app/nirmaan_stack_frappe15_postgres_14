@@ -19,6 +19,7 @@ import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
 import { TailSpin } from 'react-loader-spinner';
 import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -189,7 +190,7 @@ const ApproveVendor = () => {
         </div>
     );
     return (
-        <ApproveVendorPage pr_data={pr} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} procurement_list_mutate={pr_mutate} />
+        <ApproveVendorPage pr_data={pr} project_data={project_data} usersList={usersList} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} procurement_list_mutate={pr_mutate} />
     )
 }
 
@@ -198,9 +199,10 @@ interface ApproveVendorPageProps {
     project_data: ProjectsType | undefined
     owner_data: NirmaanUsersType | undefined | { full_name: String }
     procurement_list_mutate: any
+    usersList?: any
 }
 
-export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procurement_list_mutate }: ApproveVendorPageProps) => {
+export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procurement_list_mutate, usersList }: ApproveVendorPageProps) => {
     // const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate()
     // const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: procurement_list_mutate } = useFrappeGetDocList("Procurement Requests",
@@ -215,10 +217,9 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
-    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+    const { data: universalComment } = useFrappeGetDocList("Nirmaan Comments", {
         fields: ["*"],
-        filters: [["reference_name", "=", pr_data.name]],
-        orderBy: { field: "creation", order: "desc" }
+        filters: [["reference_name", "=", pr_data.name], ["subject", "=", "pr vendors selected"]]
     })
     // const { data: project_list } = useFrappeGetDocList("Projects",
     //     {
@@ -268,6 +269,11 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         const key = generateVendorItemKey(vendor, item);
         return priceMap.get(key);
     };
+
+    const getFullName = (id) => {
+        return usersList?.find((user) => user?.name == id)?.full_name
+    }
+
     useEffect(() => {
 
         // console.log("calling useEffect 1, priceMap")
@@ -435,7 +441,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
-            console.log(`selectedRowKeys : ${selectedRowKeys}, selectedRows: ${selectedRows}`)
+            // console.log(`selectedRowKeys : ${selectedRowKeys}, selectedRows: ${selectedRows}`)
             setSelectedItems(selectedRows)
         },
         onSelect: (record, selected, selectedRows) => { },
@@ -463,8 +469,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     const newHandleApprove = async () => {
         try {
-            setIsLoading('newHandleApprove');
-
             // Filter and group items by vendor
             const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
             const vendorItems = {};
@@ -591,8 +595,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     const newHandleSentBack = async () => {
         try {
-            setIsLoading('newHandleSentBack');
-
             const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
             const itemlist = filteredData.map(value => {
                 const price = getPrice(selectedVendors[value.key], value.key);
@@ -719,126 +721,121 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     };
 
     const generateActionSummary = (actionType) => {
-        if (actionType === "approve") {
-            const groupedVendors = selectedItems?.reduce((acc, item) => {
-                const vendor = selectedVendors[item.key];
-                if (vendor) {
-                    if (!acc[vendor]) acc[vendor] = [];
-                    acc[vendor].push(item);
-                }
-                return acc;
-            }, {});
-
-            if (!groupedVendors || Object.keys(groupedVendors).length === 0) {
-                return "No valid items selected for approval.";
+    if (actionType === "approve") {
+        const groupedVendors = selectedItems?.reduce((acc, item) => {
+            const vendor = selectedVendors[item.key];
+            if (vendor) {
+                if (!acc[vendor]) acc[vendor] = [];
+                acc[vendor].push(item);
             }
+            return acc;
+        }, {});
 
-            const vendorTotals = Object.entries(groupedVendors).map(([vendor, items]) => ({
-                vendor,
-                total: items.reduce((sum, item) => sum + (item.amount || 0), 0),
-            }));
-            const overallTotal = vendorTotals.reduce((sum, { total }) => sum + total, 0);
+        if (!groupedVendors || Object.keys(groupedVendors).length === 0) {
+            return "No valid items selected for approval.";
+        }
 
-            return (
-                <div>
-                    <p>Upon approval, the following actions will be taken:</p>
-                    <ul className="mt-2 list-disc pl-5">
-                        {Object.entries(groupedVendors).map(([vendor, items]) => (
-                            <li key={vendor}>
-                                A <strong>new PO</strong> will be created for vendor <strong>{getVendorName(vendor)}</strong>:
-                                <ul className="mt-1 list-disc pl-5">
-                                    {items.map((item) => (
-                                        <li key={item.key}>
-                                            {item.item} - {item.quantity} {item.unit} ({formatToIndianRupee(item.amount)})
-                                        </li>
-                                    ))}
-                                </ul>
-                                <p className="mt-1 text-gray-600">
-                                    Vendor Total: <strong>{formatToIndianRupee(vendorTotals.find(v => v.vendor === vendor)?.total)}</strong>
-                                </p>
-                            </li>
-                        ))}
-                    </ul>
-                    <p className="mt-3 text-gray-800">
-                        Overall Total: <strong>{formatToIndianRupee(overallTotal)}</strong>
-                    </p>
-                </div>
-            );
-        } else if (actionType === "sendBack") {
-            const itemsToSendBack = selectedItems?.filter(item => item.unit && item.quantity);
+        const vendorTotals = Object.entries(groupedVendors).map(([vendor, items]) => ({
+            vendor,
+            total: items.reduce((sum, item) => sum + (item.amount || 0), 0),
+        }));
+        const overallTotal = vendorTotals.reduce((sum, { total }) => sum + total, 0);
 
-            if (!itemsToSendBack || itemsToSendBack.length === 0) {
-                return "No valid items selected for sending back.";
-            }
-
-            const totalAmount = itemsToSendBack.reduce((sum, item) => sum + (item.amount || 0), 0);
-
-            return (
-                <div>
-                    <p>Upon sending back, the following actions will be taken:</p>
-                    <ul className="mt-2 list-disc pl-5">
-                        <li>
-                            A <strong>new rejected type sent-back</strong> will be created with the following items:
+        return (
+            <div>
+                <p>Upon approval, the following actions will be taken:</p>
+                <ul className="mt-2 list-disc pl-5">
+                    {Object.entries(groupedVendors).map(([vendor, items]) => (
+                        <li key={vendor}>
+                            A <strong>new PO</strong> will be created for vendor <strong>{getVendorName(vendor)}</strong>:
                             <ul className="mt-1 list-disc pl-5">
-                                {itemsToSendBack.map((item) => (
+                                {items.map((item) => (
                                     <li key={item.key}>
                                         {item.item} - {item.quantity} {item.unit} ({formatToIndianRupee(item.amount)})
                                     </li>
                                 ))}
                             </ul>
                             <p className="mt-1 text-gray-600">
-                                Total: <strong>{formatToIndianRupee(totalAmount)}</strong>
+                                Vendor Total: <strong>{formatToIndianRupee(vendorTotals.find(v => v.vendor === vendor)?.total)}</strong>
                             </p>
                         </li>
-                    </ul>
-                </div>
-            );
+                    ))}
+                </ul>
+                <p className="mt-3 text-gray-800">
+                    Overall Total: <strong>{formatToIndianRupee(overallTotal)}</strong>
+                </p>
+            </div>
+        );
+    } else if (actionType === "sendBack") {
+        const itemsToSendBack = selectedItems?.filter(item => item.unit && item.quantity);
+
+        if (!itemsToSendBack || itemsToSendBack.length === 0) {
+            return "No valid items selected for sending back.";
         }
 
-        return "No valid action details available.";
+        const totalAmount = itemsToSendBack.reduce((sum, item) => sum + (item.amount || 0), 0);
+
+        return (
+            <div>
+                <p>Upon sending back, the following actions will be taken:</p>
+                <ul className="mt-2 list-disc pl-5">
+                    <li>
+                        A <strong>new rejected type sent-back</strong> will be created with the following items:
+                        <ul className="mt-1 list-disc pl-5">
+                            {itemsToSendBack.map((item) => (
+                                <li key={item.key}>
+                                    {item.item} - {item.quantity} {item.unit} ({formatToIndianRupee(item.amount)})
+                                </li>
+                            ))}
+                        </ul>
+                        <p className="mt-1 text-gray-600">
+                            Total: <strong>{formatToIndianRupee(totalAmount)}</strong>
+                        </p>
+                    </li>
+                </ul>
+            </div>
+        );
+    }
+
+    return "No valid action details available.";
     };
 
     return (
         <div className='flex-1 space-y-4'>
-            {page == 'approvequotation' &&
-                <div className="flex-1 space-y-4">
                     <div className="flex items-center">
                         {/* <ArrowLeft className='cursor-pointer' onClick={() => navigate("/approve-po")} /> */}
                         <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back</h2>
                     </div>
                     <ProcurementActionsHeaderCard orderData={orderData} po={true} />
-                </div>}
-            {selectedItems?.length > 0 && (
-                <div className="mt-4">
-                    <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200">
-                        <h2 className="text-lg font-bold mb-3 flex items-center">
-                            <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
-                            Actions Summary
-                        </h2>
-                        <div className="grid md:grid-cols-2 gap-4">
-                            {/* Send Back Action Summary */}
-                            <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                <div className="flex items-center mb-2">
-                                    <SendToBack className="h-5 w-5 text-red-500 mr-2" />
-                                    <h3 className="font-medium text-gray-700">Send Back</h3>
+                {selectedItems?.length > 0 && (
+                        <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200">
+                            <h2 className="text-lg font-bold mb-3 flex items-center">
+                                <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
+                                Actions Summary
+                            </h2>
+                            <div className="grid md:grid-cols-2 gap-4">
+                                {/* Send Back Action Summary */}
+                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                    <div className="flex items-center mb-2">
+                                        <SendToBack className="h-5 w-5 text-red-500 mr-2" />
+                                        <h3 className="font-medium text-gray-700">Send Back</h3>
+                                    </div>
+                                    <p className="text-sm text-gray-600">{generateActionSummary("sendBack")}</p>
                                 </div>
-                                <p className="text-sm text-gray-600">{generateActionSummary("sendBack")}</p>
-                            </div>
 
-                            {/* Approve Action Summary */}
-                            <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                <div className="flex items-center mb-2">
-                                    <ListChecks className="h-5 w-5 text-green-500 mr-2" />
-                                    <h3 className="font-medium text-gray-700">Approve</h3>
+                                {/* Approve Action Summary */}
+                                <div className="p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                    <div className="flex items-center mb-2">
+                                        <ListChecks className="h-5 w-5 text-green-500 mr-2" />
+                                        <h3 className="font-medium text-gray-700">Approve</h3>
+                                    </div>
+                                    <p className="text-sm text-gray-600">{generateActionSummary("approve")}</p>
                                 </div>
-                                <p className="text-sm text-gray-600">{generateActionSummary("approve")}</p>
                             </div>
                         </div>
-                    </div>
-                </div>
-            )}
+                )}
 
-            <div className='overflow-x-auto pt-6'>
+            <div className='overflow-x-auto'>
                 <ConfigProvider
                     theme={{
                         token: {
@@ -861,7 +858,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     }
                 </ConfigProvider>
             </div>
-            {selectedItems?.length > 0 && <div className="flex justify-end gap-2 mr-2 mt-2">
+            {selectedItems?.length > 0 && <div className="flex justify-end gap-2 mr-2">
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
@@ -885,19 +882,22 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         {isLoading === "newHandleSentBack" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                            <AlertDialogFooter>
+                        <AlertDialogFooter>
                                 <AlertDialogCancel className="flex items-center gap-1">
                                     <Undo2 className="h-4 w-4" />
                                     Cancel
                                 </AlertDialogCancel>
-                                <Button onClick={() => newHandleSentBack()} className='flex items-center gap-1'>
+                                <Button onClick={() => {
+                                    setIsLoading("newHandleSentBack")
+                                    newHandleSentBack()
+                                }} className='flex items-center gap-1'>
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm
                                 </Button>
-                            </AlertDialogFooter>
+                        </AlertDialogFooter>
                         )}
                         <AlertDialogCancel id='SendBackAlertClose' className="hidden">
-                            Cancel
+                                Cancel
                         </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
@@ -916,29 +916,54 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         {isLoading === "newHandleApprove" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                            <AlertDialogFooter>
+                        <AlertDialogFooter>
                                 <AlertDialogCancel className="flex items-center gap-1">
                                     <Undo2 className="h-4 w-4" />
                                     Cancel
                                 </AlertDialogCancel>
-                                <Button onClick={() => newHandleApprove()} className='flex items-center gap-1'>
+                                <Button onClick={() => {
+                                    setIsLoading("newHandleApprove")
+                                    newHandleApprove()
+                                }} className='flex items-center gap-1'>
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm
                                 </Button>
-                            </AlertDialogFooter>
+                        </AlertDialogFooter>
                         )}
                         <AlertDialogCancel id='ApproveAlertClose' className="hidden">
-                            Cancel
+                                Cancel
                         </AlertDialogCancel>
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
-            {/* {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by)).length ? (
-                <div className="relative py-4 px-10">
-                    <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
-                    <span className="relative left-[5%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span>
-                </div>
-            ) : ""} */}
+            <div className="flex items-center space-y-2">
+                        <h2 className="text-base pl-2 font-bold tracking-tight">Procurement Comments</h2>
+            </div>
+            <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2 mb-2">
+                {universalComment?.length !== 0 ? (
+                    universalComment?.map((comment) => (
+                    <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                            <Avatar>
+                                <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment?.comment_by}`} />
+                                <AvatarFallback>{comment?.comment_by[0]}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                                <p className="font-medium text-sm text-gray-900">{comment?.content}</p>
+                                <div className="flex justify-between items-center mt-2">
+                                    <p className="text-sm text-gray-500">
+                                        {comment?.comment_by === "Administrator" ? "Administrator" : getFullName(comment?.comment_by)}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {formatDate(comment?.creation?.split(" ")[0])} {comment?.creation?.split(" ")[1].substring(0, 5)}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <span className="text-xs font-semibold">No Comments Found</span>
+                )}
+            </div>
             <div className="flex items-center py-4">
                 <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
             </div>

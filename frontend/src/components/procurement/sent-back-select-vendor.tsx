@@ -1,6 +1,6 @@
 import { ArrowBigUpDash, ArrowLeft, CheckCheck, Pencil, Undo2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { formatDate } from '@/utils/FormatDate';
@@ -20,6 +20,8 @@ import { toast } from '../ui/use-toast';
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
 import { TailSpin } from 'react-loader-spinner';
+import { Textarea } from '../ui/textarea';
+import { useUserData } from '@/hooks/useUserData';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -115,6 +117,8 @@ export const SentBackSelectVendor = () => {
     const { sbId : id } = useParams<{ sbId: string }>()
     const navigate = useNavigate()
 
+    const userData  = useUserData()
+
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
@@ -144,11 +148,14 @@ export const SentBackSelectVendor = () => {
             limit: 2000
         });
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+    const { createDoc: createDoc, loading: create_loading } = useFrappeCreateDoc()
 
     const [page, setPage] = useState<string>('updatequotation')
     const [orderData, setOrderData] = useState({
         project: ''
     })
+
+    const [comment, setComment] = useState('')
 
     const {data: filtered_quotation_data} = useFrappeGetDocList("Quotation Requests", {
         fields: ["*"],
@@ -260,7 +267,7 @@ export const SentBackSelectVendor = () => {
                     newData.push(node);
                 }
             });
-            console.log("newData", newData)
+            // console.log("newData", newData)
             setData(newData)
         }
     }, [orderData, selectedVendors]);
@@ -269,14 +276,14 @@ export const SentBackSelectVendor = () => {
 
     const rowSelection: TableRowSelection<DataType> = {
         onChange: (selectedRowKeys, selectedRows) => {
-            console.log("onChange")
-            console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
+            // console.log("onChange")
+            // console.log(`selectedRowKeys: ${selectedRowKeys}`, 'selectedRows: ', selectedRows);
         },
         onSelect: (record, selected, selectedRows) => {
-            console.log(record, selected, selectedRows);
+            // console.log(record, selected, selectedRows);
         },
         onSelectAll: (selected, selectedRows, changeRows) => {
-            console.log(selected, selectedRows, changeRows);
+            // console.log(selected, selectedRows, changeRows);
         },
     };
 
@@ -319,13 +326,26 @@ export const SentBackSelectVendor = () => {
             item_list: orderData.item_list,
         })
             .then(() => {
+                if (comment) {
+                    createDoc("Nirmaan Comments", {
+                        comment_type: "Comment",
+                        reference_doctype: "Sent Back Category",
+                        reference_name: id,
+                        comment_by: userData?.user_id,
+                        content: comment,
+                        subject: "sr vendors selected"
+                    })
+                }
+            }).then(() => {
+
                 toast({
                     title: "Success!",
                     description: `Sent Back: ${id} sent for Approval!`,
                     variant: "success"
                 })
                 navigate(-2)
-            }).catch((error) => {
+            })
+            .catch((error) => {
                 toast({
                     title: "Failed!",
                     description: `Failed to send Sent Back: ${id} for Approval.`,
@@ -349,7 +369,7 @@ export const SentBackSelectVendor = () => {
                 const newPrice = quotation_request_list.find(value =>
                     value.item === item.name && value.vendor === selectedVendors[item.name] && value.procurement_task === prevState.procurement_request
                 )?.quote
-                console.log(newPrice)
+                // console.log(newPrice)
                 return {
                     ...item,
                     quote: newPrice,
@@ -739,10 +759,14 @@ export const SentBackSelectVendor = () => {
                                     <DialogTitle>Have you cross-checked your quote selections?</DialogTitle>
                                     <DialogDescription>
                                         <span>You can click on confirm to send it for approval</span>
+                                        <div className='flex flex-col gap-2 mt-2 text-start'>
+                                            <h4 className='font-bold'>Any remarks for the Project Lead?</h4>
+                                            <Textarea placeholder='type here...' value={comment} onChange={(e) => setComment(e.target.value)} />
+                                        </div>
                                     </DialogDescription>
                                 </DialogHeader>
                                 <DialogDescription className='flex items-center justify-center gap-2'>
-                                    {update_loading ? (<TailSpin width={80} color='red' />) : (
+                                    {(update_loading || create_loading) ? (<TailSpin width={80} color='red' />) : (
                                         <>
                                         <Button variant={"secondary"} onClick={() => setPage("updatequotation")} className="flex items-center gap-1">
                                             <Undo2 className="h-4 w-4" />

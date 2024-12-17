@@ -60,7 +60,7 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
     })
 
     const { data: category_list } = useFrappeGetDocList('Category', {
-        fields: ['category_name', 'work_package', 'image_url', 'tax'],
+        fields: ['category_name', 'work_package', 'image_url', 'tax', 'new_items', 'name'],
         orderBy: { field: 'category_name', order: 'asc' },
         limit: 1000,
     });
@@ -437,12 +437,12 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                 <div className="flex items-center justify-between">
                     <div className="space-y-1">
                         <h3 className="text-sm">Package</h3>
-                        <div className='flex items-center gap-1'>
-                            <p className="font-semibold">{selectedWP}</p>
+                        <div className="">
+                            <span className="font-semibold">{selectedWP}</span>
                             {(!edit && !resolve) && (
                                 <Dialog>
                                 <DialogTrigger>
-                                    <Pencil className="cursor-pointer underline w-4 h-4 text-blue-600" />
+                                    <Pencil className="inline-block ml-1 cursor-pointer underline w-4 h-4 text-blue-600" />
                                 </DialogTrigger>
                                 <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>
@@ -488,6 +488,7 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                     onChange={(e) => setCurItem(e)}
                     components={{ MenuList: CustomMenuList }}
                     onAddItemClick={ toggleNewItemDialog }
+                    isNewItemsCreationDisabled={(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)) ? true : false}
                 />
                 <div className="flex items-center gap-4">
                     <div className="w-1/2">
@@ -792,8 +793,11 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
 const CustomMenuList = (props) => {
     const {
         children, // options rendered as children
-        selectProps: { onAddItemClick }, // custom handler for "Add Item"
+        selectProps: { onAddItemClick, isNewItemsCreationDisabled }, // custom handler for "Add Item"
     } = props;
+
+
+    console.log("isNewItemsCreationDisabled", isNewItemsCreationDisabled)
 
     return (
         <div>
@@ -801,15 +805,17 @@ const CustomMenuList = (props) => {
             <components.MenuList {...props}>
                 <div>{children}</div>
             </components.MenuList>
-            <div className='sticky top-0 z-10 bg-white'>
-                <Button
-                    variant={"outline"}
-                    className='w-full border-primary rounded-none'
-                    onClick={onAddItemClick}
-                
-                >
-                    Create New Item
-                </Button>
+            <div className={`sticky top-0 z-10 bg-white ${isNewItemsCreationDisabled ? "py-2" : ""} border-primary border `}>
+                    <Button
+                        disabled={isNewItemsCreationDisabled}
+                        variant={"ghost"}
+                        className='w-full rounded-none flex flex-col items-center justify-center py-2'
+                        onClick={onAddItemClick}
+                    
+                    >
+                        Create New Item
+                        {isNewItemsCreationDisabled && (<span className='text-xs text-primary text-wrap'>New Items Creation is disabled for this Category, please contact the Administrator!</span>)}
+                    </Button>
             </div>
         </div>
     );
