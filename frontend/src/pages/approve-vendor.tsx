@@ -715,7 +715,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         }
     };
 
-
     const generateVendorItemKey = (vendor: string, item: string): string => {
         return `${vendor}-${item}`;
     };
@@ -800,7 +799,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
     return "No valid action details available.";
     };
 
-    console.log("loading", isLoading)
 
     return (
         <>

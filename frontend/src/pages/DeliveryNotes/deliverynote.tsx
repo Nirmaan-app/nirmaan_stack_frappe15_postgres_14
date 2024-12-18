@@ -457,7 +457,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Check, ArrowLeft, X, ArrowUp, ArrowDown, Printer, Pencil, ListChecks, Undo2, CheckCheck, Paperclip } from "lucide-react";
+import { Check, ArrowLeft, X, ArrowUp, ArrowDown, Printer, Pencil, ListChecks, Undo2, CheckCheck, Paperclip, MessageCircleMore } from "lucide-react";
 import { Badge } from '@/components/ui/badge';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from 'frappe-react-sdk';
@@ -480,6 +480,7 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { useUserData } from '@/hooks/useUserData';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 
 
 export default function DeliveryNote() {
@@ -749,15 +750,30 @@ export default function DeliveryNote() {
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Item Name</TableHead>
-                                <TableHead>Unit</TableHead>
-                                <TableHead>Received</TableHead>
+                                <TableHead className='font-bold'>Item Name</TableHead>
+                                <TableHead className='font-bold'>Unit</TableHead>
+                                <TableHead className='font-bold'>Received</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {data && order?.list.map((item) => (
                                 <TableRow key={item.name}>
-                                    <TableCell className="font-medium">{item.item}</TableCell>
+                                    <TableCell>
+                                    <div className="inline items-baseline">
+                                        <span>{item.item}</span>
+                                        {item.comment && (
+                                            <HoverCard>
+                                                <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-4 h-4 inline-block ml-1" /></HoverCardTrigger>
+                                                <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                    <div className="relative pb-4">
+                                                        <span className="block">{item.comment}</span>
+                                                        <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                                    </div>
+                                                </HoverCardContent>
+                                            </HoverCard>
+                                        )}
+                                    </div>
+                                    </TableCell>
                                     <TableCell>{item.unit}</TableCell>
                                     <TableCell>
                                         {!show ? (
@@ -865,7 +881,14 @@ export default function DeliveryNote() {
                                 {order && JSON.parse(data.order_list)?.list?.map((item: any, index: number) => {
                                     return (<tr key={index} className={` page-break-inside-avoid ${index >= 14 ? 'page-break-before' : ''}`}>
                                         <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
-                                        <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
+                                        <td className=" py-2 text-sm whitespace-nowrap text-wrap">{item.item}
+                                            {(item.comment) &&
+                                                <div className="flex gap-1 items-start block p-1">
+                                                    <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                                                    <div className="text-xs text-gray-400">{item.comment}</div>
+                                                </div>
+                                            }
+                                        </td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap">{item.received || 0}</td>
                                     </tr>)

@@ -59,7 +59,7 @@ export const ApprovePR = () => {
         let total: number = 0;
         let usedQuotes = {}
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
-        orderData?.list.map((item: any) => {
+        orderData?.list?.filter((i) => i.status !== "Request")?.map((item: any) => {
             const quotesForItem = quote_data
                 ?.filter(value => value.item_id === item.name && value.quote != null)
                 ?.map(value => value.quote);
@@ -180,7 +180,7 @@ export const ApprovePR = () => {
                 cell: ({ row }) => {
                     return (
                         <div className="flex flex-col gap-1 items-start justify-center">
-                            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+                            {row.getValue("category_list").list.map((obj) => obj["status"] !== "Request" && <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }

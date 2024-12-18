@@ -177,8 +177,6 @@ export function DataTable<TData, TValue>({ columns, data, project_values, catego
     //   {table.getFilteredRowModel().rows.length} row(s) selected.
     // </div>
 
-    console.log("wpOptions", wpOptions)
-
     return (
         <div className="space-y-4">
             {/* Look for data-table-toolbar in tasks example */}

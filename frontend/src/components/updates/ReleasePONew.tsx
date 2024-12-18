@@ -6,7 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useReactToPrint } from 'react-to-print';
 import redlogo from "@/assets/red-logo.png"
 // import { Button } from "../ui/button";
-import { AlertTriangle, ArrowLeft, ArrowLeftToLine, CheckCheck, Download, Eye, List, ListChecks, ListTodo, ListX, Mail, Merge, MessageCircleWarning, NotebookPen, Pencil, Phone, Printer, Send, Split, Trash2, Truck, Undo, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowLeftToLine, CheckCheck, Download, Eye, List, ListChecks, ListTodo, ListX, Mail, Merge, MessageCircleMore, MessageCircleWarning, NotebookPen, Pencil, Phone, Printer, Send, Split, Trash2, Truck, Undo, Undo2, X } from "lucide-react";
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import { Controller, useForm } from "react-hook-form";
 import { Input } from '@/components/ui/input';
@@ -30,6 +30,7 @@ import { Separator } from '../ui/separator';
 import { ProcurementOrders as ProcurementOrdersType } from '@/types/NirmaanStack/ProcurementOrders';
 import { TailSpin } from 'react-loader-spinner';
 import logo from "@/assets/logo-svg.svg"
+import { Switch } from '../ui/switch';
 
 const { Sider, Content } = Layout;
 
@@ -45,6 +46,7 @@ export const ReleasePONew = ({ not }) => {
     const [customAdvance, setCustomAdvance] = useState(false);
     const [quantity, setQuantity] = useState<number | null | string>(null)
     const [stack, setStack] = useState([]);
+    const [includeComments, setIncludeComments] = useState(false)
 
     const [phoneNumber, setPhoneNumber] = useState("")
     const [email, setEmail] = useState("")
@@ -763,6 +765,11 @@ export const ReleasePONew = ({ not }) => {
             </div>
             <Layout>
                 <Sider theme='light' collapsedWidth={0} width={500} trigger={null} collapsible collapsed={collapsed}>
+                    <div className="py-2 px-4">
+                        <h3 className="text-black font-semibold pb-2">Include Comments</h3>
+                        <Switch id="hello" value={includeComments} onCheckedChange={(e) => setIncludeComments(e)}  /> 
+                        <Separator className='my-2' />
+                    </div>
                     <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4">
                         <div className="flex-col">
                             <h3 className="font-semibold text-lg mt-4">Additional Charges</h3>
@@ -1288,7 +1295,14 @@ export const ReleasePONew = ({ not }) => {
                                                     return (
                                                         <tr key={index} className={`${(!loadingCharges && !freightCharges && index === length - 1) && "border-b border-black"} page-break-inside-avoid ${index === 15 ? 'page-break-before' : ''}`}>
                                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
-                                                            <td className="py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
+                                                            <td className="py-2 text-sm whitespace-nowrap text-wrap">{item.item}
+                                                                {(item.comment && includeComments) &&
+                                                                    <div className="flex gap-1 items-start block p-1">
+                                                                        <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                                                                        <div className="text-xs text-gray-400">{item.comment}</div>
+                                                                    </div>
+                                                                }
+                                                            </td>
                                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                                                             <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.quote)}</td>
