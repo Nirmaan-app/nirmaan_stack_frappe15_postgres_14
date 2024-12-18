@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, SendToBack, Undo2 } from 'lucide-react';
+import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2 } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
@@ -17,6 +17,7 @@ import { useUserData } from '@/hooks/useUserData';
 import { TailSpin } from 'react-loader-spinner';
 import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -41,9 +42,23 @@ const columns: TableColumnsType<DataType> = [
         key: 'item',
         render: (text, record) => {
             return (
-                <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
-                    {text}
-                </span>
+                <div className="inline items-baseline">
+                    <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+                        {text}
+                    </span>
+                    {(!record.children && record.comment) && (
+                        <HoverCard>
+                            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                <div className="relative pb-4">
+                                    <span className="block">{record.comment}</span>
+                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                </div>
+
+                            </HoverCardContent>
+                        </HoverCard>
+                    )}
+                </div>
             )
         }
     },
@@ -266,6 +281,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                             category: item.category,
                             tax: Number(item.tax),
                             rate: item.quote,
+                            comment: item.comment,
                             amount: item.vendor ? item.quote * item.quantity : "Delayed",
                             selectedVendor: item.vendor ? getVendorName(item.vendor) : "Delayed",
                             // lowest2: item.vendor ? getLowest2(item.name)*item.quantity : "Delayed",
@@ -371,7 +387,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                         category: item.category,
                         tax: item.tax,
                         unit: item.unit,
-                        item: item.item
+                        item: item.item,
+                        comment: item.comment
                     });
                 }
 
@@ -497,7 +514,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                     unit: value.unit,
                     tax: value.tax,
                     status: "Pending",
-                    category: value.category
+                    category: value.category,
+                    comment : value.comment
                 })
             })
 
