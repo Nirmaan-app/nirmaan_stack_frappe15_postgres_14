@@ -69,7 +69,7 @@ export function Notifications({ isMobileMain = false }) {
                                 {notificationsCount}
                             </span>
                         )}
-                        <SidebarMenuBadge>{notificationsCount}</SidebarMenuBadge>
+                        <SidebarMenuBadge className="right-3">{notificationsCount}</SidebarMenuBadge>
                     </SidebarMenuButton>
                 ) : (
 

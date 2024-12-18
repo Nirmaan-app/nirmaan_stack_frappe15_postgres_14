@@ -9,8 +9,7 @@ import { Badge } from "../ui/badge";
 import { useToast } from "../ui/use-toast";
 import { TableSkeleton } from "../ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { EstimatedPriceHoverCard } from "./EstimatedPriceHoverCard";
 
 
 type PRTable = {
@@ -168,40 +167,13 @@ export const SelectVendorList = () => {
                 cell: ({ row }) => {
                     const total = getTotal(row.getValue("name")).total
                     const prUsedQuotes = getTotal(row.getValue("name"))?.usedQuotes
-                    // console.log('usedQuotes', prUsedQuotes)
                     return (
                         total === "N/A" ? (
                             <div className="font-medium">
                                 N/A
                             </div>
                         ) : (
-                            <HoverCard>
-                                <HoverCardTrigger>
-                                    <div className="font-medium underline">
-                                        {formatToIndianRupee(total)}
-                                    </div>
-                                </HoverCardTrigger>
-                                <HoverCardContent>
-                                    <div>
-                                        <h2 className="text-primary font-semibold mb-4">Estimate Summary:</h2>
-                                        <div className="flex flex-col gap-4">
-                                            {Object.entries(prUsedQuotes)?.map(([item, quotes]) => (
-                                                <div key={item} className="flex flex-col gap-2">
-                                                    <p className="font-semibold">{item}</p>
-                                                    <p className="font-semibold">({quotes?.quantity} * ₹{quotes?.amount} = {formatToIndianRupee(quotes?.quantity * quotes?.amount)})</p>
-                                                    <ul className="list-disc ">
-                                                        {quotes?.items ? (
-                                                            <li className="ml-4 text-gray-600 underline hover:underline-offset-2" key={quotes?.items?.name}><Link to={`/debug/${quotes?.items?.procurement_order?.replaceAll("/", "&=")}`}>{quotes?.items?.procurement_order}</Link></li>
-                                                        ) : (
-                                                            <p className="text-xs">No previous Quotes found for this item</p>
-                                                        )}
-                                                    </ul>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </HoverCardContent>
-                            </HoverCard>
+                            <EstimatedPriceHoverCard total={total} prUsedQuotes={prUsedQuotes} />
                         )
                     )
                 }

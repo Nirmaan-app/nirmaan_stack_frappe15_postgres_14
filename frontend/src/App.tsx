@@ -65,6 +65,8 @@ import { NewProcurementRequest } from './components/procurement-request/new-new-
 import { WPSelection } from './components/procurement-request/wp_selection'
 import { SelectServiceVendorPage } from '@/components/service-request/select-service-vendor'
 import { SidebarProvider } from './components/ui/sidebar'
+import { ProcurementPackages } from './components/procurement-packages'
+import { EstimatedPriceOverview } from './components/procurement/EstimatedPriceOverview'
 // import { SentBackSummary } from './components/procurement/sent-back-summary'
 // import { ManPowerReport } from './components/ManPowerReport'
 
@@ -226,6 +228,10 @@ const router = createBrowserRouter(
 						</Route>
 					</Route>
 
+					<Route path='estimate-overview'>
+						<Route index element={<EstimatedPriceOverview />} />
+					</Route>
+
 					{/* Project Paths */}
 					<Route path="projects">
 						<Route index element={<Projects />} />
@@ -294,6 +300,7 @@ const router = createBrowserRouter(
 
 					{/* Other routes */}
 					<Route path="wp" element={<WorkPackages />} />
+					<Route path="procurement-packages" element={<ProcurementPackages />} />
 					<Route path="pdf" element={<PDF />} />
 					<Route path='milestone-update' element={<NewMilestones />} />
 					<Route path="delayed-pr" element={<DelayedPRSelect />} />

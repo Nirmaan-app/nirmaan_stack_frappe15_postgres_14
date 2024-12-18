@@ -196,7 +196,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     fields: ["vendor_name", 'vendor_type'],
     filters: [["vendor_type", "=", "Material"]],
     limit: 1000
-  }
+    }
   )
 
   const vendorOptions = vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.vendor_name }))
@@ -469,7 +469,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       return "New PR";
     }
 
-    if (itemList?.some((i) => i?.status === "Deleted")) {
+    if(itemList?.some((i) => i?.status === "Deleted")) {
       return "Open PR"
     }
 
@@ -613,7 +613,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           const srId = row.getValue("name")
           return (
-            <Link className="text-blue-500 underline" to={`/service-requests/${srId}`}>
+            <Link className="text-blue-500 underline" to={`/service-request/${srId}`}>
               {srId?.slice(-5)}
             </Link>
           )
@@ -713,7 +713,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }
 
   const wpOptions = data && JSON.parse(data?.project_work_packages)?.work_packages?.map((wp) => ({
-    label: wp?.work_package_name,
+    label : wp?.work_package_name,
     value: wp?.work_package_name
   }))
 
@@ -775,10 +775,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         },
         filterFn: (row, id, value) => {
           const rowValue = row.getValue(id)
-          console.log("rowvalue", rowValue)
-          console.log("value", value)
+          // console.log("rowvalue", rowValue)
+          // console.log("value", value)
           const renderValue = getWorkPackageName(rowValue)
-          console.log("renderValue", renderValue)
+          // console.log("renderValue", renderValue)
           return value.includes(renderValue)
         }
       },
@@ -817,7 +817,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         id: "totalWithoutGST",
         header: ({ column }) => {
           return (
-            <DataTableColumnHeader column={column} title="Amount" />
+            <DataTableColumnHeader column={column} title="Amt (exc. GST)" />
           )
         },
         cell: ({ row }) => {
@@ -829,12 +829,20 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         }
       },
       {
-        accessorKey: 'order_list',
+        id: "totalWithGST",
         header: ({ column }) => {
-          return <h1 className="hidden">:</h1>
+            return (
+                <DataTableColumnHeader column={column} title="Amt (inc. GST)" />
+            )
         },
-        cell: ({ row }) => <span className="hidden">hh</span>
-      }
+        cell: ({ row }) => {
+            return (
+                <div className="font-medium">
+                    {formatToIndianRupee(getPOTotal(row.getValue("name")).totalWithGST)}
+                </div>
+            )
+        }
+    }
     ],
     [projectId, po_data_for_posummary, data]
   )
@@ -1479,7 +1487,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               </CardContent>
             </Card> */}
             {po_data_for_posummary_loading ? (<TableSkeleton />) :
-              <DataTable columns={poColumns} data={po_data_for_posummary || []} vendorOptions={vendorOptions} itemSearch={true} wpOptions={[...wpOptions, { label: "Tool & Equipments", value: "Tool & Equipments" }] || []} />
+              <DataTable columns={poColumns} data={po_data_for_posummary || []} vendorOptions={vendorOptions} itemSearch={true} wpOptions={[...wpOptions, {label : "Tool & Equipments", value : "Tool & Equipments"}] || []} />
               // <p>RESOLVE PO TABLE</p>
             }
           </div>
@@ -1539,7 +1547,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   <h2 className="font-semibold text-gray-500">Work Packages</h2>
                   <ArrowDown className="w-4 h-4" />
                 </div>
-                {JSON.parse(data?.project_work_packages)?.work_packages?.sort((a, b) => a?.work_package_name?.localeCompare(b?.work_package_name))?.map((wp) => (
+                {JSON.parse(data?.project_work_packages)?.work_packages?.sort((a,b) => a?.work_package_name?.localeCompare(b?.work_package_name))?.map((wp) => (
                   <div key={wp?.work_package_name}>
                     <h3 className="text-sm font-semibold py-4">{wp?.work_package_name}</h3>
                     <CategoryAccordion categorizedData={categorizedData} selectedPackage={wp?.work_package_name} projectEstimates={project_estimates?.filter((i) => i?.work_package === wp?.work_package_name) || []} />
@@ -2138,7 +2146,7 @@ export const ServiceRequestsAccordion = ({ projectEstimates, segregatedData }) =
         <div className="pt-6 overflow-x-auto">
           <ConfigProvider>
             <AntTable
-              dataSource={segregatedData?.sort((a, b) => Object.keys(a)[0]?.localeCompare(Object.keys(b)[0]))?.map((key) => ({
+              dataSource={segregatedData?.sort((a,b) => Object.keys(a)[0]?.localeCompare(Object.keys(b)[0]))?.map((key) => ({
                 key: Object.values(key)[0]?.key,
                 amount: Object.values(key)[0]?.amount,
                 estimate_total: Object.values(key)[0]?.estimate_total,
@@ -2196,14 +2204,15 @@ const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedDat
     });
 
     // Add service requests total as a standalone item
-    treeData?.push({
-      title: `Service Requests Total: ₹${parseFloat(totalServiceOrdersAmt).toLocaleString()}`,
-      key: 'service-requests-total',
-    });
+    if(totalServiceOrdersAmt) {
+      treeData?.push({
+        title: `Service Requests Total: ₹${parseFloat(totalServiceOrdersAmt).toLocaleString()}`,
+        key: 'service-requests-total',
+      });
+    }
 
     return treeData;
   };
-
 
   return (
     <HoverCard>
@@ -2216,18 +2225,19 @@ const CustomHoverCard = ({ totalPosRaised, totalServiceOrdersAmt, categorizedDat
         </div>
       </HoverCardTrigger>
       <HoverCardContent className="overflow-y-auto max-h-[80vh]">
-        {/* {[...Array(20)].map((_, index) => (
-        <div>We plugged in the entire chancejs API surface in the $tweak. namespace that enables a myriad of use cases! You can literally pick any method directly from the chancejs API!</div>
-      ))} */}
-        <div>
-          <h3 className="font-semibold text-lg mb-2">Total Spent Breakdown</h3>
-          <Tree
-            showLine
-            switcherIcon={<DownOutlined />}
-            defaultExpandedKeys={['0-0']}
-            treeData={generateTreeData()}
-          />
-        </div>
+        {generateTreeData()?.length !== 0 ? (
+            <div>
+            <h3 className="font-semibold text-lg mb-2">Total Spent Breakdown</h3>
+            <Tree
+              showLine
+              switcherIcon={<DownOutlined />}
+              defaultExpandedKeys={['0-0']}
+              treeData={generateTreeData()}
+            />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center font-semibold text-xs">Empty!</div>
+        )}
       </HoverCardContent>
     </HoverCard>
   );

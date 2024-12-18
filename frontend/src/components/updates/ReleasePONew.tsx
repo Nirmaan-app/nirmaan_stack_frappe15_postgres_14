@@ -300,15 +300,19 @@ export const ReleasePONew = ({ not }) => {
 
     const handleCancelPo = async () => {
 
+        setClicked(true)
+
         const categories = []
 
         const itemList = []
 
         orderData?.order_list?.list.map((item) => {
-            categories.push({ name: item.category })
+            if(categories?.every((i) => i?.name !== item.category)) {
+                categories.push({ name: item.category })
+            }
             itemList.push({ ...item, status: "Pending" })
         })
-        setClicked(true)
+        
         try {
             await updateDoc("Procurement Orders", orderId, {
                 status: "Cancelled"
@@ -1007,7 +1011,7 @@ export const ReleasePONew = ({ not }) => {
                                                         <Merge className="w-4 h-4" />
                                                         Merge PO(s)</Button>
                                                 </SheetTrigger>
-                                                <SheetContent>
+                                                <SheetContent className='overflow-auto'>
                                                     <div className="p-6">
                                                         <h2 className="text-2xl font-bold mb-4">Merge Purchase Orders</h2>
 
@@ -2048,7 +2052,7 @@ export const ReleasePONew = ({ not }) => {
                                                     <SheetTrigger asChild>
                                                         <button className="hidden" id="amendAlertTrigger">trigger</button>
                                                     </SheetTrigger>
-                                                    <SheetContent>
+                                                    <SheetContent className='overflow-auto'>
                                                         <>
                                                             <div className='pb-4 text-lg font-bold'>Amend: <span className='text-red-700'>{orderId}</span></div>
                                                             {/* PENDING CARD */}
@@ -2075,24 +2079,24 @@ export const ReleasePONew = ({ not }) => {
                                                                     )}
                                                                 </div>
 
-                                                                <table className="table-auto md:w-full">
+                                                                <table className="table-auto w-full">
                                                                     <thead>
                                                                         <tr className="bg-gray-200">
-                                                                            <th className="w-[60%] text-left px-4 py-1 text-xs">Item Name</th>
-                                                                            <th className="w-[20%] px-4 py-1 text-xs text-center">Unit</th>
-                                                                            <th className="w-[10%] px-4 py-1 text-xs text-center">Quantity</th>
-                                                                            <th className="w-[10%] px-4 py-1 text-xs text-center">Edit</th>
+                                                                            <th className="w-[60%] text-left  py-1 text-xs">Item Name</th>
+                                                                            <th className="w-[20%]  py-1 text-xs text-center">Unit</th>
+                                                                            <th className="w-[10%]  py-1 text-xs text-center">Quantity</th>
+                                                                            <th className="w-[10%]  py-1 text-xs text-center">Edit</th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
                                                                         {orderData?.order_list.list.map((item) => {
                                                                             return <tr key={item.item}>
-                                                                                <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
+                                                                                <td className="w-[60%] text-left border-b-2 py-1 text-sm">
                                                                                     {item.item}
                                                                                 </td>
-                                                                                <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
-                                                                                <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
-                                                                                <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
+                                                                                <td className="w-[20%] border-b-2 py-1 text-sm text-center">{item.unit}</td>
+                                                                                <td className="w-[10%] border-b-2 py-1 text-sm text-center">{item.quantity}</td>
+                                                                                <td className="w-[10%] border-b-2 py-1 text-sm text-center">
                                                                                     <AlertDialog>
                                                                                         <AlertDialogTrigger onClick={() => setQuantity(parseInt(item.quantity))}><Pencil className="w-4 h-4" /></AlertDialogTrigger>
                                                                                         <AlertDialogContent>
@@ -2155,7 +2159,7 @@ export const ReleasePONew = ({ not }) => {
                                                                 </table>
                                                             </Card>
 
-                                                            <div className='flex p-2 gap-2 align-right'>
+                                                            <div className='flex p-2 gap-2 items-end justify-end'>
                                                                 <SheetClose asChild>
                                                                     <ShadButton
                                                                         variant="outline"

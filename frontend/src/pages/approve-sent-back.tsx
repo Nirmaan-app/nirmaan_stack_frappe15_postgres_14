@@ -16,6 +16,7 @@ import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
 import { TailSpin } from 'react-loader-spinner';
 import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -159,7 +160,7 @@ const ApproveSentBack = () => {
         </div>
     );
     return (
-        <ApproveSentBackPage sb_data={sb} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
+        <ApproveSentBackPage sb_data={sb} project_data={project_data} usersList={usersList} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
     )
 }
 
@@ -168,10 +169,11 @@ interface ApproveSentBackPageProps {
     project_data: ProjectsType | undefined
     owner_data: NirmaanUsersType | undefined | { full_name: String }
     sent_back_list_mutate: any
+    usersList?: any
 }
 
 
-const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
+const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
     // const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
 
@@ -181,6 +183,11 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             filters: [["vendor_type", "=", "Material"]],
             limit: 200
         });
+
+        const { data: universalComment } = useFrappeGetDocList("Nirmaan Comments", {
+            fields: ["*"],
+            filters: [["reference_name", "=", sb_data.name], ["subject", "=", "sr vendors selected"]]
+        })
     // const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
     //     {
     //         fields: ['name', 'project_name', 'project_address'],
@@ -207,6 +214,10 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
 
     const [data, setData] = useState<DataType>([])
     const [checkStrictly, setCheckStrictly] = useState(false);
+
+    const getFullName = (id) => {
+        return usersList?.find((user) => user?.name == id)?.full_name
+    }
 
     useEffect(() => {
         // if (sent_back_list) {
@@ -718,19 +729,14 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
     };
 
     return (
-        <div>
             <div className="flex-1 space-y-4">
-                <div className="flex-1 space-y-4">
                     <div className="flex items-center">
                         {/* <ArrowLeft className='cursor-pointer' onClick={() => { navigate('/approve-sent-back') }} /> */}
                         <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Send-Back <span className="italic">{orderData?.type} SB-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
                     <ProcurementActionsHeaderCard orderData={orderData} sentBack={true} />
-                </div>
-            </div>
             {
                 selectedItems?.length > 0 && (
-                    <div className="mt-4">
                         <div className="bg-white shadow-md rounded-lg p-4 border border-gray-200">
                             <h2 className="text-lg font-bold mb-3 flex items-center">
                                 <BookOpenText className="h-5 w-5 text-blue-500 mr-2" />
@@ -756,10 +762,9 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                                 </div>
                             </div>
                         </div>
-                    </div>
                 )
             }
-            <div className='overflow-x-auto pt-6'>
+            <div className='overflow-x-auto'>
                 <ConfigProvider
                     theme={{
                         token: {
@@ -782,79 +787,106 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                     }
                 </ConfigProvider>
             </div>
-            {
-                selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2 mt-2">
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
-                                <SendToBack className='w-4 h-4' />
-                                Send Back
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent className="sm:max-w-[425px]">
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Are you Sure</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    Add Comments and Send Back the Selected Items.
-                                    <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
-                                    <textarea
-                                        id="textarea"
-                                        className="w-full border rounded-lg p-2"
-                                        value={comment}
-                                        placeholder="type here..."
-                                        onChange={(e) => setComment(e.target.value)}
-                                    />
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            {isLoading === "newHandleSentBack" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel className="flex items-center gap-1">
-                                        <Undo2 className="h-4 w-4" />
-                                        Cancel</AlertDialogCancel>
-                                    <Button onClick={() => newHandleSentBack()} className="flex items-center gap-1">
-                                        <CheckCheck className="h-4 w-4" />
-                                        Confirm
-                                    </Button>
-                                </AlertDialogFooter>
-                            )}
-                            <AlertDialogCancel id='SendBackAlertClose' className="hidden">
-                                Cancel
-                            </AlertDialogCancel>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
-                                <ListChecks className="h-4 w-4" />
-                                Approve
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent className="sm:max-w-[425px]">
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Are you Sure</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    Click on Confirm to Approve the Selected Items.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            {isLoading === "newHandleApprove" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel className="flex items-center gap-1">
-                                        <Undo2 className="h-4 w-4" />
-                                        Cancel</AlertDialogCancel>
-                                    <Button onClick={() => newHandleApprove()} className="flex items-center gap-1">
-                                        <CheckCheck className="h-4 w-4" />
-                                        Confirm
-                                    </Button>
-                                </AlertDialogFooter>
-                            )}
-                            <AlertDialogCancel id='ApproveAlertClose' className="hidden">
-                                Cancel
-                            </AlertDialogCancel>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                </div>
-            }
-        </div >
+            {selectedItems?.length > 0 && <div className="flex justify-end mr-2 gap-2">
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1">
+                            <SendToBack className='w-4 h-4' />
+                            Send Back
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="sm:max-w-[425px]">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Add Comments and Send Back the Selected Items.
+                                <div className="py-2"><label htmlFor="textarea" >Comment:</label></div>
+                                <textarea
+                                    id="textarea"
+                                    className="w-full border rounded-lg p-2"
+                                    value={comment}
+                                    placeholder="type here..."
+                                    onChange={(e) => setComment(e.target.value)}
+                                />
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        {isLoading === "newHandleSentBack" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                            <AlertDialogFooter>
+                                <AlertDialogCancel className="flex items-center gap-1">
+                                    <Undo2 className="h-4 w-4" />
+                                    Cancel</AlertDialogCancel>
+                                <Button onClick={() => newHandleSentBack()} className="flex items-center gap-1">
+                                    <CheckCheck className="h-4 w-4" />
+                                    Confirm
+                                </Button>
+                            </AlertDialogFooter>
+                        )}
+                        <AlertDialogCancel id='SendBackAlertClose' className="hidden">
+                            Cancel
+                        </AlertDialogCancel>
+                    </AlertDialogContent>
+                </AlertDialog>
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button variant={"outline"} className='text-red-500 border-red-500 flex gap-1 items-center'>
+                            <ListChecks className="h-4 w-4" />
+                            Approve
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="sm:max-w-[425px]">
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you Sure</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Click on Confirm to Approve the Selected Items.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        {isLoading === "newHandleApprove" ? <div className='flex items-center justify-center'><TailSpin width={80} color='red' /> </div> : (
+                            <AlertDialogFooter>
+                                <AlertDialogCancel className="flex items-center gap-1">
+                                    <Undo2 className="h-4 w-4" />
+                                    Cancel</AlertDialogCancel>
+                                <Button onClick={() => newHandleApprove()} className="flex items-center gap-1">
+                                    <CheckCheck className="h-4 w-4" />
+                                    Confirm
+                                </Button>
+                            </AlertDialogFooter>
+                        )}
+                        <AlertDialogCancel id='ApproveAlertClose' className="hidden">
+                            Cancel
+                        </AlertDialogCancel>
+                    </AlertDialogContent>
+                </AlertDialog>
+            </div>}
+
+            <div className="flex items-center space-y-2">
+                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Procurement Comments</h2>
+            </div>
+            <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2 mb-2">
+                {universalComment?.length !== 0 ? (
+                    universalComment?.map((comment) => (
+                    <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                            <Avatar>
+                                <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment?.comment_by}`} />
+                                <AvatarFallback>{comment?.comment_by[0]}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                                <p className="font-medium text-sm text-gray-900">{comment?.content}</p>
+                                <div className="flex justify-between items-center mt-2">
+                                    <p className="text-sm text-gray-500">
+                                        {comment?.comment_by === "Administrator" ? "Administrator" : getFullName(comment?.comment_by)}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {formatDate(comment?.creation?.split(" ")[0])} {comment?.creation?.split(" ")[1].substring(0, 5)}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <span className="text-xs font-semibold">No Comments Found</span>
+                )}
+            </div>
+        </div>
     )
 }
 
