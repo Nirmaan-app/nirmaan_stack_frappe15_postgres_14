@@ -88,7 +88,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
     const pr_no = pr_data?.name.split("-").slice(-1)
     const userData = useUserData()
 
-    const orderData = { name: pr_data?.name, work_package: pr_data?.work_package, comment: pr_data?.comment, project: pr_data?.project, category_list: JSON.parse(pr_data?.category_list), procurement_list: JSON.parse(pr_data?.procurement_list) }
+    const orderData = { name: pr_data?.name, work_package: pr_data?.work_package, comment: pr_data?.comment, project: pr_data?.project, category_list: JSON.parse(pr_data?.category_list || "[]"), procurement_list: JSON.parse(pr_data?.procurement_list || "[]") }
 
     const [section, setSection] = useState("pr-summary")
     const { deleteDoc } = useFrappeDeleteDoc()
@@ -421,7 +421,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                     <div className="overflow-x-auto">
 
                                         <div className="min-w-full inline-block align-middle">
-                                            {JSON.parse(pr_data?.category_list).list.map((cat: any) => {
+                                            {JSON.parse(pr_data?.category_list).list?.filter((i) => i?.status !== "Request").map((cat: any) => {
                                                 return <div className="p-5">
                                                     {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
                                                     <Table>
@@ -436,7 +436,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                                         <TableBody>
                                                             {JSON.parse(pr_data?.procurement_list).list.map((item: any) => {
                                                                 // console.log(item)
-                                                                if (item.category === cat.name) {
+                                                                if (item.category === cat.name && item.status !== "Request") {
                                                                     return (
                                                                         <TableRow key={item.item}>
                                                                             <TableCell>{item.item}
@@ -448,6 +448,24 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                                                             <TableCell>{item.unit}</TableCell>
                                                                             <TableCell>{item.quantity}</TableCell>
                                                                             <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : item.status === "Deleted" ? "Deleted" : getItemStatus(item)}</Badge></TableCell>
+                                                                        </TableRow>
+                                                                    )
+                                                                }
+                                                            })}
+                                                            {JSON.parse(pr_data?.procurement_list).list.map((item: any) => {
+                                                                // console.log(item)
+                                                                if (item.category === cat.name && item.status === "Request") {
+                                                                    return (
+                                                                        <TableRow className="bg-yellow-50" key={item.item}>
+                                                                            <TableCell>{item.item}
+                                                                                <div className="flex gap-1 pt-2 items-start">
+                                                                                    <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                                                                                    <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
+                                                                                </div>
+                                                                            </TableCell>
+                                                                            <TableCell>{item.unit}</TableCell>
+                                                                            <TableCell>{item.quantity}</TableCell>
+                                                                            <TableCell><Badge variant="outline">Requested</Badge></TableCell>
                                                                         </TableRow>
                                                                     )
                                                                 }

@@ -1,4 +1,4 @@
-import { Card, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { CheckCheck, CircleX, ListChecks, MessageCircleMore, MessageCircleWarning, PackagePlus, Replace, Settings2, Trash2, Undo } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -64,7 +64,6 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     const [curCategory, setCurCategory] = useState<string>('')
     const [unit, setUnit] = useState<string>('')
     const [quantity, setQuantity] = useState<number | null | string>(null)
-    const [item_id, setItem_id] = useState<string>('');
     // const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
     const [tax, setTax] = useState<number | null>(null)
@@ -299,8 +298,10 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 setQuantity('');
                 setCurItem('');
                 setUnit('');
-                setItem_id('');
                 setMake('');
+                if(request) {
+                    toggleRequestItemDialog()
+                }
             }
         }
     };
@@ -546,7 +547,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         }
     }
 
-    console.log("orderData", orderData)
+    // console.log("orderData", orderData)
 
     // console.log("userData", userData)
 
@@ -693,7 +694,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         <AlertDialogHeader>
                             <AlertDialogTitle className="flex justify-between">Request New Item</AlertDialogTitle>
                             <AlertDialogDescription className="flex flex-col gap-2">
-                                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="text-sm text-red-600">*</sup></label>
                                     <Input
                                         type="text"
                                         id="itemName"
@@ -704,7 +705,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                                            <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="text-sm text-red-600">*</sup></label>
                                             <Select onValueChange={(value) => setUnit(value)}>
                                                 <SelectTrigger className="w-[180px]">
                                                     <SelectValue className="text-gray-200" placeholder="Select Unit" />
@@ -730,7 +731,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                         </div>
 
                                         <div>
-                                            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">Quantity<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                                            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">Quantity<sup className="text-sm text-red-600">*</sup></label>
                                             <Input
                                                 type="number"
                                                 id="quantity"
@@ -752,14 +753,21 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     {(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)) ? (
                     <HoverCard>
                         <HoverCardTrigger asChild>
-                            <button className="text-sm py-2 md:text-lg text-blue-300 flex items-center gap-1" onClick={() => toggleRequestItemDialog()}><CirclePlus className="w-5 h-5" />Request new item</button>
+                            <Button variant={"ghost"} className="text-sm py-2 px-0 md:text-lg text-blue-300 flex items-center gap-1 hover:bg-white" 
+                            onClick={() => {
+                                setQuantity('');
+                                setCurItem('');
+                                setUnit('');
+                                setMake('');
+                                toggleRequestItemDialog()
+                            }}><CirclePlus className="w-4 h-4" />Request new item</Button>
                         </HoverCardTrigger>
                         <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                            New Items Creation is disabled for this Category, either request for a new item here or contact the Administrator!
+                            New Item Creation is disabled for this Category, either request for a new item here or contact the Administrator!
                         </HoverCardContent>
                     </HoverCard>
                     ) : (
-                        <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button>
+                        <Button variant={"ghost"} disabled={!curCategory} className="text-sm py-2 px-0 md:text-lg text-blue-400 flex items-center gap-1 hover:bg-white" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create new item</Button>
                     )}
                     {(curItem && Number(quantity)) ?
                         <Button variant="default" className="flex items-center gap-1" onClick={() => handleAdd()}> <CirclePlus className="w-4 h-4" />Add</Button>
@@ -768,8 +776,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     {/* <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button> */}
                 </div>
                 {/* <div className="max-md:text-xs text-rose-700">Added Items</div> */}
-                <div className="flex justify-between items-center max-md:py-4">
-                    <p className="max-md:text-xs text-rose-700">Added Items</p>
+                <div className="flex justify-between items-center max-md:pt-2">
+                    <p className="max-md:text-xs text-rose-700 pl-2">Items List</p>
                     {stack.length !== 0 && (
                         <div className="flex items-center space-x-2">
                             <HoverCard>
@@ -778,7 +786,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                         onClick={() => UndoDeleteOperation()}
                                         className="flex items-center max-md:text-sm max-md:px-2 max-md:py-1  px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-600 transition duration-200 ease-in-out"
                                     >
-                                        <Undo className="mr-2 max-md:w-4 max-md:h-4" /> {/* Undo Icon */}
+                                        <Undo className="mr-2 max-md:w-4 max-md:h-4" />
                                         Undo
                                     </button>
                                 </HoverCardTrigger>
@@ -789,9 +797,23 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         </div>
                     )}
                 </div>
-                {orderData.category_list.list.filter((i) => i?.status !== "Request")?.length ? (
-                        orderData.category_list?.list?.filter((i) => i?.status !== "Request")?.map((cat) => {
-                            return <div className="container mb-4 mx-0 px-0">
+
+                {orderData.category_list.list?.length === 0 &&  (
+                    <div className="text-center bg-gray-100 p-2 text-gray-600">
+                    Empty!
+                </div>
+                )}
+
+                {orderData.category_list.list.filter((i) => i?.status !== "Request")?.length !== 0 && (
+                    <Card>
+                    <CardHeader>
+                        <CardTitle>
+                            Added Items
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {orderData.category_list?.list?.filter((i) => i?.status !== "Request")?.map((cat) => {
+                            return <div>
                                 <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
                                 <table className="table-auto md:w-full">
                                     <thead>
@@ -873,17 +895,19 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                     </tbody>
                                 </table>
                             </div>
-                        })
-                    ) : <div className="text-center bg-gray-100 p-2 text-gray-600">
-                        Empty!
-                    </div>
-                }
+                        })}
+                    </CardContent>
+                        </Card>
+                    )}
 
                 {orderData.category_list.list.filter((i) => i?.status === "Request")?.length !== 0 && (
-                    <>
-                    <p>Requested Items</p>
+                    <Card className="bg-yellow-50">
+                    <CardHeader>
+                        <CardTitle>Requested Items</CardTitle>
+                    </CardHeader>
+                    <CardContent>
                         {orderData.category_list?.list?.filter((i) => i?.status === "Request")?.map((cat) => {
-                            return <div className="container mb-4 mx-0 px-0">
+                            return <div>
                                 <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
                                 <table className="table-auto md:w-full">
                                     <thead>
@@ -964,9 +988,10 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                         })}
                                     </tbody>
                                 </table>
-                            </div>
+                                    </div>
                         })}
-                        </>
+                        </CardContent>
+                        </Card>
                     )}
 
                 <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
