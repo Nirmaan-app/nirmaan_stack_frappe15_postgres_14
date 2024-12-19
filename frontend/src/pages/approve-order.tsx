@@ -410,10 +410,9 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
 
     const handleDelete = (item: string) => {
         let curRequest = orderData.procurement_list.list;
+        let itemToPush = curRequest.find(curValue => curValue.item === item);
 
-        if(item.status !== "Request") {
-            let itemToPush = curRequest.find(curValue => curValue.item === item);
-
+        if(itemToPush.status !== "Request") {
             setStack(prevStack => [...prevStack, itemToPush]);
             setComments(prev => {
                 delete prev[item]
