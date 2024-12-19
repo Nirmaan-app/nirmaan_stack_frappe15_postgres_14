@@ -178,9 +178,17 @@ export const ApprovePR = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const categories = []
+                    const categoryList = row.getValue("category_list")?.list || []
+                    categoryList?.forEach((i) => {
+                        if(categories.every((j) => j?.name !== i?.name)) {
+                            categories.push(i)
+                        }
+                    })
+
                     return (
                         <div className="flex flex-col gap-1 items-start justify-center">
-                            {row.getValue("category_list").list.map((obj) => obj["status"] !== "Request" && <Badge className="inline-block">{obj["name"]}</Badge>)}
+                            {categories?.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }
