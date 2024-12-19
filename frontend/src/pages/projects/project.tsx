@@ -566,12 +566,20 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         )
       },
       cell: ({ row }) => {
+        const categories = []
+        const categoryList = row.getValue("category_list")?.list || []
+        categoryList?.forEach((i) => {
+            if(categories.every((j) => j?.name !== i?.name)) {
+                categories.push(i)
+            }
+        })
+
         return (
-          <div className="flex flex-col gap-1 items-start justify-center">
-            {row.getValue("category_list").list.map((obj) => obj["status"] !== "Request" && <Badge className="inline-block">{obj["name"]}</Badge>)}
-          </div>
+            <div className="flex flex-col gap-1 items-start justify-center">
+                {categories?.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+            </div>
         )
-      }
+    }
     },
     {
       id: "estimated_price",
@@ -1172,9 +1180,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     <div className="flex-1 space-y-4">
       <div className="flex items-center justify-between max-md:flex-col max-md:gap-4 max-md:items-start">
         <div className="flex items-center">
-          <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} />
-          <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.project_name.toUpperCase()}</h2>
-          {role === "Nirmaan Admin Profile" && <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />}
+            <ArrowLeft className="cursor-pointer mr-1" onClick={() => navigate("/projects")} />
+            <div className="inline-block">
+              <span className="text-xl md:text-3xl font-bold tracking-tight text-wrap mr-1">{data?.project_name.toUpperCase()}</span>
+              {role === "Nirmaan Admin Profile" && <FilePenLine onClick={() => navigate('edit')} className="max-md:w-4 max-md:h-4 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer inline-block -mt-3" />}
+            </div>
         </div>
         <div className="flex max-sm:text-xs max-md:text-sm items-center max-md:justify-between max-md:w-full">
           {role === "Nirmaan Admin Profile" &&
