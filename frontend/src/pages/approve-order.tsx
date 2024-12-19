@@ -253,6 +253,9 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
             list: []
         }
     })
+
+    // console.log("pr_data", pr_data)
+
     useEffect(() => {
         if (!orderData.project) {
             let mod_pr_data = { ...pr_data, procurement_list: JSON.parse(pr_data?.procurement_list) }
@@ -407,9 +410,17 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
 
     const handleDelete = (item: string) => {
         let curRequest = orderData.procurement_list.list;
-        let itemToPush = curRequest.find(curValue => curValue.item === item);
 
-        setStack(prevStack => [...prevStack, itemToPush]);
+        if(item.status !== "Request") {
+            let itemToPush = curRequest.find(curValue => curValue.item === item);
+
+            setStack(prevStack => [...prevStack, itemToPush]);
+            setComments(prev => {
+                delete prev[item]
+                return prev
+            })
+        }
+
         curRequest = curRequest.filter(curValue => curValue.item !== item);
         setOrderData(prevState => ({
             ...prevState,
@@ -417,10 +428,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                 list: curRequest
             }
         }));
-        setComments(prev => {
-            delete prev[item]
-            return prev
-        })
         setQuantity('')
         setCurItem('')
     }
@@ -627,22 +634,49 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
         }
         try {
             const res = await createDoc("Items", itemData)
+
             const curRequest = [...orderData.procurement_list.list];
-            const itemToUpdate = curRequest.find((i) => i.name === item.name) 
+
+            const combinedRequest = [...curRequest, ...stack]
+
+            const itemToUpdate = combinedRequest.find((i) => i.name === item.name) 
             itemToUpdate.item = res.item_name
             itemToUpdate.unit = res.unit_name
             itemToUpdate.quantity = quantity
             itemToUpdate.status = "Pending"
             itemToUpdate.name = res.name
+
+            const newCategories = [];
+
+            if(combinedRequest.some((i) => i.status === "Request")) {
+                combinedRequest.map((item) => {
+                    const isDuplicate = newCategories.some(category => category.name === item.category && category?.status === item.status);
+                    if (!isDuplicate) {
+                        newCategories.push({ name: item.category, status : item.status })
+                    }
+                })
+            } else {
+                combinedRequest.map((item) => {
+                    const isDuplicate = newCategories.some(category => category.name === item.category);
+                    if (!isDuplicate) {
+                        newCategories.push({ name: item.category })
+                    }
+                })
+
+            }
+
             setOrderData((prevState) => ({
                 ...prevState,
                 procurement_list: {
                     list: curRequest,
-                },
+                }
             }));
 
             await updateDoc("Procurement Requests", orderData.name, {
-                procurement_list : {list : curRequest}
+                procurement_list : {list : combinedRequest},
+                category_list : {
+                    list : newCategories
+                }
             })
 
             await prMutate()
