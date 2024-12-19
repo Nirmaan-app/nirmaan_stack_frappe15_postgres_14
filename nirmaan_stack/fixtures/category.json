@@ -845,5 +845,16 @@
   "new_items": "false",
   "tax": "18",
   "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "Temp Lighting & Power",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-12-19 13:54:04.017915",
+  "name": "Temp Lighting & Power",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "Electrical Work"
  }
 ]
