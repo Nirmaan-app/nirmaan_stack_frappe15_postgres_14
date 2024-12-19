@@ -698,11 +698,11 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                     </div>
                 </div>}
             {page == 'itemlist' &&
-                <div className="flex-1 md:space-y-4">
+                <div className="flex-1 space-y-4">
                     <div className="flex justify-between items-center">
-                        <div className="flex items-center pt-1  pb-4 ">
+                        <div className="flex items-center gap-1">
                             <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
-                            <h2 className="text-lg pl-2 font-bold tracking-tight">Approve/Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
+                            <h2 className="text-lg font-bold tracking-tight">Approve/Reject: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                         </div>
 
                         <AlertDialog>
@@ -742,23 +742,21 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                     {curCategory === '' && <button className="text-lg text-blue-400 flex p-2 items-center gap-1" onClick={() => setPage('categorylist')}><CirclePlus className="w-4 h-4" /> Add Missing Items</button>}
 
                     {curCategory &&
-                        <Card className="p-4 max-sm:p-2 mt-4 border border-gray-100 rounded-lg">
-                            <div className="flex justify-between">
-                                <button onClick={() => {
+                        <Card className="p-4 max-sm:p-2 border border-gray-100 rounded-lg">
+                            <div className="flex justify-between items-center mb-2">
+                                <div onClick={() => {
                                     setCurItem("")
                                     setMake("")
                                     setPage('categorylist')
-                                }} className="text-blue-400 underline ml-2 mb-2">
-                                    <div className="flex">
-                                        <h3 className="font-bold pb-2">{curCategory}</h3>
-                                        <Pencil className="w-4 h-4 ml-1 mt-1" />
-                                    </div>
-                                </button>
-                                <button className="text-red-600 mb-1" onClick={() => {
+                                }} className="text-blue-400 underline flex items-center gap-1 cursor-pointer">
+                                        <h3 className="font-bold">{curCategory}</h3>
+                                        <Pencil className="w-4 h-4" />
+                                </div>
+                                <button className="text-red-600" onClick={() => {
                                     setCurItem("")
                                     setMake("")
                                     setCurCategory('')
-                                }}><X className="md:w-6 md:h-6 " /></button>
+                                }}><X className="w-6 h-6 " /></button>
                             </div>
 
                             <div className="flex space-x-2">
@@ -1141,17 +1139,31 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                     {/* <button className="bottom-0 h-8 w-full bg-red-700 rounded-md text-sm text-white" onClick={()=>handleSubmit()}>Next</button> */}
                 </div>}
             {page == 'summary' &&
-                <div className="flex-1 md:space-y-4">
+                <div className="flex-1 space-y-4">
                     {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
-                    <div className="flex items-center pt-1 pb-4">
-                        <ArrowLeft onClick={() => setPage('itemlist')} />
+                    <div className="flex items-center pt-1">
+                        <ArrowLeft className="cursor-pointer" onClick={() => setPage('itemlist')} />
                         <h2 className="text-lg pl-2 font-bold tracking-tight">Quantity Summary: <span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span></h2>
                     </div>
                     <ProcurementActionsHeaderCard orderData={orderData} pr={true} />
+                    
                     <div className="overflow-x-auto">
                         <div className="min-w-full inline-block align-middle">
-                            {orderData?.category_list.list.filter((i) => i?.status !== "Request").map((cat: any) => {
-                                return <div className="p-5">
+                        {(() => {
+                            const categories = []
+                            try {
+                                const categoryList = orderData?.category_list?.list || [];
+                                categoryList.forEach((i) => {
+                                    if (categories.every((j) => j?.name !== i?.name)) {
+                                        categories.push(i);
+                                    }
+                                });
+                            } catch (e) {
+                                console.error("Error parsing category_list JSON:", e);
+                            }
+                        
+                            return categories?.map((cat) => (
+                                <div className="">
                                     {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
                                     <Table>
                                         <TableHeader>
@@ -1215,32 +1227,14 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                                             })}
                                         </TableBody>
                                     </Table>
-                                    {/* <table className="min-w-full divide-y divide-gray-200">
-                                                    <thead className="border-b-2 border-black">
-                                                        <tr>
-                                                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-                                                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UOM</th>
-                                                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="bg-white divide-y divide-gray-200">
-                                                        {JSON.parse(pr_data.procurement_list).list.map((item: any) => {
-                                                            if (item.category === cat.name) {
-                                                                return <tr key={item.item}>
-                                                                    <td className="px-3 text-xs py-2 font-medium whitespace-nowrap">{item.item}</td>
-                                                                    <td className="px-3 text-xs py-2 font-medium whitespace-nowrap">{item.unit}</td>
-                                                                    <td className="px-3 text-xs py-2 font-medium whitespace-nowrap">{item.quantity}</td>
-                                                                </tr>
-                                                            }
-                                                        })}
-                                                    </tbody>
-                                                </table> */}
                                 </div>
-                            })}
+                            ))
+                        
+                        })()}
 
                             {universalComments?.filter((comment) => managersIdList?.includes(comment.comment_by) ||
                                 (comment.comment_by === "Administrator" && (comment.subject === "creating pr" || comment.subject === "resolving pr" || comment.subject === "editing pr"))).length !== 0 && (
-                                    <div className="flex flex-col gap-2 py-4 px-4">
+                                    <div className="flex flex-col gap-2 py-4">
                                         <h2 className="text-base font-bold tracking-tight">Previous Comments</h2>
                                         <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-4">
                                             {universalComments
@@ -1270,39 +1264,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                                 )}
                         </div>
                     </div>
-                    {/* <div className="overflow-x-auto">
-                            <table className="min-w-full divide-gray-200">
-                                <thead className="border-b-2 border-black">
-                                    <tr>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UOM</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimated Price</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {orderData.procurement_list?.list?.map(item => {
-                                        const quotesForItem = quote_data
-                                            ?.filter(value => value.item_id === item.name && value.quote != null)
-                                            ?.map(value => value.quote);
-                                        let minQuote;
-                                        if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                                        return <tr key={item.item}>
-                                            <td className="px-6 py-4">{item.item}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                {item.category}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">{item.unit}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap">{item.quantity}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                {minQuote ? minQuote * item.quantity : "N/A"}
-                                            </td>
-                                        </tr>
-                                    })}
-                                </tbody>
-                            </table>
-                        </div> */}
                     <div className="flex flex-col justify-end items-end">
                         <Dialog>
                             <div className="flex gap-4">
@@ -1365,7 +1326,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                         </Dialog>
                     </div>
                 </div>}
-            {page == 'additem' && <div className="flex-1 md:space-y-4">
+            {page == 'additem' && <div className="flex-1 space-y-4">
                 {/* <button className="font-bold text-md" onClick={() => setPage('categorylist')}>Add Items</button> */}
                 <div className="flex items-center gap-1">
                     <ArrowLeft className="cursor-pointer" onClick={() => {
@@ -1407,16 +1368,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     />
                 </div>
-                {/* <div className="mb-4">
-                    <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
-                    <input
-                        type="text"
-                        id="itemUnit"
-                        value={unit}
-                        onChange={(e) => setUnit(e.target.value)}
-                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    />
-                </div> */}
                 <div className="mb-4">
                     <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit</label>
                     <Select onValueChange={(value) => setUnit(value)}>
@@ -1445,14 +1396,6 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                         </SelectContent>
                     </Select>
                 </div>
-                {/* <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Image</label>
-                    <input
-                        type="text"
-                        id="itemUnit"
-                        value={unit}
-                        onChange={(e) => setUnit(e.target.value)}
-                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    /> */}
                 <div className="py-10">
                     <div className="">
                         <Dialog>
@@ -1482,7 +1425,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
             </div>}
             {page == 'categorylist2' && <div className="flex-1 md:space-y-4">
                 <div className="flex items-center space-y-2">
-                    <ArrowLeft onClick={() => setPage('additem')} />
+                    <ArrowLeft className="cursor-pointer" onClick={() => setPage('additem')} />
                     <h2 className="text-base pt-1 pl-2 pb-4 font-bold tracking-tight">Select Category</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
