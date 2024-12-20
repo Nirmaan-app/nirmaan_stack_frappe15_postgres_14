@@ -326,7 +326,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                                             <td className="w-[15%] text-left border-b-2 px-4 py-1 text-sm">
                                                 {item.category}
                                             </td>
-                                            <td className="w-[70%] border-b-2 px-4 py-1 text-sm text-left">{item.description}</td>
+                                            <td className="w-[70%] border-b-2 px-4 py-1 text-sm text-left whitespace-pre-wrap">{item.description}</td>
                                             <td className="w-[5%] border-b-2 px-4 py-1 text-sm text-center">{item.uom}</td>
                                             <td className="w-[5%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
                                             <td className="w-[5%] border-b-2 px-4 py-1 text-sm text-center">

@@ -342,7 +342,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                             if (item.category === cat.name) {
                                                                 return (
                                                                     <TableRow key={item.id}>
-                                                                        <TableCell>{item.description}</TableCell>
+                                                                        <TableCell className="whitespace-pre-wrap">{item.description}</TableCell>
                                                                         <TableCell>
                                                                             {item.uom}
                                                                         </TableCell>
@@ -463,7 +463,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                         {/* <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td> */}
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
                                                             <p className="font-semibold">{item?.category}</p>
-                                                            {item?.description}
+                                                            <span className="whitespace-pre-wrap">{item?.description}</span>
                                                         </td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>

@@ -388,7 +388,7 @@ export const ApprovedSR = () => {
                                                         {/* <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td> */}
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
                                                             <p className="font-semibold">{item?.category}</p>
-                                                            {item?.description}
+                                                            <span className="whitespace-pre-wrap">{item?.description}</span>
                                                         </td>
                                                         <td className="px-2 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>

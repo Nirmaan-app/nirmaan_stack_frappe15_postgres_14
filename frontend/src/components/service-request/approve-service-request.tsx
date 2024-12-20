@@ -102,7 +102,7 @@ export const ApproveServiceRequest = () => {
             dataIndex: "description",
             key: "description",
             width: "50%",
-            render: (text) => <span className="italic">{text}</span>
+            render: (text) => <span className="italic whitespace-pre-wrap">{text}</span>
         },
         {
             title: "Unit",
