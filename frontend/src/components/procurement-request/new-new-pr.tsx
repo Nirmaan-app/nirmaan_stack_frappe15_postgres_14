@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { useEffect, useState } from 'react';
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from 'frappe-react-sdk';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CheckCheck, CircleX, ListChecks, MessageCircleMore, MessageCircleWarning, Pencil, Trash2, Undo } from 'lucide-react';
+import { CheckCheck, CirclePlus, CircleX, Import, ListChecks, MessageCircleMore, MessageCircleWarning, Pencil, Trash2, Undo } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from '../ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
@@ -17,6 +17,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { formatDate } from '@/utils/FormatDate';
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { add } from 'date-fns';
+import {v4 as uuidv4} from "uuid"
 
 export const NewProcurementRequest = ({resolve = false, edit = false}) => {
     const { projectId, prId } = useParams();
@@ -35,12 +36,19 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
     const [editItem, setEditItem] = useState({})
     const [newPRComment, setNewPRComment] = useState("")
     const [newItem, setNewItem] = useState({})
+    const [requestItem, setRequestItem] = useState({})
     const [open, setOpen] = useState(false)
     const [page, setPage] = useState("wp-selection")
+    const [requestItemDialogOpen, setRequestItemDialogOpen] = useState(false)
 
     const toggleNewItemDialog = () => {
         setOpen(prevState => !prevState)
         setNewItem({})
+    }
+
+    const toggleRequestItemDialog = () => {
+        setRequestItemDialogOpen(prevState => !prevState)
+        setRequestItem({})
     }
 
     const {data : dynamic_pr, mutate : dynamic_pr_mutate} = useFrappeGetDoc("Procurement Requests", prId, prId ? undefined : null)
@@ -92,11 +100,11 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
             setProcList(newProcList);
             setPage("item-selection")
             setSelectedWP(dynamic_pr?.work_package || "")
-            console.log("newCategories", selectedCategories)
+            // console.log("newCategories", selectedCategories)
         }
     }, [dynamic_pr, prId, resolve, edit]);
 
-    console.log("procList", procList)
+    // console.log("procList", procList)
 
     // console.log("selectedWP", selectedWP)
 
@@ -150,18 +158,24 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
 
 
     useEffect(() => {
-        if(procList?.length) {
-            const categoriesInProcList = procList.map((item) => item.category);
+            const newCategories = []
 
-            setSelectedCategories((prevCategories) =>
-                prevCategories.filter((category) => categoriesInProcList.includes(category.name))
-            );
-        }
+            procList.map((item) => {
+                const isDuplicate = newCategories.some(category => (category.name === item?.category && category.status === item.status));
+                if (!isDuplicate) {
+                    newCategories.push({ name: item.category, status : item.status })
+                }
+            })
+
+            setSelectedCategories(newCategories)
+        
     }, [procList]);
 
     const getFullName = (id) => {
         return usersList?.find((user) => user.name == id)?.full_name
     }
+
+    // console.log("category_list", category_list)
 
     const handleUpdateItem = (item) => {
         const updateItem = procList?.find((i) => i?.name === item);
@@ -183,17 +197,17 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
         }
     };
 
-    const handleAddNewItem = () => {
+    const handleAddNewItem = (request = false) => {
                 const curProcList = [...procList];
                 const itemToAdd = {
                     item: curItem?.label,
-                    name: curItem?.value,
+                    name: request ? uuidv4() : curItem?.value,
                     unit: curItem?.unit,
                     quantity: curItem?.quantity,
                     category: curCategory?.value,
                     tax: curCategory?.tax,
                     comment: curItem?.comment,
-                    status: "Pending"
+                    status: request ? "Request" : "Pending"
                 }
                 // Check if item exists in the current list
                 const isDuplicate = curProcList.some((item) => item?.name === itemToAdd.name);
@@ -207,9 +221,14 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                         setStack([...stack]);  // Update stack state after removal
                     }
 
-                    if(selectedCategories?.every((i) => i?.name !== curCategory?.value)) {
-                        setSelectedCategories([...selectedCategories, {"name" : curCategory?.value}])
-                    }
+                    // const isDuplicate = selectedCategories.some(category => (category.name === curCategory?.value && category.status === itemToAdd.status));
+                    // if (!isDuplicate) {
+                    //     setSelectedCategories([...selectedCategories, {"name" : curCategory?.value, "status" : itemToAdd?.status}])
+                    // }
+
+                    // if(selectedCategories?.every((i) => (i?.name !== curCategory?.value && i?.status !== itemToAdd?.status))) {
+                    //     setSelectedCategories([...selectedCategories, {"name" : curCategory?.value, "status" : itemToAdd?.status}])
+                    // }
 
                     // Add item to the current request list
                     curProcList.push(itemToAdd);
@@ -221,6 +240,10 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                     })
                 }
                 setCurItem('');
+
+                if(request) {
+                    toggleRequestItemDialog()
+                }
     }
 
     const handleDeleteItem = (item: string) => {
@@ -239,9 +262,20 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
         curRequest.push(itemToRestore);
 
         setProcList(curRequest);
-        if (selectedCategories?.every((i) => i?.name !== itemToRestore?.category)) {
-            setSelectedCategories([...selectedCategories, { name: itemToRestore?.category }]);
-        }
+        // if (selectedCategories?.every((i) => i?.name !== itemToRestore?.category)) {
+        //     setSelectedCategories([...selectedCategories, { name: itemToRestore?.category }]);
+        // }
+
+        const newCategories = []
+
+        curRequest.map((item) => {
+            const isDuplicate = newCategories.some(category => (category.name === item?.category && category.status === item.status));
+            if (!isDuplicate) {
+                newCategories.push({ name: item.category, status : item.status })
+            }
+        })
+
+        setSelectedCategories(newCategories)
 
         setStack([...stack]);
     };
@@ -387,15 +421,17 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
             })
         }
     }
-    // console.log("selectedCategories", selectedCategories)
+    console.log("selectedCategories", selectedCategories)
 
-    // console.log("curItem", curItem)
+    console.log("curItem", curItem)
 
     // console.log("curCategory", curCategory)
 
-    // console.log("procList", procList)
+    console.log("procList", procList)
 
     // console.log("editItem", editItem)
+
+    // console.log("comments", universalComments)
 
     return (
         <div className="flex-1 space-y-4 px-4">
@@ -488,7 +524,8 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                     onChange={(e) => setCurItem(e)}
                     components={{ MenuList: CustomMenuList }}
                     onAddItemClick={ toggleNewItemDialog }
-                    isNewItemsCreationDisabled={(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)) ? true : false}
+                    onRequestItemClick={toggleRequestItemDialog}
+                    isNewItemsCreationDisabled={(category_list?.find((i) => i?.name === curCategory?.value)?.new_items === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)) ? true : false}
                 />
                 <div className="flex items-center gap-4">
                     <div className="w-1/2">
@@ -516,7 +553,7 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                         />
                     </div>
                 </div>
-                <Button onClick={handleAddNewItem} disabled={!curItem?.quantity} variant={'outline'} className="w-full border border-primary text-primary">
+                <Button onClick={() => handleAddNewItem()} disabled={!curItem?.quantity} variant={'outline'} className="w-full border border-primary text-primary">
                     Add Item
                 </Button>
                 <div className='flex flex-col justify-between h-[65vh]'>
@@ -542,9 +579,12 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                             </div>
                         )}
                     </div>
-                    <div className='max-h-[40vh] overflow-y-auto'>
-                    {procList.length !== 0 ? (
-                        selectedCategories?.map((cat, index) => {
+                    <div className={`${universalComments ? "max-h-[40vh]" : "max-h-[55vh]"} overflow-y-auto`}>
+
+                    {
+                    // procList.length !== 0 ? (
+                        selectedCategories?.filter((i) => i?.status !== "Request")?.length !== 0 && (
+                        selectedCategories?.filter((i) => i?.status !== "Request")?.map((cat, index) => {
                             return <div key={index} className="mb-4">
                                 <div className='flex items-center gap-4 ml-4'>
                                     <div className='flex items-center gap-2'>
@@ -564,7 +604,7 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                                     </thead>
                                     <tbody>
                                         {procList?.map((item) => {
-                                            if (item.category === cat?.name) {
+                                            if (item.category === cat?.name && item?.status !== "Request") {
                                                 return <tr key={item.name} >
                                                     <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
                                                         {item.item}
@@ -642,11 +682,124 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                                 </table>
                             </div>
                         })
-                    ) : (
-                        <div className="text-center bg-gray-100 p-2 text-gray-600">
-                            Empty!
+                    )
+                    // ) : (
+                    //     <div className="text-center bg-gray-100 p-2 text-gray-600">
+                    //         Empty!
+                    //     </div>
+                    // )
+                    }
+                    {
+                    // procList.length !== 0 ? (
+                        selectedCategories?.filter((i) => i?.status === "Request")?.length !== 0 && (
+                        <div className='bg-yellow-50'>
+                        <h2 className='font-semibold'>Requested Items</h2>  
+                        {selectedCategories?.filter((i) => i?.status === "Request")?.map((cat, index) => {
+                            return <div key={index} className="mb-4">
+                                <div className='flex items-center gap-4 ml-4'>
+                                    <div className='flex items-center gap-2'>
+                                        <div className='w-1 h-1 rounded-full bg-black' />
+                                        <p className='text-sm font-semibold'>{index > 9 ? '' : 0}{index + 1}</p>
+                                    </div>
+                                    <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
+                                </div>
+                                <table className="table-auto w-full">
+                                    <thead>
+                                        <tr className="bg-gray-200">
+                                            <th className="w-[60%] text-left px-4 py-1 text-xs">Item Name</th>
+                                            <th className="w-[20%] px-4 py-1 text-xs text-center">Unit</th>
+                                            <th className="w-[10%] px-4 py-1 text-xs text-center">Qty</th>
+                                            <th className="w-[10%] px-4 py-1 text-xs text-center">Edit</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {procList?.map((item) => {
+                                            if (item.category === cat?.name && item?.status === "Request") {
+                                                return <tr key={item.name} className='bg-yellow-50'>
+                                                    <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
+                                                        {item.item}
+                                                        {item?.comment &&
+                                                            <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
+                                                                <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                                                                <div className="text-xs ">{item.comment}</div>
+                                                            </div>
+                                                        }
+                                                    </td>
+                                                    <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
+                                                    <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
+                                                    <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
+                                                        <AlertDialog>
+                                                            <AlertDialogTrigger onClick={() => setEditItem({"item" : item.name, "quantity" : item?.quantity, "comment" : item?.comment || ""})}><Pencil className="w-4 h-4 text-black" /></AlertDialogTrigger>
+                                                            <AlertDialogContent>
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle className="flex justify-between">Edit Item
+                                                                        <AlertDialogCancel className="border-none shadow-none p-0">X</AlertDialogCancel>
+                                                                    </AlertDialogTitle>
+                                                                    <AlertDialogDescription className="flex flex-col gap-2">
+                                                                        <div className="flex space-x-2">
+                                                                            <div className="w-1/2 md:w-2/3">
+                                                                                <h5 className="text-base text-gray-400 text-left mb-1">Item Name</h5>
+                                                                                <div className="w-full  p-1 text-left">
+                                                                                    {item.item}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="w-[30%]">
+                                                                                <h5 className="text-base text-gray-400 text-left mb-1">UOM</h5>
+                                                                                <div className=" w-full  p-2 text-center justify-left flex">
+                                                                                    {item.unit}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="w-[25%]">
+                                                                                <h5 className="text-base text-gray-400 text-left mb-1">Qty</h5>
+                                                                                <Input type="number" value={editItem?.quantity || ""} onChange={(e) => setEditItem({...editItem, "quantity" : e.target.value === "" ? 0 : parseFloat(e.target.value)})} />
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex gap-1 items-center pt-1">
+                                                                            <MessageCircleMore className="h-8 w-8" />
+                                                                            <textarea
+                                                                                // disabled={userData?.role === "Nirmaan Project Manager Profile"}
+                                                                                className="block p-2 border-gray-300 border rounded-md w-full"
+                                                                                placeholder="Add comment..."
+                                                                                value={editItem?.comment || ""}
+                                                                                onChange={(e) => setEditItem({...editItem, "comment" : e.target.value})}
+                                                                            />
+                                                                        </div>
+                                                                    </AlertDialogDescription>
+                                                                    <AlertDialogDescription className="flex justify-end">
+                                                                        <div className="flex gap-2">
+                                                                            <AlertDialogAction onClick={() => handleDeleteItem(item.name)} className="bg-gray-100 text-black hover:text-white flex items-center gap-1">
+                                                                                <Trash2 className="h-4 w-4" /> 
+                                                                                Delete
+                                                                            </AlertDialogAction>
+                                                                            <AlertDialogAction
+                                                                                className="flex items-center gap-1"
+                                                                                disabled={!editItem?.quantity}
+                                                                                onClick={() => handleUpdateItem(item.name)}
+                                                                            >
+                                                                                <ListChecks className="h-4 w-4" />
+                                                                                Update
+                                                                            </AlertDialogAction>
+                                                                        </div>
+                                                                    </AlertDialogDescription>
+                                                                </AlertDialogHeader>
+                                                            </AlertDialogContent>
+                                                        </AlertDialog>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        })}
                         </div>
-                    )}
+                    )
+                    // ) : (
+                    //     <div className="text-center bg-gray-100 p-2 text-gray-600">
+                    //         Empty!
+                    //     </div>
+                    // )
+                    }
                     </div>
                 </div>
                 <div>
@@ -781,6 +934,79 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                             </div>
                         </AlertDialogContent>
                 </AlertDialog>
+
+                <AlertDialog open={requestItemDialogOpen} onOpenChange={toggleRequestItemDialog}>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle className="flex justify-between">Request New Item</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    <div className='flex flex-col gap-2'>
+                                        <div className='flex flex-col gap-1'>
+                                            <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="text-sm text-red-600">*</sup></label>
+                                            <Input
+                                                type="text"
+                                                id="itemName"
+                                                value={curItem?.label || ""}
+                                                onChange={(e) => setCurItem(prevState => ({...prevState, "label" : e.target.value}))}
+                                            />
+                                        </div>
+
+                                        <div className='flex items-center gap-2'>
+                                            <div className="flex flex-col gap-1 w-1/2">
+                                                <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="text-sm text-red-600">*</sup></label>
+                                                <Select onValueChange={(value) => setCurItem(prevState => ({...prevState, "unit" : value}))}>
+                                                    <SelectTrigger>
+                                                        <SelectValue className="text-gray-200" placeholder="Select Unit" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {/* <SelectItem value="PCS">PCS</SelectItem> */}
+                                                        <SelectItem value="BOX">BOX</SelectItem>
+                                                        <SelectItem value="ROLL">ROLL</SelectItem>
+                                                        {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                                                        <SelectItem value="LENGTH">LTH</SelectItem>
+                                                        <SelectItem value="MTR">MTR</SelectItem>
+                                                        <SelectItem value="NOS">NOS</SelectItem>
+                                                        <SelectItem value="KGS">KGS</SelectItem>
+                                                        <SelectItem value="PAIRS">PAIRS</SelectItem>
+                                                        <SelectItem value="PACKS">PACKS</SelectItem>
+                                                        <SelectItem value="DRUM">DRUM</SelectItem>
+                                                        <SelectItem value="SQMTR">SQMTR</SelectItem>
+                                                        <SelectItem value="LTR">LTR</SelectItem>
+                                                        <SelectItem value="BUNDLE">BUNDLE</SelectItem>
+                                                        <SelectItem value="FEET">FEET</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className='flex flex-col gap-1 w-1/2'>
+                                                <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">Quantity<sup className="text-sm text-red-600">*</sup></label>
+                                                <Input
+                                                    type="number"
+                                                    id="quantity"
+                                                    onChange={(e) => setCurItem(prevState => ({...prevState, quantity : e.target.value}))} 
+                                                    value={curItem?.quantity || ""}
+                                                    className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="w-full">
+                                            <h3>Comment</h3>
+                                            <Input
+                                                type="text"
+                                                value={curItem?.comment || ''}
+                                                onChange={(e) => setCurItem((prev) => ({...prev,comment: e.target.value,}))}
+                                            />
+                                        </div>
+                                    </div>
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <div className='flex gap-2 justify-end items-center'>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <Button 
+                                    disabled={!curItem?.label || !curItem?.unit || !curItem?.quantity}
+                                    onClick={() => handleAddNewItem(true)} className="flex items-center gap-1"><ListChecks className="h-4 w-4" /> Submit</Button>
+                            </div>
+                        </AlertDialogContent>
+                </AlertDialog>
                 </div>
                 </div>
                 </>
@@ -793,11 +1019,11 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
 const CustomMenuList = (props) => {
     const {
         children, // options rendered as children
-        selectProps: { onAddItemClick, isNewItemsCreationDisabled }, // custom handler for "Add Item"
+        selectProps: { onAddItemClick, onRequestItemClick, isNewItemsCreationDisabled }, // custom handler for "Add Item"
     } = props;
 
 
-    console.log("isNewItemsCreationDisabled", isNewItemsCreationDisabled)
+    // console.log("isNewItemsCreationDisabled", isNewItemsCreationDisabled)
 
     return (
         <div>
@@ -806,16 +1032,29 @@ const CustomMenuList = (props) => {
                 <div>{children}</div>
             </components.MenuList>
             <div className={`sticky top-0 z-10 bg-white ${isNewItemsCreationDisabled ? "py-2" : ""} border-primary border `}>
+                {isNewItemsCreationDisabled ? (
+                    <Button variant={"ghost"} className="w-full rounded-none text-sm py-2 px-0 md:text-lg text-blue-300 flex flex-col items-center justify-center hover:bg-white" 
+                        onClick={onRequestItemClick}
+                    >
+                        <p className='flex items-center gap-1'>
+                            <CirclePlus className="w-4 h-4" />
+                            Request new item
+                        </p>
+                        <span className='text-xs text-primary text-wrap'>New Item Creation is disabled for this Category, either request for a new item here or contact the Administrator!</span>
+                    </Button>
+                ) : (
                     <Button
                         disabled={isNewItemsCreationDisabled}
                         variant={"ghost"}
-                        className='w-full rounded-none flex flex-col items-center justify-center py-2'
+                        className='w-full rounded-none flex items-center justify-center gap-1'
                         onClick={onAddItemClick}
                     
                     >
+                        <CirclePlus className="w-4 h-4" />
                         Create New Item
-                        {isNewItemsCreationDisabled && (<span className='text-xs text-primary text-wrap'>New Items Creation is disabled for this Category, please contact the Administrator!</span>)}
                     </Button>
+
+                )}
             </div>
         </div>
     );
