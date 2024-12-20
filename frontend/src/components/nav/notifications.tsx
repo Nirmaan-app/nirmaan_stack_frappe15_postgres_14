@@ -184,11 +184,11 @@ export const NotificationsPage = () => {
     };
 
     return (
-        <div className="px-6 py-8">
+        <div className="py-4 px-2">
             <header className="flex justify-between items-center border-b pb-4 mb-6">
-                <h1 className="text-2xl font-semibold">Notifications({notifications.length})</h1>
+                <h1 className="text-2xl max-md:text-xl font-semibold">Notifications({notifications.length})</h1>
                 <button
-                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500"
+                    className="bg-blue-600 text-white px-4 py-2 max-md:px-2 max-md:py-1 max-md:text-sm rounded hover:bg-blue-500"
                     onClick={handleMarkAllAsRead}
                 >
                     Mark All as Read
@@ -203,22 +203,26 @@ export const NotificationsPage = () => {
                 />
             </div>
 
-            <ul className="space-y-4">
+            <ul className="space-y-4 max-md:text-sm">
                 {notifications.map((notification) => (
                     <li
-                        onClick={() => handleNavigate(notification?.action_url, notification)}
                         key={notification.name}
-                        className={`p-4 border rounded-lg shadow-sm cursor-pointer ${notification.seen === "false" ? "bg-red-50" : "bg-white"} transition-all hover:shadow-md`}
+                        className={`p-4 border rounded-lg shadow-sm ${notification.seen === "false" ? "bg-red-50" : "bg-white"} transition-all hover:shadow-md`}
                     >
-                        <div className="flex justify-between">
-                            <h3 className="text-lg font-semibold text-blue-600">{notification.title}</h3>
-                            <span className="text-sm text-gray-500">{formatNotificationDate(notification.creation)}</span>
-                        </div>
-                        <p className="text-gray-600">{notification.description}</p>
-                        <div className="text-sm text-gray-500 mt-2">
-                            <p>Project: {notification.project}</p>
-                            <p>Work Package: {notification.work_package}</p>
-                            <p>Action By: {notification?.sender || "Administrator"}</p>
+                        <div
+                            onClick={() => handleNavigate(notification?.action_url, notification)}
+                            className="cursor-pointer "
+                        >
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-lg font-semibold text-blue-600">{notification.title}</h3>
+                                <span className="text-sm text-gray-500">{formatNotificationDate(notification.creation)}</span>
+                            </div>
+                            <p className="text-gray-600">{notification.description}</p>
+                            <div className="text-sm text-gray-500 mt-2">
+                                <p>Project: {notification.project}</p>
+                                <p>Work Package: {notification.work_package}</p>
+                                <p>Action By: {notification?.sender || "Administrator"}</p>
+                            </div>
                         </div>
                         <div className="flex justify-end mt-2">
                             {notification.seen === "true" ? (
@@ -238,4 +242,3 @@ export const NotificationsPage = () => {
         </div>
     );
 };
-

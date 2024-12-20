@@ -1,9 +1,9 @@
-import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, SendToBack, Undo2 } from 'lucide-react';
+import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2 } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Table, ConfigProvider } from 'antd';
 import type { TableColumnsType, TableProps } from 'antd';
 import { useToast } from '@/components/ui/use-toast';
@@ -17,6 +17,7 @@ import { useUserData } from '@/hooks/useUserData';
 import { TailSpin } from 'react-loader-spinner';
 import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -41,9 +42,23 @@ const columns: TableColumnsType<DataType> = [
         key: 'item',
         render: (text, record) => {
             return (
-                <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
-                    {text}
-                </span>
+                <div className="inline items-baseline">
+                    <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+                        {text}
+                    </span>
+                    {(!record.children && record.comment) && (
+                        <HoverCard>
+                            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                <div className="relative pb-4">
+                                    <span className="block">{record.comment}</span>
+                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                </div>
+
+                            </HoverCardContent>
+                        </HoverCard>
+                    )}
+                </div>
             )
         }
     },
@@ -266,6 +281,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                             category: item.category,
                             tax: Number(item.tax),
                             rate: item.quote,
+                            comment: item.comment,
                             amount: item.vendor ? item.quote * item.quantity : "Delayed",
                             selectedVendor: item.vendor ? getVendorName(item.vendor) : "Delayed",
                             // lowest2: item.vendor ? getLowest2(item.name)*item.quantity : "Delayed",
@@ -371,7 +387,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                         category: item.category,
                         tax: item.tax,
                         unit: item.unit,
-                        item: item.item
+                        item: item.item,
+                        comment: item.comment
                     });
                 }
 
@@ -497,7 +514,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                     unit: value.unit,
                     tax: value.tax,
                     status: "Pending",
-                    category: value.category
+                    category: value.category,
+                    comment : value.comment
                 })
             })
 
@@ -648,7 +666,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
         return total;
     }
 
-    const generateActionSummary = (actionType) => {
+    const generateActionSummary = useMemo(() => (actionType) => {
         if (actionType === "approve") {
             const groupedVendors = selectedItems?.reduce((acc, item) => {
                 const vendor = item?.selectedVendor
@@ -658,24 +676,24 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                 }
                 return acc;
             }, {});
-
+    
             if (!groupedVendors || Object.keys(groupedVendors).length === 0) {
                 return "No valid items selected for approval.";
             }
-
+    
             const vendorTotals = Object.entries(groupedVendors).map(([vendor, items]) => ({
                 vendor,
                 total: items.reduce((sum, item) => sum + (item.amount || 0), 0),
             }));
             const overallTotal = vendorTotals.reduce((sum, { total }) => sum + total, 0);
-
+    
             return (
                 <div>
                     <p>Upon approval, the following actions will be taken:</p>
                     <ul className="mt-2 list-disc pl-5">
                         {Object.entries(groupedVendors).map(([vendor, items]) => (
                             <li key={vendor}>
-                                A <strong>new PO</strong> will be created for vendor <strong>{getVendorName(vendor)}</strong>:
+                                A <strong>new PO</strong> will be created for vendor <strong>{vendor}</strong>:
                                 <ul className="mt-1 list-disc pl-5">
                                     {items.map((item) => (
                                         <li key={item.key}>
@@ -696,13 +714,13 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
             );
         } else if (actionType === "sendBack") {
             const itemsToSendBack = selectedItems?.filter(item => item.unit && item.quantity);
-
+    
             if (!itemsToSendBack || itemsToSendBack.length === 0) {
                 return "No valid items selected for sending back.";
             }
-
+    
             const totalAmount = itemsToSendBack.reduce((sum, item) => sum + (item.amount || 0), 0);
-
+    
             return (
                 <div>
                     <p>Upon sending back, the following actions will be taken:</p>
@@ -724,9 +742,9 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                 </div>
             );
         }
-
+    
         return "No valid action details available.";
-    };
+        }, [selectedItems])
 
     return (
             <div className="flex-1 space-y-4">

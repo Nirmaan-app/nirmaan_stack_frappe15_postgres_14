@@ -3,12 +3,13 @@ import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Button } from "../ui/button";
-import { ArrowBigRightDash } from "lucide-react";
+import { ArrowBigRightDash, MessageCircleMore } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 import { useEffect, useState } from "react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useNavigate, useParams } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 
 export const SentBackSummary = () => {
 
@@ -106,7 +107,22 @@ export const SentBackSummary = () => {
                         <TableBody className="bg-white divide-y divide-gray-200">
                             {orderData.item_list?.list.map(item => (
                                 <TableRow key={item.name}>
-                                    <TableCell>{item.item}</TableCell>
+                                    <TableCell>
+                                            <div className="inline items-baseline">
+                                                <span>{item.item}</span>
+                                                {item.comment && (
+                                                    <HoverCard>
+                                                        <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                                                        <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                            <div className="relative pb-4">
+                                                                <span className="block">{item.comment}</span>
+                                                                <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                                            </div>
+                                                        </HoverCardContent>
+                                                    </HoverCard>
+                                                )}
+                                            </div>
+                                        </TableCell>
                                     <TableCell>{item.unit}</TableCell>
                                     <TableCell>{item.quantity}</TableCell>
                                     {/* <TableCell>{item.quote}</TableCell>

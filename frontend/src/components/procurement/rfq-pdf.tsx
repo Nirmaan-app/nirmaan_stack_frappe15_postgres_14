@@ -5,7 +5,9 @@ import redlogo from "@/assets/red-logo.png"
 import { formatDate } from "@/utils/FormatDate";
 import * as pdfjsLib from 'pdfjs-dist';
 import { Layout, Button } from "antd";
-import { CircleChevronDown, CircleChevronLeft, FolderUp, Printer } from "lucide-react";
+import { CircleChevronDown, CircleChevronLeft, FolderUp, MessageCircleMore, Printer } from "lucide-react";
+import { Switch } from "../ui/switch";
+import { Separator } from "../ui/separator";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"
 
@@ -20,14 +22,15 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
 
     const [collapsed, setCollapsed] = useState(true);
 
-    console.log("BOQ Attachments", boqAttachments)
+    // console.log("BOQ Attachments", boqAttachments)
 
     const [pdfImages, setPdfImages] = useState({});
 
     const [categoryForVendor, setCategoryVendor] = useState(new Set())
     const [displayBOQ, setDisplayBOQ] = useState({})
+    const [includeComments, setIncludeComments] = useState(false)
     
-    console.log("displayBOQ", displayBOQ)
+    // console.log("displayBOQ", displayBOQ)
 
     const loadPdfAsImages = async (pdfData, category) => {
       try {
@@ -84,7 +87,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
         })
     }, [boqAttachments]);
 
-    console.log("pdfImages", pdfImages)
+    // console.log("pdfImages", pdfImages)
 
     const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
         {
@@ -190,8 +193,7 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
         document.body.removeChild(link);
     };
 
-
-    console.log("categories", categoryForVendor)
+    // console.log("categories", categoryForVendor)
 
     return (
             <Layout>
@@ -219,6 +221,13 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                                 No Attachments found for this vendor category(s)
                             </div>
                         )}
+                    </div>
+
+                    <Separator />
+
+                    <div className="py-2">
+                        <h3 className="text-black font-semibold pb-2">Include Comments</h3>
+                        <Switch id="hello" value={includeComments} onCheckedChange={(e) => setIncludeComments(e)}  /> 
                     </div>
                 </Sider>
             {/* RFQ pdf */}
@@ -298,7 +307,15 @@ export const PrintRFQ = ({ pr_id, vendor_id, itemList }) => {
                             {itemList?.list?.filter((item) => quotation_request_list?.some((q) => q.item === item.name)).map((i) => {
                                 return (
                                     <tr className="">
-                                    <td className="px-6 py-2 text-sm">{i.item}</td>
+                                    <td className="px-6 py-2 text-sm">
+                                        {i.item}
+                                        {(i.comment && includeComments) &&
+                                            <div className="flex gap-1 items-start block p-1">
+                                                <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                                                <div className="text-xs text-gray-400">{i.comment}</div>
+                                            </div>
+                                        }
+                                    </td>
                                     <td className="px-2 py-2 text-sm whitespace-nowrap">
                                         {i.category}
                                     </td>

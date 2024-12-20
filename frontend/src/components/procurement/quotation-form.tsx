@@ -146,7 +146,9 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 
     useEffect(() => {
         if(prAttachment && prAttachment.length) {
-            const fileName = prAttachment[0]?.rfq_pdf?.split("/")[3]
+            const url = prAttachment[0]?.rfq_pdf || ""
+            const match = url.match(/file_name=([^&]+)/);
+            const fileName = match ? match[1] : "selectedFile";
             setSelectedFile(fileName)
         }
     }, [prAttachment])
@@ -399,7 +401,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                   {getComment(q.item) && (
                     <HoverCard>
                          <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-5 h-5 ml-1 inline-block" /></HoverCardTrigger>
-                        <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg ml-56">
+                        <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
                             <div className="relative pb-4">
                                 <span className="block">{getComment(q.item)}</span>
                                 <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>

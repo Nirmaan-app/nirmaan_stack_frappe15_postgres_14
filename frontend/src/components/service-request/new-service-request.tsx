@@ -176,7 +176,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
         }
     };
 
-    // console.log("order", orderList)
+    console.log("order", orderList)
 
     return (
         <>
@@ -342,7 +342,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                                                     </div>
                                                     <p className="font-semibold">{item?.category}</p>
                                                 </div>
-                                                {item?.description}
+                                                <span className="whitespace-pre-wrap">{item?.description}</span>
                                             </td>
                                             <td className="w-[5%] border-b-2 px-4 py-1 text-sm text-center">{item.uom}</td>
                                             <td className="w-[5%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
