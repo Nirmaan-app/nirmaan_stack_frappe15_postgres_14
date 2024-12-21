@@ -76,7 +76,7 @@ export const ReleasePONew = ({ not }) => {
     const [prevMergedPOs, setPrevMergedPos] = useState([])
 
 
-    const { id } = useParams<{ id: string }>()
+    const { poId : id } = useParams<{ id: string }>()
     const orderId = id?.replaceAll("&=", "/")
 
     const navigate = useNavigate()
@@ -103,6 +103,55 @@ export const ReleasePONew = ({ not }) => {
         },
         "Address"
     );
+
+    const { control, handleSubmit, reset } = useForm({
+        defaultValues: {
+            advance: 0,
+            materialReadiness: 0,
+            afterDelivery: 0,
+            xDaysAfterDelivery: 0,
+            loadingCharges: 0,
+            freightCharges: 0,
+            notes: ""
+            // afterDelivery: 0  // Initial values need to be set based on your state or props
+        }
+    });
+
+    useEffect(() => {
+        if (procurement_order_list && orderId) {
+            const curOrder = procurement_order_list.find(item => item.name === orderId);
+            if (curOrder?.status === "PO Approved") {
+                const mergeablePOs = procurement_order_list.filter((item) => (item.project === curOrder?.project && item.vendor === curOrder?.vendor && item.status === "PO Approved" && item.name !== orderId))
+                setMergeablePOs(mergeablePOs)
+                if (curOrder?.merged === "true") {
+                    const mergedPOs = procurement_order_list.filter((po) => po?.merged === orderId)
+                    setPrevMergedPos(mergedPOs)
+                }
+            }
+
+            if (curOrder) {
+                setOrderData(curOrder);
+                const chargesArray = curOrder?.advance?.split(", ")
+                reset({
+                    advance: parseInt(chargesArray[0] || 0),
+                    materialReadiness: parseInt(chargesArray[1] || 0),
+                    afterDelivery: parseInt(chargesArray[2] || 0),
+                    xDaysAfterDelivery: parseInt(chargesArray[3] || 0),
+                    loadingCharges: parseInt(curOrder.loading_charges || 0),
+                    freightCharges: parseInt(curOrder.freight_charges || 0),
+                    notes: curOrder.notes || ""
+                    // afterDelivery: calculateAfterDelivery(curOrder) // Assuming you have a function to calculate this
+                });
+                setAdvance(parseInt(chargesArray[0] || 0))
+                setMaterialReadiness(parseInt(chargesArray[1] || 0))
+                setAfterDelivery(parseInt(chargesArray[2] || 0))
+                setXDaysAfterDelivery(parseInt(chargesArray[3] || 0))
+                setLoadingCharges(parseInt(curOrder.loading_charges || 0))
+                setFreightCharges(parseInt(curOrder.freight_charges || 0))
+                setNotes(curOrder.notes || "")
+            }
+        }
+    }, [procurement_order_list, orderId, reset]);
 
     useEffect(() => {
         if (orderData?.project_address) {
@@ -195,56 +244,6 @@ export const ReleasePONew = ({ not }) => {
         content: () => componentRef.current,
         documentTitle: `${orderData?.name}_${orderData?.vendor_name}`
     });
-
-
-    const { control, handleSubmit, reset } = useForm({
-        defaultValues: {
-            advance: 0,
-            materialReadiness: 0,
-            afterDelivery: 0,
-            xDaysAfterDelivery: 0,
-            loadingCharges: 0,
-            freightCharges: 0,
-            notes: ""
-            // afterDelivery: 0  // Initial values need to be set based on your state or props
-        }
-    });
-
-    useEffect(() => {
-        if (procurement_order_list && orderId) {
-            const curOrder = procurement_order_list.find(item => item.name === orderId);
-            if (curOrder?.status === "PO Approved") {
-                const mergeablePOs = procurement_order_list.filter((item) => (item.project === curOrder?.project && item.vendor === curOrder?.vendor && item.status === "PO Approved" && item.name !== orderId))
-                setMergeablePOs(mergeablePOs)
-                if (curOrder?.merged === "true") {
-                    const mergedPOs = procurement_order_list.filter((po) => po?.merged === orderId)
-                    setPrevMergedPos(mergedPOs)
-                }
-            }
-
-            if (curOrder) {
-                setOrderData(curOrder);
-                const chargesArray = curOrder?.advance?.split(", ")
-                reset({
-                    advance: parseInt(chargesArray[0] || 0),
-                    materialReadiness: parseInt(chargesArray[1] || 0),
-                    afterDelivery: parseInt(chargesArray[2] || 0),
-                    xDaysAfterDelivery: parseInt(chargesArray[3] || 0),
-                    loadingCharges: parseInt(curOrder.loading_charges || 0),
-                    freightCharges: parseInt(curOrder.freight_charges || 0),
-                    notes: curOrder.notes || ""
-                    // afterDelivery: calculateAfterDelivery(curOrder) // Assuming you have a function to calculate this
-                });
-                setAdvance(parseInt(chargesArray[0] || 0))
-                setMaterialReadiness(parseInt(chargesArray[1] || 0))
-                setAfterDelivery(parseInt(chargesArray[2] || 0))
-                setXDaysAfterDelivery(parseInt(chargesArray[3] || 0))
-                setLoadingCharges(parseInt(curOrder.loading_charges || 0))
-                setFreightCharges(parseInt(curOrder.freight_charges || 0))
-                setNotes(curOrder.notes || "")
-            }
-        }
-    }, [procurement_order_list, orderId, reset]);
 
     const { updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
     const { createDoc, loading: create_loading } = useFrappeCreateDoc()
@@ -726,10 +725,10 @@ export const ReleasePONew = ({ not }) => {
     // console.log("orderData", orderData?.order_list?.list)
     // console.log("mergedItems", mergedItems)
     // console.log(orderData?.order_list.list.some((item) => 'po' in item))
-    if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-full w-full justify-center"><TailSpin color={"red"} /> </div>
+    if (procurement_order_list_loading || address_list_loading || usersListLoading || vendor_loading) return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>
     if (procurement_order_list_error || address_list_error || vendor_error) return <h1>Error</h1>
     if (!not && !["PO Approved", "Merged"].includes(orderData?.status)) return (
-        <div className="flex items-center justify-center h-full">
+        <div className="flex items-center justify-center h-screen">
             <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
                 <h2 className="text-2xl font-semibold text-gray-800">
                     Heads Up!
