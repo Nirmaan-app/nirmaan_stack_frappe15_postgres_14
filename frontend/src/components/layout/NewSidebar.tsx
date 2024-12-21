@@ -362,7 +362,7 @@ export function NewSidebar() {
                 },
             ]
             : []),
-        ...(role == 'Nirmaan Project Lead Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
+        ...(['Nirmaan Project Lead Profile', 'Nirmaan Admin Profile'].includes(role) || user_id == "Administrator"
             ? [
                 {
                     key: 'pl-actions',
@@ -395,7 +395,7 @@ export function NewSidebar() {
                 }
             ]
             : []),
-        ...(role == 'Nirmaan Procurement Executive Profile' || user_id == "Administrator" || role == "Nirmaan Admin Profile"
+        ...(['Nirmaan Procurement Executive Profile', 'Nirmaan Admin Profile'].includes(role) || user_id == "Administrator"
             ? [
                 {
                     key: 'pe-actions',
@@ -411,6 +411,10 @@ export function NewSidebar() {
                         // {key: '/service-request', label: 'Service Requests'}
                     ],
                 },
+            ]
+            : []),
+            ...(['Nirmaan Procurement Executive Profile', 'Nirmaan Admin Profile', 'Nirmaan Project Lead Profile'].includes(role) || user_id == "Administrator"
+            ? [
                 {
                     key: 'pe-sr-actions',
                     icon: SquareSquare,
@@ -463,7 +467,7 @@ export function NewSidebar() {
         "prs&milestones", "approve-new-pr", "approve-po",
         "approve-sent-back", "approve-amended-po", "new-procure-request", "update-quote",
         "choose-vendor", "approved-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
-        "service-requests", "approve-service-request", "choose-service-vendor", "approved-sr"
+        "service-requests", "approve-service-request", "choose-service-vendor", "approved-sr", "notifications"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location?.pathname.slice(1).split("/")?.[0] === key) : "";
@@ -517,7 +521,7 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
                     {item?.label === "Dashboard" ? (
-                    <SidebarMenuButton className={`${!openKey ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : ""} tracking-tight`} onClick={() => {
+                    <SidebarMenuButton className={`${(!openKey && selectedKeys !== "notifications") ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]" : ""} tracking-tight`} onClick={() => {
                         if(isMobile) {
                             toggleSidebar()
                         }

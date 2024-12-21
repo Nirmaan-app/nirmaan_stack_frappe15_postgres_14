@@ -16,6 +16,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { useToast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Items as ItemsType } from "@/types/NirmaanStack/Items"
+import { useUserData } from "@/hooks/useUserData";
 
 export default function Items() {
 
@@ -24,6 +25,8 @@ export default function Items() {
     const [unit, setUnit] = useState('');
     const [category, setCategory] = useState('');
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+
+    const userData = useUserData()
 
     const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList("Items", {
 
@@ -40,8 +43,6 @@ export default function Items() {
 
     const { createDoc: createDoc, loading: loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { toast } = useToast()
-    const navigate = useNavigate();
-
 
     useEffect(() => {
         if (category_list) {
@@ -219,7 +220,8 @@ export default function Items() {
                         </div>
                     </CardContent>
                 </Card>
-                <Dialog>
+                {(userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile") && (
+                    <Dialog>
                     <DialogTrigger asChild>
                         <Button className="flex items-center gap-1">
                             <CirclePlus className="w-5 h-5" />
@@ -297,6 +299,7 @@ export default function Items() {
                         </DialogClose>
                     </DialogContent>
                 </Dialog>
+                )}
             </div>
             <div className="pl-0 pr-2">
                 {isLoading || category_loading ? (
