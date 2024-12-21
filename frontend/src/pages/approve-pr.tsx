@@ -9,9 +9,8 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useToast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { EstimatedPriceHoverCard } from "@/components/procurement/EstimatedPriceHoverCard";
 
 type PRTable = {
     name: string
@@ -60,7 +59,7 @@ export const ApprovePR = () => {
         let total: number = 0;
         let usedQuotes = {}
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
-        orderData?.list.map((item: any) => {
+        orderData?.list?.filter((i) => i.status !== "Request")?.map((item: any) => {
             const quotesForItem = quote_data
                 ?.filter(value => value.item_id === item.name && value.quote != null)
                 ?.map(value => value.quote);
@@ -179,9 +178,17 @@ export const ApprovePR = () => {
                     )
                 },
                 cell: ({ row }) => {
+                    const categories = []
+                    const categoryList = row.getValue("category_list")?.list || []
+                    categoryList?.forEach((i) => {
+                        if(categories.every((j) => j?.name !== i?.name)) {
+                            categories.push(i)
+                        }
+                    })
+
                     return (
                         <div className="flex flex-col gap-1 items-start justify-center">
-                            {row.getValue("category_list").list.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
+                            {categories?.map((obj) => <Badge className="inline-block">{obj["name"]}</Badge>)}
                         </div>
                     )
                 }
@@ -196,40 +203,13 @@ export const ApprovePR = () => {
                 cell: ({ row }) => {
                     const total = getTotal(row.getValue("name")).total
                     const prUsedQuotes = getTotal(row.getValue("name"))?.usedQuotes
-                    // console.log('usedQuotes', prUsedQuotes)
                     return (
                         total === "N/A" ? (
                             <div className="font-medium">
                                 N/A
                             </div>
                         ) : (
-                            <HoverCard>
-                                <HoverCardTrigger>
-                                    <div className="font-medium underline">
-                                        {formatToIndianRupee(total)}
-                                    </div>
-                                </HoverCardTrigger>
-                                <HoverCardContent>
-                                    <div>
-                                        <h2 className="text-primary font-semibold mb-4">Estimate Summary:</h2>
-                                        <div className="flex flex-col gap-4">
-                                            {Object.entries(prUsedQuotes)?.map(([item, quotes]) => (
-                                                <div key={item} className="flex flex-col gap-2">
-                                                    <p className="font-semibold">{item}</p>
-                                                    <p className="font-semibold">({quotes?.quantity} * ₹{quotes?.amount} = {formatToIndianRupee(quotes?.quantity * quotes?.amount)})</p>
-                                                    <ul className="list-disc ">
-                                                        {quotes?.items ? (
-                                                            <li className="ml-4 text-gray-600 underline hover:underline-offset-2" key={quotes?.items?.name}><Link to={`/debug/${quotes?.items?.procurement_order?.replaceAll("/", "&=")}`}>{quotes?.items?.procurement_order}</Link></li>
-                                                        ) : (
-                                                            <p className="text-xs">No previous Quotes found for this item</p>
-                                                        )}
-                                                    </ul>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </HoverCardContent>
-                            </HoverCard>
+                            <EstimatedPriceHoverCard total={total} prUsedQuotes={prUsedQuotes} />
                         )
                     )
                 }

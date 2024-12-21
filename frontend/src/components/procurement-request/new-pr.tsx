@@ -1,4 +1,4 @@
-import { Card, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { CheckCheck, CircleX, ListChecks, MessageCircleMore, MessageCircleWarning, PackagePlus, Replace, Settings2, Trash2, Undo } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -22,6 +22,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { TailSpin } from "react-loader-spinner";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 
 const NewPR = () => {
 
@@ -63,14 +64,18 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     const [curCategory, setCurCategory] = useState<string>('')
     const [unit, setUnit] = useState<string>('')
     const [quantity, setQuantity] = useState<number | null | string>(null)
-    const [item_id, setItem_id] = useState<string>('');
-    const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
+    // const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
     const [make, setMake] = useState('');
     const [tax, setTax] = useState<number | null>(null)
     const [comments, setComments] = useState({});
     const [universalComment, setUniversalComment] = useState<string | null>(null)
     const [managersIdList, setManagersIdList] = useState(null)
     const [stack, setStack] = useState([]);
+    const [requestItemDialog, setRequestItemDialog] = useState(false)
+
+    const toggleRequestItemDialog = () => {
+        setRequestItemDialog(prev => !prev)
+    }
 
     useEffect(() => {
         if (usersList) {
@@ -148,9 +153,9 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     useEffect(() => {
         const newCategories = [];
         orderData.procurement_list.list.map((item) => {
-            const isDuplicate = newCategories.some(category => category.name === item.category);
+            const isDuplicate = newCategories.some(category => (category.name === item.category && category.status === item.status));
             if (!isDuplicate) {
-                newCategories.push({ name: item.category })
+                newCategories.push({ name: item.category, status : item.status })
             }
         })
         setOrderData((prevState) => ({
@@ -162,9 +167,9 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     }, [orderData.procurement_list]);
 
 
-    interface Category {
-        name: string;
-    }
+    // interface Category {
+    //     name: string;
+    // }
 
     const addWorkPackage = (wpName: string) => {
         setOrderData(prevData => ({
@@ -175,13 +180,13 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     const addCategory = (categoryName: string) => {
         setCurCategory(categoryName);
         setTax(category_list?.find((category) => category.category_name === categoryName).tax)
-        const isDuplicate = categories.list.some(category => category.name === categoryName);
-        if (!isDuplicate) {
-            setCategories(prevState => ({
-                ...prevState,
-                list: [...prevState.list, { name: categoryName }]
-            }));
-        }
+        // const isDuplicate = categories.list.some(category => category.name === categoryName);
+        // if (!isDuplicate) {
+        //     setCategories(prevState => ({
+        //         ...prevState,
+        //         list: [...prevState.list, { name: categoryName }]
+        //     }));
+        // }
         // console.log(curCategory, categories)
     };
 
@@ -196,7 +201,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 list: []
             }
         });
-        setCategories({ list: [] });
+        // setCategories({ list: [] });
         addWorkPackage(wp);
         setPage(value);
     };
@@ -232,18 +237,25 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         })
     }
 
-    const handleAdd = () => {
+    const handleAdd = (request = false) => {
+        console.log("request", request)
         if (curItem && Number(quantity)) {
             let itemIdToUpdate = null;
             let itemMake = null;
 
             // Find item ID and make
-            item_list.forEach((item) => {
-                if (item.item_name === curItem) {
-                    itemIdToUpdate = item.name;
-                    itemMake = item.make_name;
-                }
-            });
+            if(!request) {
+                item_list.forEach((item) => {
+                    if (item.item_name === curItem) {
+                        itemIdToUpdate = item.name;
+                        itemMake = item.make_name;
+                    }
+                });
+            } else {
+                itemIdToUpdate = uuidv4()
+                itemMake = ""
+            }
+            
 
             if (itemIdToUpdate) {
                 const curRequest = [...orderData.procurement_list.list];
@@ -254,7 +266,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     quantity: Number(quantity),
                     category: curCategory,
                     tax: Number(tax),
-                    status: "Pending"
+                    status: request ? "Request" : "Pending"
                 };
 
                 // Check if item exists in the current list
@@ -286,8 +298,10 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                 setQuantity('');
                 setCurItem('');
                 setUnit('');
-                setItem_id('');
                 setMake('');
+                if(request) {
+                    toggleRequestItemDialog()
+                }
             }
         }
     };
@@ -533,6 +547,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         }
     }
 
+    // console.log("orderData", orderData)
+
     // console.log("userData", userData)
 
     return (
@@ -672,18 +688,86 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         <input className="h-[37px] w-full border p-2 rounded-lg outline-none" onChange={(e) => setQuantity(e.target.value === "" ? null : parseInt(e.target.value))} value={quantity} type="number" />
                     </div>
                 </div>
+
+                <AlertDialog open={requestItemDialog} onOpenChange={toggleRequestItemDialog}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle className="flex justify-between">Request New Item</AlertDialogTitle>
+                            <AlertDialogDescription className="flex flex-col gap-2">
+                                    <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="text-sm text-red-600">*</sup></label>
+                                    <Input
+                                        type="text"
+                                        id="itemName"
+                                        value={curItem}
+                                        onChange={(e) => setCurItem(e.target.value)}
+                                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                    />
+                
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="text-sm text-red-600">*</sup></label>
+                                            <Select onValueChange={(value) => setUnit(value)}>
+                                                <SelectTrigger className="w-[180px]">
+                                                    <SelectValue className="text-gray-200" placeholder="Select Unit" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {/* <SelectItem value="PCS">PCS</SelectItem> */}
+                                                    <SelectItem value="BOX">BOX</SelectItem>
+                                                    <SelectItem value="ROLL">ROLL</SelectItem>
+                                                    {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                                                    <SelectItem value="LENGTH">LTH</SelectItem>
+                                                    <SelectItem value="MTR">MTR</SelectItem>
+                                                    <SelectItem value="NOS">NOS</SelectItem>
+                                                    <SelectItem value="KGS">KGS</SelectItem>
+                                                    <SelectItem value="PAIRS">PAIRS</SelectItem>
+                                                    <SelectItem value="PACKS">PACKS</SelectItem>
+                                                    <SelectItem value="DRUM">DRUM</SelectItem>
+                                                    <SelectItem value="SQMTR">SQMTR</SelectItem>
+                                                    <SelectItem value="LTR">LTR</SelectItem>
+                                                    <SelectItem value="BUNDLE">BUNDLE</SelectItem>
+                                                    <SelectItem value="FEET">FEET</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div>
+                                            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">Quantity<sup className="text-sm text-red-600">*</sup></label>
+                                            <Input
+                                                type="number"
+                                                id="quantity"
+                                                onChange={(e) => setQuantity(e.target.value === "" ? null : parseInt(e.target.value))} 
+                                                value={quantity}
+                                                className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                            </AlertDialogDescription>
+                            <AlertDialogDescription className="flex justify-end gap-2 items-center pt-2">
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <Button disabled={!curItem || !unit || !quantity} onClick={() => handleAdd(true)}>Request</Button>
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                    </AlertDialogContent>
+                </AlertDialog>
                 <div className="flex justify-between md:space-x-0 mt-2">
-                    {(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(userData?.role)) ? (
+                    {(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)) ? (
                     <HoverCard>
                         <HoverCardTrigger asChild>
-                            <button disabled className="text-sm py-2 md:text-lg text-blue-300 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button>
+                            <Button variant={"ghost"} className="text-sm py-2 px-0 md:text-lg text-blue-300 flex items-center gap-1 hover:bg-white" 
+                            onClick={() => {
+                                setQuantity('');
+                                setCurItem('');
+                                setUnit('');
+                                setMake('');
+                                toggleRequestItemDialog()
+                            }}><CirclePlus className="w-4 h-4" />Request new item</Button>
                         </HoverCardTrigger>
                         <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                            New Items Creation is disabled for this Category, please contact your Project Lead or Administrator!
+                            New Item Creation is disabled for this Category, either request for a new item here or contact the Administrator!
                         </HoverCardContent>
                     </HoverCard>
                     ) : (
-                        <button className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1" onClick={() => handleCreateItem()}><CirclePlus className="w-5 h-5" />Create new item</button>
+                        <Button variant={"ghost"} disabled={!curCategory} className="text-sm py-2 px-0 md:text-lg text-blue-400 flex items-center gap-1 hover:bg-white" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create new item</Button>
                     )}
                     {(curItem && Number(quantity)) ?
                         <Button variant="default" className="flex items-center gap-1" onClick={() => handleAdd()}> <CirclePlus className="w-4 h-4" />Add</Button>
@@ -692,8 +776,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     {/* <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8" onClick={() => handleAdd()}>Add</Button> */}
                 </div>
                 {/* <div className="max-md:text-xs text-rose-700">Added Items</div> */}
-                <div className="flex justify-between items-center max-md:py-4">
-                    <p className="max-md:text-xs text-rose-700">Added Items</p>
+                <div className="flex justify-between items-center max-md:pt-2">
+                    <p className="max-md:text-xs text-rose-700 pl-2">Items List</p>
                     {stack.length !== 0 && (
                         <div className="flex items-center space-x-2">
                             <HoverCard>
@@ -702,7 +786,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                         onClick={() => UndoDeleteOperation()}
                                         className="flex items-center max-md:text-sm max-md:px-2 max-md:py-1  px-4 py-2 bg-blue-500 text-white font-semibold rounded-full shadow-md hover:bg-blue-600 transition duration-200 ease-in-out"
                                     >
-                                        <Undo className="mr-2 max-md:w-4 max-md:h-4" /> {/* Undo Icon */}
+                                        <Undo className="mr-2 max-md:w-4 max-md:h-4" />
                                         Undo
                                     </button>
                                 </HoverCardTrigger>
@@ -713,10 +797,23 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         </div>
                     )}
                 </div>
-                {
-                    orderData.category_list.list.length ? (
-                        orderData.category_list?.list?.map((cat) => {
-                            return <div className="container mb-4 mx-0 px-0">
+
+                {orderData.category_list.list?.length === 0 &&  (
+                    <div className="text-center bg-gray-100 p-2 text-gray-600">
+                    Empty!
+                </div>
+                )}
+
+                {orderData.category_list.list.filter((i) => i?.status !== "Request")?.length !== 0 && (
+                    <Card>
+                    <CardHeader>
+                        <CardTitle>
+                            Added Items
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {orderData.category_list?.list?.filter((i) => i?.status !== "Request")?.map((cat) => {
+                            return <div>
                                 <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
                                 <table className="table-auto md:w-full">
                                     <thead>
@@ -729,8 +826,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                     </thead>
                                     <tbody>
                                         {orderData.procurement_list.list?.map((item) => {
-                                            if (item.category === cat.name) {
-                                                return <tr key={item.item} >
+                                            if (item.category === cat.name && item.status !== "Request") {
+                                                return <tr key={item.item}>
                                                     <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
                                                         {item.item}
                                                         {item.comment &&
@@ -798,11 +895,104 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                     </tbody>
                                 </table>
                             </div>
-                        })
-                    ) : <div className="text-center bg-gray-100 p-2 text-gray-600">
-                        Empty!
-                    </div>
-                }
+                        })}
+                    </CardContent>
+                        </Card>
+                    )}
+
+                {orderData.category_list.list.filter((i) => i?.status === "Request")?.length !== 0 && (
+                    <Card className="bg-yellow-50">
+                    <CardHeader>
+                        <CardTitle>Requested Items</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {orderData.category_list?.list?.filter((i) => i?.status === "Request")?.map((cat) => {
+                            return <div>
+                                <h3 className="text-sm font-semibold py-2">{cat.name}</h3>
+                                <table className="table-auto md:w-full">
+                                    <thead>
+                                        <tr className="bg-gray-200">
+                                            <th className="w-[60%] text-left px-4 py-1 text-xs">Item Name</th>
+                                            <th className="w-[20%] px-4 py-1 text-xs text-center">Unit</th>
+                                            <th className="w-[10%] px-4 py-1 text-xs text-center">Quantity</th>
+                                            <th className="w-[10%] px-4 py-1 text-xs text-center">Edit</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {orderData.procurement_list.list?.map((item) => {
+                                            if (item.category === cat.name && item.status === "Request") {
+                                                return <tr key={item.item}>
+                                                    <td className="w-[60%] text-left border-b-2 px-4 py-1 text-sm">
+                                                        {item.item}
+                                                        {item.comment &&
+                                                            <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
+                                                                <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                                                                <div className="text-xs ">{item.comment}</div>
+                                                            </div>
+                                                        }
+                                                    </td>
+                                                    <td className="w-[20%] border-b-2 px-4 py-1 text-sm text-center">{item.unit}</td>
+                                                    <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
+                                                    <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
+                                                        <AlertDialog>
+                                                            <AlertDialogTrigger onClick={() => setQuantity(parseInt(item.quantity))}><Pencil className="w-4 h-4" /></AlertDialogTrigger>
+                                                            <AlertDialogContent>
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle className="flex justify-between">Edit Item
+                                                                        <AlertDialogCancel onClick={() => setQuantity('')} className="border-none shadow-none p-0">X</AlertDialogCancel>
+                                                                    </AlertDialogTitle>
+                                                                    <AlertDialogDescription className="flex flex-col gap-2">
+                                                                        <div className="flex space-x-2">
+                                                                            <div className="w-1/2 md:w-2/3">
+                                                                                <h5 className="text-base text-gray-400 text-left mb-1">Item Name</h5>
+                                                                                <div className="w-full  p-1 text-left">
+                                                                                    {item.item}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="w-[30%]">
+                                                                                <h5 className="text-base text-gray-400 text-left mb-1">UOM</h5>
+                                                                                <div className=" w-full  p-2 text-center justify-left flex">
+                                                                                    {item.unit}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="w-[25%]">
+                                                                                <h5 className="text-base text-gray-400 text-left mb-1">Qty</h5>
+                                                                                <input type="number" defaultValue={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value !== "" ? parseInt(e.target.value) : null)} />
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex gap-1 items-center pt-1">
+                                                                            <MessageCircleMore className="h-8 w-8" />
+                                                                            <textarea
+                                                                                // disabled={userData?.role === "Nirmaan Project Manager Profile"}
+                                                                                className="block p-2 border-gray-300 border rounded-md w-full"
+                                                                                placeholder="Add comment..."
+                                                                                onChange={(e) => handleItemCommentChange(item, e)}
+                                                                                defaultValue={item.comment || ""}
+                                                                            />
+                                                                        </div>
+                                                                    </AlertDialogDescription>
+                                                                    <AlertDialogDescription className="flex justify-end">
+                                                                        <div className="flex gap-2">
+                                                                            <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex items-center gap-1" onClick={() => handleDelete(item.item)}><Trash2 className="h-4 w-4" /> Delete</AlertDialogAction>
+                                                                            <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}
+                                                                                className="flex items-center gap-1"
+                                                                            ><ListChecks className="h-4 w-4" />Update</AlertDialogAction>
+                                                                        </div>
+                                                                    </AlertDialogDescription>
+                                                                </AlertDialogHeader>
+                                                            </AlertDialogContent>
+                                                        </AlertDialog>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        })}
+                                    </tbody>
+                                </table>
+                                    </div>
+                        })}
+                        </CardContent>
+                        </Card>
+                    )}
 
                 <Card className="flex flex-col items-start shadow-none border border-grey-500 p-3">
                     <h3 className="font-bold flex items-center gap-1"><MessageCircleMore className="w-5 h-5" />Comments</h3>

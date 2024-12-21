@@ -1,11 +1,23 @@
 [
  {
+  "category_name": "Message Manager",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-12-11 15:53:50.593469",
+  "name": "Message Manager",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "PA System"
+ },
+ {
   "category_name": "Earthing Material",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/earthing.jpg",
-  "modified": "2024-11-23 14:28:30.974454",
+  "modified": "2024-12-17 16:50:09.969157",
   "name": "Earthing Material",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -14,8 +26,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/industrial-sockets.jpg",
-  "modified": "2024-11-23 14:28:30.968428",
+  "modified": "2024-12-18 19:22:54.642819",
   "name": "Industrial Sockets",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -24,8 +37,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/ups.jpg",
-  "modified": "2024-11-23 14:28:30.962873",
+  "modified": "2024-12-18 19:23:06.160017",
   "name": "UPS & Inverter",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -36,6 +50,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/hvac-hw.jpg",
   "modified": "2024-11-23 14:28:30.957086",
   "name": "HVAC Hardware & Accessories",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -44,8 +59,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/sprinklet-pipes.jpg",
-  "modified": "2024-11-23 14:28:30.951008",
+  "modified": "2024-12-12 18:54:01.214865",
   "name": "Sprinkler Piping & Accessories",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Fire Fighting System"
  },
@@ -56,6 +72,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/hvac-service.jpg",
   "modified": "2024-11-23 14:28:30.945578",
   "name": "HVAC Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
  },
@@ -66,6 +83,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/fire-services.jpg",
   "modified": "2024-11-23 14:28:30.940066",
   "name": "Fire Fighting Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
  },
@@ -76,6 +94,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fa/fa-service.jpg",
   "modified": "2024-11-23 14:28:30.934536",
   "name": "FA Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
  },
@@ -86,6 +105,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20pa/pa-service.jpg",
   "modified": "2024-11-23 14:28:30.928639",
   "name": "PA Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
  },
@@ -96,6 +116,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20data/data_nw_services.jpg",
   "modified": "2024-11-23 14:28:30.922454",
   "name": "Data & Networking Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
  },
@@ -106,6 +127,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/copper-piping.jpg",
   "modified": "2024-11-23 14:28:30.915204",
   "name": "Copper Piping",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -116,6 +138,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/drainage.jpg",
   "modified": "2024-11-23 14:28:30.907123",
   "name": "Drain Pipes",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -126,6 +149,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/chilled-piping.jpg",
   "modified": "2024-11-23 14:28:30.900502",
   "name": "Chilled Water Piping",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -136,6 +160,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/gi-duct.jpg",
   "modified": "2024-11-23 14:28:30.895242",
   "name": "GI Ducts & MS Ducts",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -146,6 +171,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/flexible-duct.jpg",
   "modified": "2024-11-23 14:28:30.889786",
   "name": "Flexible Ducts",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -156,6 +182,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/plenum.jpg",
   "modified": "2024-11-23 14:28:30.884549",
   "name": "Plenum Box",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -166,6 +193,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/grills.jpg",
   "modified": "2024-11-23 14:28:30.878422",
   "name": "Grills, Diffusers and Dampers",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -176,6 +204,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/hvac-fans.jpg",
   "modified": "2024-11-23 14:28:30.872542",
   "name": "Fans",
+  "new_items": "true",
   "tax": "28",
   "work_package": "HVAC System"
  },
@@ -186,6 +215,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/dx.jpg",
   "modified": "2024-11-23 14:28:30.867279",
   "name": "DX Sysetm",
+  "new_items": "true",
   "tax": "28",
   "work_package": "HVAC System"
  },
@@ -196,6 +226,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/vrf.jpg",
   "modified": "2024-11-23 14:28:30.861110",
   "name": "VRF System",
+  "new_items": "true",
   "tax": "28",
   "work_package": "HVAC System"
  },
@@ -206,6 +237,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/insulation.jpg",
   "modified": "2024-11-23 14:28:30.854772",
   "name": "Insulation",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -216,6 +248,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/hvac-misc.jpg",
   "modified": "2024-11-23 14:28:30.848170",
   "name": "HVAC Miscellaneous",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -226,26 +259,18 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/ahu.jpg",
   "modified": "2024-11-23 14:28:30.841861",
   "name": "AHU & CSU",
+  "new_items": "true",
   "tax": "28",
   "work_package": "HVAC System"
  },
  {
-  "category_name": "Sprinklers",
+  "category_name": "Sprinklers & Flexible Hose",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/sprinklers.jpeg",
-  "modified": "2024-11-23 14:28:30.836660",
-  "name": "Sprinklers",
-  "tax": "18",
-  "work_package": "Fire Fighting System"
- },
- {
-  "category_name": "Sprinkler Valves",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/sprinkler-valve.jpg",
-  "modified": "2024-11-23 14:28:30.830720",
-  "name": "Sprinkler Valves",
+  "modified": "2024-12-12 15:46:26.422695",
+  "name": "Sprinklers & Flexible Hose",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Fire Fighting System"
  },
@@ -256,6 +281,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fa/addressable.jpg",
   "modified": "2024-11-23 14:28:30.824261",
   "name": "Addressable Detectors",
+  "new_items": "false",
   "tax": "18",
   "work_package": "FA System"
  },
@@ -266,6 +292,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fa/conventional.jpg",
   "modified": "2024-11-23 14:28:30.817196",
   "name": "Conventional Detectors",
+  "new_items": "false",
   "tax": "18",
   "work_package": "FA System"
  },
@@ -276,6 +303,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fa/addressable-module.jpg",
   "modified": "2024-11-23 14:28:30.810410",
   "name": "Addressable Module",
+  "new_items": "false",
   "tax": "18",
   "work_package": "FA System"
  },
@@ -286,6 +314,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fa/conventional-module.png",
   "modified": "2024-11-23 14:28:30.798824",
   "name": "Conventional Module",
+  "new_items": "false",
   "tax": "18",
   "work_package": "FA System"
  },
@@ -296,6 +325,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fa/fa-panel.png",
   "modified": "2024-11-23 14:28:30.789078",
   "name": "Conventional Fire Alarm Panel",
+  "new_items": "false",
   "tax": "18",
   "work_package": "FA System"
  },
@@ -304,8 +334,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fa/fa-acc.png",
-  "modified": "2024-11-23 14:28:30.781495",
+  "modified": "2024-12-18 19:23:18.821262",
   "name": "FA Accessories",
+  "new_items": "false",
   "tax": "18",
   "work_package": "FA System"
  },
@@ -316,6 +347,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fa/fa-cables.jpg",
   "modified": "2024-11-23 14:28:30.774755",
   "name": "FA Cables",
+  "new_items": "false",
   "tax": "18",
   "work_package": "FA System"
  },
@@ -326,6 +358,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20pa/pa-cable.jpg",
   "modified": "2024-11-23 14:28:30.767630",
   "name": "PA Cables",
+  "new_items": "false",
   "tax": "18",
   "work_package": "PA System"
  },
@@ -336,6 +369,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20pa/speakers.jpg",
   "modified": "2024-11-23 14:28:30.761092",
   "name": "Speaker",
+  "new_items": "false",
   "tax": "18",
   "work_package": "PA System"
  },
@@ -346,6 +380,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20pa/mic.jpg",
   "modified": "2024-11-23 14:28:30.755108",
   "name": "Mic",
+  "new_items": "false",
   "tax": "18",
   "work_package": "PA System"
  },
@@ -356,6 +391,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20pa/controller.jpg",
   "modified": "2024-11-23 14:28:30.748714",
   "name": "Controller",
+  "new_items": "false",
   "tax": "18",
   "work_package": "PA System"
  },
@@ -364,8 +400,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20pa/pa-acc.jpg",
-  "modified": "2024-11-23 14:28:30.743180",
+  "modified": "2024-12-18 19:23:27.078110",
   "name": "PA Accessories",
+  "new_items": "false",
   "tax": "18",
   "work_package": "PA System"
  },
@@ -374,18 +411,20 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20data/cabling.jpg",
-  "modified": "2024-11-23 14:28:30.737448",
+  "modified": "2024-12-11 19:00:40.353675",
   "name": "Data Cabling",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Data & Networking"
  },
  {
-  "category_name": "Terminations",
+  "category_name": "I/O & Faceplate",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20data/terminations.jpg",
-  "modified": "2024-11-23 14:28:30.731806",
-  "name": "Terminations",
+  "modified": "2024-12-11 20:58:13.971224",
+  "name": "I/O & Faceplate",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Data & Networking"
  },
@@ -394,8 +433,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20data/jack.jpg",
-  "modified": "2024-11-23 14:28:30.725522",
+  "modified": "2024-12-11 20:58:16.854081",
   "name": "Jack Panel",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Data & Networking"
  },
@@ -404,8 +444,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20data/rack.jpg",
-  "modified": "2024-11-23 14:28:30.719013",
+  "modified": "2024-12-11 20:58:19.556654",
   "name": "Rack & Accessories",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Data & Networking"
  },
@@ -414,8 +455,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20data/switch.jpg",
-  "modified": "2024-11-23 14:28:30.712908",
+  "modified": "2024-12-18 19:22:37.482111",
   "name": "Switches",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Data & Networking"
  },
@@ -424,8 +466,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20data/data-acc.jpg",
-  "modified": "2024-11-23 14:28:30.706840",
+  "modified": "2024-12-18 19:22:34.549462",
   "name": "Data Accessories",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Data & Networking"
  },
@@ -436,6 +479,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/analog-camera.png",
   "modified": "2024-11-23 14:28:30.677306",
   "name": "Analog Cameras",
+  "new_items": "true",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -446,6 +490,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/switch.jpg",
   "modified": "2024-11-23 14:28:30.671121",
   "name": "CCTV Network Switches",
+  "new_items": "true",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -456,6 +501,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/nvr.jpg",
   "modified": "2024-11-23 14:28:30.666129",
   "name": "NVR & DVR",
+  "new_items": "true",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -466,6 +512,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/cctv-cable.jpg",
   "modified": "2024-11-23 14:28:30.659959",
   "name": "CCTV Cabling",
+  "new_items": "true",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -476,6 +523,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/cctv-service.jpg",
   "modified": "2024-11-23 14:28:30.653924",
   "name": "CCTV Accessories",
+  "new_items": "true",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -486,6 +534,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/ip-camera.jpg",
   "modified": "2024-11-23 14:28:30.647800",
   "name": "IP Cameras",
+  "new_items": "true",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -494,8 +543,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/electric-enclousers.jpg",
-  "modified": "2024-11-23 14:28:30.642135",
+  "modified": "2024-12-17 16:50:26.036926",
   "name": "Enclosure",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -504,8 +554,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20fire%20safety/extin.jpg",
-  "modified": "2024-11-23 14:28:30.636361",
+  "modified": "2024-12-12 18:59:24.507458",
   "name": "Fire Extinguishers",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Fire Fighting System"
  },
@@ -514,8 +565,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/lt-panel.jpg",
-  "modified": "2024-11-23 14:28:30.631149",
+  "modified": "2024-12-18 19:23:00.136917",
   "name": "LT Panels",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -526,6 +578,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/rented.jpg",
   "modified": "2024-11-23 14:28:30.626093",
   "name": "Rented Tools & Equipments",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Tool & Equipments"
  },
@@ -536,16 +589,18 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/cctv-service.jpg",
   "modified": "2024-11-23 14:28:30.619962",
   "name": "CCTV Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
  },
  {
-  "category_name": "Raceway",
+  "category_name": "Raceway & Cable Tray",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/raceway.jpg",
-  "modified": "2024-11-23 14:28:30.613616",
-  "name": "Raceway",
+  "modified": "2024-12-14 18:39:48.074664",
+  "name": "Raceway & Cable Tray",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -554,8 +609,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/electrical-lighting-fixtures.jpg",
-  "modified": "2024-11-23 14:28:30.607632",
+  "modified": "2024-12-18 19:22:57.392308",
   "name": "Lighting",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -564,8 +620,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/db_switch_gear.jpg",
-  "modified": "2024-11-23 14:28:30.601286",
+  "modified": "2024-12-17 16:50:06.939449",
   "name": "DB & Switch Gear",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -576,6 +633,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20pa/amplifier.jpg",
   "modified": "2024-11-23 14:28:30.593439",
   "name": "Amplifier",
+  "new_items": "false",
   "tax": "18",
   "work_package": "PA System"
  },
@@ -586,6 +644,7 @@
   "image_url": null,
   "modified": "2024-09-30 17:25:50.178332",
   "name": "Safety Equipments",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Tool & Equipments"
  },
@@ -596,6 +655,7 @@
   "image_url": null,
   "modified": "2024-09-30 17:27:59.716012",
   "name": "HVAC Cable Tray & Accessories",
+  "new_items": "true",
   "tax": "18",
   "work_package": "HVAC System"
  },
@@ -606,6 +666,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20access/access-service.jpg",
   "modified": "2024-11-23 14:28:30.579913",
   "name": "Access Control Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
  },
@@ -614,8 +675,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/sockets-switches.jpg",
-  "modified": "2024-11-23 14:28:30.571892",
+  "modified": "2024-12-17 16:50:42.537437",
   "name": "Switch & Sockets",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -626,36 +688,29 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/electrical-services.jpg",
   "modified": "2024-11-23 14:28:30.562383",
   "name": "Electrical Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
- },
- {
-  "category_name": "Cable Tray & Junction Box",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/cable-tray-jb.jpg",
-  "modified": "2024-11-23 14:28:30.555418",
-  "name": "Cable Tray & Junction Box",
-  "tax": "18",
-  "work_package": "Electrical Work"
  },
  {
   "category_name": "Wires & Cables",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/wires_cables.png",
-  "modified": "2024-11-23 14:28:30.548872",
+  "modified": "2024-12-17 16:50:45.654777",
   "name": "Wires & Cables",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
  {
-  "category_name": "Conduits",
+  "category_name": "Conduits & Accessories",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/conduits.jpg",
-  "modified": "2024-11-23 14:28:30.541774",
-  "name": "Conduits",
+  "modified": "2024-12-17 16:50:03.073674",
+  "name": "Conduits & Accessories",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -664,8 +719,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/electrical-misc.jpg",
-  "modified": "2024-11-23 14:28:30.533889",
+  "modified": "2024-12-18 19:22:51.882139",
   "name": "Electrical Miscellaneous",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -674,8 +730,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20electrical categories/electrical-accessories.jpg",
-  "modified": "2024-11-23 14:28:30.525434",
+  "modified": "2024-12-17 16:50:13.340661",
   "name": "Electrical Accessories",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
  },
@@ -686,6 +743,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20access/reader.jpg",
   "modified": "2024-11-23 14:28:30.516576",
   "name": "Reader",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Access Control System"
  },
@@ -694,8 +752,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped electrical categories/battery.jpg",
-  "modified": "2024-11-23 15:07:20.413300",
+  "modified": "2024-12-18 19:23:08.593663",
   "name": "UPS Batteries",
+  "new_items": "false",
   "tax": "28",
   "work_package": "Electrical Work"
  },
@@ -706,6 +765,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20access/controller.jpg",
   "modified": "2024-11-23 14:28:30.492983",
   "name": "Controllers",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Access Control System"
  },
@@ -716,6 +776,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped Services/painting.jpg",
   "modified": "2024-11-23 15:00:44.200611",
   "name": "Painting Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
  },
@@ -726,6 +787,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped Services/carpenter.jpg",
   "modified": "2024-11-23 15:02:40.651141",
   "name": "Carpentry Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
  },
@@ -736,6 +798,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped Services/pop.jpg",
   "modified": "2024-11-23 15:04:44.287100",
   "name": "POP Services",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Services"
  },
@@ -746,6 +809,7 @@
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped WP/civil-work.jpg",
   "modified": "2024-11-23 14:34:17.462669",
   "name": "Civil & Interior",
+  "new_items": "true",
   "tax": "18",
   "work_package": "Civil & Interior"
  },
@@ -756,7 +820,41 @@
   "image_url": null,
   "modified": "2024-12-10 18:43:28.491877",
   "name": "Addressable Fire Alarm Panel",
+  "new_items": "false",
   "tax": "18",
   "work_package": "FA System"
+ },
+ {
+  "category_name": "Fire Signage",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-12-12 15:33:26.937614",
+  "name": "Fire Signage",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "Fire Fighting Miscellaneous",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-12-18 19:23:21.848195",
+  "name": "Fire Fighting Miscellaneous",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "Temp Lighting & Power",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2024-12-19 13:54:04.017915",
+  "name": "Temp Lighting & Power",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "Electrical Work"
  }
 ]

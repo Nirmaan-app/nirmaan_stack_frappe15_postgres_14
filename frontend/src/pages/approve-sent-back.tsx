@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, SendToBack, Undo2 } from 'lucide-react';
+import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2 } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
@@ -16,6 +16,8 @@ import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
 import { TailSpin } from 'react-loader-spinner';
 import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -40,9 +42,23 @@ const columns: TableColumnsType<DataType> = [
         key: 'item',
         render: (text, record) => {
             return (
-                <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
-                    {text}
-                </span>
+                <div className="inline items-baseline">
+                    <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+                        {text}
+                    </span>
+                    {(!record.children && record.comment) && (
+                        <HoverCard>
+                            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                <div className="relative pb-4">
+                                    <span className="block">{record.comment}</span>
+                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                </div>
+
+                            </HoverCardContent>
+                        </HoverCard>
+                    )}
+                </div>
             )
         }
     },
@@ -159,7 +175,7 @@ const ApproveSentBack = () => {
         </div>
     );
     return (
-        <ApproveSentBackPage sb_data={sb} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
+        <ApproveSentBackPage sb_data={sb} project_data={project_data} usersList={usersList} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} sent_back_list_mutate={sb_mutate} />
     )
 }
 
@@ -168,10 +184,11 @@ interface ApproveSentBackPageProps {
     project_data: ProjectsType | undefined
     owner_data: NirmaanUsersType | undefined | { full_name: String }
     sent_back_list_mutate: any
+    usersList?: any
 }
 
 
-const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
+const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
     // const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
 
@@ -181,6 +198,11 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
             filters: [["vendor_type", "=", "Material"]],
             limit: 200
         });
+
+        const { data: universalComment } = useFrappeGetDocList("Nirmaan Comments", {
+            fields: ["*"],
+            filters: [["reference_name", "=", sb_data.name], ["subject", "=", "sr vendors selected"]]
+        })
     // const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
     //     {
     //         fields: ['name', 'project_name', 'project_address'],
@@ -207,6 +229,10 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
 
     const [data, setData] = useState<DataType>([])
     const [checkStrictly, setCheckStrictly] = useState(false);
+
+    const getFullName = (id) => {
+        return usersList?.find((user) => user?.name == id)?.full_name
+    }
 
     useEffect(() => {
         // if (sent_back_list) {
@@ -255,6 +281,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                             category: item.category,
                             tax: Number(item.tax),
                             rate: item.quote,
+                            comment: item.comment,
                             amount: item.vendor ? item.quote * item.quantity : "Delayed",
                             selectedVendor: item.vendor ? getVendorName(item.vendor) : "Delayed",
                             // lowest2: item.vendor ? getLowest2(item.name)*item.quantity : "Delayed",
@@ -360,7 +387,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                         category: item.category,
                         tax: item.tax,
                         unit: item.unit,
-                        item: item.item
+                        item: item.item,
+                        comment: item.comment
                     });
                 }
 
@@ -486,7 +514,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                     unit: value.unit,
                     tax: value.tax,
                     status: "Pending",
-                    category: value.category
+                    category: value.category,
+                    comment : value.comment
                 })
             })
 
@@ -664,7 +693,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                     <ul className="mt-2 list-disc pl-5">
                         {Object.entries(groupedVendors).map(([vendor, items]) => (
                             <li key={vendor}>
-                                A <strong>new PO</strong> will be created for vendor <strong>{getVendorName(vendor)}</strong>:
+                                A <strong>new PO</strong> will be created for vendor <strong>{vendor}</strong>:
                                 <ul className="mt-1 list-disc pl-5">
                                     {items.map((item) => (
                                         <li key={item.key}>
@@ -850,6 +879,35 @@ const ApproveSentBackPage = ({ sb_data, project_data, owner_data, sent_back_list
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
+
+            <div className="flex items-center space-y-2 mt-2">
+                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Procurement Comments</h2>
+            </div>
+            <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2 mb-2">
+                {universalComment?.length !== 0 ? (
+                    universalComment?.map((comment) => (
+                    <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                            <Avatar>
+                                <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment?.comment_by}`} />
+                                <AvatarFallback>{comment?.comment_by[0]}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                                <p className="font-medium text-sm text-gray-900">{comment?.content}</p>
+                                <div className="flex justify-between items-center mt-2">
+                                    <p className="text-sm text-gray-500">
+                                        {comment?.comment_by === "Administrator" ? "Administrator" : getFullName(comment?.comment_by)}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {formatDate(comment?.creation?.split(" ")[0])} {comment?.creation?.split(" ")[1].substring(0, 5)}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <span className="text-xs font-semibold">No Comments Found</span>
+                )}
+            </div>
         </>
     )
 }

@@ -22,6 +22,7 @@ import { Textarea } from "../ui/textarea"
 import { useUserData } from "@/hooks/useUserData"
 import { toast } from "../ui/use-toast"
 import { TailSpin } from "react-loader-spinner"
+import { Input } from "../ui/input"
 
 const SelectServiceVendor = () => {
     const { id }: any = useParams()
@@ -133,7 +134,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
             dataIndex: "description",
             key: "description",
             width: "60%",
-            render: (text) => <span className="italic">{text}</span>
+            render: (text) => <span className="italic whitespace-pre-wrap">{text}</span>
         },
         {
             title: "Unit",
@@ -408,6 +409,15 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
         }
     }
 
+    const handleInputChange = (id: string, field: string, value: string) => {
+        if(field) {
+            const updatedOrder = order.map((item: any) =>
+                item.id === id ? { ...item, [field]: value } : item
+            );
+            setOrder(updatedOrder);
+        }
+    };
+
     // console.log("selectedVendor", selectedVendor)
 
     // console.log("orderData", order)
@@ -415,8 +425,8 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
     return (
         <>
             {section === 'choose-vendor' && <>
-                <div className="flex-1 md:space-y-4">
-                    <div className="flex items-center pt-1 pb-4">
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center pt-1">
                         <ArrowLeft className='cursor-pointer' onClick={() => {
                             if (resolve) {
                                 setPage("Summary")
@@ -432,20 +442,12 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                     </div>
                     <ProcurementHeaderCard orderData={sr_data} sr={true} />
 
-                    <div>
-                        <div className="flex m-2 justify-left gap-2">
-
-                            <div className="text-lg text-gray-400 mt-1">Select vendors for this SR:</div>
-                            <Select className="w-[40%]" value={selectedVendor} options={vendorOptions} onChange={handleChange()}
-                            components={{
-                                SingleValue: CustomSingleValue,
-                                Option: CustomOption,
-                             }}
-                             />
+                        <div className="flex justify-between items-center">
+                            <div className="text-lg text-gray-400">Select vendor for this SR:</div>
                             <Sheet>
                                 <SheetTrigger className="text-blue-500">
-                                    <div className="text-base text-blue-400 flex items-center gap-1" >
-                                        <CirclePlus className="w-5 h-5" />Add New Vendor
+                                    <div className="text-base text-blue-400 text-center" >
+                                        <CirclePlus className="w-4 h-4 inline-block" /> <span>Add New Vendor</span>
                                     </div>
                                 </SheetTrigger>
                                 <SheetContent className='overflow-auto'>
@@ -461,7 +463,12 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                                 </SheetContent>
                             </Sheet>
                         </div>
-                    </div>
+                        <Select className="w-full" value={selectedVendor} options={vendorOptions} onChange={handleChange()}
+                            components={{
+                                SingleValue: CustomSingleValue,
+                                Option: CustomOption,
+                             }}
+                             />
                     <div className="overflow-x-auto">
                         <div className="min-w-full inline-block align-middle">
                             <Table>
@@ -476,12 +483,34 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {sr_data && JSON.parse(sr_data?.service_order_list)?.list?.map((item: any) => (
+                                    {order?.map((item: any) => (
                                         <TableRow key={item.id}>
                                             <TableCell className="w-[10%] font-semibold">{item.category}</TableCell>
-                                            <TableCell className="w-[50%]">{item.description}</TableCell>
-                                            <TableCell className="w-[10%]">{item.uom}</TableCell>
-                                            <TableCell className="w-[10%]">{item.quantity}</TableCell>
+                                            {/* Description Field */}
+                                            <TableCell className="w-[50%] whitespace-pre-wrap">
+                                                    <Textarea
+                                                        value={item?.description || ""}
+                                                        onChange={(e) => handleInputChange(item.id, "description", e.target.value)}
+                                                    />
+                                            </TableCell>
+                                            
+                                            {/* UOM Field */}
+                                            <TableCell className="w-[10%]">
+                                                    <Input
+                                                        type="text"
+                                                        value={item?.uom || ""}
+                                                        onChange={(e) => handleInputChange(item.id, "uom", e.target.value)}
+                                                    />
+                                            </TableCell>
+                                            
+                                            {/* Quantity Field */}
+                                            <TableCell className="w-[10%]">
+                                                    <Input
+                                                        type="number"
+                                                        value={item?.quantity || ""}
+                                                        onChange={(e) => handleInputChange(item.id, "quantity", e.target.value)}
+                                                    />
+                                            </TableCell>
                                             <TableCell className="w-[10%]">
                                                 <input
                                                     type="text"
@@ -499,7 +528,7 @@ export const SelectServiceVendorPage = ({ sr_data, project_data, usersList, univ
                         </div>
                     </div>
                     <div className="flex justify-end mt-4">
-                        <Button disabled={!isNextEnabled} onClick={handleSaveAmounts}>Next</Button>
+                        <Button disabled={!isNextEnabled || order?.some((i) => !parseFloat(i?.quantity) || !i?.uom || !i?.description)} onClick={handleSaveAmounts}>Next</Button>
                     </div>
                     <div className="flex items-center space-y-2">
                         <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">SR Comments</h2>

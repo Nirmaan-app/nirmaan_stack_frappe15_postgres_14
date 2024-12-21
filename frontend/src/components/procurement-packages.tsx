@@ -24,7 +24,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { useFrappeCreateDoc } from "frappe-react-sdk"
 import { ButtonLoading } from "@/components/ui/button-loading"
-import { ArrowLeft, CirclePlus, Pencil } from "lucide-react";
+import { ArrowLeft, CheckCheck, CirclePlus, Pencil, X } from "lucide-react";
 import { WPSkeleton } from "@/components/ui/skeleton";
 import { toast, useToast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -258,7 +258,7 @@ export const ProcurementPackages = () => {
                                                         <TableCell>{cat?.name}</TableCell>
                                                         <TableCell>{itemList?.filter((i) => i?.category === cat?.name)?.length}</TableCell>
                                                         <TableCell>{cat?.tax}%</TableCell>
-                                                        <TableCell><Badge variant={cat?.new_items === "true" ? "green" : "red"}>{cat?.new_items === "true" ? "Enabled" : "Disabled"}</Badge></TableCell>
+                                                        <TableCell><Badge variant={cat?.new_items === "true" ? "green" : cat?.new_items === "false" ? "red" : "gray"}>{cat?.new_items === "true" ? "Enabled" : cat?.new_items === "false" ? "Disabled" : "Not Set"}</Badge></TableCell>
                                                         <TableCell>
                                                             <AlertDialog>
                                                                 <AlertDialogTrigger onClick={() => setEditCategory(cat)}>
@@ -285,8 +285,14 @@ export const ProcurementPackages = () => {
                                                                                 <Switch id="hello" defaultChecked={editCategory?.new_items === "true"} onCheckedChange={(e) => setEditCategory(prev => ({...prev, "new_items" : e ? "true" : "false"}))}  /> 
                                                                             </div>
                                                                             <div className="flex items-center gap-2 justify-end">
-                                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                                <AlertDialogAction onClick={handleEditCategory} disabled={(cat?.tax === editCategory?.tax && cat?.new_items === editCategory?.new_items)}>Confirm</AlertDialogAction>
+                                                                                <AlertDialogCancel className="flex items-center gap-1">
+                                                                                    <X className="h-4 w-4" />
+                                                                                    Cancel
+                                                                                </AlertDialogCancel>
+                                                                                <AlertDialogAction className="flex items-center gap-1" onClick={handleEditCategory} disabled={(cat?.tax === editCategory?.tax && cat?.new_items === editCategory?.new_items)}>
+                                                                                    <CheckCheck className="h-4 w-4" />
+                                                                                    Confirm
+                                                                                </AlertDialogAction>
                                                                             </div>
                                                                         </AlertDialogDescription>
                                                                     </AlertDialogHeader>

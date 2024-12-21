@@ -88,7 +88,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
     const pr_no = pr_data?.name.split("-").slice(-1)
     const userData = useUserData()
 
-    const orderData = { name: pr_data?.name, work_package: pr_data?.work_package, comment: pr_data?.comment, project: pr_data?.project, category_list: JSON.parse(pr_data?.category_list), procurement_list: JSON.parse(pr_data?.procurement_list) }
+    const orderData = { name: pr_data?.name, work_package: pr_data?.work_package, comment: pr_data?.comment, project: pr_data?.project, category_list: JSON.parse(pr_data?.category_list || "[]"), procurement_list: JSON.parse(pr_data?.procurement_list || "[]") }
 
     const [section, setSection] = useState("pr-summary")
     const { deleteDoc } = useFrappeDeleteDoc()
@@ -419,43 +419,107 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                     </CardHeader>
 
                                     <div className="overflow-x-auto">
-
                                         <div className="min-w-full inline-block align-middle">
-                                            {JSON.parse(pr_data?.category_list).list.map((cat: any) => {
-                                                return <div className="p-5">
-                                                    {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
-                                                    <Table>
-                                                        <TableHeader>
-                                                            <TableRow className="bg-red-100">
-                                                                <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
-                                                                <TableHead className="w-[15%]">UOM</TableHead>
-                                                                <TableHead className="w-[15%]">Qty</TableHead>
-                                                                <TableHead className="w-[20%]">Status</TableHead>
-                                                            </TableRow>
-                                                        </TableHeader>
-                                                        <TableBody>
-                                                            {JSON.parse(pr_data?.procurement_list).list.map((item: any) => {
-                                                                // console.log(item)
-                                                                if (item.category === cat.name) {
-                                                                    return (
-                                                                        <TableRow key={item.item}>
-                                                                            <TableCell>{item.item}
-                                                                                <div className="flex gap-1 pt-2 items-start">
-                                                                                    <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
-                                                                                    <p className={`text-xs ${!item.comment ? "text-gray-400" : "tracking-wide"}`}>{item.comment || "No Comments"}</p>
-                                                                                </div>
-                                                                            </TableCell>
-                                                                            <TableCell>{item.unit}</TableCell>
-                                                                            <TableCell>{item.quantity}</TableCell>
-                                                                            <TableCell><Badge variant="outline">{item.status === "Pending" ? "Pending" : item.status === "Deleted" ? "Deleted" : getItemStatus(item)}</Badge></TableCell>
-                                                                        </TableRow>
-                                                                    )
-                                                                }
-                                                            })}
-                                                        </TableBody>
-                                                    </Table>
-                                                </div>
-                                            })}
+                                            {(() => {
+                                                const categories = [];
+                                                try {
+                                                    const categoryList = JSON.parse(pr_data?.category_list || "[]")?.list || [];
+                                                    categoryList.forEach((i) => {
+                                                        if (categories.every((j) => j?.name !== i?.name)) {
+                                                            categories.push(i);
+                                                        }
+                                                    });
+                                                } catch (e) {
+                                                    console.error("Error parsing category_list JSON:", e);
+                                                }
+                                            
+                                                return categories.map((cat) => (
+                                                    <div className="p-5" key={cat.name}>
+                                                        <Table>
+                                                            <TableHeader>
+                                                                <TableRow className="bg-red-100">
+                                                                    <TableHead className="w-[50%]">
+                                                                        <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
+                                                                    </TableHead>
+                                                                    <TableHead className="w-[15%]">UOM</TableHead>
+                                                                    <TableHead className="w-[15%]">Qty</TableHead>
+                                                                    <TableHead className="w-[20%]">Status</TableHead>
+                                                                </TableRow>
+                                                            </TableHeader>
+                                                            <TableBody>
+                                                                {(() => {
+                                                                    const rows = [];
+                                                                    try {
+                                                                        const procurementList = JSON.parse(pr_data?.procurement_list)?.list || [];
+                                                                        rows.push(
+                                                                            ...procurementList
+                                                                                .filter((item) => item.category === cat.name && item.status !== "Request")
+                                                                                .map((item) => (
+                                                                                    <TableRow key={item.item}>
+                                                                                        <TableCell>
+                                                                                            {item.item}
+                                                                                            <div className="flex gap-1 pt-2 items-start">
+                                                                                                <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                                                                                                <p
+                                                                                                    className={`text-xs ${
+                                                                                                        !item.comment ? "text-gray-400" : "tracking-wide"
+                                                                                                    }`}
+                                                                                                >
+                                                                                                    {item.comment || "No Comments"}
+                                                                                                </p>
+                                                                                            </div>
+                                                                                        </TableCell>
+                                                                                        <TableCell>{item.unit}</TableCell>
+                                                                                        <TableCell>{item.quantity}</TableCell>
+                                                                                        <TableCell>
+                                                                                            <Badge variant="outline">
+                                                                                                {item.status === "Pending"
+                                                                                                    ? "Pending"
+                                                                                                    : item.status === "Deleted"
+                                                                                                    ? "Deleted"
+                                                                                                    : getItemStatus(item)}
+                                                                                            </Badge>
+                                                                                        </TableCell>
+                                                                                    </TableRow>
+                                                                                ))
+                                                                        );
+                                                                    
+                                                                        rows.push(
+                                                                            ...procurementList
+                                                                                .filter((item) => item.category === cat.name && item.status === "Request")
+                                                                                .map((item) => (
+                                                                                    <TableRow className="bg-yellow-50" key={item.item}>
+                                                                                        <TableCell>
+                                                                                            {item.item}
+                                                                                            <div className="flex gap-1 pt-2 items-start">
+                                                                                                <MessageCircleMore className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                                                                                                <p
+                                                                                                    className={`text-xs ${
+                                                                                                        !item.comment ? "text-gray-400" : "tracking-wide"
+                                                                                                    }`}
+                                                                                                >
+                                                                                                    {item.comment || "No Comments"}
+                                                                                                </p>
+                                                                                            </div>
+                                                                                        </TableCell>
+                                                                                        <TableCell>{item.unit}</TableCell>
+                                                                                        <TableCell>{item.quantity}</TableCell>
+                                                                                        <TableCell>
+                                                                                            <Badge variant="outline">Requested</Badge>
+                                                                                        </TableCell>
+                                                                                    </TableRow>
+                                                                                ))
+                                                                        );
+                                                                    } catch (e) {
+                                                                        console.error("Error parsing procurement_list JSON:", e);
+                                                                    }
+                                                                    return rows;
+                                                                })()}
+                                                            </TableBody>
+                                                        </Table>
+                                                    </div>
+                                                ));
+                                            })()}
                                         </div>
                                     </div>
                                 </Card>

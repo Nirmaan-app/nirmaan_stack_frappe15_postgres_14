@@ -19,6 +19,7 @@ import formatToIndianRupee from '@/utils/FormatPrice';
 import { useUserData } from '@/hooks/useUserData';
 import { TailSpin } from 'react-loader-spinner';
 import { ProcurementActionsHeaderCard } from '@/components/ui/ProcurementActionsHeaderCard';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -189,7 +190,7 @@ const ApproveVendor = () => {
         </div>
     );
     return (
-        <ApproveVendorPage pr_data={pr} project_data={project_data} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} procurement_list_mutate={pr_mutate} />
+        <ApproveVendorPage pr_data={pr} project_data={project_data} usersList={usersList} owner_data={owner_data == undefined ? { full_name: "Administrator" } : owner_data} procurement_list_mutate={pr_mutate} />
     )
 }
 
@@ -198,9 +199,10 @@ interface ApproveVendorPageProps {
     project_data: ProjectsType | undefined
     owner_data: NirmaanUsersType | undefined | { full_name: String }
     procurement_list_mutate: any
+    usersList?: any
 }
 
-export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procurement_list_mutate }: ApproveVendorPageProps) => {
+export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procurement_list_mutate, usersList }: ApproveVendorPageProps) => {
     // const { orderId } = useParams<{ orderId: string }>()
     const navigate = useNavigate()
     // const { data: procurement_request_list, isLoading: procurement_request_list_loading, mutate: procurement_list_mutate } = useFrappeGetDocList("Procurement Requests",
@@ -215,10 +217,9 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
-    const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
+    const { data: universalComment } = useFrappeGetDocList("Nirmaan Comments", {
         fields: ["*"],
-        filters: [["reference_name", "=", pr_data.name]],
-        orderBy: { field: "creation", order: "desc" }
+        filters: [["reference_name", "=", pr_data.name], ["subject", "=", "pr vendors selected"]]
     })
     // const { data: project_list } = useFrappeGetDocList("Projects",
     //     {
@@ -268,6 +269,11 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         const key = generateVendorItemKey(vendor, item);
         return priceMap.get(key);
     };
+
+    const getFullName = (id) => {
+        return usersList?.find((user) => user?.name == id)?.full_name
+    }
+
     useEffect(() => {
 
         // console.log("calling useEffect 1, priceMap")
@@ -463,8 +469,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     const newHandleApprove = async () => {
         try {
-            setIsLoading('newHandleApprove');
-
             // Filter and group items by vendor
             const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
             const vendorItems = {};
@@ -591,8 +595,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     const newHandleSentBack = async () => {
         try {
-            setIsLoading('newHandleSentBack');
-
             const filteredData = selectedItems?.filter(item => item.unit !== null && item.quantity !== null);
             const itemlist = filteredData.map(value => {
                 const price = getPrice(selectedVendors[value.key], value.key);
@@ -713,7 +715,6 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         }
     };
 
-
     const generateVendorItemKey = (vendor: string, item: string): string => {
         return `${vendor}-${item}`;
     };
@@ -797,6 +798,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
 
     return "No valid action details available.";
     };
+
 
     return (
         <>
@@ -890,7 +892,10 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                                     <Undo2 className="h-4 w-4" />
                                     Cancel
                                 </AlertDialogCancel>
-                                <Button onClick={() => newHandleSentBack()} className='flex items-center gap-1'>
+                                <Button onClick={() => {
+                                    setIsLoading("newHandleSentBack")
+                                    newHandleSentBack()
+                                }} className='flex items-center gap-1'>
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm
                                 </Button>
@@ -921,7 +926,10 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                                     <Undo2 className="h-4 w-4" />
                                     Cancel
                                 </AlertDialogCancel>
-                                <Button onClick={() => newHandleApprove()} className='flex items-center gap-1'>
+                                <Button onClick={() => {
+                                    setIsLoading("newHandleApprove")
+                                    newHandleApprove()
+                                }} className='flex items-center gap-1'>
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm
                                 </Button>
@@ -933,12 +941,34 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     </AlertDialogContent>
                 </AlertDialog>
             </div>}
-            {/* {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by)).length ? (
-                <div className="relative py-4 px-10">
-                    <h4 className="text-sm font-semibold">Comments by {universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.comment_by}</h4>
-                    <span className="relative left-[5%] text-sm">-{universalComments?.filter((comment) => ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(comment.comment_by))[0]?.content}</span>
-                </div>
-            ) : ""} */}
+            <div className="flex items-center space-y-2 mt-2">
+                        <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Procurement Comments</h2>
+            </div>
+            <div className="border border-gray-200 rounded-lg p-4 flex flex-col gap-2 mb-2">
+                {universalComment?.length !== 0 ? (
+                    universalComment?.map((comment) => (
+                    <div key={comment?.name} className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+                            <Avatar>
+                                <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${comment?.comment_by}`} />
+                                <AvatarFallback>{comment?.comment_by[0]}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                                <p className="font-medium text-sm text-gray-900">{comment?.content}</p>
+                                <div className="flex justify-between items-center mt-2">
+                                    <p className="text-sm text-gray-500">
+                                        {comment?.comment_by === "Administrator" ? "Administrator" : getFullName(comment?.comment_by)}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {formatDate(comment?.creation?.split(" ")[0])} {comment?.creation?.split(" ")[1].substring(0, 5)}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <span className="text-xs font-semibold">No Comments Found</span>
+                )}
+            </div>
             <div className="flex items-center py-4">
                 <h2 className="text-base pl-6 font-bold tracking-tight">Delayed Items</h2>
             </div>
