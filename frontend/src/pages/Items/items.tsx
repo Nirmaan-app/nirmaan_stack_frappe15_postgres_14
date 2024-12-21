@@ -16,6 +16,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { useToast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Items as ItemsType } from "@/types/NirmaanStack/Items"
+import { useUserData } from "@/hooks/useUserData";
 
 export default function Items() {
 
@@ -24,6 +25,8 @@ export default function Items() {
     const [unit, setUnit] = useState('');
     const [category, setCategory] = useState('');
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+
+    const userData = useUserData()
 
     const { data: data, isLoading: isLoading, error: error, mutate: mutate } = useFrappeGetDocList("Items", {
 
@@ -204,7 +207,8 @@ export default function Items() {
                     <ArrowLeft className="cursor-pointer" onClick={() => navigate("/")} />
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">Items List</h2>
                 </div>
-                <Dialog>
+                {(userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile") && (
+                    <Dialog>
                     <DialogTrigger asChild>
                         <Button className="flex items-center gap-1">
                             <CirclePlus className="w-5 h-5" />
@@ -282,6 +286,7 @@ export default function Items() {
                         </DialogClose>
                     </DialogContent>
                 </Dialog>
+                )}
             </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
                 <Card className="hover:animate-shadow-drop-center" onClick={() => {
