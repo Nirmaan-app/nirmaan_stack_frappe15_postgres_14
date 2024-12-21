@@ -84,6 +84,9 @@ const router = createBrowserRouter(
 							<Route path=":id">
 								<Route index lazy={() => import('@/components/pr-summary')} />
 								<Route path=":id" element={<POSummary />} />
+								<Route path='dn'>
+									<Route path=':id' element={<DeliveryNote />} />
+								</Route>
 							</Route>
 						</Route>
 

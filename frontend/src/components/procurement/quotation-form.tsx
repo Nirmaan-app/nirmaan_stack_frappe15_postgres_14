@@ -146,7 +146,9 @@ export default function QuotationForm({ vendor_id, pr_id }) {
 
     useEffect(() => {
         if(prAttachment && prAttachment.length) {
-            const fileName = prAttachment[0]?.rfq_pdf?.split("/")[3]
+            const url = prAttachment[0]?.rfq_pdf || ""
+            const match = url.match(/file_name=([^&]+)/);
+            const fileName = match ? match[1] : "selectedFile";
             setSelectedFile(fileName)
         }
     }, [prAttachment])
