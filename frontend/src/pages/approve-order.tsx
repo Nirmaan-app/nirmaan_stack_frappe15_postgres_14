@@ -808,18 +808,9 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                                 </div>
                             </div>
                             <div className="flex justify-between mt-4 items-center">
-                                {(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)) ? (
-                                    <HoverCard>
-                                        <HoverCardTrigger>
-                                            <Button disabled variant={"ghost"} className="text-sm py-2 px-0 md:text-lg text-blue-300 flex items-center gap-1 hover:bg-white" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create new item</Button>
-                                        </HoverCardTrigger>
-                                        <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                            New Item Creation is disabled for this Category, please contact the Administrator!
-                                        </HoverCardContent>
-                                    </HoverCard>
-                                    ) : (
-                                        <Button disabled={!curCategory} variant={"ghost"} className="text-sm py-2 px-0 md:text-lg text-blue-400 flex items-center gap-1 hover:bg-white" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create new item</Button>
-                                )}
+                                {["Nirmaan Admin Profile"].includes(userData?.role) ? (
+                                    <Button disabled={!curCategory} variant={"ghost"} className="text-sm py-2 px-0 md:text-lg text-blue-400 flex items-center gap-1 hover:bg-white" onClick={() => handleCreateItem()}><CirclePlus className="w-4 h-4" />Create new item</Button>
+                                ) : <div />}
 
                                 {(curItem && Number(quantity)) ?
                                     <Button variant="outline" className="left-0 border rounded-lg py-1 border-red-500 px-8 text-red-500" onClick={() => handleAdd()}>Add</Button>
@@ -1076,8 +1067,14 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                                                                 <AlertDialogDescription className="flex items-center justify-end gap-2">
                                                                     {(createLoading || updateLoading) ? <TailSpin width={30} height={30} color={"red"} /> : (
                                                                         <>
-                                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                            <Button disabled={!unit || !curItem || !quantity} onClick={() => handleRequestItem(item)}>Confirm</Button>
+                                                                            <AlertDialogCancel className="flex items-center gap-1">
+                                                                                <X className="h-4 w-4" />
+                                                                                Cancel
+                                                                            </AlertDialogCancel>
+                                                                            <Button disabled={!unit || !curItem || !quantity} onClick={() => handleRequestItem(item)} className="flex items-center gap-1">
+                                                                                <CheckCheck className="h-4 w-4" />
+                                                                                Confirm
+                                                                            </Button>
                                                                         </>
                                                                     )}
                                                                 </AlertDialogDescription>
@@ -1091,11 +1088,17 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                                                                     <AlertDialogTitle>Reject <span className="text-primary">{item.item}</span></AlertDialogTitle>
                                                                 </AlertDialogHeader>
                                                                 <AlertDialogDescription>
-                                                                    Click on Confirm to reject and remove item permanently!
+                                                                    Click on Confirm to remove this item from the order list permanently!
                                                                 </AlertDialogDescription>
                                                                 <AlertDialogDescription className="flex items-center justify-end gap-2">
-                                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                    <AlertDialogAction onClick={() => handleDelete(item.item)}>Confirm</AlertDialogAction>
+                                                                    <AlertDialogCancel className="flex items-center gap-1">
+                                                                        <X className="h-4 w-4" />
+                                                                        Cancel
+                                                                    </AlertDialogCancel>
+                                                                    <AlertDialogAction onClick={() => handleDelete(item.item)} className="flex items-center gap-1">
+                                                                        <CheckCheck className="h-4 w-4" />
+                                                                        Confirm
+                                                                    </AlertDialogAction>
                                                                 </AlertDialogDescription>
                                                             </AlertDialogContent>
                                                         </AlertDialog>
