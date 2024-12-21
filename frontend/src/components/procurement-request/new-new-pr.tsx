@@ -421,13 +421,13 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
             })
         }
     }
-    console.log("selectedCategories", selectedCategories)
+    // console.log("selectedCategories", selectedCategories)
 
-    console.log("curItem", curItem)
+    // console.log("curItem", curItem)
 
     // console.log("curCategory", curCategory)
 
-    console.log("procList", procList)
+    // console.log("procList", procList)
 
     // console.log("editItem", editItem)
 
@@ -472,9 +472,9 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                 )}
                 <div className="flex items-center justify-between">
                     <div className="space-y-1">
-                        <h3 className="text-sm">Package</h3>
+                        <h3 className="max-sm:text-xs font-semibold text-gray-400">Package</h3>
                         <div className="">
-                            <span className="font-semibold">{selectedWP}</span>
+                            <span className="font-semibold max-sm:text-xs">{selectedWP}</span>
                             {(!edit && !resolve) && (
                                 <Dialog>
                                 <DialogTrigger>
@@ -505,7 +505,7 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                             )}
                         </div>
                     </div>
-                    <div className="w-1/2">
+                    <div className="w-[45%] max-sm:text-sm">
                         <ReactSelect
                             isDisabled={!selectedWP}
                             value={curCategory}
@@ -529,7 +529,7 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                 />
                 <div className="flex items-center gap-4">
                     <div className="w-1/2">
-                        <h3>Comment</h3>
+                        <h3 className='max-sm:text-xs font-semibold text-gray-400'>Comment</h3>
                         <Input
                             type="text"
                             value={curItem?.comment || ''}
@@ -538,11 +538,11 @@ export const NewProcurementRequest = ({resolve = false, edit = false}) => {
                         />
                     </div>
                     <div className="flex-1">
-                        <h3>Unit</h3>
+                        <h3 className='max-sm:text-xs font-semibold text-gray-400'>Unit</h3>
                         <Input type="text" disabled value={curItem?.unit || ''} />
                     </div>
                     <div className="flex-1">
-                        <h3>
+                        <h3 className='max-sm:text-xs font-semibold text-gray-400'>
                             Qty<sup className="text-sm text-red-600">*</sup>
                         </h3>
                         <Input
