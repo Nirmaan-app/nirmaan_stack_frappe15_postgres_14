@@ -2032,7 +2032,8 @@ export const ReleasePONew = ({ not }) => {
                                             </div>
 
                                             <div className="flex justify-end">
-                                                {(["PO Approved"].includes(orderData?.status) && orderData?.merged !== "true") ? (
+                                                {["PO Approved"].includes(orderData?.status) ? (
+                                                    orderData?.merged !== "true" ? (
                                                     <ShadButton
                                                         onClick={() => document.getElementById("amendAlertTrigger")?.click()}
                                                         className="flex items-center gap-1"
@@ -2040,6 +2041,19 @@ export const ReleasePONew = ({ not }) => {
                                                         <ListTodo className="h-4 w-4 mr-1" />
                                                         Amend PO
                                                     </ShadButton>
+                                                    ) : (
+                                                        <HoverCard>
+                                                        <HoverCardTrigger>
+                                                            <ShadButton disabled className="flex items-center gap-1">
+                                                                <ListTodo className="h-4 w-4 mr-1" />
+                                                                Amend PO
+                                                            </ShadButton>
+                                                        </HoverCardTrigger>
+                                                        <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                            <div>As this is a <span className='text-primary'>Merged PO</span>, in order to Amend this, you should unmerge the POs first!</div>
+                                                        </HoverCardContent>
+                                                    </HoverCard>
+                                                    )
                                                 ) : (
                                                     <HoverCard>
                                                         <HoverCardTrigger>
@@ -2049,12 +2063,7 @@ export const ReleasePONew = ({ not }) => {
                                                             </ShadButton>
                                                         </HoverCardTrigger>
                                                         <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                                            {orderData?.merged === "true" ? (
-                                                                <div>As this is a <span className='text-primary'>Merged PO</span>, in order to Amend this, you should unmerge the POs first!</div>
-                                                            ) : (
-                                                                <div>
-                                                                    <span className="text-primary underline">Amendment</span> not allowed for this PO as its delivery note or status has already been updated!</div>
-                                                            )}
+                                                                <div><span className="text-primary underline">Amendment</span> not allowed for this PO as its delivery note or status has already been updated!</div>
                                                         </HoverCardContent>
                                                     </HoverCard>
                                                 )}
@@ -2289,16 +2298,30 @@ export const ReleasePONew = ({ not }) => {
                                             </div>
 
                                             <div className="flex justify-end">
-                                                {(["PO Approved"].includes(orderData?.status) && orderData?.merged !== "true"
+                                                {(["PO Approved"].includes(orderData?.status)
                                                     //  && (orderData?.order_list.list.some(item => 'po' in item) === false)
                                                 ) ? (
-                                                    <ShadButton
-                                                        onClick={() => document.getElementById("alertTrigger")?.click()}
-                                                        className="border-primary flex items-center gap-1"
-                                                    >
-                                                        <ListX className="h-4 w-4 mr-1" />
-                                                        Cancel PO
-                                                    </ShadButton>
+                                                    orderData?.merged !== "true" ? (
+                                                        <ShadButton
+                                                            onClick={() => document.getElementById("alertTrigger")?.click()}
+                                                            className="border-primary flex items-center gap-1"
+                                                        >
+                                                            <ListX className="h-4 w-4 mr-1" />
+                                                            Cancel PO
+                                                        </ShadButton>
+                                                    ) : (
+                                                        <HoverCard>
+                                                        <HoverCardTrigger>
+                                                            <ShadButton disabled className="border-primary flex items-center gap-1">
+                                                                <ListX className="h-4 w-4 mr-1" />
+                                                                Cancel PO
+                                                            </ShadButton>
+                                                        </HoverCardTrigger>
+                                                        <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                                            <div>As this is a <span className='text-primary'>Merged PO</span>, in order to Cancel this, you should unmerge the POs first!</div>
+                                                        </HoverCardContent>
+                                                    </HoverCard>
+                                                    )
                                                 ) : (
                                                     <HoverCard>
                                                         <HoverCardTrigger>
@@ -2308,13 +2331,9 @@ export const ReleasePONew = ({ not }) => {
                                                             </ShadButton>
                                                         </HoverCardTrigger>
                                                         <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                                                            {orderData?.merged === "true" ? (
-                                                                <div>As this is a <span className='text-primary'>Merged PO</span>, in order to Cancel this, you should unmerge the POs first!</div>
-                                                            ) : (
                                                                 <div>
                                                                     <span className="text-primary underline">Cancellation</span>is not allowed for this PO. This might be due to the status is not PO Approved.
                                                                 </div>
-                                                            )}
                                                         </HoverCardContent>
                                                     </HoverCard>
                                                 )}
