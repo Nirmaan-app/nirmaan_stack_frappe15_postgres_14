@@ -693,7 +693,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                     <ul className="mt-2 list-disc pl-5">
                         {Object.entries(groupedVendors).map(([vendor, items]) => (
                             <li key={vendor}>
-                                A <strong>new PO</strong> will be created for vendor <strong>{getVendorName(vendor)}</strong>:
+                                A <strong>new PO</strong> will be created for vendor <strong>{vendor}</strong>:
                                 <ul className="mt-1 list-disc pl-5">
                                     {items.map((item) => (
                                         <li key={item.key}>
