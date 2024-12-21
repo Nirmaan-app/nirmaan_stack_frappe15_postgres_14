@@ -27,17 +27,27 @@ def after_insert(doc, method):
         
         # doc.procurement_list = new_procurement_list
         
-        new_category_list = doc.category_list
-        existing_names = {item['name'] for item in new_category_list['list']}
-        for item in last_pr.category_list['list']:
-            if item['name'] not in existing_names:
-                new_category_list['list'].append(item)
+        # new_category_list = doc.category_list
+        # existing_names = {item['name'] for item in new_category_list['list']}
+        # for item in last_pr.category_list['list']:
+        #     if item['name'] not in existing_names:
+        #         new_category_list['list'].append(item)
+        combined_request = last_pr.procurement_list['list'] + new_procurement_list['list']
+        new_categories = []
+
+        for item in combined_request:
+            is_duplicate = any(
+                category["name"] == item["category"] and category["status"] == item["status"]
+                for category in new_categories
+            )
+            if not is_duplicate:
+                new_categories.append({"name": item["category"], "status": item["status"]})
             
         # doc.category_list = new_category_list
         # doc.save(ignore_permissions=True)
         frappe.db.set_value("Procurement Requests", doc.name, {
             "procurement_list": json.dumps(new_procurement_list),
-            "category_list": json.dumps(new_category_list)
+            "category_list": json.dumps({"list" : new_categories})
         })
         
         comments = frappe.db.get_all("Nirmaan Comments", {

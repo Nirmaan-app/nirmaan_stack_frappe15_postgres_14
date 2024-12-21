@@ -343,7 +343,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                             if (item.category === cat.name) {
                                                                 return (
                                                                     <TableRow key={item.id}>
-                                                                        <TableCell>{item.description}</TableCell>
+                                                                        <TableCell className="whitespace-pre-wrap">{item.description}</TableCell>
                                                                         <TableCell>
                                                                             {item.uom}
                                                                         </TableCell>

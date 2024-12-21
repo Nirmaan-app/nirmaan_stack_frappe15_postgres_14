@@ -97,6 +97,9 @@ const router = createBrowserRouter(
 								<Route path='edit-pr' element={<NewProcurementRequest edit={true} />} />
 								<Route index lazy={() => import('@/components/pr-summary')} />
 								<Route path=":poId" element={<POSummary />} />
+								<Route path='dn'>
+									<Route path=':dnId' element={<DeliveryNote />} />
+								</Route>
 							</Route>
 						</Route>
 

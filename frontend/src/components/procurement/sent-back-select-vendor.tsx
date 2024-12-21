@@ -244,6 +244,7 @@ export const SentBackSelectVendor = () => {
                             status: "Pending",
                             quantity: item.quantity,
                             category: item.category,
+                            comment: item.comment,
                             rate: selectedVendors[item.name] ? price : "Delayed",
                             amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
                             selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
