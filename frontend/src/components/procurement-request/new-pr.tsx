@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
-import { CheckCheck, CircleX, ListChecks, MessageCircleMore, MessageCircleWarning, PackagePlus, Replace, Settings2, Trash2, Undo } from "lucide-react";
+import { CheckCheck, CircleX, ListChecks, MessageCircleMore, MessageCircleWarning, PackagePlus, Replace, Settings2, Sparkles, Trash2, Undo } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react"
 import { ArrowLeft } from 'lucide-react';
@@ -72,6 +72,15 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     const [managersIdList, setManagersIdList] = useState(null)
     const [stack, setStack] = useState([]);
     const [requestItemDialog, setRequestItemDialog] = useState(false)
+    const [requestItem, setRequestItem] = useState({
+        name: "",
+        unit: "",
+        quantity: 0
+    })
+    const [requestCategory, setRequestCategory] = useState("")
+    const [fuzzyMatches, setFuzzyMatches] = useState([]);
+    const [matchFound, setMatchFound] = useState(false);
+    const [activeAccordion, setActiveAccordion] = useState(null);
 
     const toggleRequestItemDialog = () => {
         setRequestItemDialog(prev => !prev)
@@ -96,7 +105,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     const handleItemCommentChange = (item, e) => {
         setComments((prevComments) => ({
             ...prevComments,
-            [item.item]: e.target.value,
+            [item.name]: e.target.value,
         }));
     };
 
@@ -136,17 +145,27 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
         {
             fields: ['category_name', 'work_package', 'image_url', 'tax', 'new_items', "name"],
+            filters: [["work_package", "=", orderData?.work_package]],
             orderBy: { field: 'category_name', order: 'asc' },
             limit: 1000
-        });
+        },
+        orderData?.work_package ? undefined : null
+    );
 
     const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
+            filters: [["category", "in", category_list?.map((i) => i?.name)]],
             orderBy: { field: 'creation', order: 'desc' },
             limit: 10000
-        });
+        },
+        category_list?.length ? undefined : null
+    );
 
+
+    // console.log("category_list", category_list)
+    // console.log("item_list", item_list)
+    
     const { createDoc: createDoc, loading: createLoading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
     const { updateDoc, loading: updateLoading, error: update_error } = useFrappeUpdateDoc()
 
@@ -238,8 +257,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
     }
 
     const handleAdd = (request = false) => {
-        console.log("request", request)
-        if (curItem && Number(quantity)) {
+        if ((!request && curItem && Number(quantity)) || (request && requestItem.name && requestItem.unit && requestItem.quantity)) {
             let itemIdToUpdate = null;
             let itemMake = null;
 
@@ -260,12 +278,12 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
             if (itemIdToUpdate) {
                 const curRequest = [...orderData.procurement_list.list];
                 const curValue = {
-                    item: `${curItem}${itemMake ? "-" + itemMake : ""}`,
+                    item: `${request ? requestItem.name : curItem}${itemMake ? "-" + itemMake : ""}`,
                     name: itemIdToUpdate,
-                    unit: unit,
-                    quantity: Number(quantity),
+                    unit: request ? requestItem.unit : unit,
+                    quantity:  request ? parseFloat(requestItem.quantity) : parseFloat(quantity),
                     category: curCategory,
-                    tax: Number(tax),
+                    tax: parseFloat(tax),
                     status: request ? "Request" : "Pending"
                 };
 
@@ -295,12 +313,22 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                         description: (<span>You are trying to add the <b>item: {curItem}</b> multiple times which is not allowed, instead edit the quantity directly!</span>)
                     })
                 }
-                setQuantity('');
-                setCurItem('');
-                setUnit('');
-                setMake('');
+
+
                 if(request) {
+                    setRequestItem({
+                        name: "",
+                        unit: "",
+                        quantity: 0
+                    })
+                    setFuzzyMatches([])
+                    setMatchFound(false)
                     toggleRequestItemDialog()
+                } else {
+                    setQuantity('');
+                    setCurItem('');
+                    setUnit('');
+                    setMake('');
                 }
             }
         }
@@ -466,15 +494,24 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         setPage('additem')
     }
 
-    const handleSave = (itemName: string, newQuantity: string) => {
+    const handleSave = (itemId: string, newQuantity: string, request=false) => {
         let curRequest = orderData.procurement_list.list;
-        // console.log("comments of item name", comments[itemName])
-        curRequest = curRequest.map((curValue) => {
-            if (curValue.item === itemName) {
-                return { ...curValue, quantity: parseInt(newQuantity), comment: comments[itemName] === undefined ? curValue.comment || "" : comments[itemName] || "" };
-            }
-            return curValue;
-        });
+        // console.log("comments of item name", comments[itemId])
+        if(request) {
+            curRequest = curRequest.map((curValue) => {
+                if (curValue.name === itemId) {
+                    return { ...curValue, quantity: parseInt(newQuantity), item : curItem, unit : unit, category : requestCategory, comment: comments[itemId] === undefined ? curValue.comment || "" : comments[itemId] || "" };
+                }
+                return curValue;
+            });
+        } else {
+            curRequest = curRequest.map((curValue) => {
+                if (curValue.name === itemId) {
+                    return { ...curValue, quantity: parseInt(newQuantity), comment: comments[itemId] === undefined ? curValue.comment || "" : comments[itemId] || "" };
+                }
+                return curValue;
+            });
+        }
         setOrderData((prevState) => ({
             ...prevState,
             procurement_list: {
@@ -483,14 +520,16 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         }));
         setQuantity('')
         setCurItem('')
+        setUnit('')
+        setRequestCategory('')
     };
 
-    const handleDelete = (item: string) => {
+    const handleDelete = (itemId: string) => {
         let curRequest = orderData.procurement_list.list;
-        let itemToPush = curRequest.find(curValue => curValue.item === item);
+        let itemToPush = curRequest.find(curValue => curValue.name === itemId);
 
         setStack(prevStack => [...prevStack, itemToPush]);
-        curRequest = curRequest.filter(curValue => curValue.item !== item);
+        curRequest = curRequest.filter(curValue => curValue.name !== itemId);
         setOrderData(prevState => ({
             ...prevState,
             procurement_list: {
@@ -498,11 +537,12 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
             }
         }));
         setComments(prev => {
-            delete prev[item]
+            delete prev[itemId]
             return prev
         })
         setQuantity('')
         setCurItem('')
+        setUnit('')
     }
 
     const UndoDeleteOperation = () => {
@@ -547,9 +587,59 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
         }
     }
 
+    const handleFuzzySearch = (input) => {
+        if (!input) {
+            setFuzzyMatches([]);
+            setMatchFound(false);
+            return;
+        };
+    
+        // Normalize the input for case-insensitivity
+        const normalizedInput = input.toLowerCase();
+    
+        // Calculate similarity and find matches
+        const matches = item_list
+            ?.map((item) => {
+                const name = item.item_name.toLowerCase();
+                const matchPercentage = calculateSimilarity(normalizedInput, name);
+                return { ...item, matchPercentage };
+            })
+            .filter((item) => item.matchPercentage > 0);
+    
+        if (matches.length > 0) {
+            // Sort by highest match percentage
+            matches.sort((a, b) => b.matchPercentage - a.matchPercentage);
+            setFuzzyMatches(matches);
+            setMatchFound(true);
+        } else {
+            setFuzzyMatches([]);
+            setMatchFound(false);
+        }
+    };
+    
+    const calculateSimilarity = (input, target) => {
+        const inputLength = input.split(" ").length;
+        const targetLength = target.split(" ").length;
+        const matchLength = Math.min(inputLength, targetLength);
+    
+        let matchCount = 0;
+        for (let i = 0; i < matchLength; i++) {
+            if (target.split(" ").includes(input.split(" ")[i])) {
+                matchCount++;
+            }
+        }
+    
+        // Calculate percentage based on match length
+        return Math.round((matchCount / targetLength) * 100);
+    };
+    
+    // console.log("curCategory", curCategory)
+
     // console.log("orderData", orderData)
 
     // console.log("userData", userData)
+
+    // console.log("requestItem", requestItem)
 
     return (
         <>
@@ -689,7 +779,7 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                     </div>
                 </div>
 
-                <AlertDialog open={requestItemDialog} onOpenChange={toggleRequestItemDialog}>
+                {/* <AlertDialog open={requestItemDialog} onOpenChange={toggleRequestItemDialog}>
                     <AlertDialogContent>
                         <AlertDialogHeader>
                             <AlertDialogTitle className="flex justify-between">Request New Item</AlertDialogTitle>
@@ -711,10 +801,10 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                     <SelectValue className="text-gray-200" placeholder="Select Unit" />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {/* <SelectItem value="PCS">PCS</SelectItem> */}
+                                                    <SelectItem value="PCS">PCS</SelectItem>
                                                     <SelectItem value="BOX">BOX</SelectItem>
                                                     <SelectItem value="ROLL">ROLL</SelectItem>
-                                                    {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                                                    <SelectItem value="PKT">PKT</SelectItem>
                                                     <SelectItem value="LENGTH">LTH</SelectItem>
                                                     <SelectItem value="MTR">MTR</SelectItem>
                                                     <SelectItem value="NOS">NOS</SelectItem>
@@ -748,17 +838,307 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                     </AlertDialogContent>
-                </AlertDialog>
+                </AlertDialog> */}
+
+                {/* <AlertDialog open={requestItemDialog} onOpenChange={toggleRequestItemDialog}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle className="flex justify-between">
+                                Request New Item
+                            </AlertDialogTitle>
+                            <AlertDialogDescription className="flex flex-col gap-2">
+                                <label
+                                    htmlFor="itemName"
+                                    className="block text-sm font-medium text-gray-700"
+                                >
+                                    Item Name<sup className="text-sm text-red-600">*</sup>
+                                </label>
+                                <Input
+                                    type="text"
+                                    id="itemName"
+                                    autoComplete="off"
+                                    value={curItem}
+                                    onChange={(e) => {
+                                        setCurItem(e.target.value);
+                                        handleFuzzySearch(e.target.value);
+                                    }}
+                                    className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                />
+
+                                {fuzzyMatches.length > 0 ? (
+                                    <div className="mt-4 border p-2 rounded bg-gray-100 shadow text-left">
+                                        <h4 className="text-lg font-medium">Matching Items</h4>
+                                        <ul className="list-disc list-inside">
+                                            {fuzzyMatches.map((item) => (
+                                                <li key={item.name}>
+                                                    <strong>{item.item_name}</strong> -{" "}
+                                                    {item.matchPercentage}% match
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ) : curItem && !matchFound ? (
+                                    <p className="text-red-500 text-sm mt-2">
+                                        No matching items found. You can continue to request a
+                                        new item.
+                                    </p>
+                                ) : null}
+
+                                <div className="flex items-center justify-between mt-4">
+                                    <div>
+                                        <label
+                                            htmlFor="itemUnit"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Item Unit<sup className="text-sm text-red-600">*</sup>
+                                        </label>
+                                        <Select
+                                            onValueChange={(value) => setUnit(value)}
+                                            disabled={!matchFound && !curItem}
+                                        >
+                                            <SelectTrigger className="w-[180px]">
+                                                <SelectValue
+                                                    className="text-gray-200"
+                                                    placeholder="Select Unit"
+                                                />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                Add Unit Options
+                                                <SelectItem value="BOX">BOX</SelectItem>
+                                                <SelectItem value="ROLL">ROLL</SelectItem>
+                                                <SelectItem value="LENGTH">LENGTH</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                            
+                                    <div>
+                                        <label
+                                            htmlFor="quantity"
+                                            className="block text-sm font-medium text-gray-700"
+                                        >
+                                            Quantity<sup className="text-sm text-red-600">*</sup>
+                                        </label>
+                                        <Input
+                                            type="number"
+                                            id="quantity"
+                                            onChange={(e) =>
+                                                setQuantity(
+                                                    e.target.value === ""
+                                                        ? null
+                                                        : parseInt(e.target.value)
+                                                )
+                                            }
+                                            value={quantity}
+                                            className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                            disabled={!matchFound && !curItem}
+                                        />
+                                    </div>
+                                </div>
+                            </AlertDialogDescription>
+                            <AlertDialogDescription className="flex justify-end gap-2 items-center pt-2">
+                                <AlertDialogCancel onClick={() => {
+                                    setCurItem('');
+                                    setQuantity('');
+                                    setUnit('');
+                                    setFuzzyMatches([]);
+                                    setMatchFound(false);
+                                }}>Cancel</AlertDialogCancel>
+                                <Button
+                                    disabled={!curItem || !unit || !quantity}
+                                    onClick={() => handleAdd(true)}
+                                >
+                                    Request
+                                </Button>
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                    </AlertDialogContent>
+                </AlertDialog> */}
+
+    <AlertDialog open={requestItemDialog} onOpenChange={toggleRequestItemDialog}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex justify-between">
+            Request New Item
+          </AlertDialogTitle>
+          <AlertDialogDescription className="flex flex-col gap-4">
+            <label
+              htmlFor="itemName"
+              className="block text-sm font-medium text-gray-700"
+            >
+              Item Name<sup className="text-sm text-red-600">*</sup>
+            </label>
+            <Input
+              type="text"
+              id="itemName"
+              autoComplete="off"
+              value={requestItem.name}
+              onChange={(e) => {
+                setRequestItem(prevState => ({
+                  ...prevState,
+                  name: e.target.value
+                }));
+                handleFuzzySearch(e.target.value);
+              }}
+              className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+            />
+
+            {/* Matching Items Accordion */}
+            {/* {fuzzyMatches.length > 0 ? (
+              <div className="mt-4">
+                <h4 className="text-lg font-medium mb-2">Matching Items</h4>
+                <ul className="space-y-2">
+                  {fuzzyMatches.map((item, index) => (
+                    <li key={item.item_name} className="">
+                      <div
+                        className="flex justify-between items-center cursor-pointer"
+                        onClick={() =>
+                          setActiveAccordion(activeAccordion === index ? null : index)
+                        }
+                      >
+                        <div className="underline">
+                            <strong>{item.item_name}</strong> <span className="italic">- {item.matchPercentage}% match</span>
+                        </div>
+                        {(index === 0 && item.matchPercentage > 60) && (
+                        <div className="flex items-center gap-2 px-2 py-1 bg-blue-100 rounded-md shadow">
+                            <Sparkles className="w-4 h-4" />
+                            <p className="text-blue-700">
+                              <strong>Recommended</strong>
+                            </p>
+                        </div>
+                        )}
+                        <span className="text-gray-500">
+                          {activeAccordion === index ? "-" : "+"}
+                        </span>
+                      </div>
+                      {activeAccordion === index && (
+                        <div className="mt-2 text-sm bg-gray-50 p-2 rounded shadow flex justify-between items-end">
+                            <div className="flex flex-col gap-2">
+                                <p><strong>Category:</strong> {item.category}</p>
+                                <p><strong>Unit:</strong> {item.unit_name}</p>
+                            </div>
+                            <div className="flex items-center justify-end">
+                                <Button
+                                  className="px-2 py-1 text-xs"
+                                  onClick={() => {
+                                    setCurCategory(item.category)
+                                    setCurItem(item.item_name);
+                                    setUnit(item.unit_name);
+                                    toggleRequestItemDialog()
+                                  }}
+                                >
+                                  Proceed with this Item
+                                </Button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : requestItem.name && !matchFound ? (
+              <p className="text-red-500 text-sm mt-2">
+                No matching items found. You can continue to request a new item.
+              </p>
+            ) : null} */}
+
+            <div className="flex items-center justify-between mt-4">
+              <div>
+                <label
+                  htmlFor="itemUnit"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Item Unit<sup className="text-sm text-red-600">*</sup>
+                </label>
+                <Select
+                value={requestItem.unit}
+                  onValueChange={(value) => setRequestItem(prevState => ({
+                    ...prevState,
+                    unit: value
+                  }))}
+                  disabled={!matchFound && !requestItem.name}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue
+                      className="text-gray-200"
+                      placeholder="Select Unit"
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                            {/* <SelectItem value="PCS">PCS</SelectItem> */}
+                            <SelectItem value="BOX">BOX</SelectItem>
+                            <SelectItem value="ROLL">ROLL</SelectItem>
+                            {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                            <SelectItem value="LENGTH">LTH</SelectItem>
+                            <SelectItem value="MTR">MTR</SelectItem>
+                            <SelectItem value="NOS">NOS</SelectItem>
+                            <SelectItem value="KGS">KGS</SelectItem>
+                            <SelectItem value="PAIRS">PAIRS</SelectItem>
+                            <SelectItem value="PACKS">PACKS</SelectItem>
+                            <SelectItem value="DRUM">DRUM</SelectItem>
+                            <SelectItem value="SQMTR">SQMTR</SelectItem>
+                            <SelectItem value="LTR">LTR</SelectItem>
+                            <SelectItem value="BUNDLE">BUNDLE</SelectItem>
+                            <SelectItem value="FEET">FEET</SelectItem>
+                    </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="quantity"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Quantity<sup className="text-sm text-red-600">*</sup>
+                </label>
+                <Input
+                  type="number"
+                  id="quantity"
+                  onChange={(e) => setRequestItem(prevState => ({
+                        ...prevState,
+                        quantity: e.target.value === "" ? null : parseInt(e.target.value)
+                      }))
+                  }
+                  value={requestItem.quantity || ''}
+                  className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  disabled={!matchFound && !requestItem.name}
+                />
+              </div>
+            </div>
+          </AlertDialogDescription>
+          <AlertDialogDescription className="flex justify-end gap-2 items-center pt-4">
+            <AlertDialogCancel
+              onClick={() => {
+                // setCurItem("");
+                // setQuantity("");
+                // setUnit("");
+                // setFuzzyMatches([]);
+                // setMatchFound(false);
+                setActiveAccordion(null);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              disabled={!requestItem.name || !requestItem.unit || !requestItem.quantity}
+              onClick={() => handleAdd(true)}
+            >
+              Request
+            </Button>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+      </AlertDialogContent>
+    </AlertDialog>
+
                 <div className="flex justify-between md:space-x-0 mt-2">
                     {(category_list?.find((i) => i?.name === curCategory)?.new_items === "false" && !["Nirmaan Admin Profile"].includes(userData?.role)) ? (
                     <HoverCard>
                         <HoverCardTrigger asChild>
                             <Button variant={"ghost"} className="text-sm py-2 px-0 md:text-lg text-blue-300 flex items-center gap-1 hover:bg-white" 
                             onClick={() => {
-                                setQuantity('');
-                                setCurItem('');
-                                setUnit('');
-                                setMake('');
+                                // setQuantity('');
+                                // setCurItem('');
+                                // setUnit('');
+                                // setMake('');
                                 toggleRequestItemDialog()
                             }}><CirclePlus className="w-4 h-4" />Request new item</Button>
                         </HoverCardTrigger>
@@ -879,8 +1259,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                                     </AlertDialogDescription>
                                                                     <AlertDialogDescription className="flex justify-end">
                                                                         <div className="flex gap-2">
-                                                                            <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex items-center gap-1" onClick={() => handleDelete(item.item)}><Trash2 className="h-4 w-4" /> Delete</AlertDialogAction>
-                                                                            <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}
+                                                                            <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex items-center gap-1" onClick={() => handleDelete(item.name)}><Trash2 className="h-4 w-4" /> Delete</AlertDialogAction>
+                                                                            <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.name, quantity)}
                                                                                 className="flex items-center gap-1"
                                                                             ><ListChecks className="h-4 w-4" />Update</AlertDialogAction>
                                                                         </div>
@@ -935,29 +1315,83 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                     <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">{item.quantity}</td>
                                                     <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center">
                                                         <AlertDialog>
-                                                            <AlertDialogTrigger onClick={() => setQuantity(parseInt(item.quantity))}><Pencil className="w-4 h-4" /></AlertDialogTrigger>
+                                                            <AlertDialogTrigger onClick={() => {
+                                                                setRequestCategory(item.category)
+                                                                setCurItem(item.item)
+                                                                setUnit(item.unit)
+                                                                setQuantity(parseInt(item.quantity))
+                                                                }}><Pencil className="w-4 h-4" /></AlertDialogTrigger>
                                                             <AlertDialogContent>
                                                                 <AlertDialogHeader>
                                                                     <AlertDialogTitle className="flex justify-between">Edit Item
-                                                                        <AlertDialogCancel onClick={() => setQuantity('')} className="border-none shadow-none p-0">X</AlertDialogCancel>
+                                                                        <AlertDialogCancel onClick={() => {
+                                                                            setCurItem('')
+                                                                            setUnit('')
+                                                                            setQuantity('')
+                                                                        }} className="border-none shadow-none p-0">X</AlertDialogCancel>
                                                                     </AlertDialogTitle>
                                                                     <AlertDialogDescription className="flex flex-col gap-2">
+                                                                        <div className="w-full">
+                                                                                <h5 className="text-base text-gray-400 text-left mb-1">Category</h5>
+                                                                                <Select
+                                                                                    defaultValue={item.category}
+                                                                                      onValueChange={(value) => setRequestCategory(value)}
+                                                                                    >
+                                                                                      <SelectTrigger className="">
+                                                                                        <SelectValue
+                                                                                          className="text-gray-200"
+                                                                                          placeholder="Select Category"
+                                                                                        />
+                                                                                      </SelectTrigger>
+                                                                                      <SelectContent>
+                                                                                                {category_list?.map((item) => (
+                                                                                                    <SelectItem value={item.category_name}>{item.category_name}</SelectItem>
+                                                                                                ))}
+                                                                                        </SelectContent>
+                                                                                    </Select>
+                                                                            </div>
                                                                         <div className="flex space-x-2">
                                                                             <div className="w-1/2 md:w-2/3">
                                                                                 <h5 className="text-base text-gray-400 text-left mb-1">Item Name</h5>
-                                                                                <div className="w-full  p-1 text-left">
-                                                                                    {item.item}
-                                                                                </div>
+                                                                                <Input
+                                                                                    defaultValue={item.item}
+                                                                                    onChange={(e) => setCurItem(e.target.value)}
+                                                                                />
                                                                             </div>
                                                                             <div className="w-[30%]">
                                                                                 <h5 className="text-base text-gray-400 text-left mb-1">UOM</h5>
-                                                                                <div className=" w-full  p-2 text-center justify-left flex">
-                                                                                    {item.unit}
-                                                                                </div>
+                                                                                <Select
+                                                                                    defaultValue={item.unit}
+                                                                                      onValueChange={(value) => setUnit(value)}
+                                                                                    >
+                                                                                      <SelectTrigger className="">
+                                                                                        <SelectValue
+                                                                                          className="text-gray-200"
+                                                                                          placeholder="Select Unit"
+                                                                                        />
+                                                                                      </SelectTrigger>
+                                                                                      <SelectContent>
+                                                                                                {/* <SelectItem value="PCS">PCS</SelectItem> */}
+                                                                                                <SelectItem value="BOX">BOX</SelectItem>
+                                                                                                <SelectItem value="ROLL">ROLL</SelectItem>
+                                                                                                {/* <SelectItem value="PKT">PKT</SelectItem> */}
+                                                                                                <SelectItem value="LENGTH">LTH</SelectItem>
+                                                                                                <SelectItem value="MTR">MTR</SelectItem>
+                                                                                                <SelectItem value="NOS">NOS</SelectItem>
+                                                                                                <SelectItem value="KGS">KGS</SelectItem>
+                                                                                                <SelectItem value="PAIRS">PAIRS</SelectItem>
+                                                                                                <SelectItem value="PACKS">PACKS</SelectItem>
+                                                                                                <SelectItem value="DRUM">DRUM</SelectItem>
+                                                                                                <SelectItem value="SQMTR">SQMTR</SelectItem>
+                                                                                                <SelectItem value="LTR">LTR</SelectItem>
+                                                                                                <SelectItem value="BUNDLE">BUNDLE</SelectItem>
+                                                                                                <SelectItem value="FEET">FEET</SelectItem>
+                                                                                        </SelectContent>
+                                                                                    </Select>
                                                                             </div>
                                                                             <div className="w-[25%]">
                                                                                 <h5 className="text-base text-gray-400 text-left mb-1">Qty</h5>
-                                                                                <input type="number" defaultValue={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value !== "" ? parseInt(e.target.value) : null)} />
+                                                                                <input type="number" defaultValue={item.quantity} className=" rounded-lg w-full border p-2" onChange={(e) => setQuantity(e.target.value !== "" ? parseFloat(e.target.value) : null)} />
                                                                             </div>
                                                                         </div>
                                                                         <div className="flex gap-1 items-center pt-1">
@@ -973,8 +1407,8 @@ export const NewPRPage = ({ project = undefined, rejected_pr_data = undefined, s
                                                                     </AlertDialogDescription>
                                                                     <AlertDialogDescription className="flex justify-end">
                                                                         <div className="flex gap-2">
-                                                                            <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex items-center gap-1" onClick={() => handleDelete(item.item)}><Trash2 className="h-4 w-4" /> Delete</AlertDialogAction>
-                                                                            <AlertDialogAction disabled={!quantity} onClick={() => handleSave(item.item, quantity)}
+                                                                            <AlertDialogAction className="bg-gray-100 text-black hover:text-white flex items-center gap-1" onClick={() => handleDelete(item.name)}><Trash2 className="h-4 w-4" /> Delete</AlertDialogAction>
+                                                                            <AlertDialogAction disabled={!quantity || !requestCategory || !curItem || !unit} onClick={() => handleSave(item.name, quantity, true)}
                                                                                 className="flex items-center gap-1"
                                                                             ><ListChecks className="h-4 w-4" />Update</AlertDialogAction>
                                                                         </div>
