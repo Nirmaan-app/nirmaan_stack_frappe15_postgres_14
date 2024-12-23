@@ -170,6 +170,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
     const [stack, setStack] = useState([]);
     const [uploadedFiles, setUploadedFiles] = useState({});
     const [managersIdList, setManagersIdList] = useState(null)
+    const [requestCategory, setRequestCategory] = useState("")
 
     useEffect(() => {
         if (usersList) {
@@ -627,7 +628,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
 
     const handleRequestItem = async (item) => {
         const itemData = {
-            category: item.category,
+            category: requestCategory,
             unit_name: unit,
             item_name: curItem,
         }
@@ -644,6 +645,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
             itemToUpdate.quantity = quantity
             itemToUpdate.status = "Pending"
             itemToUpdate.name = res.name
+            itemToUpdate.category = res.category
 
             const newCategories = [];
 
@@ -691,6 +693,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
             setCurItem("")
             setUnit("")
             setQuantity("")
+            setRequestCategory("")
 
         } catch (error) {
             toast({
@@ -1008,6 +1011,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                                                                 setCurItem(item.item)
                                                                 setUnit(item.unit)
                                                                 setQuantity(item.quantity)
+                                                                setRequestCategory(item.category)
 
                                                             }} className="h-4 w-4 text-green-600" /></AlertDialogTrigger>
                                                             <AlertDialogContent>
@@ -1016,6 +1020,25 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                                                                 </AlertDialogHeader>
                                                                 <AlertDialogDescription className="flex flex-col gap-2">
                                                                     <p>Please check and rectify the details of the item before clicking on confirm!</p>
+                                                                            <div className="w-full">
+                                                                                <h5 className="text-sm font-medium text-gray-700 mb-1">Category</h5>
+                                                                                <Select
+                                                                                    defaultValue={item.category}
+                                                                                      onValueChange={(value) => setRequestCategory(value)}
+                                                                                    >
+                                                                                      <SelectTrigger className="">
+                                                                                        <SelectValue
+                                                                                          className="text-gray-200"
+                                                                                          placeholder="Select Category"
+                                                                                        />
+                                                                                      </SelectTrigger>
+                                                                                      <SelectContent>
+                                                                                                {category_list?.filter(i => i?.work_package === orderData?.work_package)?.map((item) => (
+                                                                                                    <SelectItem value={item.category_name}>{item.category_name}</SelectItem>
+                                                                                                ))}
+                                                                                        </SelectContent>
+                                                                                    </Select>
+                                                                            </div>
                                                                     <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Item Name<sup className="text-sm text-red-600">*</sup></label>
                                                                     <Input
                                                                         type="text"
@@ -1058,7 +1081,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                                                                                 type="number"
                                                                                 id="quantity"
                                                                                 onChange={(e) => setQuantity(e.target.value === "" ? null : parseInt(e.target.value))} 
-                                                                                value={quantity}
+                                                                                value={quantity || ''}
                                                                                 className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                                                             />
                                                                         </div>
@@ -1071,7 +1094,7 @@ const ApprovePRListPage = ({ pr_data, project_data, owner_data, prMutate }: Appr
                                                                                 <X className="h-4 w-4" />
                                                                                 Cancel
                                                                             </AlertDialogCancel>
-                                                                            <Button disabled={!unit || !curItem || !quantity} onClick={() => handleRequestItem(item)} className="flex items-center gap-1">
+                                                                            <Button disabled={!unit || !curItem || !quantity || !requestCategory} onClick={() => handleRequestItem(item)} className="flex items-center gap-1">
                                                                                 <CheckCheck className="h-4 w-4" />
                                                                                 Confirm
                                                                             </Button>

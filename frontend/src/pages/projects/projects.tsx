@@ -119,7 +119,7 @@ export default function Projects() {
                 cell: ({ row }) => {
                     return (
                         <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}`}>
+                            <Link className="underline hover:underline-offset-2" to={`/projects/${row.getValue("name")}?page=overview`}>
                                 {row.getValue("name")?.slice(-4)}
                             </Link>
                         </div>
