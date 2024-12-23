@@ -72,7 +72,38 @@ export const MainLayout = () => {
     }
 
     useEffect(() => {
-        const locations = location.pathname?.slice(1)?.split("/") || [];
+        const locationsArray = location.pathname?.slice(1)?.split("/") || [];
+
+        // Function to process the locations array
+        const processLocations = (locations) => {
+          // Make a copy of the array to avoid modifying the original
+          let processedLocations = [...locations];
+        
+          // Find and handle "new-pr"
+          const newPrIndex = processedLocations.indexOf("new-pr");
+          if (newPrIndex > 0) {
+            // Remove the element before "new-pr"
+            processedLocations.splice(newPrIndex - 1, 1);
+          }
+        
+          // Find and handle "new-sr"
+          const newSrIndex = processedLocations.indexOf("new-sr");
+          if (newSrIndex > 0) {
+            // Remove the element before "new-sr"
+            processedLocations.splice(newSrIndex - 1, 1);
+          }
+
+          const dnNameIndex = processedLocations.indexOf("dn");
+          if (dnNameIndex > 0) {
+            // Remove the element before "dn"
+            processedLocations.splice(dnNameIndex, 1);
+          }
+        
+          return processedLocations;
+        };
+
+        // Process the locations array based on the conditions
+        const locations = processLocations(locationsArray);
 
         const menuItems = locations.map((item, index) => {
           const path = `/${locations.slice(0, index + 1).join("/")}`;
@@ -97,16 +128,19 @@ export const MainLayout = () => {
         }
 
         setLocationsPaths(menuItems?.slice(1));
-        setCurrentRoute((locations[locations?.length - 1]?.includes("%20") ? locations[locations?.length - 1]?.replace(/%20/g, " ")?.toUpperCase() : locations[locations?.length - 1]?.includes("PO&=") ? locations[locations?.length - 1]?.replace(/&=/g, "/")?.toUpperCase() : locations[locations?.length - 1]?.toUpperCase()) || "");
 
-        const project = locations?.find((i) => i?.includes("PROJ"))
+        setCurrentRoute((locations[locations?.length - 1]?.includes("%20") ? locations[locations?.length - 1]?.replace(/%20/g, " ")?.toUpperCase() : (locations[locations?.length - 1]?.includes("PO&=") || locations[locations?.length - 1]?.includes("DN&=")) ? locations[locations?.length - 1]?.replace(/&=/g, "/")?.toUpperCase() : locations[locations?.length - 1]?.toUpperCase()) || "DASHBOARD");
+
+
+        const project = locationsArray?.find((i) => i?.includes("PROJ"))
         const prId = locations?.find((i) => i?.includes("PR-"))
         const poId = locations?.find((i) => i?.includes("PO&="))?.replaceAll("&=", "/")
+        const dnId = locations?.find((i) => i?.includes("DN&="))?.replaceAll("&=", "/")?.replace("DN", "PO")
         const sbId = locations?.find((i) => i?.includes("SB-"))
         const srId = locations?.find((i) => i?.includes("SR-"))
         setProject(project)
         setPrId(prId)
-        setPoId(poId)
+        setPoId(poId || dnId)
         setSbId(sbId)
         setSrId(srId)
 
