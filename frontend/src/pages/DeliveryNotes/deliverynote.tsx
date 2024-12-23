@@ -708,7 +708,7 @@ export default function DeliveryNote() {
             <Card>
                 <CardHeader className='flex flex-row items-center justify-between'>
                     <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Item List</CardTitle>
-                    {["Nirmaan Project Manager Profile", "Nirmaan Admin Profile"].includes(userData?.role) &&
+                    {["Nirmaan Project Manager Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(userData?.role) &&
                         (!show && data?.status !== "Delivered" && (<Button onClick={() => setShow(true)} className="flex items-center gap-1">
                             <Pencil className="h-4 w-4" />
                             Edit</Button>))}
