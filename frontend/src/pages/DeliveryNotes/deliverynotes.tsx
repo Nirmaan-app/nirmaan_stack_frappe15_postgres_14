@@ -161,7 +161,7 @@ const DeliveryNotes = () => {
                                                     <TableCell className="text-sm">{getPOsAssociated(item.name)?.map((po) => (
                                                         <TableRow>
                                                             <TableCell>
-                                                                <Link className="underline text-blue-300 hover:text-blue-500" to={`${po.name.replaceAll("/", "&=")}`}>DN-{po.name.split('/')[1]}</Link>
+                                                                <Link className="underline text-blue-300 hover:text-blue-500" to={`${po.name.replaceAll("/", "&=").replace("PO", "DN")}`}>DN-{po.name.split('/')[1]}</Link>
                                                             </TableCell>
                                                         </TableRow>
                                                     ))}</TableCell>

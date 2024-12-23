@@ -459,7 +459,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Check, ArrowLeft, X, ArrowUp, ArrowDown, Printer, Pencil, ListChecks, Undo2, CheckCheck, Paperclip, MessageCircleMore } from "lucide-react";
 import { Badge } from '@/components/ui/badge';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from 'frappe-react-sdk';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 // import { z } from "zod";
@@ -484,9 +484,12 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 
 
 export default function DeliveryNote() {
+
+    const location = useLocation()
     const { dnId : id } = useParams();
     const userData = useUserData();
-    const poId = id?.replaceAll("&=", "/");
+    const deliveryNoteId = id?.replaceAll("&=", "/");
+    const poId = deliveryNoteId?.replace("DN", "PO")
     const { data, isLoading, mutate: poMutate } = useFrappeGetDoc("Procurement Orders", poId, `Procurement Orders ${poId}`);
     const [order, setOrder] = useState(null);
     const [modifiedOrder, setModifiedOrder] = useState(null);
@@ -687,8 +690,8 @@ export default function DeliveryNote() {
                 <CardContent>
                     <p><strong>Project:</strong> {data?.project_name}</p>
                     <p><strong>Address:</strong> {data?.project_address}</p>
-                    <p><strong>PR:</strong> <Link className='underline' to={`${data?.procurement_request}`}>{data?.procurement_request}</Link></p>
-                    <p><strong>PO:</strong> <Link className='underline' to={`${data?.procurement_request}/${data?.name.replaceAll("/", "&=")}`}>{data?.name}</Link></p>
+                    <p><strong>PR:</strong> <span className='underline cursor-pointer' onClick={() => navigate(location.pathname.includes("delivery-notes") ? `/prs&milestones/procurement-requests/${data?.procurement_request}` : -1)}>{data?.procurement_request}</span></p>
+                    <p><strong>PO:</strong> <span className='underline cursor-pointer' onClick={() => navigate(location.pathname.includes("delivery-notes") ? `/prs&milestones/procurement-requests/${data?.procurement_request}/${data?.name.replaceAll("/", "&=")}` : -1)}>{data?.name.replaceAll("/", "&=")}</span></p>
                 </CardContent>
                 <CardHeader className='pb-2'>
                     <CardTitle className="text-xl max-md:text-lg font-semibold text-red-600">Delivery Person Details</CardTitle>

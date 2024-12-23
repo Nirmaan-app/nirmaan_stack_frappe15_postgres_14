@@ -388,7 +388,7 @@ const PRSummaryPage = ({ pr_data, project, po_data, universalComments, usersList
                                                 return (
                                                     <TableRow key={po.name}>
                                                         <TableCell>
-                                                            <Link to={`dn/${po?.name.replaceAll("/", "&=")}`} className="text-blue-500 underline">DN-{po?.name.split("/")[1]}</Link>
+                                                            <Link to={`dn/${po?.name.replaceAll("/", "&=").replace("PO", "DN")}`} className="text-blue-500 underline">DN-{po?.name.split("/")[1]}</Link>
                                                         </TableCell>
                                                         <TableCell>{formatDate(po.creation)}</TableCell>
                                                         <TableCell><Badge variant="outline">{po.status}</Badge></TableCell>
