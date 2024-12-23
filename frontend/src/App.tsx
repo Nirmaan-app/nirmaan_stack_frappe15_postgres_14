@@ -96,9 +96,12 @@ const router = createBrowserRouter(
 								<Route path='resolve-pr' element={<NewProcurementRequest resolve={true} />} />
 								<Route path='edit-pr' element={<NewProcurementRequest edit={true} />} />
 								<Route index lazy={() => import('@/components/pr-summary')} />
-								<Route path=":poId" element={<POSummary />} />
-								<Route path='dn'>
-									<Route path=':dnId' element={<DeliveryNote />} />
+								<Route path=":poId">
+									<Route index element={<POSummary />} />
+								</Route>
+								<Route path="dn">
+									<Route path=":dnId" element={<DeliveryNote />} />
+									<Route path=":dnId/:poId" element={<POSummary />} />
 								</Route>
 							</Route>
 						</Route>
@@ -245,12 +248,14 @@ const router = createBrowserRouter(
 						/>
 						<Route path=":projectId/add-estimates" lazy={() => import('@/components/add-project-estimates')} />
 						<Route path=":projectId/edit" element={<EditProjectForm />} />
+						<Route path=":projectId/po/:poId" element={<POSummary />} />
 						<Route path=":projectId/:prId">
 							<Route index lazy={() => import('@/components/pr-summary')} />
 							<Route path=":poId" element={<POSummary />} />
-							<Route path="dn/:dnId" element={<DeliveryNote />} />
+							<Route path="dn">
+								<Route path=":dnId" element={<DeliveryNote />} />
+							</Route>
 						</Route>
-						<Route path=":projectId/po/:id" element={<POSummary />} />
 					</Route>
 
 					{/* User Paths */}

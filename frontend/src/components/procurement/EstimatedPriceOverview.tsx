@@ -18,9 +18,10 @@ export const EstimatedPriceOverview = () => {
 
     // console.log("quote_data", quote_data);
 
-    const calculateTotals = (quote, tax) => {
-        const totalWithoutGST = parseFloat(quote) || 0;
-        const gst = (totalWithoutGST * parseFloat(tax || 0)) / 100;
+    const calculateTotals = (item) => {
+        const totalWithoutGST = parseFloat(item?.quote || 0) * parseFloat(item?.quantity || 0)
+        const tax = item?.tax || 0;
+        const gst = totalWithoutGST * (parseFloat(tax) / 100);
         const totalWithGST = totalWithoutGST + gst;
         return { totalWithoutGST, gst, totalWithGST };
     };
@@ -62,7 +63,7 @@ export const EstimatedPriceOverview = () => {
                         </thead>
                         <tbody>
                             {quote_data.map((item, index) => {
-                                const { totalWithoutGST, gst, totalWithGST } = calculateTotals(item.quote, item.tax);
+                                const { totalWithoutGST, gst, totalWithGST } = calculateTotals(item);
                                 return (
                                     <tr
                                         key={index}

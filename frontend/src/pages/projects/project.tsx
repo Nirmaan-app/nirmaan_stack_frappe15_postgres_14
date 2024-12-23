@@ -9,7 +9,7 @@ import { ConfigProvider, Menu, MenuProps, Radio, Tree, Table as AntTable } from 
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeGetCall, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { ArrowDown, ArrowLeft, Check, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDown, CircleCheckBig, CirclePlus, CornerRightDown, Download, FilePenLine, HardHat, ListChecks, OctagonMinus, UserCheckIcon } from "lucide-react"
 import React, { useEffect, useMemo, useState } from "react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import StatusBar from "@/components/ui/status-bar"
 import { Button } from "@/components/ui/button"
 import { useReactToPrint } from "react-to-print"
@@ -98,9 +98,20 @@ const chartConfig = {
 
 const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
 
+  // const location = useLocation();
+
+  // const searchParams = new URLSearchParams(location.search);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const page = searchParams.get("page");
+
+  console.log("searchParams", searchParams, page)
+
   const { role } = useUserData()
   const [selectedUser, setSelectedUser] = useState(null)
   const [userOptions, setUserOptions] = useState([])
+  // const [current, setCurrent] = useState('')
 
   const [newStatus, setNewStatus] = useState<string>("")
   const [open, setOpen] = useState(false)
@@ -109,6 +120,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { createDoc, loading: createDocLoading } = useFrappeCreateDoc()
   const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc()
   const [statusCounts, setStatusCounts] = useState({})
+
+  useEffect(() => {
+    if (!page) {
+      setSearchParams({ ...Object.fromEntries(searchParams), page: "overview" });
+    }
+  }, [page])
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList("Project Work Milestones", {
     fields: ["*"],
@@ -621,7 +638,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         cell: ({ row }) => {
           const srId = row.getValue("name")
           return (
-            <Link className="text-blue-500 underline" to={`/service-request/${srId}`}>
+            <Link className="text-blue-500 underline" to={`/service-requests/${srId}`}>
               {srId?.slice(-5)}
             </Link>
           )
@@ -855,11 +872,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     [projectId, po_data_for_posummary, data]
   )
 
-  const [current, setCurrent] = useState('overview')
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState({});
 
   const onClick: MenuProps['onClick'] = (e) => {
-    setCurrent(e.key);
+    // setCurrent(e.key);
+    setSearchParams({ ...Object.fromEntries(searchParams), page: e.key });
   };
 
   const today = new Date();
@@ -1244,7 +1261,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               }
             }}
           >
-            <Menu selectedKeys={[current]} onClick={onClick} mode="horizontal" items={items} />
+            <Menu selectedKeys={[page]} onClick={onClick} mode="horizontal" items={items} />
           </ConfigProvider>
         </div>
 
@@ -1255,7 +1272,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
       {/* Overview Section */}
 
-      {(usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : current === "overview" && (
+      {(usersListLoading || projectAssigneesLoading) ? (<OverviewSkeleton2 />) : page === "overview" && (
         <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
@@ -1428,7 +1445,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </div>
       )}
 
-      {current === "projectTracking" && (
+      {page === "projectTracking" && (
         <div className="pr-2">
           <div className="grid grid-cols-3 gap-2 max-sm:grid-cols-2">
             <Button variant="outline" className=" cursor-pointer flex items-center gap-1"
@@ -1459,7 +1476,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       )}
 
       {
-        current === "prsummary" && (
+        page === "prsummary" && (
           <div>
             <Card className="flex border border-gray-100 rounded-lg p-4">
               <CardContent className="w-full flex flex-row items-center justify-around">
@@ -1480,7 +1497,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         )
       }
       {
-        current === "posummary" && (
+        page === "posummary" && (
           <div>
             {/* <Card className="flex border border-gray-100 rounded-lg p-4">
               <CardContent className="w-full flex flex-row items-center justify-around">
@@ -1502,7 +1519,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         )
       }
 
-      {current === "projectspends" && (
+      {page === "projectspends" && (
         <>
           {
             options && (
@@ -1592,7 +1609,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </>
       )}
 
-      {current === "SRSummary" && (
+      {page === "SRSummary" && (
         <DataTable columns={srSummaryColumns} data={allServiceRequestsData || []} />
       )}
 
