@@ -1936,7 +1936,7 @@ export const CategoryAccordion = ({ categorizedData, selectedPackage, projectEst
                         <span>Total Estd Amount: {formatToIndianRupee(totalCategoryEstdAmt)}</span>
                       </div>
                     </AccordionTrigger>
-                    <AccordionContent>
+                    <AccordionContent className="overflow-x-auto">
                       <Table className="min-w-full text-left text-sm">
                         <TableHeader>
                           <TableRow className="bg-gray-100 text-gray-700">
@@ -2032,7 +2032,7 @@ export const ToolandEquipementAccordion = ({ projectEstimates, categorizedData }
                       {/* <span>Total Estd Amount: {formatToIndianRupee(totalCategoryEstdAmt)}</span> */}
                     </div>
                   </AccordionTrigger>
-                  <AccordionContent>
+                  <AccordionContent className="overflow-x-auto">
                     <Table className="min-w-full text-left text-sm">
                       <TableHeader>
                         <TableRow className="bg-gray-100 text-gray-700">
