@@ -626,7 +626,7 @@ export const NewPRPage = ({
         if (curValue.name === itemId) {
           return {
             ...curValue,
-            quantity: parseInt(newQuantity),
+            quantity: parseFloat(newQuantity),
             item: curItem,
             unit: unit,
             category: requestCategory,
@@ -634,6 +634,9 @@ export const NewPRPage = ({
               comments[itemId] === undefined
                 ? curValue.comment || ""
                 : comments[itemId] || "",
+            tax: parseFloat(
+              category_list?.find((i) => i?.name === requestCategory)?.tax
+            ),
           };
         }
         return curValue;
@@ -643,7 +646,7 @@ export const NewPRPage = ({
         if (curValue.name === itemId) {
           return {
             ...curValue,
-            quantity: parseInt(newQuantity),
+            quantity: parseFloat(newQuantity),
             comment:
               comments[itemId] === undefined
                 ? curValue.comment || ""
@@ -801,7 +804,7 @@ export const NewPRPage = ({
     }
   };
 
-  // console.log("orderData", orderData)
+  // console.log("orderData", orderData);
 
   // console.log("userData", userData)
 

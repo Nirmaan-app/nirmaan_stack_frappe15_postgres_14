@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import ProjectSelect from "./custom-select/project-select";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import {
+  useFrappeCreateDoc,
+  useFrappeDeleteDoc,
+  useFrappeGetDoc,
+  useFrappeGetDocList,
+  useFrappeUpdateDoc,
+} from "frappe-react-sdk";
 import { Button } from "./ui/button";
 import { toast } from "./ui/use-toast";
 import { Link, useNavigate } from "react-router-dom";
@@ -231,9 +237,6 @@ Total - ${total.toString().padStart(2, "0")} Nos.
             <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">
               MANPOWER REPORT
             </h2>
-          </div>
-          <div className="font-semibold text-xl max-md:text-base">
-            FOR PROJECT:
           </div>
           <div className="flex items-center gap-2">
             <div className="flex-1">

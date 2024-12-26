@@ -126,35 +126,39 @@ export const ManPowerOverallSummary = () => {
         <h3 className="text-lg font-semibold mb-4 max-sm:text-base">
           Role-wise Detailed Reports
         </h3>
-        <Accordion type="multiple">
-          {Object.keys(roleReports).map((role, index) => (
-            <AccordionItem key={index} value={role}>
-              <AccordionTrigger>
-                <h4 className="text-lg font-medium max-sm:text-base">{role}</h4>
-              </AccordionTrigger>
-              <AccordionContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableCell>Date</TableCell>
-                      <TableCell>Count</TableCell>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {roleReports[role].map((entry, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell>
-                          {new Date(entry.date).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>{entry.count}</TableCell>
+        {Object.keys(roleReports)?.length > 0 && (
+          <Accordion type="multiple" defaultValue={Object.keys(roleReports)}>
+            {Object.keys(roleReports).map((role, index) => (
+              <AccordionItem key={index} value={role}>
+                <AccordionTrigger>
+                  <h4 className="text-lg font-medium max-sm:text-base">
+                    {role}
+                  </h4>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <Table>
+                    <TableHeader className="bg-gray-50">
+                      <TableRow>
+                        <TableCell className="font-semibold">Date</TableCell>
+                        <TableCell className="font-semibold">Count</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
+                    </TableHeader>
+                    <TableBody>
+                      {roleReports[role].map((entry, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>
+                            {new Date(entry.date).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>{entry.count}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        )}
       </div>
 
       <div className="hidden">
