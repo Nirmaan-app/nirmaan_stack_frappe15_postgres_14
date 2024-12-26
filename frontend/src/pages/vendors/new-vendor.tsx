@@ -207,27 +207,27 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 const promises = [];
                 if (sentBackData) {
                     sentBackData?.item_list?.list.forEach((item) => {
-                        const makes = sentBackData?.category_list?.list?.find(i => i?.name ===  item?.category)?.makes?.map(j => ({make: j, enabled : "false"})) || [];
+                        const makes = sentBackData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
                         const newItem = {
                             procurement_task: sentBackData.procurement_request,
                             category: item.category,
                             item: item.name,
                             vendor: vendorDoc.name,
                             quantity: item.quantity,
-                            makes: {list : makes}
+                            makes: { list: makes }
                         };
                         promises.push(createDoc("Quotation Requests", newItem));
                     });
                 } else if (prData) {
                     prData?.procurement_list?.list.forEach((item) => {
-                        const makes = prData?.category_list?.list?.find(i => i?.name ===  item?.category)?.makes?.map(j => ({make: j, enabled : "false"})) || [];
+                        const makes = prData?.category_list?.list?.find(i => i?.name === item?.category)?.makes?.map(j => ({ make: j, enabled: "false" })) || [];
                         const newItem = {
                             procurement_task: prData.name,
                             category: item.category,
                             item: item.name,
                             vendor: vendorDoc.name,
                             quantity: item.quantity,
-                            makes: {list : makes}
+                            makes: { list: makes }
                         };
                         promises.push(createDoc("Quotation Requests", newItem));
                     });
@@ -236,12 +236,11 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 await Promise.all(promises);
 
                 // Mutate the vendor-related data
-                if(service) {
+                if (service) {
                     await mutate("Service Vendors");
                 } else {
                     await mutate("Material Vendors");
                 }
-                
                 await mutate("Quotation Requests");
                 if (prData) {
                     await mutate(`Quotations Requests,Procurement_task=${prData?.name}`)

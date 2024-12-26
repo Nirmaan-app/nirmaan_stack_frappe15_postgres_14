@@ -52,6 +52,11 @@ export default function ProjectSelect({ onChange }: ProjectSelectProps) {
     if (loading) return <h1>Loading</h1>;
     if (error) return <h1>Error</h1>;
     return (
-        <ReactSelect options={options} value={selectedOption} onChange={handleChange} placeholder="Select Project"></ReactSelect>
+      <ReactSelect
+        options={options}
+        value={selectedOption}
+        onChange={handleChange}
+        placeholder="Select Project"
+      ></ReactSelect>
     );
 }

@@ -48,45 +48,45 @@ export const ManPowerOverallSummary = () => {
   // Calculate total manpower from all reports
   const totalManpower = manpowerData
     ? manpowerData.reduce((total, report) => {
-        return (
-          total +
-          (report.report?.data?.reduce((sum, role) => sum + role.count, 0) || 0)
-        );
-      }, 0)
+      return (
+        total +
+        (report.report?.data?.reduce((sum, role) => sum + role.count, 0) || 0)
+      );
+    }, 0)
     : 0;
 
   // Combine role distributions from all reports
   const roleDistribution = manpowerData
     ? manpowerData.reduce((roles, report) => {
-        report.report?.data?.forEach((role) => {
-          const existingRole = roles.find((r) => r.role === role.role);
-          if (existingRole) {
-            existingRole.count += role.count;
-          } else {
-            roles.push({ role: role.role, count: role.count });
-          }
-        });
-        return roles;
-      }, [])
+      report.report?.data?.forEach((role) => {
+        const existingRole = roles.find((r) => r.role === role.role);
+        if (existingRole) {
+          existingRole.count += role.count;
+        } else {
+          roles.push({ role: role.role, count: role.count });
+        }
+      });
+      return roles;
+    }, [])
     : [];
 
   // Group reports by role
   const roleReports = manpowerData
     ? manpowerData.reduce((acc, report) => {
-        report.report?.data?.forEach((role) => {
-          if (!acc[role.role]) {
-            acc[role.role] = [];
-          }
-          acc[role.role].push({ date: report.creation, count: role.count });
-        });
-        return acc;
-      }, {})
+      report.report?.data?.forEach((role) => {
+        if (!acc[role.role]) {
+          acc[role.role] = [];
+        }
+        acc[role.role].push({ date: report.creation, count: role.count });
+      });
+      return acc;
+    }, {})
     : {};
 
   return (
     <div className="flex-1 space-y-4">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      {/* <div className="flex justify-between items-center">
         <div className="flex items-center gap-1">
           <ArrowLeft
             className="cursor-pointer max-sm:w-4 max-sm:h-4"
@@ -96,29 +96,32 @@ export const ManPowerOverallSummary = () => {
             ManPower Overall Summary
           </h1>
         </div>
+      </div> */}
+
+      {/* Key Metrics */}
+      <div className="flex justify-between items-start">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-[70%]">
+          <div className="bg-white shadow rounded-lg p-4">
+            <h3 className="text-lg font-semibold max-sm:text-base">
+              Total Manpower
+            </h3>
+            <p className="text-3xl font-bold text-blue-600 max-sm:text-lg">
+              {totalManpower}
+            </p>
+          </div>
+          <div className="bg-white shadow rounded-lg p-4">
+            <h3 className="text-lg font-semibold max-sm:text-base">
+              Roles Breakdown
+            </h3>
+            <p className="text-3xl font-bold text-yellow-600 max-sm:text-lg">
+              {roleDistribution.length} Roles
+            </p>
+          </div>
+        </div>
+
         <Button onClick={handlePrint} variant="outline">
           Export Report
         </Button>
-      </div>
-
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white shadow rounded-lg p-4">
-          <h3 className="text-lg font-semibold max-sm:text-base">
-            Total Manpower
-          </h3>
-          <p className="text-3xl font-bold text-blue-600 max-sm:text-lg">
-            {totalManpower}
-          </p>
-        </div>
-        <div className="bg-white shadow rounded-lg p-4">
-          <h3 className="text-lg font-semibold max-sm:text-base">
-            Roles Breakdown
-          </h3>
-          <p className="text-3xl font-bold text-yellow-600 max-sm:text-lg">
-            {roleDistribution.length} Roles
-          </p>
-        </div>
       </div>
 
       {/* Accordion */}
@@ -126,7 +129,7 @@ export const ManPowerOverallSummary = () => {
         <h3 className="text-lg font-semibold mb-4 max-sm:text-base">
           Role-wise Detailed Reports
         </h3>
-        {Object.keys(roleReports)?.length > 0 && (
+        {Object.keys(roleReports)?.length !== 0 && (
           <Accordion type="multiple" defaultValue={Object.keys(roleReports)}>
             {Object.keys(roleReports).map((role, index) => (
               <AccordionItem key={index} value={role}>
