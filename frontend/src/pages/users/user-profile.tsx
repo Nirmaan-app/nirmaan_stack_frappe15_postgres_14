@@ -20,6 +20,8 @@ import { useUserData } from "@/hooks/useUserData";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { Pencil1Icon, Pencil2Icon, ResumeIcon } from "@radix-ui/react-icons";
 import { formatDate } from "@/utils/FormatDate";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import EditUserForm from "./EditUserForm";
 
 interface SelectOption {
     label: string;
@@ -35,6 +37,12 @@ export default function Profile() {
     const navigate = useNavigate()
     const { toast } = useToast()
     const userData = useUserData()
+
+    const [editSheetOpen, setEditSheetOpen] = useState(false)
+
+    const toggleEditSheet = () => {
+        setEditSheetOpen((prevState) => !prevState);
+    };
 
     const { data, isLoading, error } = useFrappeGetDoc<NirmaanUsersType>(
         'Nirmaan Users',
@@ -202,7 +210,14 @@ export default function Profile() {
             <div className="flex items-center gap-1">
                 <ArrowLeft onClick={() => userData?.role === "Nirmaan Admin Profile" ? navigate("/users") : navigate("/")} className="h-6 w-6 cursor-pointer" />
                 <span className='text-2xl max-md:text-xl font-semibold'>User Details</span>
-                <Link to={"edit"}><Pencil2Icon className="w-6 h-6 text-blue-600" /></Link>
+                <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
+                    <SheetTrigger>
+                        <Pencil2Icon className="w-6 h-6 text-blue-600" />
+                    </SheetTrigger>
+                    <SheetContent className="overflow-auto">
+                        <EditUserForm toggleEditSheet={toggleEditSheet} />
+                    </SheetContent>
+                </Sheet>
             </div>
             <Card>
                 <CardHeader className="flex flex-row items-start justify-between">
@@ -300,7 +315,7 @@ export default function Profile() {
             </Card>
             <div>
                 <div className="flex justify-between items-center mb-2 mt-4">
-                    <h2 className="text-2xl max-md:text-xl font-semibold font-bold">Assigned Projects</h2>
+                    <h2 className="text-2xl max-md:text-xl font-semibold font-bold pl-2">Assigned Projects</h2>
                     {userData.role === "Nirmaan Admin Profile" &&
                         (data?.role_profile === "Nirmaan Admin Profile" ?
                             <Button disabled={true}>
