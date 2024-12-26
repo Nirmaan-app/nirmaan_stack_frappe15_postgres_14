@@ -232,7 +232,11 @@ export const NewVendor = ({ dynamicCategories = [], navigation = true, renderCat
                 await Promise.all(promises);
 
                 // Mutate the vendor-related data
-                await mutate("Vendors");
+                if (service) {
+                  await mutate("Service Vendors");
+                } else {
+                  await mutate("Material Vendors");
+                }
                 await mutate("Quotation Requests");
                 if (prData) {
                     await mutate(`Quotations Requests,Procurement_task=${prData?.name}`)
