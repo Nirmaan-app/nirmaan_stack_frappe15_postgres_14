@@ -119,8 +119,6 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
     prId ? undefined : null
   );
 
-  console.log("universalComments", universalComments);
-
   const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
     fields: ["*"],
     limit: 1000,
@@ -172,6 +170,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
   const { data: project } = useFrappeGetDoc("Projects", projectId);
 
   const { createDoc, loading: createLoading } = useFrappeCreateDoc();
+
   const {
     updateDoc,
     loading: updateLoading,
