@@ -1,235 +1,673 @@
+// import { Button } from "@/components/ui/button"
+// import { Vendors } from "@/types/NirmaanStack/Vendors"
+// import { useFrappeGetDoc } from "frappe-react-sdk"
+// import { ArrowLeft } from "lucide-react"
+// import { Link, useNavigate, useParams } from "react-router-dom"
+
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ApprovedSRList } from "@/components/service-request/approved-sr-list";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  OverviewSkeleton2,
+  Skeleton,
+  TableSkeleton,
+} from "@/components/ui/skeleton";
 import { ColumnDef } from "@tanstack/react-table";
-import { useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeft, Ellipsis, CirclePlus, Package } from "lucide-react";
-import { useMemo, useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
-import { TableSkeleton } from "@/components/ui/skeleton";
-import { TailSpin } from "react-loader-spinner";
-import { formatDate } from "@/utils/FormatDate";
-import { Badge } from "@/components/ui/badge"
-import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
+import { ConfigProvider, Menu, MenuProps } from "antd";
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import {
+  ArrowLeft,
+  CheckCircleIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  FilePenLine,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { EditVendor } from "./edit-vendor";
 
-export default function Vendors() {
+// const Vendor = () => {
 
-    const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
-    const { data: data, isLoading: isLoading, error: error } = useFrappeGetDocList("Vendors", {
-        fields: ["*"],
-        limit: 1000,
-        orderBy: { field: "creation", order: "desc" }
+//     const { vendorId } = useParams<{ vendorId: string }>()
+
+//     return (
+//         <div>
+//             {vendorId && <VendorView vendorId={vendorId} />}
+//         </div>
+//     )
+// }
+
+// export const Component = Vendor
+
+// const VendorView = ({ vendorId }: { vendorId: string }) => {
+
+//     const navigate = useNavigate();
+
+//     const { data, error, isLoading } = useFrappeGetDoc<Vendors>(
+//         'Vendors',
+//         `${vendorId}`
+//     );
+
+//     if (isLoading) return <h1>Loading..</h1>
+//     if (error) return <h1 className="text-red-700">{error.message}</h1>
+//     return (
+//         <div className="flex-1 space-y-4 p-8 pt-4">
+//             {data &&
+//                 <>
+//                     <div className="flex items-center justify-between space-y-2">
+//                         <div className="flex">
+//                             <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/vendors")} />
+//                             <h2 className="pl-1 text-2xl font-bold tracking-tight">{data.vendor_name}</h2>
+//                         </div>
+//                         <div className="flex space-x-2">
+//                             {/* <Button onClick={handlePrint}>
+//                             Report
+//                         </Button>
+//                         <Button onClick={handlePrint2}>
+//                             Schedule
+//                         </Button>*/}
+//                             <Button asChild>
+//                                 <Link to={`/vendors/${vendorId}/edit`}> Edit Vendor</Link>
+//                             </Button>
+//                         </div>
+//                     </div>
+//                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+
+//                     </div>
+//                 </>
+//             }
+//         </div>
+//     )
+// }
+
+type PRTable = {
+  name: string;
+  project_name: string;
+  creation: string;
+  category: string;
+};
+
+const Vendor = () => {
+  const { vendorId } = useParams<{ vendorId: string }>();
+
+  return <div>{vendorId && <VendorView vendorId={vendorId} />}</div>;
+};
+
+export const Component = Vendor;
+
+const VendorView = ({ vendorId }: { vendorId: string }) => {
+  const navigate = useNavigate();
+
+  const [editSheetOpen, setEditSheetOpen] = useState(false);
+
+  const toggleEditSheet = () => {
+    setEditSheetOpen((prevState) => !prevState);
+  };
+
+  const { data, error, isLoading } = useFrappeGetDoc(
+    "Vendors",
+    vendorId,
+    `Vendors ${vendorId}`
+  );
+
+  const {
+    data: vendorAddress,
+    isLoading: vendorAddressLoading,
+    error: vendorAddressError,
+  } = useFrappeGetDoc(
+    "Address",
+    data?.vendor_address,
+    data?.vendor_address ? `Address ${data?.vendor_address}` : null
+  );
+
+  const {
+    data: procurementOrders,
+    isLoading: procurementOrdersLoading,
+    error: procurementOrdersError,
+  } = useFrappeGetDocList(
+    "Procurement Orders",
+    {
+      fields: ["*"],
+      filters: [
+        ["vendor", "=", vendorId],
+        ["status", "!=", "Merged"],
+      ],
+      limit: 10000,
     },
-        "vendors"
+    `Procurement Orders ${vendorId}`
+  );
 
-    )
+  const {
+    data: Categories,
+    isLoading: categoriesLoading,
+    error: categoriesError,
+  } = useFrappeGetDocList(
+    "Category",
+    {
+      fields: ["*"],
+      limit: 1000,
+    },
+    "Category"
+  );
 
-    const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
-        fields: ["*"],
-        limit: 1000
-    })
-    // Extract unique categories from the data dynamically
-    useEffect(() => {
-        if (category_data) {
-            const currOptions = category_data.map((item) => ({
-                value: item.name,
-                label: item.name + "(" + item.work_package.slice(0, 4).toUpperCase() + ")"
-            }))
-            setCategoryOptions(currOptions);
-        }
-        // console.log("options", categoryOptions)
-    }, [category_data]);
+  const {
+    data: procurementRequests,
+    isLoading: procurementRequestsLoading,
+    error: procurementRequestsError,
+  } = useFrappeGetDocList(
+    "Procurement Requests",
+    {
+      fields: ["*"],
+      limit: 1000,
+    },
+    `Procurement Requests`
+  );
 
-    const getVendorAddr = (id) => {
-        if (data) {
-          const vendor = data?.find((ven) => ven?.name === id);
-          return { city: vendor?.vendor_city, state: vendor?.vendor_state };
-        }
-      };
+  type MenuItem = Required<MenuProps>["items"][number];
 
-    const columns: ColumnDef<VendorsType>[] = useMemo(
-        () => [
-            {
-                accessorKey: "name",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Vendor ID" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/vendors/${row.getValue("name")}`}>
-                                {row.getValue("vendor_type") === "Material" ? "M" : "S"}-{row.getValue("name").slice(-4)}
-                            </Link>
-                        </div>
-                    )
-                }
-            },
-            {
-                accessorKey: "vendor_name",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Vendor Name" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/vendors/${row.getValue("name")}`}>
-                                {row.getValue("vendor_name")}
-                            </Link>
-                        </div>
-                    )
-                }
-            },
-            {
-                accessorKey: "creation",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Date Created" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {formatDate(row.getValue("creation")?.split(" ")[0])}
-                        </div>
-                    )
-                }
-            },
-            {
-                accessorKey: "vendor_type",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Vendor Type" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("vendor_type")}
-                        </div>
-                    )
-                }
-            },
-            {
-                accessorKey: "vendor_email",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Vendor Email" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium flex items-center justify-start">
-                            {row.getValue("vendor_email") || "--"}
-                        </div>
-                    )
-                }
-            },
-            {
-                id: "vendor_address",
-                header: ({ column }) => (
-                  <DataTableColumnHeader column={column} title="Address" />
-                ),
-                cell: ({ row }) => {
-                  const id = row.getValue("name");
-                  const address = getVendorAddr(id);
-                  return (
-                    <div>
-                      <span>{address?.city}, </span>
-                      <span>{address?.state}</span>
-                    </div>
-                  );
-                },
-              },
-            {
-                accessorKey: "vendor_category", // Add the categories column
-                header: ({ column }) => (
-                    <DataTableColumnHeader column={column} title="Categories" />
-                ),
-                cell: ({ row }) => (
-                    <div className="font-medium">
-                        {/* Display the categories as a comma-separated string */}
-                        {row.getValue("vendor_category")['categories'].length <= 3 ?
-                            (row.getValue("vendor_category")['categories'].map((item) =>
-                                <Badge className="mb-0.5 ml-0.5">{item}</Badge>
-                            ))
-                            :
-                            (<div>{row.getValue("vendor_category")['categories'].slice(0, 3).map((item) =>
-                                <Badge className="mb-0.5 ml-0.5">{item}</Badge>
-                            )}
-                                <HoverCard>
-                                    <HoverCardTrigger asChild>
-                                        <Button className="m-0.5 h-5" variant="outline" ><Ellipsis className="w-3.5 h-3.5" /></Button>
-                                    </HoverCardTrigger>
-                                    <HoverCardContent className="w-80">
-                                        <div className="flex-col">
-                                            {row.getValue("vendor_category")['categories'].slice(3).map((item) =>
-                                                <Badge className="mb-0.5 ml-0.5">{item}</Badge>
-                                            )}
-                                        </div>
-                                    </HoverCardContent>
-                                </HoverCard>
+  const items: MenuItem[] = [
+    {
+      label: "Overview",
+      key: "overview",
+    },
+    data?.vendor_type === "Material"
+      ? {
+        label: "Previous Orders",
+        key: "previousOrders",
+      }
+      : null,
+    data?.vendor_type === "Material"
+      ? {
+        label: "Open Orders",
+        key: "openOrders",
+      }
+      : null,
+    data?.vendor_type === "Service"
+      ? {
+        label: "Service Orders",
+        key: "serviceOrders",
+      }
+      : null,
+  ];
 
+  const [current, setCurrent] = useState("overview");
 
-                            </div>
-                            )
+  const onClick: MenuProps["onClick"] = (e) => {
+    setCurrent(e.key);
+  };
 
-                        }
+  const getWorkPackage = (pr: any, procRequests: any) => {
+    return procRequests?.find((proc) => proc.name === pr)?.work_package;
+  };
 
-                    </div>
-                ),
-                // Implement filtering for the categories
-                filterFn: (row, _columnId, filterValue: string[]) => {
-                    const categories = row.getValue<string[]>("vendor_category")['categories'] || [];
-                    return filterValue.every((filter) => categories.includes(filter));
-                },
-            },
-        ],
-        [data, category_data]
-    )
+  const getCategories = (ol: any) => {
+    return Array.from(new Set(ol?.list?.map((order: any) => order.category)));
+  };
 
-    // if (isLoading || category_loading) return <h1>Loading...</h1>
-    if (error || category_error) return error ? <h1>{error?.message}</h1> : <h1>{category_error?.message}</h1>
+  type Item = {
+    quantity: number;
+    quote: number;
+  };
+
+  interface OrderList {
+    list: Item[];
+  }
+
+  const getTotal = (ol: OrderList) => {
+    return useMemo(
+      () =>
+        ol.list.reduce((total: number, item) => {
+          return total + item.quantity * item.quote;
+        }, 0),
+      [ol]
+    );
+  };
+
+  type ExpandedPackagesState = {
+    [key: string]: boolean;
+  };
+
+  const [expandedPackages, setExpandedPackages] =
+    useState<ExpandedPackagesState>({});
+
+  const toggleExpand = (packageName: string) => {
+    setExpandedPackages((prev) => ({
+      ...prev,
+      [packageName]: !prev[packageName],
+    }));
+  };
+
+  const vendorCategories =
+    (data && JSON.parse(data?.vendor_category)?.categories) || [];
+
+  const groupedCategories: { [key: string]: string[] } = useMemo(() => {
+    if (!Categories || !vendorCategories.length) return {};
+
+    const filteredCategories = Categories.filter((category) =>
+      vendorCategories.includes(category.name)
+    );
+
+    const grouped = filteredCategories.reduce((acc, category) => {
+      const { work_package, name } = category;
+
+      if (!acc[work_package]) {
+        acc[work_package] = [];
+      }
+
+      acc[work_package].push(name);
+
+      return acc;
+    }, {});
+
+    return grouped;
+  }, [Categories, data]);
+
+  useEffect(() => {
+    const initialExpandedState = Object.keys(groupedCategories).reduce(
+      (acc, work_package) => {
+        acc[work_package] = true;
+        return acc;
+      },
+      {}
+    );
+    setExpandedPackages(initialExpandedState);
+  }, [groupedCategories]);
+
+  const columns: ColumnDef<PRTable>[] = useMemo(
+    () => [
+      {
+        accessorKey: "name",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader
+              className="text-black font-bold"
+              column={column}
+              title="PO Number"
+            />
+          );
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="text-[#11050599]">
+              <Link
+                className="underline hover:underline-offset-2"
+                to={`${row.getValue("name").replaceAll("/", "&=")}`}
+              >
+                {row.getValue("name").split("/")[1]}
+              </Link>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "creation",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader
+              className="text-black font-bold"
+              column={column}
+              title="Date"
+            />
+          );
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="text-[#11050599]">
+              {row.getValue("creation")?.split(" ")[0]}
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "project_name",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader
+              className="text-black font-bold"
+              column={column}
+              title="Project"
+            />
+          );
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="text-[#11050599]">
+              {row.getValue("project_name")}
+            </div>
+          );
+        },
+        filterFn: (row, id, value) => {
+          return value.includes(row.getValue(id));
+        },
+      },
+      {
+        id: "pr",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader
+              className="text-black font-bold"
+              column={column}
+              title="PR Number"
+            />
+          );
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="text-[#11050599]">
+              {row.getValue("procurement_request")}
+            </div>
+          );
+        },
+      },
+
+      {
+        accessorKey: "procurement_request",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader
+              className="text-black font-bold"
+              column={column}
+              title="Package"
+            />
+          );
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="text-[#11050599]">
+              {getWorkPackage(
+                row.getValue("procurement_request"),
+                procurementRequests
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "order_list",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader
+              className="text-black font-bold"
+              column={column}
+              title="Category"
+            />
+          );
+        },
+        cell: ({ row }) => {
+          return (
+            <ul className="text-[#11050599] list-disc">
+              {getCategories(row.getValue("order_list")).map((cat, index) => (
+                <li key={index}>{cat}</li>
+              ))}
+            </ul>
+          );
+        },
+      },
+      {
+        id: "total",
+        header: ({ column }) => {
+          return (
+            <DataTableColumnHeader
+              className="text-black font-bold"
+              column={column}
+              title="Order Price"
+            />
+          );
+        },
+        cell: ({ row }) => {
+          return (
+            <div className="text-[#11050599]">
+              {getTotal(row.getValue("order_list")).toFixed(2)}
+            </div>
+          );
+        },
+      },
+    ],
+    [procurementOrders, procurementRequests]
+  );
+
+  if (
+    error ||
+    vendorAddressError ||
+    procurementOrdersError ||
+    procurementRequestsError
+  )
     return (
-        <div className="flex-1 space-y-2 md:space-y-4">
-            {/* <div className="flex items-center justify-between">
-                <div className="flex gap-1 items-center">
-                    <Link to="/"><ArrowLeft className="" /></Link>
-                    <h2 className="text-xl md:text-3xl font-bold tracking-tight">Vendors Dashboard</h2>
+      <h1 className="text-red-700">
+        There is an error while fetching the document, please check!
+      </h1>
+    );
+
+  return (
+    <div className="flex-1 space-y-2 md:space-y-4">
+      <div className="flex items-center gap-1">
+        {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate("/vendors")} /> */}
+        {isLoading ? (
+          <Skeleton className="h-10 w-1/3 bg-gray-300" />
+        ) : (
+          <h2 className="text-xl md:text-3xl font-bold tracking-tight ml-4">
+            {data?.vendor_name}
+          </h2>
+        )}
+        <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
+          <SheetTrigger>
+            <FilePenLine className="text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
+          </SheetTrigger>
+          <SheetContent className="overflow-auto">
+            <EditVendor toggleEditSheet={toggleEditSheet} />
+          </SheetContent>
+        </Sheet>
+      </div>
+      <ConfigProvider
+        theme={{
+          components: {
+            Menu: {
+              horizontalItemSelectedColor: "#D03B45",
+              itemSelectedBg: "#FFD3CC",
+              itemSelectedColor: "#D03B45",
+            },
+          },
+        }}
+      >
+        <Menu
+          selectedKeys={[current]}
+          onClick={onClick}
+          mode="horizontal"
+          items={items}
+        />
+      </ConfigProvider>
+      {/* Overview Section */}
+      {current === "overview" &&
+        (isLoading || vendorAddressLoading ? (
+          <OverviewSkeleton2 />
+        ) : (
+          <div className="flex flex-col gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>{data?.vendor_name}</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-10 w-full">
+                {/* <Card className="bg-[#F9FAFB]">
+                              <CardHeader>
+                                <CardContent className="flex max-lg:flex-col max-lg:gap-10"> */}
+                <div className="flex max-lg:flex-col max-lg:gap-10">
+                  <div className="space-y-4 lg:w-[50%]">
+                    <CardDescription className="space-y-2">
+                      <span>Vendor ID</span>
+                      <p className="font-bold text-black">{data?.name}</p>
+                    </CardDescription>
+
+                    <CardDescription className="space-y-2">
+                      <span>Contact Person</span>
+                      <p className="font-bold text-black">
+                        {!data?.vendor_contact_person_name
+                          ? "N.A."
+                          : data.vendor_contact_person_name}
+                      </p>
+                    </CardDescription>
+
+                    <CardDescription className="space-y-2">
+                      <span>Contact Number</span>
+                      <p className="font-bold text-black">
+                        {!data?.vendor_mobile ? "N.A." : data?.vendor_mobile}
+                      </p>
+                    </CardDescription>
+                    <CardDescription className="space-y-2">
+                      <span>GST Number</span>
+                      <p className="font-bold text-black">{data?.vendor_gst}</p>
+                    </CardDescription>
+                  </div>
+
+                  <div className="space-y-4">
+                    <CardDescription className="space-y-2">
+                      <span>Address</span>
+                      <p className="font-bold text-black">
+                        {vendorAddress?.address_line1},{" "}
+                        {vendorAddress?.address_line2}, {vendorAddress?.city},{" "}
+                        {vendorAddress?.state}
+                      </p>
+                    </CardDescription>
+
+                    <CardDescription className="space-y-2">
+                      <span>City</span>
+                      <p className="font-bold text-black">
+                        {vendorAddress?.city}
+                      </p>
+                    </CardDescription>
+
+                    <CardDescription className="space-y-2">
+                      <span>State</span>
+                      <p className="font-bold text-black">
+                        {vendorAddress?.state}
+                      </p>
+                    </CardDescription>
+                    <CardDescription className="space-y-2">
+                      <span>pincode</span>
+                      <p className="font-bold text-black">
+                        {vendorAddress?.pincode}
+                      </p>
+                    </CardDescription>
+
+                    {/* <CardDescription className="space-y-2">
+                                          <span>Categories</span>
+                                        <ul className="space-y-2">
+                                              {vendorCategories.map((cat, index) => (
+                                                <li
+                                                  key={index}
+                                                  className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
+                                                >
+                                                  <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                                                  <span className="text-sm font-medium text-gray-600">{cat}</span>
+                                                </li>
+                                              ))}
+                                        </ul>
+                                      </CardDescription> */}
+                  </div>
                 </div>
-            </div> */}
-            <div className="flex justify-between">
-                <Card className="hover:animate-shadow-drop-center w-[60%]">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">
-                            Total Vendors
-                        </CardTitle>
-                        <Package className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">
-                            {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />) : (data?.length)}
-                            {/* {error && <p>Error</p>} */}
-                        </div>
-                        {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
-                    </CardContent>
-                </Card>
-                {/* <Button asChild>
-                    <Link to="new"> <CirclePlus className="w-5 h-5 pr-1" />Add <span className="hidden md:flex pl-1"> New Vendor</span></Link>
-                </Button> */}
-            </div>
-            <div className="pl-0 pr-2">
-                {(isLoading || category_loading) ? (
-                    <TableSkeleton />
-                ) : (
-                    <DataTable columns={columns} data={data || []} category_options={categoryOptions} />
-                )}
-            </div>
-        </div>
-    )
-}
+                {/* </CardContent>
+                              </CardHeader>
+                            </Card> */}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Packages-Categories Offered</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CardDescription className="space-y-2">
+                  <ul className={`flex gap-2 flex-wrap`}>
+                    {Object.entries(groupedCategories).map(
+                      ([workPackage, categoryList], index) => (
+                        <li
+                          key={index}
+                          className={`border p-1 max-md:p-2 bg-white rounded-lg shadow-sm max-sm:w-full`}
+                        >
+                          <div
+                            className="flex items-center gap-4 justify-between max-md:gap-2 cursor-pointer hover:bg-gray-100 p-2 max-md:p-1 rounded-md transition-all duration-200"
+                            onClick={() => toggleExpand(workPackage)}
+                          >
+                            <div className="flex items-center gap-2">
+                              {expandedPackages[workPackage] ? (
+                                <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                              ) : (
+                                <ChevronRightIcon className="w-5 h-5 text-gray-500" />
+                              )}
+                              <span className="text-md font-medium text-gray-800">
+                                {workPackage}
+                              </span>
+                            </div>
+                            <span className="text-sm text-gray-500">
+                              {categoryList.length} items
+                            </span>
+                          </div>
+                          {expandedPackages[workPackage] && (
+                            <ul className="pl-8 mt-2 space-y-2">
+                              {categoryList.map((cat, index) => (
+                                <li
+                                  key={index}
+                                  className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
+                                >
+                                  <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                                  <span className="text-sm font-medium text-gray-600">
+                                    {cat}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </li>
+                      )
+                    )}
+                  </ul>
+                </CardDescription>
+              </CardContent>
+            </Card>
+          </div>
+        ))}
+
+      {/* Previous Orders Section  */}
+
+      {current === "previousOrders" &&
+        (procurementOrdersLoading || procurementRequestsLoading ? (
+          <TableSkeleton />
+        ) : (
+          <DataTable
+            columns={columns}
+            data={procurementOrders?.filter((po) =>
+              ["Dispatched", "Partially Delivered", "Delivered"].includes(
+                po.status
+              )
+            )}
+          />
+        ))}
+
+      {/* Open Orders Section  */}
+
+      {current === "openOrders" &&
+        (procurementOrdersLoading || procurementRequestsLoading ? (
+          <TableSkeleton />
+        ) : (
+          <DataTable
+            columns={columns}
+            data={procurementOrders?.filter((po) =>
+              ["PO Approved", "PO Sent", "PO Amendment"].includes(po.status)
+            )}
+          />
+        ))}
+
+      {/* Transactions Section  */}
+
+      {current === "serviceOrders" && (
+        <ApprovedSRList for_vendor={data?.name} />
+      )}
+    </div>
+  );
+};
