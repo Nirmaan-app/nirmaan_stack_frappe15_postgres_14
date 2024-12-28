@@ -32,6 +32,7 @@ import {
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
 import {
+  ArrowBigRightIcon,
   ArrowDown,
   ArrowLeft,
   Check,
@@ -244,6 +245,8 @@ const ProjectView = ({
 
   const page = searchParams.get("page");
 
+  const tab = searchParams.get("tab");
+
   const { role } = useUserData();
   const [selectedUser, setSelectedUser] = useState(null);
   const [userOptions, setUserOptions] = useState([]);
@@ -266,8 +269,13 @@ const ProjectView = ({
         ...Object.fromEntries(searchParams),
         page: "overview",
       });
+    } else if(page === "projectspends" && !tab) {
+      setSearchParams({
+        ...Object.fromEntries(searchParams),
+        tab: "All",
+      });
     }
-  }, [page]);
+  }, [page, tab]);
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList(
     "Project Work Milestones",
@@ -293,7 +301,11 @@ const ProjectView = ({
     limit: 1000,
   });
 
-  const [selectedPackage, setSelectedPackage] = useState("");
+  // const [selectedPackage, setSelectedPackage] = useState("");
+
+  const setProjectSpendsTab = (tab) => {
+    setSearchParams({ ...Object.fromEntries(searchParams), tab: tab });
+  }
 
   // console.log("po_item data", po_item_data)
 
@@ -1192,8 +1204,18 @@ const ProjectView = ({
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState({});
 
   const onClick: MenuProps["onClick"] = (e) => {
-    setSearchParams({ ...Object.fromEntries(searchParams), page: e.key });
+    const currentParams = Object.fromEntries(searchParams); // Convert searchParams to a plain object
+    const updatedParams = { ...currentParams, page: e.key }; // Update the page param
+  
+    if (e.key === "projectspends") {
+      updatedParams.tab = "All"; // Set tab to "All" for "projectspends"
+    } else {
+      delete updatedParams.tab; // Remove the tab param for other cases
+    }
+  
+    setSearchParams(updatedParams); // Update the search parameters
   };
+  
 
   const today = new Date();
 
@@ -1297,6 +1319,7 @@ const ProjectView = ({
         existingItem.averageRate = Math.floor(
           (parseFloat(existingItem.averageRate) + parseFloat(item.quote)) / 2
         );
+        existingItem.po_number = `${existingItem.po_number},${item.po_number}`;
       } else {
         acc[item.work_package][item.category].push({
           ...item,
@@ -1312,9 +1335,23 @@ const ProjectView = ({
   };
 
   useEffect(() => {
+    if (!po_item_data || !project_estimates) return;
+
     const { totals } = groupItemsByWorkPackageAndCategory(po_item_data);
+    Object.keys(totals)?.forEach((key) => {
+      const estimates =
+        project_estimates?.filter((i) => i?.work_package === key) || [];
+      const totalEstimatedAmount = estimates?.reduce(
+        (acc, i) =>
+          acc +
+          parseFloat(i?.quantity_estimate || 0) *
+            parseFloat(i?.rate_estimate || 0),
+        0
+      );
+      totals[key].total_estimated_amount = totalEstimatedAmount || 0;
+    });
     setWorkPackageTotalAmounts(totals);
-  }, [po_item_data]);
+  }, [po_item_data, project_estimates]);
 
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
@@ -1412,7 +1449,7 @@ const ProjectView = ({
       });
 
       setOptions(options);
-      setSelectedPackage("All");
+      // setSelectedPackage("All");
     }
   }, [data]);
 
@@ -1482,20 +1519,23 @@ const ProjectView = ({
     [serviceRequestsData]
   );
 
-  const totalServiceOrdersAmt = segregatedServiceOrderData?.reduce(
-    (acc, item) => {
-      const category = Object.keys(item)[0];
-      const { amount } = item[category];
-      return acc + parseFloat(amount);
-    },
-    0
+  const totalServiceOrdersAmt = useMemo(
+    () =>
+      segregatedServiceOrderData?.reduce((acc, item) => {
+        const category = Object.keys(item)[0];
+        const { amount } = item[category];
+        return acc + parseFloat(amount);
+      }, 0),
+    [segregatedServiceOrderData]
   );
+
+  // console.log("seggregatedService", segregatedServiceOrderData);
 
   // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt)
 
   // console.log("service requests", serviceRequestsData)
 
-  // console.log("segregatedServicedata", segregatedServiceOrderData)
+  // console.log("segregatedServicedata", segregatedServiceOrderData);
 
   // console.log("new status", newStatus)
 
@@ -1533,7 +1573,13 @@ const ProjectView = ({
 
   // console.log("selectedPackage", selectedPackage)
 
-  // console.log("projectEstimates", project_estimates)
+  // console.log("categorizedData", categorizedData);
+
+  // console.log("projectEstimates", project_estimates);
+
+  // console.log("workPackageTotalAmounts", workPackageTotalAmounts);
+
+  // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt);
 
   return (
     <div className="flex-1 space-y-4">
@@ -1959,39 +2005,73 @@ const ProjectView = ({
         </div>
       )}
       {page === "posummary" && (
-        <div>
-          {/* <Card className="flex border border-gray-100 rounded-lg p-4">
-              <CardContent className="w-full flex flex-row items-center justify-around">
-                <CardHeader className=" w-full">
-                {Object.entries(statusCounts)?.map(([status, count]) => (
-                  <div className="flex items-center gap-1 pt-3">
-                    <h3 className="font-semibold">{status}: </h3>
-                    <p className="italic">{count}</p>
-                  </div>
-                ))}
-                </CardHeader>
-              </CardContent>
-            </Card> */}
-          {
-            po_data_for_posummary_loading ? (
-              <TableSkeleton />
-            ) : (
-              <DataTable
-                columns={poColumns}
-                data={po_data_for_posummary || []}
-                vendorOptions={vendorOptions}
-                itemSearch={true}
-                wpOptions={
-                  [
-                    ...wpOptions,
-                    { label: "Tool & Equipments", value: "Tool & Equipments" },
-                  ] || []
-                }
-              />
-            )
-            // <p>RESOLVE PO TABLE</p>
-          }
-        </div>
+        <>
+          {/* Card for Totals */}
+          <Card>
+            <CardContent className="flex flex-row items-center justify-between p-4">
+            <CardDescription>
+              <h3 className="text-lg font-semibold text-gray-700">Summary</h3>
+              <p className="text-sm text-gray-500">
+                Overview of totals across all work packages
+              </p>
+            </CardDescription>
+              <CardDescription className="text-right">
+                {/* Calculating Totals */}
+                {(() => {
+                  let totalAmountWithTax = 0;
+                  let totalAmountWithoutTax = 0;
+
+                  Object.keys(workPackageTotalAmounts || {}).forEach((key) => {
+                    const wpTotal = workPackageTotalAmounts[key];
+                    totalAmountWithTax += wpTotal.amountWithTax || 0;
+                    totalAmountWithoutTax += wpTotal.amountWithoutTax || 0;
+                  });
+
+                  return (
+                    <div className="flex flex-col items-start">
+                      <p className="text-gray-700">
+                        <span className="font-bold">Total inc. GST:</span>{" "}
+                        <span className="text-blue-600">
+                          ₹{totalAmountWithTax.toLocaleString()}
+                        </span>
+                      </p>
+                      <p className="text-gray-700">
+                        <span className="font-bold">Total exc. GST:</span>{" "}
+                        <span className="text-blue-600">
+                          ₹{totalAmountWithoutTax.toLocaleString()}
+                        </span>
+                      </p>
+                    </div>
+                  );
+                })()}
+              </CardDescription>
+            </CardContent>
+          </Card>
+          <div>
+            {
+              po_data_for_posummary_loading ? (
+                <TableSkeleton />
+              ) : (
+                <DataTable
+                  columns={poColumns}
+                  data={po_data_for_posummary || []}
+                  vendorOptions={vendorOptions}
+                  itemSearch={true}
+                  wpOptions={
+                    [
+                      ...wpOptions,
+                      {
+                        label: "Tool & Equipments",
+                        value: "Tool & Equipments",
+                      },
+                    ] || []
+                  }
+                />
+              )
+              // <p>RESOLVE PO TABLE</p>
+            }
+          </div>
+        </>
       )}
 
       {page === "projectspends" && (
@@ -2003,7 +2083,8 @@ const ProjectView = ({
               defaultValue="All"
               optionType="button"
               buttonStyle="solid"
-              onChange={(e) => setSelectedPackage(e.target.value)}
+              value={tab}
+              onChange={(e) => setProjectSpendsTab(e.target.value)}
             />
           )}
           {/* <div className="w-full flex flex-col gap-2">
@@ -2034,20 +2115,21 @@ const ProjectView = ({
               </Select>
             )} */}
           {/* </div> */}
-          {selectedPackage &&
-            !["All", "Services"].includes(selectedPackage) && (
+          {tab &&
+            !["All", "Services"].includes(tab) && (
               <CategoryAccordion
                 categorizedData={categorizedData}
-                selectedPackage={selectedPackage}
+                selectedPackage={tab}
                 projectEstimates={
                   project_estimates?.filter(
-                    (i) => i?.work_package === selectedPackage
+                    (i) => i?.work_package === tab
                   ) || []
                 }
+                po_data={po_data}
               />
             )}
 
-          {selectedPackage === "All" && (
+          {/* {tab === "All" && (
             <>
               <div>
                 <div className="flex gap-2 items-center">
@@ -2092,11 +2174,85 @@ const ProjectView = ({
               </div>
               <Separator />
             </>
+          )} */}
+
+          {tab === "All" && (
+            <div className="space-y-4">
+              {Object.keys(workPackageTotalAmounts)
+                ?.sort((a, b) => a?.localeCompare(b))
+                ?.map((wp) => {
+                  const totalAmount =
+                    workPackageTotalAmounts[wp]?.amountWithoutTax || 0;
+                  const estimatedAmount =
+                    workPackageTotalAmounts[wp]?.total_estimated_amount || 0;
+
+                  return (
+                    <div
+                      key={wp}
+                      className="bg-white shadow-lg rounded-lg p-4 border border-gray-200"
+                    >
+                      <h3
+                        onClick={() => setProjectSpendsTab(wp)}
+                        className="text-lg cursor-pointer font-semibold text-gray-700 flex items-center underline"
+                      >
+                        {wp}
+                        <ArrowBigRightIcon className="text-gray-500" />
+                      </h3>
+                      <div className="mt-4">
+                        <p className="text-sm text-gray-500">Total Amount:</p>
+                        <p className="text-xl font-bold text-green-600">
+                          ₹{totalAmount.toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="mt-4">
+                        <p className="text-sm text-gray-500">
+                          Estimated Amount:
+                        </p>
+                        <p className="text-xl font-bold text-blue-600">
+                          ₹{estimatedAmount.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              {totalServiceOrdersAmt && (
+                <div
+                  key="Services"
+                  className="bg-white shadow-lg rounded-lg p-4 border border-gray-200"
+                >
+                  <h3
+                    onClick={() => setProjectSpendsTab("Services")}
+                    className="text-lg cursor-pointer font-semibold text-gray-700 flex items-center underline"
+                  >
+                    Services
+                    <ArrowBigRightIcon className="text-gray-500" />
+                  </h3>
+                  <div className="mt-4">
+                    <p className="text-sm text-gray-500">Total Amount:</p>
+                    <p className="text-xl font-bold text-green-600">
+                      ₹{totalServiceOrdersAmt.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="mt-4">
+                    <p className="text-sm text-gray-500">Estimated Amount:</p>
+                    <p className="text-xl font-bold text-blue-600">
+                      ₹
+                      {segregatedServiceOrderData
+                        ?.reduce((acc, i) => {
+                          const { estimate_total } = Object.values(i)[0];
+                          return acc + parseFloat(estimate_total);
+                        }, 0)
+                        .toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
-          {["All", "Services"].includes(selectedPackage) && (
+          {["Services"].includes(tab) && (
             <div>
-              {selectedPackage === "All" && (
+              {tab === "All" && (
                 <div className="flex gap-2 items-center mb-4">
                   <h2 className="font-semibold text-gray-500">
                     Service Requests
@@ -2612,149 +2768,126 @@ const ProjectView = ({
   );
 };
 
+
 export const CategoryAccordion = ({
   categorizedData,
   selectedPackage,
   projectEstimates,
+  po_data,
 }) => {
+  const [expandedItem, setExpandedItem] = useState(null); // State to track expanded item
+
   const selectedData = categorizedData?.[selectedPackage] || null;
 
-  const defaultValues = selectedData && Object.keys(selectedData);
+  const navigate = useNavigate();
 
-  // console.log("defaultValues", defaultValues)
+  const toggleExpandedItem = (itemId) => {
+    setExpandedItem((prev) => (prev === itemId ? null : itemId));
+  };
+
+  // console.log('po_data',po_data)
 
   return (
     <div className="w-full">
       {selectedData ? (
         <div className="flex flex-col gap-4">
-          {defaultValues?.length > 0 && (
-            <Accordion
-              type="multiple"
-              className="space-y-4"
-              defaultValue={defaultValues || []}
-            >
-              {Object.entries(selectedData)
-                ?.sort(([a], [b]) => a?.localeCompare(b))
-                ?.map(([category, items]) => {
-                  const totalAmount = items.reduce(
-                    (sum, item) => sum + parseFloat(item?.amount),
-                    0
-                  );
+          <Accordion type="multiple" className="space-y-4">
+            {Object.entries(selectedData)
+              ?.sort(([a], [b]) => a?.localeCompare(b))
+              ?.map(([category, items]) => {
+                const totalAmount = items.reduce(
+                  (sum, item) => sum + parseFloat(item?.amount),
+                  0
+                );
 
-                  const categoryEstimates = projectEstimates?.filter(
-                    (i) => i?.category === category
-                  );
-                  const totalCategoryEstdAmt = categoryEstimates?.reduce(
-                    (sum, item) =>
-                      sum +
-                      parseFloat(item?.rate_estimate) *
-                        parseFloat(item?.quantity_estimate) *
-                        (1 + parseFloat(item?.item_tax) / 100),
-                    0
-                  );
-                  return (
-                    <AccordionItem
-                      key={category}
-                      value={category}
-                      defaultChecked
-                      className="border-b rounded-lg shadow"
-                    >
-                      <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
-                        <div className="flex space-x-4 text-sm text-gray-600">
-                          <span className="font-semibold">{category}:</span>
-                          <span>
-                            Total Amount: ₹{totalAmount.toLocaleString()}
-                          </span>
-                          <span>
-                            Total Estd Amount:{" "}
-                            {formatToIndianRupee(totalCategoryEstdAmt)}
-                          </span>
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="overflow-x-auto">
-                        <Table className="min-w-full text-left text-sm">
-                          <TableHeader>
-                            <TableRow className="bg-gray-100 text-gray-700">
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Item ID
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold w-[40%]">
-                                Item Name
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Unit
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Qty Ordered
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Estd Qty
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Amt Spent
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Estd. Amt
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Updated Estd. Amt
-                              </TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {items?.map((item) => {
-                              const estimateItem = projectEstimates?.find(
-                                (i) => i?.item === item?.item_id
-                              );
-                              const quantityDif =
-                                item?.quantity -
-                                estimateItem?.quantity_estimate;
-                              let dynamicQtyClass = null;
+                const categoryEstimates = projectEstimates?.filter(
+                  (i) => i?.category === category
+                );
+                const totalCategoryEstdAmt = categoryEstimates?.reduce(
+                  (sum, item) =>
+                    sum +
+                    parseFloat(item?.rate_estimate) *
+                      parseFloat(item?.quantity_estimate),
+                  0
+                );
 
-                              if (estimateItem) {
-                                if (quantityDif > 0) {
-                                  dynamicQtyClass = "text-primary";
-                                } else if (
-                                  quantityDif < 0 &&
-                                  Math.abs(quantityDif) < 5
-                                ) {
-                                  dynamicQtyClass = "text-yellow-600";
-                                } else if (quantityDif === 0) {
-                                  dynamicQtyClass = "text-green-500";
-                                } else {
-                                  dynamicQtyClass = "text-blue-500";
-                                }
-                              }
+                return (
+                  <AccordionItem
+                    key={category}
+                    value={category}
+                    defaultChecked
+                    className="border-b rounded-lg shadow"
+                  >
+                    <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
+                      <div className="flex space-x-4 text-sm text-gray-600">
+                        <span className="font-semibold">{category}:</span>
+                        <span>
+                          Total Amount: ₹{totalAmount.toLocaleString()}
+                        </span>
+                        <span>
+                          Total Estd Amount:{" "}
+                          {formatToIndianRupee(totalCategoryEstdAmt)}
+                        </span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="overflow-x-auto">
+                      <Table className="min-w-full text-left text-sm">
+                        <TableHeader>
+                          <TableRow className="bg-gray-100 text-gray-700">
+                            <TableHead className="px-4 py-2 font-semibold">
+                              Item ID
+                            </TableHead>
+                            <TableHead className="px-4 py-2 font-semibold w-[40%]">
+                              Item Name
+                            </TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">
+                              Unit
+                            </TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">
+                              Qty Ordered
+                            </TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">
+                              Estd Qty
+                            </TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">
+                              Amt Spent
+                            </TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">
+                              Estd. Amt
+                            </TableHead>
+                            <TableHead className="px-4 py-2 font-semibold">
+                              Updated Estd. Amt
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {items?.map((item) => {
+                            const estimateItem = projectEstimates?.find(
+                              (i) => i?.item === item?.item_id
+                            );
 
-                              const updated_estd_amt =
-                                estimateItem?.quantity_estimate > item?.quantity
-                                  ? estimateItem?.quantity_estimate *
-                                    item?.averageRate
-                                  : item.amount;
+                            const po_numbers = item?.po_number?.split(",");
+                            const po_data_array = po_data?.filter((i) =>
+                              po_numbers?.includes(i.name)
+                            );
 
-                              const percentage_change = Math.floor(
-                                ((updated_estd_amt -
-                                  estimateItem?.rate_estimate *
-                                    estimateItem?.quantity_estimate) /
-                                  (estimateItem?.rate_estimate *
-                                    estimateItem?.quantity_estimate)) *
-                                  100
-                              );
-
-                              return (
-                                <TableRow key={item.item_id}>
+                            return (
+                              <>
+                                <TableRow
+                                  key={item.item_id}
+                                  onClick={() => toggleExpandedItem(item.item_id)}
+                                  className="cursor-pointer hover:bg-gray-100"
+                                >
                                   <TableCell className="px-4 py-2">
                                     {item.item_id.slice(5)}
                                   </TableCell>
-                                  <TableCell className="px-4 py-2">
+                                  <TableCell className="px-4 py-2 text-blue-600 underline">
                                     {item.item_name}
                                   </TableCell>
                                   <TableCell className="px-4 py-2">
                                     {item.unit}
                                   </TableCell>
-                                  <TableCell
-                                    className={`px-4 py-2 ${dynamicQtyClass}`}
-                                  >
+                                  <TableCell className="px-4 py-2">
                                     {item.quantity}
                                   </TableCell>
                                   <TableCell className="px-4 py-2">
@@ -2763,43 +2896,57 @@ export const CategoryAccordion = ({
                                   <TableCell className="px-4 py-2">
                                     ₹{parseFloat(item.amount).toLocaleString()}
                                   </TableCell>
-                                  {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
                                   <TableCell className="px-4 py-2">
                                     {formatToIndianRupee(
                                       estimateItem?.rate_estimate *
                                         estimateItem?.quantity_estimate
                                     )}
                                   </TableCell>
-                                  <TableCell
-                                    className={`px-4 py-2 ${
-                                      estimateItem?.quantity_estimate !==
-                                      undefined
-                                        ? updated_estd_amt >
-                                          estimateItem?.rate_estimate *
-                                            estimateItem?.quantity_estimate
-                                          ? "text-red-500"
-                                          : "text-green-500"
-                                        : ""
-                                    }`}
-                                  >
-                                    {estimateItem?.quantity_estimate !==
-                                    undefined
-                                      ? formatToIndianRupee(updated_estd_amt)
-                                      : "--"}
-                                    {estimateItem?.quantity_estimate !==
-                                      undefined && ` (${percentage_change}%)`}
+                                  <TableCell className="px-4 py-2">
+                                    {formatToIndianRupee(
+                                      estimateItem?.rate_estimate *
+                                        estimateItem?.quantity_estimate
+                                    )}
                                   </TableCell>
                                 </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </AccordionContent>
-                    </AccordionItem>
-                  );
-                })}
-            </Accordion>
-          )}
+                                {expandedItem === item.item_id && (
+                                  <TableRow>
+                                    <TableCell colSpan={8} className="px-4 py-2">
+                                      <Table className="min-w-full text-left text-sm bg-gray-50">
+                                        <TableHeader>
+                                          <TableRow>
+                                            <TableHead>PO ID</TableHead>
+                                            <TableHead>Quantity</TableHead>
+                                            <TableHead>Rate</TableHead>
+                                            <TableHead>Vendor</TableHead>
+                                          </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                          {po_data_array?.map((po) => (
+                                            <TableRow key={po?.name}>
+                                              <TableCell className="text-blue-600 underline cursor-pointer" onClick={() => navigate(`po/${po?.name?.replaceAll("/", "&=")}`)}>{po?.name}</TableCell>
+                                              <TableCell>{po?.order_list?.list?.find((i) => i?.name === item?.item_id)?.quantity}</TableCell>
+                                              <TableCell>₹{parseFloat(po?.order_list?.list?.find((i) => i?.name === item?.item_id)?.quote).toLocaleString()}</TableCell>
+                                              <TableCell>
+                                              {po?.vendor_name}
+                                              </TableCell>
+                                            </TableRow>
+                                          ))}
+                                        </TableBody>
+                                      </Table>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+          </Accordion>
         </div>
       ) : (
         <div className="h-[10vh] flex items-center justify-center">
@@ -2807,6 +2954,212 @@ export const CategoryAccordion = ({
         </div>
       )}
     </div>
+  );
+};
+
+
+export const ServiceRequestsAccordion = ({
+  projectEstimates,
+  segregatedData,
+}) => {
+  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
+
+  // useEffect(() => {
+  //   if (segregatedData) {
+  //     setExpandedRowKeys(Object.keys(segregatedData));
+  //   }
+  // }, [segregatedData]);
+
+  // Main table columns
+  const columns = [
+    {
+      title: "Category",
+      dataIndex: "category",
+      key: "category",
+      width: "60%",
+      render: (text) => <strong className="text-primary">{text}</strong>,
+    },
+    {
+      title: "Amount",
+      dataIndex: "amount",
+      key: "amount",
+      width: "20%",
+      render: (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>,
+    },
+    {
+      title: "Estd. Amount",
+      dataIndex: "estimate_total",
+      key: "estimate_total",
+      width: "30%",
+      render: (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>,
+    },
+  ];
+
+  const innerColumns = [
+    {
+      title: "Description",
+      dataIndex: "description",
+      key: "description",
+      width: "40%",
+    },
+    {
+      title: "Unit",
+      dataIndex: "uom",
+      key: "unit",
+      width: "20%",
+    },
+    {
+      title: "Quantity",
+      dataIndex: "quantity",
+      key: "quantity",
+      width: "20%",
+    },
+    {
+      title: "Amount",
+      dataIndex: "amount",
+      key: "amount",
+      width: "20%",
+      render: (text) => (
+        <span className="italic">
+          {text ? formatToIndianRupee(text) : "--"}
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <div className="w-full">
+      {segregatedData?.length > 0 ? (
+        <div className="pt-6 overflow-x-auto">
+          <ConfigProvider>
+            <AntTable
+              dataSource={segregatedData
+                ?.sort((a, b) =>
+                  Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
+                )
+                ?.map((key) => ({
+                  key: Object.values(key)[0]?.key,
+                  amount: Object.values(key)[0]?.amount,
+                  estimate_total: Object.values(key)[0]?.estimate_total,
+                  category: Object.keys(key)[0],
+                  items: Object.values(key)[0]?.children,
+                }))}
+              columns={columns}
+              expandable={{
+                expandedRowKeys,
+                onExpandedRowsChange: setExpandedRowKeys,
+                expandedRowRender: (record) => (
+                  <AntTable
+                    dataSource={record.items}
+                    columns={innerColumns}
+                    pagination={false}
+                    rowKey={(item) => item.id || uuidv4()}
+                  />
+                ),
+              }}
+              rowKey="key"
+            />
+          </ConfigProvider>
+        </div>
+      ) : (
+        <div className="h-[10vh] flex items-center justify-center">
+          No Results.
+        </div>
+      )}
+    </div>
+  );
+};
+
+const CustomHoverCard = ({
+  totalPosRaised,
+  totalServiceOrdersAmt,
+  categorizedData,
+  workPackageTotalAmounts,
+}) => {
+  // Generate tree data for the Tree component
+  const generateTreeData = () => {
+    const treeData =
+      categorizedData &&
+      Object.entries(categorizedData)?.map(([workPackage, categories]) => {
+        // Children for each category in the work package
+        const categoryNodes = Object.entries(categories).map(
+          ([category, items]) => {
+            const totalAmount = items.reduce(
+              (sum, item) => sum + item.amount,
+              0
+            );
+            const totalAmountWithTax = items.reduce(
+              (sum, item) => sum + item.amountWithTax,
+              0
+            );
+
+            return {
+              title: `${category}: ₹${parseFloat(
+                totalAmountWithTax
+              ).toLocaleString()} (Base: ₹${parseFloat(
+                totalAmount
+              ).toLocaleString()})`,
+              key: `${workPackage}-${category}`,
+              children: items.map((item, index) => ({
+                title: `${item.item_name} - Qty: ${item.quantity}`,
+                key: `${workPackage}-${category}-${index}`,
+              })),
+            };
+          }
+        );
+
+        return {
+          title: `${workPackage} - Total: ₹${parseFloat(
+            workPackageTotalAmounts[workPackage]?.amountWithoutTax
+          ).toLocaleString()}`,
+          key: workPackage,
+          children: categoryNodes,
+        };
+      });
+
+    // Add service requests total as a standalone item
+    if (totalServiceOrdersAmt) {
+      treeData?.push({
+        title: `Service Requests Total: ₹${parseFloat(
+          totalServiceOrdersAmt
+        ).toLocaleString()}`,
+        key: "service-requests-total",
+      });
+    }
+
+    return treeData;
+  };
+
+  return (
+    <HoverCard>
+      <HoverCardTrigger>
+        <div className="ml-2 underline">
+          <span className="whitespace-nowrap">Spends excl GST: </span>
+          <span className="max-sm:text-end max-sm:w-full text-primary">
+            {formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}
+          </span>
+        </div>
+      </HoverCardTrigger>
+      <HoverCardContent className="overflow-y-auto max-h-[80vh]">
+        {generateTreeData()?.length !== 0 ? (
+          <div>
+            <h3 className="font-semibold text-lg mb-2">
+              Total Spent Breakdown
+            </h3>
+            <Tree
+              showLine
+              switcherIcon={<DownOutlined />}
+              defaultExpandedKeys={["0-0"]}
+              treeData={generateTreeData()}
+            />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center font-semibold text-xs">
+            Empty!
+          </div>
+        )}
+      </HoverCardContent>
+    </HoverCard>
   );
 };
 
@@ -2981,212 +3334,5 @@ export const ToolandEquipementAccordion = ({
         </div>
       )}
     </div>
-  );
-};
-
-export const ServiceRequestsAccordion = ({
-  projectEstimates,
-  segregatedData,
-}) => {
-  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
-
-  useEffect(() => {
-    if (segregatedData) {
-      setExpandedRowKeys(Object.keys(segregatedData));
-    }
-  }, [segregatedData]);
-
-  console.log("segregatedData", segregatedData);
-
-  // Main table columns
-  const columns = [
-    {
-      title: "Category",
-      dataIndex: "category",
-      key: "category",
-      width: "60%",
-      render: (text) => <strong className="text-primary">{text}</strong>,
-    },
-    {
-      title: "Amount",
-      dataIndex: "amount",
-      key: "amount",
-      width: "20%",
-      render: (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>,
-    },
-    {
-      title: "Estd. Amount",
-      dataIndex: "estimate_total",
-      key: "estimate_total",
-      width: "30%",
-      render: (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>,
-    },
-  ];
-
-  const innerColumns = [
-    {
-      title: "Description",
-      dataIndex: "description",
-      key: "description",
-      width: "40%",
-    },
-    {
-      title: "Unit",
-      dataIndex: "uom",
-      key: "unit",
-      width: "20%",
-    },
-    {
-      title: "Quantity",
-      dataIndex: "quantity",
-      key: "quantity",
-      width: "20%",
-    },
-    {
-      title: "Amount",
-      dataIndex: "amount",
-      key: "amount",
-      width: "20%",
-      render: (text) => (
-        <span className="italic">
-          {text ? formatToIndianRupee(text) : "--"}
-        </span>
-      ),
-    },
-  ];
-
-  return (
-    <div className="w-full">
-      {segregatedData?.length > 0 ? (
-        <div className="pt-6 overflow-x-auto">
-          <ConfigProvider>
-            <AntTable
-              dataSource={segregatedData
-                ?.sort((a, b) =>
-                  Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
-                )
-                ?.map((key) => ({
-                  key: Object.values(key)[0]?.key,
-                  amount: Object.values(key)[0]?.amount,
-                  estimate_total: Object.values(key)[0]?.estimate_total,
-                  category: Object.keys(key)[0],
-                  items: Object.values(key)[0]?.children,
-                }))}
-              columns={columns}
-              expandable={{
-                expandedRowKeys,
-                onExpandedRowsChange: setExpandedRowKeys,
-                expandedRowRender: (record) => (
-                  <AntTable
-                    dataSource={record.items}
-                    columns={innerColumns}
-                    pagination={false}
-                    rowKey={(item) => item.id || uuidv4()}
-                  />
-                ),
-              }}
-              rowKey="key"
-            />
-          </ConfigProvider>
-        </div>
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
-        </div>
-      )}
-    </div>
-  );
-};
-
-const CustomHoverCard = ({
-  totalPosRaised,
-  totalServiceOrdersAmt,
-  categorizedData,
-  workPackageTotalAmounts,
-}) => {
-  // Generate tree data for the Tree component
-  const generateTreeData = () => {
-    const treeData =
-      categorizedData &&
-      Object.entries(categorizedData)?.map(([workPackage, categories]) => {
-        // Children for each category in the work package
-        const categoryNodes = Object.entries(categories).map(
-          ([category, items]) => {
-            const totalAmount = items.reduce(
-              (sum, item) => sum + item.amount,
-              0
-            );
-            const totalAmountWithTax = items.reduce(
-              (sum, item) => sum + item.amountWithTax,
-              0
-            );
-
-            return {
-              title: `${category}: ₹${parseFloat(
-                totalAmountWithTax
-              ).toLocaleString()} (Base: ₹${parseFloat(
-                totalAmount
-              ).toLocaleString()})`,
-              key: `${workPackage}-${category}`,
-              children: items.map((item, index) => ({
-                title: `${item.item_name} - Qty: ${item.quantity}`,
-                key: `${workPackage}-${category}-${index}`,
-              })),
-            };
-          }
-        );
-
-        return {
-          title: `${workPackage} - Total: ₹${parseFloat(
-            workPackageTotalAmounts[workPackage]?.amountWithoutTax
-          ).toLocaleString()}`,
-          key: workPackage,
-          children: categoryNodes,
-        };
-      });
-
-    // Add service requests total as a standalone item
-    if (totalServiceOrdersAmt) {
-      treeData?.push({
-        title: `Service Requests Total: ₹${parseFloat(
-          totalServiceOrdersAmt
-        ).toLocaleString()}`,
-        key: "service-requests-total",
-      });
-    }
-
-    return treeData;
-  };
-
-  return (
-    <HoverCard>
-      <HoverCardTrigger>
-        <div className="ml-2 underline">
-          <span className="whitespace-nowrap">Total Spent: </span>
-          <span className="max-sm:text-end max-sm:w-full text-primary">
-            {formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}
-          </span>
-        </div>
-      </HoverCardTrigger>
-      <HoverCardContent className="overflow-y-auto max-h-[80vh]">
-        {generateTreeData()?.length !== 0 ? (
-          <div>
-            <h3 className="font-semibold text-lg mb-2">
-              Total Spent Breakdown
-            </h3>
-            <Tree
-              showLine
-              switcherIcon={<DownOutlined />}
-              defaultExpandedKeys={["0-0"]}
-              treeData={generateTreeData()}
-            />
-          </div>
-        ) : (
-          <div className="flex items-center justify-center font-semibold text-xs">
-            Empty!
-          </div>
-        )}
-      </HoverCardContent>
-    </HoverCard>
   );
 };
