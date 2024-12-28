@@ -73,6 +73,7 @@ import { SidebarProvider } from "./components/ui/sidebar";
 import { ProcurementPackages } from "./components/procurement-packages";
 import { EstimatedPriceOverview } from "./components/procurement/EstimatedPriceOverview";
 import { ManPowerOverallSummary } from "./components/ManPowerOverallSummary";
+import { LivePRTrackingTable } from "./components/procurement-request/LivePRTrackingTable";
 // import { SentBackSummary } from './components/procurement/sent-back-summary'
 // import { ManPowerReport } from './components/ManPowerReport'
 
@@ -362,6 +363,10 @@ const router = createBrowserRouter(
             {/* <Route index element={<Debug />} /> */}
             <Route index element={<ApprovedQuotationsTable />} />
             <Route path=":poId" element={<POSummary />} />
+          </Route>
+
+          <Route path="live-pr-tracking">
+            <Route index element={<LivePRTrackingTable />} />
           </Route>
 
           {/* Other routes */}
