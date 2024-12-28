@@ -41,6 +41,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { Link, useNavigate } from "react-router-dom";
 import { CsvExportModule } from "@ag-grid-community/csv-export";
 import { Button } from "@/components/ui/button";
+import { OctagonAlert } from "lucide-react";
 
 interface Props {
   gridTheme?: string;
@@ -82,7 +83,15 @@ export const LivePRTrackingTable: React.FC<Props> = ({
     await prListMutate();
   });
 
+  const { data: versions } = useFrappeGetDocList("Version", {
+    fields: ["*"],
+    limit: 100000,
+    filters: [["ref_doctype", "=", "Procurement Requests"]],
+    orderBy: { field: "creation", order: "desc" },
+  });
   //   console.log("prList", prList);
+
+  // console.log("versions", versions);
 
   const { data: projects } = useFrappeGetDocList("Projects", {
     fields: ["*"],
@@ -112,13 +121,43 @@ export const LivePRTrackingTable: React.FC<Props> = ({
   const [rowData, setRowData] = useState([]);
   const gridRef = useRef<AgGridReact>(null);
 
-  const navigate = useNavigate();
-
   useEffect(() => {
-    if (prList) {
-      setRowData(prList);
+    if (prList && versions) {
+      // Map PRs with the most recent previous state from versions
+      const dataWithPreviousState = prList.map((pr) => {
+        // Filter version docs for the current PR
+        const relevantVersions = versions.filter(
+          (ver) => ver.docname === pr.name
+        );
+
+        // Find the most recent version where workflow_state was changed
+        const recentVersionWithStateChange = relevantVersions.find((ver) => {
+          const changedData = JSON.parse(ver.data).changed || [];
+          return changedData.some(([field]) => field === "workflow_state");
+        });
+
+        // Extract previous state if a valid version is found
+        let previousState = null;
+        if (recentVersionWithStateChange) {
+          const changedData = JSON.parse(
+            recentVersionWithStateChange.data
+          ).changed;
+          const workflowStateChange = changedData.find(
+            ([field]) => field === "workflow_state"
+          );
+          if (workflowStateChange) {
+            previousState = workflowStateChange[1];
+          }
+        }
+
+        return {
+          ...pr,
+          previousState,
+        };
+      });
+      setRowData(dataWithPreviousState);
     }
-  }, [prList]);
+  }, [prList, versions]);
 
   const colDefs = useMemo<ColDef[]>(
     () => [
@@ -126,7 +165,7 @@ export const LivePRTrackingTable: React.FC<Props> = ({
         field: "name", // PR ID
         headerName: "PR ID",
         // chartDataType: "category",
-        minWidth: 170,
+        minWidth: 150,
         editable: true,
 
         // onCellClicked: ({ data }) =>
@@ -142,7 +181,7 @@ export const LivePRTrackingTable: React.FC<Props> = ({
               to={`/prs&milestones/procurement-requests/${data?.name}`}
               className="text-blue-500 underline hover:text-blue-700"
             >
-              {value}
+              {value.slice(3)}
             </Link>
           );
         },
@@ -152,24 +191,29 @@ export const LivePRTrackingTable: React.FC<Props> = ({
         headerName: "Project",
         // chartDataType: "category",
         // type: "rightAligned",
-        minWidth: 200,
+        minWidth: 150,
+        editable: true,
         // valueGetter: ({ data }: ValueGetterParams) =>
         //   data && parseFloat(data?.quote),
         // valueFormatter: (params) => "₹" + params?.value?.toLocaleString(),
         valueFormatter: (params) => getProjectName(params?.value),
+        wrapText: true,
+        autoHeight: true,
       },
       {
         field: "creation",
         headerName: "Creation",
+        editable: true,
         // chartDataType: "time",
         valueFormatter: (params) => formatDate(params?.value),
-        minWidth: 130,
+        minWidth: 120,
       },
       {
         // chartDataType: "category",
         headerName: "Created By",
         // cellDataType: "text",
-        minWidth: 150,
+        minWidth: 130,
+        editable: true,
         valueGetter: ({ data }: ValueGetterParams) =>
           data && getUserFullName(data?.owner),
         // onCellClicked: ({ data }) => navigate(`/items/${data?.item_id}`),
@@ -182,10 +226,21 @@ export const LivePRTrackingTable: React.FC<Props> = ({
         // chartDataType: "time",
         // type: "rightAligned",
         minWidth: 130,
-        // valueGetter: ({ data }: ValueGetterParams) =>
-        //   data && parseFloat(data?.quote),
-        // valueFormatter: (params) => "₹" + params?.value?.toLocaleString(),
-        valueFormatter: (params) => formatDate(params?.value),
+        editable: true,
+        wrapText: true,
+        autoHeight: true,
+        valueFormatter: (params) => {
+          if (!params?.value) return "";
+
+          const date = new Date(params.value.replace(" ", "T")); // Ensure the date string is in ISO format
+          const localDate = date.toLocaleDateString(); // Format as localized date string
+          const localTime = date.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }); // Format time as HH:MM
+
+          return `${localDate} ${localTime}`;
+        },
       },
       {
         // field: "modified_by",
@@ -193,19 +248,72 @@ export const LivePRTrackingTable: React.FC<Props> = ({
         // chartDataType: "category",
         // cellDataType: "text",
         // type: "rightAligned",
-        minWidth: 150,
+        minWidth: 130,
+        editable: true,
         valueGetter: ({ data }: ValueGetterParams) =>
           data && getUserFullName(data?.modified_by),
       },
       {
+        field: "previousState",
+        headerName: "Previous State",
+        cellRenderer: ({ value, data }) => {
+          return (
+            value || (
+              <div className="">
+                <OctagonAlert />
+              </div>
+            )
+          );
+        },
+        cellClass: ({ value }) => {
+          return `${
+            value === "Approved"
+              ? "bg-green-100 text-green-800 hover:bg-green-100/80"
+              : value === "Pending"
+              ? "bg-yellow-100 text-yellow-800  hover:bg-yellow-100/80"
+              : ["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(
+                  value
+                )
+              ? "bg-orange-100 text-orange-800  hover:bg-orange-100/80"
+              : ["Partially Approved", "Vendor Approved"].includes(value)
+              ? " bg-green-500 text-white hover:bg-green-500/80"
+              : value === "Rejected"
+              ? "bg-red-200 text-red-800  hover:bg-red-100/80"
+              : ""
+          } flex items-center justify-center`;
+        },
+        minWidth: 150,
+        editable: true,
+      },
+      {
         field: "workflow_state",
-        headerName: "Status",
+        headerName: "Current Status",
         // type: "rightAligned",
         // chartDataType: "category",
         // cellDataType: "text",
         // valueGetter: ({ data }: ValueGetterParams) =>
         //   data && findVendorName(data?.vendor),
-        minWidth: 160,
+        minWidth: 150,
+        editable: true,
+        cellClass: ({ value }) => {
+          return `${
+            value === "Approved"
+              ? " bg-green-100 text-green-800 hover:bg-green-100/80"
+              : value === "Pending"
+              ? "bg-yellow-100 text-yellow-800  hover:bg-yellow-100/80"
+              : ["RFQ Generated", "Quote Updated", "Vendor Selected"].includes(
+                  value
+                )
+              ? "bg-orange-100 text-orange-800  hover:bg-orange-100/80"
+              : ["Partially Approved", "Vendor Approved"].includes(value)
+              ? " bg-green-500 text-white hover:bg-green-500/80"
+              : value === "Rejected"
+              ? "bg-red-200 text-red-800  hover:bg-red-100/80"
+              : ["Delayed", "Sent Back"].includes(value)
+              ? "bg-gray-100 text-gray-800  hover:bg-gray-100/80"
+              : ""
+          } flex items-center justify-center`;
+        },
         // filter: true,
         // floatingFilter: true
       },
@@ -215,7 +323,8 @@ export const LivePRTrackingTable: React.FC<Props> = ({
         field: "work_package",
         // cellDataType: "text",
         // type: "rightAligned",
-        minWidth: 200,
+        minWidth: 150,
+        editable: true,
         // onCellClicked: ({ data }) =>
         //   navigate(`${data?.procurement_order?.replaceAll("/", "&=")}`),
         // valueGetter: ({ data }: ValueGetterParams) =>
@@ -231,6 +340,7 @@ export const LivePRTrackingTable: React.FC<Props> = ({
     () => ({
       flex: 1,
       filter: true,
+      cellClass: "flex justify-center items-center",
       //   enableRowGroup: true,
       //   enableValue: true,
     }),
@@ -279,8 +389,8 @@ export const LivePRTrackingTable: React.FC<Props> = ({
 
   return (
     <div className="flex-1 space-y-4">
+      <Button onClick={onBtnExport}>Download CSV export file</Button>
       <div className={styles.wrapper}>
-        <Button onClick={onBtnExport}>Download CSV export file</Button>
         <div className={styles.container}>
           <div className={`${themeClass} ${styles.grid}`}>
             <AgGridReact
