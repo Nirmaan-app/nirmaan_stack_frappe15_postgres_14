@@ -42,6 +42,13 @@ export default function Vendors() {
         // console.log("options", categoryOptions)
     }, [category_data]);
 
+    const getVendorAddr = (id) => {
+        if (data) {
+          const vendor = data?.find((ven) => ven?.name === id);
+          return { city: vendor?.vendor_city, state: vendor?.vendor_state };
+        }
+      };
+
     const columns: ColumnDef<VendorsType>[] = useMemo(
         () => [
             {
@@ -123,6 +130,22 @@ export default function Vendors() {
                     )
                 }
             },
+            {
+                id: "vendor_address",
+                header: ({ column }) => (
+                  <DataTableColumnHeader column={column} title="Address" />
+                ),
+                cell: ({ row }) => {
+                  const id = row.getValue("name");
+                  const address = getVendorAddr(id);
+                  return (
+                    <div>
+                      <span>{address?.city}, </span>
+                      <span>{address?.state}</span>
+                    </div>
+                  );
+                },
+              },
             {
                 accessorKey: "vendor_category", // Add the categories column
                 header: ({ column }) => (
