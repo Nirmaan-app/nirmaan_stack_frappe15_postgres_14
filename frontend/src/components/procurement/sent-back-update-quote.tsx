@@ -47,7 +47,7 @@ export const SentBackUpdateQuote = () => {
             filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         },
-        "Vendors"
+        "Material Vendors"
     );
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error, mutate: quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
         {

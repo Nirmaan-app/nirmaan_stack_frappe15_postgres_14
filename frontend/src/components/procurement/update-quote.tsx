@@ -40,7 +40,7 @@ export const UpdateQuote = () => {
             filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         },
-        "Vendors"
+        "Material Vendors"
     );
 
     const {data: procurement_request_list, isLoading : procurement_request_list_loading} = useFrappeGetDocList("Procurement Requests", {

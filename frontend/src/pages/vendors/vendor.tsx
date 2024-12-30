@@ -8,6 +8,7 @@ import { DataTable } from "@/components/data-table/data-table"
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"
 import { ApprovedSRList } from "@/components/service-request/approved-sr-list"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { OverviewSkeleton2, Skeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { ColumnDef } from "@tanstack/react-table"
 import { ConfigProvider, Menu, MenuProps } from "antd"
@@ -15,6 +16,7 @@ import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
 import { ArrowLeft, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, FilePenLine } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
+import { EditVendor } from "./edit-vendor"
 
 
 
@@ -98,6 +100,12 @@ export const Component = Vendor
 const VendorView = ({ vendorId }: { vendorId: string }) => {
 
     const navigate = useNavigate();
+
+    const [editSheetOpen, setEditSheetOpen] = useState(false)
+
+    const toggleEditSheet = () => {
+        setEditSheetOpen((prevState) => !prevState);
+    };
 
     const { data, error, isLoading } = useFrappeGetDoc(
         'Vendors',
@@ -357,7 +365,15 @@ const VendorView = ({ vendorId }: { vendorId: string }) => {
                 <ArrowLeft className="cursor-pointer" onClick={() => navigate("/vendors")} />
                 {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
                     <h2 className="text-xl md:text-3xl font-bold tracking-tight">{data?.vendor_name}</h2>}
-                <FilePenLine onClick={() => navigate('edit')} className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
+
+                    <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
+                        <SheetTrigger>
+                            <FilePenLine className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />
+                        </SheetTrigger>
+                        <SheetContent className="overflow-auto">
+                            <EditVendor toggleEditSheet={toggleEditSheet} />
+                        </SheetContent>
+                    </Sheet>
             </div>
             <ConfigProvider
                 theme={{
