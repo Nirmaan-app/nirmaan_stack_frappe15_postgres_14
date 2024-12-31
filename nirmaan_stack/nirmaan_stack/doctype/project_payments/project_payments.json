@@ -1,21 +1,19 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2024-11-07 13:45:01.767690",
+ "creation": "2024-12-31 14:31:44.154768",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
   "links_section",
+  "document_type",
+  "document_name",
   "project",
-  "work_package",
-  "category",
-  "item",
-  "estimate_details_section",
-  "item_name",
-  "uom",
-  "quantity_estimate",
-  "rate_estimate",
-  "item_tax"
+  "vendor",
+  "payment_details_section",
+  "utr",
+  "payment_attachment",
+  "amount"
  ],
  "fields": [
   {
@@ -24,67 +22,56 @@
    "label": "Links"
   },
   {
+   "fieldname": "document_type",
+   "fieldtype": "Link",
+   "label": "Document Type",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "document_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Document Name",
+   "options": "document_type"
+  },
+  {
    "fieldname": "project",
    "fieldtype": "Link",
    "label": "Project",
    "options": "Projects"
   },
   {
-   "fieldname": "work_package",
+   "fieldname": "vendor",
    "fieldtype": "Link",
-   "label": "Work Package",
-   "options": "Procurement Packages"
+   "label": "Vendor",
+   "options": "Vendors"
   },
   {
-   "fieldname": "category",
-   "fieldtype": "Link",
-   "label": "Category",
-   "options": "Category"
-  },
-  {
-   "fieldname": "item",
-   "fieldtype": "Link",
-   "label": "Item",
-   "options": "Items"
-  },
-  {
-   "fieldname": "estimate_details_section",
+   "fieldname": "payment_details_section",
    "fieldtype": "Section Break",
-   "label": "Estimate Details"
+   "label": "Payment Details"
   },
   {
-   "fieldname": "item_name",
-   "fieldtype": "Long Text",
-   "label": "Item Name"
-  },
-  {
-   "fieldname": "uom",
+   "fieldname": "utr",
    "fieldtype": "Data",
-   "label": "UOM"
+   "label": "UTR"
   },
   {
-   "fieldname": "quantity_estimate",
-   "fieldtype": "Data",
-   "label": "Quantity Estimate"
+   "fieldname": "payment_attachment",
+   "fieldtype": "Attach",
+   "label": "Payment Attachment"
   },
   {
-   "fieldname": "rate_estimate",
+   "fieldname": "amount",
    "fieldtype": "Data",
-   "label": "Rate Estimate"
-  },
-  {
-   "fetch_from": "category.tax",
-   "fieldname": "item_tax",
-   "fieldtype": "Data",
-   "label": "Item Tax"
+   "label": "Amount"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-31 12:58:06.130230",
+ "modified": "2024-12-31 14:36:29.880861",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
- "name": "Project Estimates",
+ "name": "Project Payments",
  "owner": "Administrator",
  "permissions": [
   {
@@ -96,18 +83,6 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Nirmaan Estimates Executive",
    "share": 1,
    "write": 1
   },
@@ -131,7 +106,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Nirmaan Procurement Executive",
+   "role": "Nirmaan Project Manager",
    "share": 1,
    "write": 1
   },
@@ -143,7 +118,28 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Nirmaan Project Manager",
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
    "share": 1,
    "write": 1
   },
@@ -162,6 +158,5 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": [],
- "track_changes": 1
+ "states": []
 }

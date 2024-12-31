@@ -18,4 +18,6 @@ export interface Category{
 	image_url?: string
 	/**	Tax : Data	*/
 	tax?: string
+	/**	New Items Addition : Data	*/
+	new_items?: string
 }
