@@ -15,7 +15,7 @@ import { UpdateQuote } from './components/procurement/update-quote'
 import { SentBackRequest } from './components/procurement/sent-back-request'
 import { SentBackUpdateQuote } from './components/procurement/sent-back-update-quote'
 import { SentBackSelectVendor } from './components/procurement/sent-back-select-vendor'
-import { ReleasePOSelect } from './components/procurement/release-po-select'
+import { ReleasePOSelect } from './pages/ProcurementOrders/release-po-select'
 import { QuoteUpdateSelect } from './components/procurement/quote-update-select'
 import { SelectVendorList } from './components/procurement/select-vendor-list'
 import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
@@ -44,7 +44,7 @@ import NewMilestones from './components/updates/NewMilestones'
 import DeliveryNotes from './pages/DeliveryNotes/deliverynotes'
 import DeliveryNote from './pages/DeliveryNotes/deliverynote'
 import { ProjectForm } from './pages/projects/project-form'
-import { ReleasePONew } from './components/updates/ReleasePONew'
+import { ReleasePONew } from './pages/ProcurementOrders/ReleasePONew'
 import { ApprovedQuotationsTable } from './pages/ApprovedQuotationsFlow/ApprovedQuotationsTable'
 import EditUserForm from './pages/users/EditUserForm'
 import { messaging } from './firebase/firebaseConfig'
@@ -63,6 +63,7 @@ import { ProcurementPackages } from './components/procurement-packages'
 import { EstimatedPriceOverview } from './components/procurement/EstimatedPriceOverview'
 import { NotificationsPage } from './components/nav/notifications'
 import { ManPowerOverallSummary } from "./components/ManPowerOverallSummary";
+import { PurchaseOrder } from './pages/ProcurementOrders/PurchaseOrder'
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -199,7 +200,10 @@ const router = createBrowserRouter(
               index
               element={<ReleasePOSelect not={false} status="PO Approved" />}
             />
-            <Route path=":id" element={<ReleasePONew not={false} />} />
+            <Route path=":id" 
+              // element={<ReleasePONew not={false} />} 
+              element={<PurchaseOrder not={false} />}
+            />
           </Route>
 
           {/* Released PO Paths  */}
@@ -208,7 +212,11 @@ const router = createBrowserRouter(
               index
               element={<ReleasePOSelect not={true} status="PO Approved" />}
             />
-            <Route path=":id" element={<ReleasePONew not={true} />} />
+            <Route 
+            path=":id" 
+            // element={<ReleasePONew not={true} />} 
+            element={<PurchaseOrder not={true} />}
+            />
           </Route>
 
           {/* Sent Back Paths */}
