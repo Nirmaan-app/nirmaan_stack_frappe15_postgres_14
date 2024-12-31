@@ -241,11 +241,9 @@ const ProjectView = ({
 }: ProjectViewProps) => {
   // const location = useLocation();
   // const searchParams = new URLSearchParams(location.search);
-  const [searchParams, setSearchParams] = useSearchParams();
+  // const page = searchParams.get("page");
 
-  const page = searchParams.get("page");
-
-  const tab = searchParams.get("tab");
+  // const tab = searchParams.get("tab");
 
   const { role } = useUserData();
   const [selectedUser, setSelectedUser] = useState(null);
@@ -263,19 +261,49 @@ const ProjectView = ({
     setEditSheetOpen((prevState) => !prevState);
   };
 
+  const [searchParams] = useSearchParams(); // Only for initialization
+  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "All");
+  const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
+
+  // Synchronize state with search parameters on initial load
   useEffect(() => {
-    if (!page) {
-      setSearchParams({
-        ...Object.fromEntries(searchParams),
-        page: "overview",
-      });
-    } else if(page === "projectspends" && !tab) {
-      setSearchParams({
-        ...Object.fromEntries(searchParams),
-        tab: "All",
-      });
+    const currentTab = searchParams.get("tab") || "All";
+    const currentPage = searchParams.get("page") || "overview";
+
+    setActiveTab(currentTab);
+    setActivePage(currentPage);
+  }, []);
+
+  const updateURL = (key, value) => {
+    const url = new URL(window.location);
+    url.searchParams.set(key, value);
+    window.history.pushState({}, "", url);
+  };
+
+  const setProjectSpendsTab = (tab) => {
+    if (activeTab === tab) return; // Prevent redundant updates
+    setActiveTab(tab);
+    updateURL("tab", tab);
+  };
+
+  const onClick: MenuProps["onClick"] = (e) => {
+    if (activePage === e.key) return; // Prevent redundant updates
+
+    const newPage = e.key;
+    if (newPage === "projectspends") {
+      setActiveTab("All");
+      updateURL("page", newPage);
+      updateURL("tab", "All");
+    } else {
+      setActiveTab(""); // Clear tab state if moving away from project spends
+      updateURL("page", newPage);
+      const url = new URL(window.location);
+      url.searchParams.delete("tab");
+      window.history.pushState({}, "", url); // Remove tab param
     }
-  }, [page, tab]);
+
+    setActivePage(newPage);
+  };
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList(
     "Project Work Milestones",
@@ -301,14 +329,6 @@ const ProjectView = ({
     limit: 1000,
   });
 
-  // const [selectedPackage, setSelectedPackage] = useState("");
-
-  const setProjectSpendsTab = (tab) => {
-    setSearchParams({ ...Object.fromEntries(searchParams), tab: tab });
-  }
-
-  // console.log("po_item data", po_item_data)
-
   const {
     data: projectAssignees,
     isLoading: projectAssigneesLoading,
@@ -325,8 +345,6 @@ const ProjectView = ({
     },
     `User Permission, filters(for_value),=,${projectId}`
   );
-
-  // console.log("projectAssignes", projectAssignees)
 
   const {
     data: usersList,
@@ -1203,20 +1221,6 @@ const ProjectView = ({
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState({});
 
-  const onClick: MenuProps["onClick"] = (e) => {
-    const currentParams = Object.fromEntries(searchParams); // Convert searchParams to a plain object
-    const updatedParams = { ...currentParams, page: e.key }; // Update the page param
-  
-    if (e.key === "projectspends") {
-      updatedParams.tab = "All"; // Set tab to "All" for "projectspends"
-    } else {
-      delete updatedParams.tab; // Remove the tab param for other cases
-    }
-  
-    setSearchParams(updatedParams); // Update the search parameters
-  };
-  
-
   const today = new Date();
 
   const formattedDate = today.toLocaleDateString("en-US", {
@@ -1281,6 +1285,8 @@ const ProjectView = ({
   const groupItemsByWorkPackageAndCategory = (items) => {
     const totals = {};
 
+    const allItemIds = [];
+
     const groupedData = items?.reduce((acc, item) => {
       const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
       const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
@@ -1321,6 +1327,7 @@ const ProjectView = ({
         );
         existingItem.po_number = `${existingItem.po_number},${item.po_number}`;
       } else {
+        allItemIds.push(item.item_id)
         acc[item.work_package][item.category].push({
           ...item,
           amount: baseAmount,
@@ -1330,6 +1337,35 @@ const ProjectView = ({
       }
       return acc;
     }, {});
+
+    const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item))
+
+    filteredProjectEstimates?.forEach((item) => {
+      if (!groupedData[item.work_package]) {
+        groupedData[item.work_package] = {};
+      }
+      if (!groupedData[item.work_package][item.category]) {
+        groupedData[item.work_package][item.category] = [];
+      }
+
+      groupedData[item.work_package][item.category].push({
+        item_id: item.item,
+        item_name: item.item_name,
+        unit: item?.uom,
+        amount: undefined,
+        amountWithTax: undefined,
+        averageRate: undefined,
+        category: item.category,
+        creation: item.creation,
+        po_number: undefined,
+        quantity: undefined,
+        quote: undefined,
+        tax: parseFloat(item?.item_tax),
+        vendor_id: undefined,
+        vendor_name: undefined,
+        work_package: item.work_package,
+      });
+    })
 
     return { groupedData, totals };
   };
@@ -1453,12 +1489,6 @@ const ProjectView = ({
     }
   }, [data]);
 
-  // useEffect(() => {
-  //   if (workPackages) {
-  //     setSelectedPackage(workPackages[0]?.work_package_name)
-  //   }
-  // }, [])
-
   const handleStatusChange = (value: string) => {
     if (value === data?.status) {
       setPopOverStatus();
@@ -1580,6 +1610,10 @@ const ProjectView = ({
   // console.log("workPackageTotalAmounts", workPackageTotalAmounts);
 
   // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt);
+
+  // console.log("activePage", activePage)
+
+  // console.log("activeTab", activeTab)
 
   return (
     <div className="flex-1 space-y-4">
@@ -1711,7 +1745,7 @@ const ProjectView = ({
             }}
           >
             <Menu
-              selectedKeys={[page]}
+              selectedKeys={[activePage]}
               onClick={onClick}
               mode="horizontal"
               items={items}
@@ -1729,7 +1763,7 @@ const ProjectView = ({
       {usersListLoading || projectAssigneesLoading ? (
         <OverviewSkeleton2 />
       ) : (
-        page === "overview" && (
+        activePage === "overview" && (
           <div className="flex flex-col gap-4">
             <Card>
               <CardHeader>
@@ -1821,7 +1855,7 @@ const ProjectView = ({
                       </div>
                       <div className="space-y-4">
                           <CardDescription className="space-y-2">
-                            <span>Total Spends exc. GST</span>
+                            <span>PO Amount (ex. GST)</span>
                             <p className="font-bold text-black">{formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}</p>
                           </CardDescription>
 
@@ -1973,7 +2007,7 @@ const ProjectView = ({
         )
       )}
 
-      {page === "projectTracking" && (
+      {activePage === "projectTracking" && (
         <div className="pr-2">
           <div className="grid grid-cols-3 gap-2 max-sm:grid-cols-2">
             <Button
@@ -2009,7 +2043,7 @@ const ProjectView = ({
         </div>
       )}
 
-      {page === "prsummary" && (
+      {activePage === "prsummary" && (
         <div>
           <Card className="flex border border-gray-100 rounded-lg p-4">
             <CardContent className="w-full flex flex-row items-center justify-around">
@@ -2034,7 +2068,7 @@ const ProjectView = ({
           )}
         </div>
       )}
-      {page === "posummary" && (
+      {activePage === "posummary" && (
         <>
           {/* Card for Totals */}
           <Card>
@@ -2104,7 +2138,7 @@ const ProjectView = ({
         </>
       )}
 
-      {page === "projectspends" && (
+      {activePage === "projectspends" && (
         <>
           {options && (
             <Radio.Group
@@ -2113,7 +2147,7 @@ const ProjectView = ({
               defaultValue="All"
               optionType="button"
               buttonStyle="solid"
-              value={tab}
+              value={activeTab}
               onChange={(e) => setProjectSpendsTab(e.target.value)}
             />
           )}
@@ -2145,21 +2179,21 @@ const ProjectView = ({
               </Select>
             )} */}
           {/* </div> */}
-          {tab &&
-            !["All", "Services"].includes(tab) && (
+          {activeTab &&
+            !["All", "Services"].includes(activeTab) && (
               <CategoryAccordion
                 categorizedData={categorizedData}
-                selectedPackage={tab}
+                selectedPackage={activeTab}
                 projectEstimates={
                   project_estimates?.filter(
-                    (i) => i?.work_package === tab
+                    (i) => i?.work_package === activeTab
                   ) || []
                 }
                 po_data={po_data}
               />
             )}
 
-          {/* {tab === "All" && (
+          {/* {activeTab === "All" && (
             <>
               <div>
                 <div className="flex gap-2 items-center">
@@ -2206,7 +2240,7 @@ const ProjectView = ({
             </>
           )} */}
 
-          {/* {tab === "All" && (
+          {/* {activeTab === "All" && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {Object.keys(workPackageTotalAmounts)
                 ?.sort((a, b) => a?.localeCompare(b))
@@ -2280,13 +2314,13 @@ const ProjectView = ({
             </div>
           )} */}
 
-          {tab === "All" && (
+          {activeTab === "All" && (
             <AllTab workPackageTotalAmounts={workPackageTotalAmounts} setProjectSpendsTab={setProjectSpendsTab} segregatedServiceOrderData={segregatedServiceOrderData} totalServiceOrdersAmt={totalServiceOrdersAmt} />
           )}
 
-          {["Services"].includes(tab) && (
+          {["Services"].includes(activeTab) && (
             <div>
-              {tab === "All" && (
+              {activeTab === "All" && (
                 <div className="flex gap-2 items-center mb-4">
                   <h2 className="font-semibold text-gray-500">
                     Service Requests
@@ -2305,7 +2339,7 @@ const ProjectView = ({
         </>
       )}
 
-      {page === "SRSummary" && (
+      {activePage === "SRSummary" && (
         <DataTable
           columns={srSummaryColumns}
           data={allServiceRequestsData || []}
@@ -2887,12 +2921,12 @@ export const CategoryAccordion = ({
   ];
 
   const innerColumns = [
-    {
-      title: "Item ID",
-      dataIndex: "item_id",
-      key: "item_id",
-      render: (text) => <span className="italic">{text}</span>,
-    },
+    // {
+    //   title: "Item ID",
+    //   dataIndex: "item_id",
+    //   key: "item_id",
+    //   render: (text) => <span className="italic">{text}</span>,
+    // },
     {
       title: "Item Name",
       dataIndex: "item_name",
@@ -2904,7 +2938,7 @@ export const CategoryAccordion = ({
       title: "Unit",
       dataIndex: "unit",
       key: "unit",
-      render: (text) => <span className="italic">{text}</span>,
+      render: (text) => <span className="italic">{text || "--"}</span>,
     },
     {
       title: "Qty Ordered",
@@ -2912,7 +2946,7 @@ export const CategoryAccordion = ({
       key: "qty_quantity",
       render: (text, data) => {
         const {dynamicQtyClass} = getItemAttributes(data)
-        return <span className={`${dynamicQtyClass} italic`}>{text}</span>
+        return <span className={`${text && dynamicQtyClass} italic`}>{text || "--"}</span>
       }
     },
     {
@@ -2953,11 +2987,11 @@ export const CategoryAccordion = ({
         const {updated_estd_amt, percentage_change, estimateItem} = getItemAttributes(data)
         return <span
         className={`${
-           estimateItem?.quantity_estimate !==
-           undefined
+           (estimateItem?.quantity_estimate !==
+           undefined && updated_estd_amt)
              ? updated_estd_amt >
-               estimateItem?.rate_estimate *
-                 estimateItem?.quantity_estimate
+               (estimateItem?.rate_estimate *
+                 estimateItem?.quantity_estimate)
                ? "text-red-500"
                : "text-green-500"
              : ""
@@ -2967,8 +3001,8 @@ export const CategoryAccordion = ({
          undefined
            ? formatToIndianRupee(updated_estd_amt)
            : "--"}
-         {estimateItem?.quantity_estimate !==
-           undefined && ` (${percentage_change}%)`}
+         {!isNaN(percentage_change) && (estimateItem?.quantity_estimate !==
+           undefined && ` (${percentage_change}%)`) }
         </span>
       },
     },
@@ -3053,6 +3087,7 @@ export const CategoryAccordion = ({
                     expandedPORowKyes,
                     onExpandedRowsChange: setExpandedPORowKeys,
                     expandedRowRender: (record) => {
+                      if(!record?.po_number) return null;
                       const filteredPOData = po_data?.filter((i) => {
                         const po_numbers = record?.po_number?.split(",");
                         return po_numbers?.includes(i.name);
@@ -3073,6 +3108,7 @@ export const CategoryAccordion = ({
                       />
                       )
                       },
+                      rowExpandable: (record) => !!record?.po_number
                   }}
                 />
               ),
@@ -3580,7 +3616,7 @@ const CustomHoverCard = ({
     <HoverCard>
       <HoverCardTrigger>
         <div className=" underline">
-          <span className="whitespace-nowrap">Spends exc. GST: </span>
+          <span className="whitespace-nowrap">PO Amt (ex. GST): </span>
           <span className="max-sm:text-end max-sm:w-full text-primary">
             {formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}
           </span>

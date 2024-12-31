@@ -42,9 +42,9 @@ import {
 import Seal from "../../assets/NIRMAAN-SEAL.jpeg";
 import { Controller, useForm } from "react-hook-form";
 import { Input } from "@/components/ui/input";
-import { Label } from "../ui/label";
+import { Label } from "../../components/ui/label";
 import TextArea from "antd/es/input/TextArea";
-import { useToast } from "../ui/use-toast";
+import { useToast } from "../../components/ui/use-toast";
 import {
   Card,
   CardContent,
@@ -52,7 +52,7 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "../ui/card";
+} from "../../components/ui/card";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -62,7 +62,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "../ui/alert-dialog";
+} from "../../components/ui/alert-dialog";
 import { AlertDialogAction } from "@radix-ui/react-alert-dialog";
 import {
   HoverCard,
@@ -71,8 +71,8 @@ import {
 } from "@/components/ui/hover-card";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useUserData } from "@/hooks/useUserData";
-import { Badge } from "../ui/badge";
-import { Sheet, SheetClose, SheetContent, SheetTrigger } from "../ui/sheet";
+import { Badge } from "../../components/ui/badge";
+import { Sheet, SheetClose, SheetContent, SheetTrigger } from "../../components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -80,8 +80,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "../ui/table";
-import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+} from "../../components/ui/table";
+import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 import {
   Dialog,
   DialogTrigger,
@@ -91,14 +91,14 @@ import {
   DialogHeader,
   DialogClose,
   DialogFooter,
-} from "../ui/dialog";
-import { RadioGroup, RadioGroupItem } from "../ui/radiogroup";
+} from "../../components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "../../components/ui/radiogroup";
 import { Button as ShadButton } from "@/components/ui/button";
-import { Separator } from "../ui/separator";
+import { Separator } from "../../components/ui/separator";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { TailSpin } from "react-loader-spinner";
 import logo from "@/assets/logo-svg.svg";
-import { Switch } from "../ui/switch";
+import { Switch } from "../../components/ui/switch";
 
 const { Sider, Content } = Layout;
 
@@ -110,7 +110,6 @@ export const ReleasePONew = ({ not }) => {
   const [vendorAddress, setVendorAddress] = useState();
   const [mergeablePOs, setMergeablePOs] = useState([]);
   const [mergedItems, setMergedItems] = useState([]);
-  const [customAdvance, setCustomAdvance] = useState(false);
   const [quantity, setQuantity] = useState<number | null | string>(null);
   const [stack, setStack] = useState([]);
   const [includeComments, setIncludeComments] = useState(false);
