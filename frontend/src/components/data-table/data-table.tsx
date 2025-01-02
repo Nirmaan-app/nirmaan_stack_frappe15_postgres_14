@@ -92,7 +92,7 @@ export function DataTable<TData, TValue>({
     []
   );
   const [columnVisibility, setColumnVisibility] =
-    React.useState<VisibilityState>({});
+    React.useState<VisibilityState>({type: false,});
 
   const [rowSelection, setRowSelection] = React.useState({});
 

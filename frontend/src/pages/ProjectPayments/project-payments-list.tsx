@@ -1,5 +1,5 @@
-import React, { useContext, useMemo } from "react";
-import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
+import React, { useContext, useMemo, useState } from "react";
+import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -9,19 +9,38 @@ import { useToast } from "@/components/ui/use-toast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { CalendarIcon, Paperclip, SquarePlus } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns"
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTrigger, AlertDialogCancel } from "@/components/ui/alert-dialog";
+import { Toast } from "@/components/ui/toast";
+import { TailSpin } from "react-loader-spinner";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const ProjectPaymentsList = () => {
+
+    const {createDoc, loading: createLoading} = useFrappeCreateDoc()
+
+    const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
+
+    const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
+
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList("Procurement Orders", {
         fields: ["*"],
         filters: [["status", "not in", ["Cancelled"]]],
-        limit: 1000,
+        limit: 10000,
         orderBy: { field: "modified", order: "desc" },
     });
 
     const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList("Service Requests", {
         fields: ["*"],
         filters: [["status", "=", "Approved"]],
-        limit: 1000,
+        limit: 10000,
         orderBy: { field: "modified", order: "desc" },
     });
 
@@ -35,6 +54,11 @@ export const ProjectPaymentsList = () => {
         limit: 1000,
     });
 
+    const {data : projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError, mutate: projectPaymentsMutate} = useFrappeGetDocList("Project Payments", {
+        fields: ["*"],
+        limit: 10000
+    })
+
     useFrappeDocTypeEventListener("Procurement Orders", async () => {
         await poMutate();
     });
@@ -43,7 +67,40 @@ export const ProjectPaymentsList = () => {
         await srMutate();
     });
 
+    const [newPaymentDialog, setNewPaymentDialog] = useState(false);
+
+    const toggleNewPaymentDialog = () => {
+        setNewPaymentDialog((prevState) => !prevState);
+    };
+
+    const [currentPaymentsDialogOpen, setCurrentPaymentsDialogOpen] = useState(false)
+
+    const toggleCurrentPaymentsDialog = () => {
+        setCurrentPaymentsDialogOpen((prevState) => !prevState);
+    };
+
+    const [currentPayments, setCurrentPayments] = useState({})
+
+    const [newPayment, setNewPayment] = useState({
+        docname: "",
+        doctype: "",
+        project: "",
+        project_id: "",
+        vendor: "",
+        vendor_id: "",
+        amount: "",
+        transaction_date: "",
+        utr: ""
+    });
+
+    const [paymentScreenshot, setPaymentScreenshot] = useState(null);
+
+    const handleFileChange = (event) => {
+        setPaymentScreenshot(event.target.files[0]);
+    };
+
     const { notifications, mark_seen_notification } = useNotificationStore();
+
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
     const projectValues = projects?.map((item) => ({
@@ -80,6 +137,82 @@ export const ProjectPaymentsList = () => {
         return 0;
     };
 
+    const getTotalAmountPaid = (id) => {
+        const payments = projectPayments?.filter((payment) => payment.document_name === id);
+
+
+        return payments?.reduce((acc, payment) => {
+            const amount = parseFloat(payment.amount || 0)
+            return acc + amount;
+        }, 0);
+    }
+
+    const combinedData = [
+        ...(purchaseOrders?.map((order) => ({ ...order, type: "Purchase Order" })) || []),
+        ...(serviceOrders?.map((order) => ({ ...order, type: "Service Order" })) || []),
+    ];
+
+    const getDataAttributes = (data) => {
+        let project = ""
+        let vendor = ""
+        if(data?.type === "Purchase Order") {
+            project = data?.project_name
+            vendor = data?.vendor_name
+        } else {
+            project = projects?.find(i => i?.name === data?.project)?.project_name
+            vendor = vendors?.find(i => i?.name === data?.vendor)?.vendor_name
+        }
+        return {project, vendor, vendor_id : data?.vendor, project_id : data?.project, document_type : data?.type, document_name : data?.name}
+    }
+
+    const AddPayment = async () => {
+        try {
+
+            const res = await createDoc("Project Payments", {
+                document_type: newPayment?.doctype,
+                document_name: newPayment?.docname,
+                project: newPayment?.project_id,
+                vendor: newPayment?.vendor_id,
+                utr: newPayment?.utr,
+                amount: newPayment?.amount,
+            })
+
+            const fileArgs = {
+                doctype: "Project Payments",
+                docname: res?.name,
+                fieldname: "payment_attachment",
+                isPrivate: true,
+              };
+      
+              const uploadedFile = await upload(paymentScreenshot, fileArgs);
+
+              await call({
+                doctype: "Project Payments",
+                name: res?.name,
+                fieldname: "payment_attachment",
+                value: uploadedFile.file_url,
+              });
+
+              await projectPaymentsMutate()
+
+              toggleNewPaymentDialog()
+
+              toast({
+                title: "Success!",
+                description: "Payment added successfully!",
+                variant: "success",
+              });
+            
+        } catch (error) {
+            console.log("error", error)
+            toast({
+                title: "Failed!",
+                description: "Failed to add Payment!",
+                variant: "destructive",
+              });
+        }
+    }
+
     const columns = useMemo(
         () => [
             {
@@ -95,12 +228,7 @@ export const ProjectPaymentsList = () => {
                 cell: ({ row }) => {
                     const id = row.getValue("name");
                     const poId = id?.replaceAll("/", "&=")
-                    // const isNew = notifications.find(
-                    //     (item) => item.docname === id && item.seen === "false"
-                    // );
                     return (
-                        // <div onClick={() => mark_seen_notification(db, isNew)} className="font-medium flex items-center gap-2 relative">
-                        // {isNew && <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-8 animate-pulse" />}
                         < div className="font-medium flex items-center gap-2 relative" >
                             <Link to={`${poId}`} className="underline hover:underline-offset-2">
                                 {id}
@@ -125,6 +253,9 @@ export const ProjectPaymentsList = () => {
                     );
                     return project ? <div className="font-medium">{project.label}</div> : null;
                 },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.getValue(id))
+                },
             },
             {
                 accessorKey: "vendor",
@@ -135,6 +266,9 @@ export const ProjectPaymentsList = () => {
                     );
                     return vendor ? <div className="font-medium">{vendor.label}</div> : null;
                 },
+                filterFn: (row, id, value) => {
+                    return value.includes(row.getValue(id))
+                }
             },
             {
                 accessorKey: "total",
@@ -146,16 +280,38 @@ export const ProjectPaymentsList = () => {
                 ),
             },
             {
-                accessorKey: "paid",
+                id: "Amount_paid",
                 header: "Amount Paid",
-                cell: ({ row }) => (
-                    <div className="font-medium">
-                        0
-                    </div>
-                ),
+                cell: ({ row }) => {
+                    const data = row.original
+                    const amountPaid = getTotalAmountPaid(data?.name);
+                    const {project, vendor, vendor_id, project_id, document_type, document_name} = getDataAttributes(data)
+
+                    return <div onClick={() => {
+                        setCurrentPayments({project, vendor, vendor_id, project_id, document_type, document_name})
+                        toggleCurrentPaymentsDialog()
+                    }} className="font-medium cursor-pointer underline">
+                            {formatToIndianRupee(amountPaid)}
+                        </div>
+                },
+            },
+            {
+                id: "Add_Payment",
+                header: "Add Payment",
+                cell: ({ row }) => {
+                    const data = row.original
+                    const {project, vendor, vendor_id, project_id} = getDataAttributes(data)
+
+                    return <div className="font-medium">
+                                <SquarePlus onClick={() => {
+                                    setNewPayment({...newPayment, project: project, vendor: vendor,docname : data?.name, doctype: data?.type === "Purchase Order" ? "Procurement Orders" : doc.type === "Service Order" ? "Service Requests" : "", project_id: project_id, vendor_id: vendor_id})
+                                    toggleNewPaymentDialog()
+                                }} className="w-5 h-5 text-red-500 cursor-pointer" />
+                            </div>
+                },
             },
         ],
-        [projectValues, notifications]
+        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments]
     );
 
     const { toast } = useToast();
@@ -168,20 +324,152 @@ export const ProjectPaymentsList = () => {
         });
     }
 
-    const combinedData = [
-        ...(purchaseOrders?.map((order) => ({ ...order, type: "Purchase Order" })) || []),
-        ...(serviceOrders?.map((order) => ({ ...order, type: "Service Order" })) || []),
-    ];
-
     return (
         <div className="flex-1 md:space-y-4">
             <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Project Payments List</h2>
             </div>
+
+                        <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
+                            <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                                <AlertDialogHeader className="text-start">
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">Project:</Label>
+                                    <span className="">{newPayment?.project}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <Label className=" text-red-700">Vendor:</Label>
+                                    <span className="">{newPayment?.vendor}</span>
+                                </div>
+
+                                <div className="flex justify-between pt-4">
+                                <div className="flex flex-col">
+                                    <Label className="py-4">Amount Paid:</Label>
+                                    <Label className="py-4">Date(of Transaction):</Label>
+                                    <Label className="py-4">UTR:</Label>
+                                </div>
+                                <div className="flex flex-col gap-4" >
+                                    <Input
+                                        type="number"
+                                        placeholder="Enter Amount"
+                                        value={newPayment.amount}
+                                        onChange={(e) => setNewPayment({...newPayment, amount: e.target.value})}
+                                     />
+
+                                    <Input
+                                        type="date"
+                                        value={newPayment.transaction_date}
+                                        placeholder="DD/MM/YYYY"
+                                        onChange={(e) => setNewPayment({...newPayment, transaction_date: e.target.value})}
+                                     />
+
+                                     <Input
+                                        type="text"
+                                        placeholder="Enter UTR"
+                                        value={newPayment.utr}
+                                        onChange={(e) => setNewPayment({...newPayment, utr: e.target.value})}
+                                     />
+
+                                </div>
+                                </div>
+
+                                <div className="flex flex-col gap-2">
+                                    <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${paymentScreenshot && "opacity-50 cursor-not-allowed"}`}
+                                    onClick={() => document.getElementById("file-upload")?.click()}
+                                    >
+                                        <Paperclip size="15px" />
+                                        <span className="p-0 text-sm">Attach Screenshot</span>
+                                        <input
+                                            type="file"
+                                            id={`file-upload`}
+                                            className="hidden"
+                                            onChange={handleFileChange}
+                                            disabled={paymentScreenshot ? true : false}
+                                        />
+                                    </div>
+                                    {(paymentScreenshot) && (
+                                        <div className="flex items-center justify-between bg-slate-100 px-4 py-1 rounded-md">
+                                            <span className="text-sm">{paymentScreenshot?.name}</span>
+                                            <button
+                                                className="ml-1 text-red-500"
+                                                onClick={() => setPaymentScreenshot(null)}
+                                            >
+                                                ✖
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex gap-2 items-center pt-4 justify-center">
+
+                                    {createLoading || upload_loading ? <TailSpin color="red" width={40} height={40} /> : (
+                                        <>
+                                        <AlertDialogCancel className="flex-1" asChild>
+                                            <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                        </AlertDialogCancel>
+                                        <Button
+                                            onClick={AddPayment}
+                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.transaction_date || !newPayment.utr}
+                                            className="flex-1">Add Payment
+                                        </Button>
+                                        </>
+                                    )}
+                                </div>
+                                
+                                </AlertDialogHeader>
+                            </AlertDialogContent>
+                        </AlertDialog>
+
+                        <Dialog open={currentPaymentsDialogOpen} onOpenChange={toggleCurrentPaymentsDialog}>
+                            <DialogContent className="text-start">
+                                    <DialogHeader className="text-start py-8 overflow-auto">
+                                        <div className="flex items-center flex-wrap gap-4 mb-4">
+                                            <div className="flex items-center gap-2">
+                                                <Label className=" text-red-700">Project:</Label>
+                                                <span className="text-xs">{currentPayments?.project}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Label className=" text-red-700">{currentPayments?.document_type === "Purchase Order" ? "PO" : "SR"} Number:</Label>
+                                                <span className="text-xs">{currentPayments?.document_name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Label className=" text-red-700">Vendor:</Label>
+                                                <span className="text-xs">{currentPayments?.vendor}</span>
+                                            </div>
+                                        </div>
+
+                                        <Table>
+                                            <TableHeader className="bg-gray-300">
+                                                <TableRow>
+                                                    <TableHead>Date</TableHead>
+                                                    <TableHead>Amount</TableHead>
+                                                    <TableHead>UTR No.</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {projectPayments?.filter((i) => i?.document_name === currentPayments?.document_name)?.length > 0 ? (
+                                                    projectPayments?.filter((i) => i?.document_name === currentPayments?.document_name)?.map((payment) => {
+                                                        return (
+                                                            <TableRow key={payment?.name}>
+                                                                <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
+                                                                <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                                                <TableCell className="font-semibold text-blue-500">{payment?.utr}</TableCell>
+                                                            </TableRow>
+                                                        )
+                                                    })
+                                                ) : (
+                                                    <div className="text-center w-full py-2">No Payments Found</div>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+
+                                    </DialogHeader>
+                            </DialogContent>
+                        </Dialog>
             {poLoading || srLoading || projectsLoading || vendorsLoading ? (
                 <TableSkeleton />
             ) : (
-                <DataTable columns={columns} data={combinedData} />
+                <DataTable columns={columns} data={combinedData} project_values={projectValues} approvedQuotesVendors={vendorValues} />
             )}
         </div>
     );
