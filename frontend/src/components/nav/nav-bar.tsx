@@ -12,6 +12,7 @@ import {
     Shapes,
     ShoppingCart,
     SquareSquare,
+    WalletCards,
 } from "lucide-react";
 import { Button, ConfigProvider, Menu, MenuProps } from "antd";
 import { Outlet } from "react-router-dom";
@@ -723,6 +724,23 @@ export const NavBar = () => {
                 }
             ] : []
         ),
+        ...(user_id == "Administrator" || role == "Nirmaan Accountant Profile"
+            ? [
+                {
+                    key: 'project-payments',
+                    icon: <WalletCards className="h-4 w-4" />,
+                    label: 'Project Payments',
+                    // children: [
+                    //     { key: '/projects', label: 'Projects' },
+                    //     { key: '/users', label: 'Users' },
+                    //     { key: '/items', label: 'Items' },
+                    //     { key: '/vendors', label: 'Vendors' },
+                    //     { key: '/customers', label: 'Customers' },
+                    //     { key: '/procurement-packages', label: 'Procurement Packages' },
+                    // ],
+                },
+            ]
+            : [])
     ];
 
     const allKeys = [

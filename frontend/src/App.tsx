@@ -50,7 +50,6 @@ import EditUserForm from './pages/users/EditUserForm'
 import { messaging } from './firebase/firebaseConfig'
 import { onMessage } from 'firebase/messaging'
 import { ApproveSelectAmendPO } from './pages/approve-select-amend-po'
-import { POSummary } from './components/POSummary'
 import ListSR from './components/service-request/list-sr'
 import { ApproveSelectSR } from './components/service-request/approve-service-request-list'
 import { ApproveServiceRequest } from './components/service-request/approve-service-request'
@@ -64,6 +63,8 @@ import { EstimatedPriceOverview } from './components/procurement/EstimatedPriceO
 import { NotificationsPage } from './components/nav/notifications'
 import { ManPowerOverallSummary } from "./components/ManPowerOverallSummary";
 import { PurchaseOrder } from './pages/ProcurementOrders/PurchaseOrder'
+import { ProjectPaymentsList } from './pages/ProjectPayments/project-payments-list'
+import OrderPaymentSummary from './pages/ProjectPayments/order-payment-summary'
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -86,7 +87,7 @@ const router = createBrowserRouter(
               />
               <Route path=":id">
                 <Route index lazy={() => import("@/components/pr-summary")} />
-                <Route path=":id" element={<POSummary />} />
+                <Route path=":id" lazy={() => import("@/components/POSummary")} />
                 <Route path="dn">
                   <Route path=":id" element={<DeliveryNote />} />
                 </Route>
@@ -100,7 +101,7 @@ const router = createBrowserRouter(
                 <Route index element={<DeliveryNote />} />
                 <Route path=":id">
                   <Route index lazy={() => import("@/components/pr-summary")} />
-                  <Route path=":id" element={<POSummary />} />
+                  <Route path=":id" lazy={() => import("@/components/POSummary")} />
                 </Route>
               </Route>
             </Route>
@@ -200,7 +201,7 @@ const router = createBrowserRouter(
               index
               element={<ReleasePOSelect not={false} status="PO Approved" />}
             />
-            <Route path=":id" 
+            <Route path=":id"
               // element={<ReleasePONew not={false} />} 
               element={<PurchaseOrder not={false} />}
             />
@@ -212,10 +213,10 @@ const router = createBrowserRouter(
               index
               element={<ReleasePOSelect not={true} status="PO Approved" />}
             />
-            <Route 
-            path=":id" 
-            // element={<ReleasePONew not={true} />} 
-            element={<PurchaseOrder not={true} />}
+            <Route
+              path=":id"
+              // element={<ReleasePONew not={true} />} 
+              element={<PurchaseOrder not={true} />}
             />
           </Route>
 
@@ -270,10 +271,10 @@ const router = createBrowserRouter(
             <Route path=":projectId/edit" element={<EditProjectForm />} />
             <Route path=":projectId/:id">
               <Route index lazy={() => import("@/components/pr-summary")} />
-              <Route path=":id" element={<POSummary />} />
+              <Route path=":id" lazy={() => import("@/components/POSummary")} />
               <Route path="dn/:id" element={<DeliveryNote />} />
             </Route>
-            <Route path=":projectId/po/:id" element={<POSummary />} />
+            <Route path=":projectId/po/:id" lazy={() => import("@/components/POSummary")} />
           </Route>
 
           {/* User Paths */}
@@ -296,7 +297,7 @@ const router = createBrowserRouter(
             <Route path="new" element={<NewVendor />} />
             <Route path=":vendorId">
               <Route index lazy={() => import("@/pages/vendors/vendor")} />
-              <Route path=":id" element={<POSummary />} />
+              <Route path=":id" lazy={() => import("@/components/POSummary")} />
             </Route>
             <Route path=":id/edit" element={<EditVendor />} />
           </Route>
@@ -320,15 +321,21 @@ const router = createBrowserRouter(
           <Route path="debug">
             {/* <Route index element={<Debug />} /> */}
             <Route index element={<ApprovedQuotationsTable />} />
-            <Route path=":id" element={<POSummary />} />
+            <Route path=":id" lazy={() => import("@/components/POSummary")} />
           </Route>
 
-          {/* Other routes */}
+          {/* Procurement Packages routes */}
           <Route path="wp" element={<WorkPackages />} />
           <Route
             path="procurement-packages"
             element={<ProcurementPackages />}
           />
+          <Route
+            path="project-payments">
+            <Route index element={<ProjectPaymentsList />} />
+            <Route path=":id" element={<OrderPaymentSummary />} />
+          </Route>
+
           <Route path="pdf" element={<PDF />} />
           <Route path="milestone-update" element={<NewMilestones />} />
           <Route path="delayed-pr" element={<DelayedPRSelect />} />
@@ -344,52 +351,52 @@ const router = createBrowserRouter(
 
 const App: FC = () => {
 
-	useEffect(() => {
-		// Firebase onMessage handler for foreground notifications
-		onMessage(messaging, (payload) => {
-			// console.log('Message received in the foreground: ', payload);
+  useEffect(() => {
+    // Firebase onMessage handler for foreground notifications
+    onMessage(messaging, (payload) => {
+      // console.log('Message received in the foreground: ', payload);
 
-			const notificationTitle = payload?.notification?.title || "";
-			const notificationOptions = {
-				body: payload?.notification?.body,
-				icon: payload?.notification?.icon || '../src/assets/red-logo.png',
-				data: { click_action_url: payload?.data?.click_action_url }
-			};
+      const notificationTitle = payload?.notification?.title || "";
+      const notificationOptions = {
+        body: payload?.notification?.body,
+        icon: payload?.notification?.icon || '../src/assets/red-logo.png',
+        data: { click_action_url: payload?.data?.click_action_url }
+      };
 
-			const notification = new Notification(notificationTitle, notificationOptions);
+      const notification = new Notification(notificationTitle, notificationOptions);
 
-			notification.onclick = () => {
-				window.open(notificationOptions.data.click_action_url || "/", '_blank');
-			};
-		});
-	}, []);
+      notification.onclick = () => {
+        window.open(notificationOptions.data.click_action_url || "/", '_blank');
+      };
+    });
+  }, []);
 
-	const getSiteName = () => {
-		// @ts-ignore
-		// if (window.frappe?.boot?.versions?.frappe && (window.frappe.boot.versions.frappe.startsWith('15') || window.frappe.boot.versions.frappe.startsWith('16'))) {
-		// 	// @ts-ignore
-		// 	return window.frappe?.boot?.sitename ?? import.meta.env.VITE_SITE_NAME
-		// }
-		return window.frappe?.boot?.sitename !== undefined ? window.frappe?.boot?.sitename : import.meta.env.VITE_SITE_NAME
-	}
+  const getSiteName = () => {
+    // @ts-ignore
+    // if (window.frappe?.boot?.versions?.frappe && (window.frappe.boot.versions.frappe.startsWith('15') || window.frappe.boot.versions.frappe.startsWith('16'))) {
+    // 	// @ts-ignore
+    // 	return window.frappe?.boot?.sitename ?? import.meta.env.VITE_SITE_NAME
+    // }
+    return window.frappe?.boot?.sitename !== undefined ? window.frappe?.boot?.sitename : import.meta.env.VITE_SITE_NAME
+  }
 
-	// const queryClient = new QueryClient()
+  // const queryClient = new QueryClient()
 
-	return (
-		<FrappeProvider
-			url={import.meta.env.VITE_FRAPPE_PATH ?? ""}
-			socketPort={import.meta.env.VITE_SOCKET_PORT ? import.meta.env.VITE_SOCKET_PORT : undefined}
-			//@ts-ignore
-			siteName={getSiteName()}>
-			<UserProvider>
-				{/* <QueryClientProvider client={queryClient}> */}
-				<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-					<RouterProvider router={router} />
-				</ThemeProvider>
-				{/* </QueryClientProvider> */}
-			</UserProvider>
-		</FrappeProvider>
-	)
+  return (
+    <FrappeProvider
+      url={import.meta.env.VITE_FRAPPE_PATH ?? ""}
+      socketPort={import.meta.env.VITE_SOCKET_PORT ? import.meta.env.VITE_SOCKET_PORT : undefined}
+      //@ts-ignore
+      siteName={getSiteName()}>
+      <UserProvider>
+        {/* <QueryClientProvider client={queryClient}> */}
+        <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+          <RouterProvider router={router} />
+        </ThemeProvider>
+        {/* </QueryClientProvider> */}
+      </UserProvider>
+    </FrappeProvider>
+  )
 }
 
 export default App
