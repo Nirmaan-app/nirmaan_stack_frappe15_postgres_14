@@ -20,7 +20,7 @@ import { UpdateQuote } from "./components/procurement/update-quote";
 import { SentBackRequest } from "./components/procurement/sent-back-request";
 import { SentBackUpdateQuote } from "./components/procurement/sent-back-update-quote";
 import { SentBackSelectVendor } from "./components/procurement/sent-back-select-vendor";
-import { ReleasePOSelect } from "./components/procurement/release-po-select";
+import { ReleasePOSelect } from "./pages/ProcurementOrders/release-po-select";
 import { QuoteUpdateSelect } from "./components/procurement/quote-update-select";
 import { SelectVendorList } from "./components/procurement/select-vendor-list";
 import { ApproveSelectSentBack } from "./pages/approve-select-sent-back";
@@ -74,6 +74,7 @@ import { ProcurementPackages } from "./components/procurement-packages";
 import { EstimatedPriceOverview } from "./components/procurement/EstimatedPriceOverview";
 import { ManPowerOverallSummary } from "./components/ManPowerOverallSummary";
 import { LivePRTrackingTable } from "./components/procurement-request/LivePRTrackingTable";
+import { PurchaseOrder } from "./pages/ProcurementOrders/PurchaseOrder";
 // import { SentBackSummary } from './components/procurement/sent-back-summary'
 // import { ManPowerReport } from './components/ManPowerReport'
 
@@ -232,7 +233,10 @@ const router = createBrowserRouter(
               index
               element={<ReleasePOSelect not={false} status="PO Approved" />}
             />
-            <Route path=":poId" element={<ReleasePONew not={false} />} />
+            <Route path=":poId" 
+            // element={<ReleasePONew not={false} />} 
+            element={<PurchaseOrder not={false} />} 
+            />
           </Route>
 
           {/* Released PO Paths  */}
@@ -241,7 +245,10 @@ const router = createBrowserRouter(
               index
               element={<ReleasePOSelect not={true} status="PO Approved" />}
             />
-            <Route path=":poId" element={<ReleasePONew not={true} />} />
+            <Route path=":poId" 
+            // element={<ReleasePONew not={true} />}
+            element={<PurchaseOrder not={true} />} 
+            />
           </Route>
 
           {/* Sent Back Paths */}
