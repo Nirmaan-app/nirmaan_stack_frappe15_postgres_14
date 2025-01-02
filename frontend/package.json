@@ -64,6 +64,7 @@
     "date-fns": "^3.6.0",
     "firebase": "^10.14.1",
     "frappe-react-sdk": "^1.7.0",
+    "fuse.js": "^7.0.0",
     "get-orientation": "^1.1.2",
     "js-cookie": "^3.0.5",
     "lucide-react": "^0.453.0",
