@@ -32,6 +32,7 @@ import {
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
 import {
+  ArrowBigRightIcon,
   ArrowDown,
   ArrowLeft,
   Check,
@@ -52,7 +53,6 @@ import {
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Link,
-  useLocation,
   useNavigate,
   useParams,
   useSearchParams,
@@ -240,38 +240,70 @@ const ProjectView = ({
   po_item_data,
 }: ProjectViewProps) => {
   // const location = useLocation();
-
   // const searchParams = new URLSearchParams(location.search);
+  // const page = searchParams.get("page");
 
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  const page = searchParams.get("page");
+  // const tab = searchParams.get("tab");
 
   const { role } = useUserData();
   const [selectedUser, setSelectedUser] = useState(null);
   const [userOptions, setUserOptions] = useState([]);
-  // const [current, setCurrent] = useState('')
 
   const [newStatus, setNewStatus] = useState<string>("");
-  const [editSheetOpen, setEditSheetOpen] = useState(false);
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
 
   const { createDoc, loading: createDocLoading } = useFrappeCreateDoc();
   const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
   const [statusCounts, setStatusCounts] = useState({});
+  const [editSheetOpen, setEditSheetOpen] = useState(false);
 
   const toggleEditSheet = () => {
     setEditSheetOpen((prevState) => !prevState);
   };
 
+  const [searchParams] = useSearchParams(); // Only for initialization
+  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "All");
+  const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
+
+  // Synchronize state with search parameters on initial load
   useEffect(() => {
-    if (!page) {
-      setSearchParams({
-        ...Object.fromEntries(searchParams),
-        page: "overview",
-      });
+    const currentTab = searchParams.get("tab") || "All";
+    const currentPage = searchParams.get("page") || "overview";
+
+    setActiveTab(currentTab);
+    setActivePage(currentPage);
+  }, []);
+
+  const updateURL = (key, value) => {
+    const url = new URL(window.location);
+    url.searchParams.set(key, value);
+    window.history.pushState({}, "", url);
+  };
+
+  const setProjectSpendsTab = (tab) => {
+    if (activeTab === tab) return; // Prevent redundant updates
+    setActiveTab(tab);
+    updateURL("tab", tab);
+  };
+
+  const onClick: MenuProps["onClick"] = (e) => {
+    if (activePage === e.key) return; // Prevent redundant updates
+
+    const newPage = e.key;
+    if (newPage === "projectspends") {
+      setActiveTab("All");
+      updateURL("page", newPage);
+      updateURL("tab", "All");
+    } else {
+      setActiveTab(""); // Clear tab state if moving away from project spends
+      updateURL("page", newPage);
+      const url = new URL(window.location);
+      url.searchParams.delete("tab");
+      window.history.pushState({}, "", url); // Remove tab param
     }
-  }, [page]);
+
+    setActivePage(newPage);
+  };
 
   const { data: mile_data, isLoading: mile_isloading } = useFrappeGetDocList(
     "Project Work Milestones",
@@ -297,10 +329,6 @@ const ProjectView = ({
     limit: 1000,
   });
 
-  const [selectedPackage, setSelectedPackage] = useState("");
-
-  // console.log("po_item data", po_item_data)
-
   const {
     data: projectAssignees,
     isLoading: projectAssigneesLoading,
@@ -317,8 +345,6 @@ const ProjectView = ({
     },
     `User Permission, filters(for_value),=,${projectId}`
   );
-
-  // console.log("projectAssignes", projectAssignees)
 
   const {
     data: usersList,
@@ -1195,11 +1221,6 @@ const ProjectView = ({
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState({});
 
-  const onClick: MenuProps["onClick"] = (e) => {
-    // setCurrent(e.key);
-    setSearchParams({ ...Object.fromEntries(searchParams), page: e.key });
-  };
-
   const today = new Date();
 
   const formattedDate = today.toLocaleDateString("en-US", {
@@ -1264,6 +1285,8 @@ const ProjectView = ({
   const groupItemsByWorkPackageAndCategory = (items) => {
     const totals = {};
 
+    const allItemIds = [];
+
     const groupedData = items?.reduce((acc, item) => {
       const baseAmount = parseFloat(item.quote) * parseFloat(item.quantity);
       const taxAmount = baseAmount * (parseFloat(item.tax) / 100);
@@ -1302,7 +1325,9 @@ const ProjectView = ({
         existingItem.averageRate = Math.floor(
           (parseFloat(existingItem.averageRate) + parseFloat(item.quote)) / 2
         );
+        existingItem.po_number = `${existingItem.po_number},${item.po_number}`;
       } else {
+        allItemIds.push(item.item_id)
         acc[item.work_package][item.category].push({
           ...item,
           amount: baseAmount,
@@ -1313,13 +1338,56 @@ const ProjectView = ({
       return acc;
     }, {});
 
+    const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item))
+
+    filteredProjectEstimates?.forEach((item) => {
+      if (!groupedData[item.work_package]) {
+        groupedData[item.work_package] = {};
+      }
+      if (!groupedData[item.work_package][item.category]) {
+        groupedData[item.work_package][item.category] = [];
+      }
+
+      groupedData[item.work_package][item.category].push({
+        item_id: item.item,
+        item_name: item.item_name,
+        unit: item?.uom,
+        amount: undefined,
+        amountWithTax: undefined,
+        averageRate: undefined,
+        category: item.category,
+        creation: item.creation,
+        po_number: undefined,
+        quantity: undefined,
+        quote: undefined,
+        tax: parseFloat(item?.item_tax),
+        vendor_id: undefined,
+        vendor_name: undefined,
+        work_package: item.work_package,
+      });
+    })
+
     return { groupedData, totals };
   };
 
   useEffect(() => {
+    if (!po_item_data || !project_estimates) return;
+
     const { totals } = groupItemsByWorkPackageAndCategory(po_item_data);
+    Object.keys(totals)?.forEach((key) => {
+      const estimates =
+        project_estimates?.filter((i) => i?.work_package === key) || [];
+      const totalEstimatedAmount = estimates?.reduce(
+        (acc, i) =>
+          acc +
+          parseFloat(i?.quantity_estimate || 0) *
+            parseFloat(i?.rate_estimate || 0),
+        0
+      );
+      totals[key].total_estimated_amount = totalEstimatedAmount || 0;
+    });
     setWorkPackageTotalAmounts(totals);
-  }, [po_item_data]);
+  }, [po_item_data, project_estimates]);
 
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
@@ -1417,15 +1485,9 @@ const ProjectView = ({
       });
 
       setOptions(options);
-      setSelectedPackage("All");
+      // setSelectedPackage("All");
     }
   }, [data]);
-
-  // useEffect(() => {
-  //   if (workPackages) {
-  //     setSelectedPackage(workPackages[0]?.work_package_name)
-  //   }
-  // }, [])
 
   const handleStatusChange = (value: string) => {
     if (value === data?.status) {
@@ -1487,20 +1549,23 @@ const ProjectView = ({
     [serviceRequestsData]
   );
 
-  const totalServiceOrdersAmt = segregatedServiceOrderData?.reduce(
-    (acc, item) => {
-      const category = Object.keys(item)[0];
-      const { amount } = item[category];
-      return acc + parseFloat(amount);
-    },
-    0
+  const totalServiceOrdersAmt = useMemo(
+    () =>
+      segregatedServiceOrderData?.reduce((acc, item) => {
+        const category = Object.keys(item)[0];
+        const { amount } = item[category];
+        return acc + parseFloat(amount);
+      }, 0),
+    [segregatedServiceOrderData]
   );
+
+  // console.log("seggregatedService", segregatedServiceOrderData);
 
   // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt)
 
   // console.log("service requests", serviceRequestsData)
 
-  // console.log("segregatedServicedata", segregatedServiceOrderData)
+  // console.log("segregatedServicedata", segregatedServiceOrderData);
 
   // console.log("new status", newStatus)
 
@@ -1538,30 +1603,42 @@ const ProjectView = ({
 
   // console.log("selectedPackage", selectedPackage)
 
-  // console.log("projectEstimates", project_estimates)
+  // console.log("categorizedData", categorizedData);
+
+  // console.log("projectEstimates", project_estimates);
+
+  // console.log("workPackageTotalAmounts", workPackageTotalAmounts);
+
+  // console.log("totalServiceOrdersAmt", totalServiceOrdersAmt);
+
+  // console.log("activePage", activePage)
+
+  // console.log("activeTab", activeTab)
 
   return (
     <div className="flex-1 space-y-4">
       <div className="flex items-center justify-between max-md:flex-col max-md:gap-4 max-md:items-start">
-        <div className="">
-          {/* <ArrowLeft className="mt-1.5 cursor-pointer" onClick={() => navigate("/projects")} /> */}
-          <span className="pl-2 text-xl md:text-3xl font-bold tracking-tight">
-            {data?.project_name.toUpperCase()}
-          </span>
-          {role === "Nirmaan Admin Profile" && (
-            <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
-              <SheetTrigger>
-                <FilePenLine
-                  // onClick={() => navigate("edit")}
-                  className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer inline-block -mt-3"
-                />
-              </SheetTrigger>
-              <SheetContent className="overflow-auto">
-                <EditProjectForm toggleEditSheet={toggleEditSheet} />
-              </SheetContent>
-            </Sheet>
-          )}
-        </div>
+         {/* <div className="flex items-center">
+           <ArrowLeft
+            className="cursor-pointer mr-1"
+            onClick={() => navigate("/projects")}
+          /> */}
+          <div className="inline-block">
+            <span className="text-xl md:text-3xl font-bold tracking-tight text-wrap mr-1">
+              {data?.project_name.toUpperCase()}
+            </span>
+            {role === "Nirmaan Admin Profile" && (
+              <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
+                <SheetTrigger>
+                  <FilePenLine className="max-md:w-4 max-md:h-4 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer inline-block -mt-3" />
+                </SheetTrigger>
+                <SheetContent className="overflow-auto">
+                  <EditProjectForm toggleEditSheet={toggleEditSheet} />
+                </SheetContent>
+              </Sheet>
+            )}
+          </div>
+        {/* </div> */}
         <div className="flex max-sm:text-xs max-md:text-sm items-center max-md:justify-between max-md:w-full">
           {role === "Nirmaan Admin Profile" && (
             <>
@@ -1570,8 +1647,7 @@ const ProjectView = ({
                   <Button
                     variant="outline"
                     role="combobox"
-                    // aria-expanded={open}
-                    className="w-48 flex justify-between"
+                    className="w-48 md:py-6 flex justify-between"
                   >
                     <span className="font-bold text-md">Status: </span>
                     <div
@@ -1636,12 +1712,23 @@ const ProjectView = ({
               </AlertDialog>
             </>
           )}
-          <CustomHoverCard
-            totalPosRaised={totalPosRaised}
-            totalServiceOrdersAmt={totalServiceOrdersAmt}
-            categorizedData={categorizedData}
-            workPackageTotalAmounts={workPackageTotalAmounts}
-          />
+          <div className="flex flex-col items-start ml-2">
+            <CustomHoverCard
+              totalPosRaised={totalPosRaised}
+              totalServiceOrdersAmt={totalServiceOrdersAmt}
+              categorizedData={categorizedData}
+              workPackageTotalAmounts={workPackageTotalAmounts}
+            />
+            <div>
+              <span className="whitespace-nowrap">Total Estimates: </span>
+              <span className="max-sm:text-end max-sm:w-full text-primary">
+                {formatToIndianRupee(project_estimates?.reduce((acc, i) => {
+                  const amount = i?.quantity_estimate * i?.rate_estimate;
+                  return acc + parseFloat(amount);
+                }, 0))}
+              </span>
+            </div>
+        </div>
         </div>
       </div>
       <div className="flex justify-between items-center">
@@ -1658,7 +1745,7 @@ const ProjectView = ({
             }}
           >
             <Menu
-              selectedKeys={[page]}
+              selectedKeys={[activePage]}
               onClick={onClick}
               mode="horizontal"
               items={items}
@@ -1676,7 +1763,7 @@ const ProjectView = ({
       {usersListLoading || projectAssigneesLoading ? (
         <OverviewSkeleton2 />
       ) : (
-        page === "overview" && (
+        activePage === "overview" && (
           <div className="flex flex-col gap-4">
             <Card>
               <CardHeader>
@@ -1747,23 +1834,42 @@ const ProjectView = ({
                     </CardDescription>
                   </div>
                 </div>
-                <div className="space-y-4 w-full">
-                  <CardDescription className="space-y-2">
-                    <span>Work Package</span>
-                    <div className="flex gap-1 flex-wrap">
-                      {JSON.parse(
-                        data?.project_work_packages
-                      ).work_packages?.map((item: any) => (
-                        <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">
-                          {item.work_package_name}
-                        </div>
-                      ))}
-                    </div>
-                  </CardDescription>
-                  <CardDescription className="space-y-2">
-                    <span>Health Score</span>
-                    <StatusBar currentValue={6} totalValue={10} />
-                  </CardDescription>
+                <div className="flex max-lg:flex-col max-lg:gap-10">
+                      <div className="space-y-4 max-lg:w-full w-[50%]">
+                        <CardDescription className="space-y-2">
+                          <span>Work Package</span>
+                          <div className="flex gap-1 flex-wrap">
+                            {JSON.parse(
+                              data?.project_work_packages
+                            ).work_packages?.map((item: any) => (
+                              <div className="flex items-center justify-center rounded-3xl p-1 bg-[#ECFDF3] text-[#067647] border-[1px] border-[#ABEFC6]">
+                                {item.work_package_name}
+                              </div>
+                            ))}
+                          </div>
+                        </CardDescription>
+                        <CardDescription className="space-y-2">
+                          <span>Health Score</span>
+                          <StatusBar currentValue={6} totalValue={10} />
+                        </CardDescription>
+                      </div>
+                      <div className="space-y-4">
+                          <CardDescription className="space-y-2">
+                            <span>PO Amount (ex. GST)</span>
+                            <p className="font-bold text-black">{formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}</p>
+                          </CardDescription>
+
+                          <CardDescription className="space-y-2">
+                            <span>Totals Estimates</span>
+                            <p className="font-bold text-black">
+                            {formatToIndianRupee(project_estimates?.reduce((acc, i) => {
+                              const amount = i?.quantity_estimate * i?.rate_estimate;
+                              return acc + parseFloat(amount);
+                            }, 0))}
+                            </p>
+                        </CardDescription>
+                      </div>
+
                 </div>
               </CardContent>
               {/* </CardHeader>
@@ -1901,7 +2007,7 @@ const ProjectView = ({
         )
       )}
 
-      {page === "projectTracking" && (
+      {activePage === "projectTracking" && (
         <div className="pr-2">
           <div className="grid grid-cols-3 gap-2 max-sm:grid-cols-2">
             <Button
@@ -1937,7 +2043,7 @@ const ProjectView = ({
         </div>
       )}
 
-      {page === "prsummary" && (
+      {activePage === "prsummary" && (
         <div>
           <Card className="flex border border-gray-100 rounded-lg p-4">
             <CardContent className="w-full flex flex-row items-center justify-around">
@@ -1962,43 +2068,77 @@ const ProjectView = ({
           )}
         </div>
       )}
-      {page === "posummary" && (
-        <div>
-          {/* <Card className="flex border border-gray-100 rounded-lg p-4">
-              <CardContent className="w-full flex flex-row items-center justify-around">
-                <CardHeader className=" w-full">
-                {Object.entries(statusCounts)?.map(([status, count]) => (
-                  <div className="flex items-center gap-1 pt-3">
-                    <h3 className="font-semibold">{status}: </h3>
-                    <p className="italic">{count}</p>
-                  </div>
-                ))}
-                </CardHeader>
-              </CardContent>
-            </Card> */}
-          {
-            po_data_for_posummary_loading ? (
-              <TableSkeleton />
-            ) : (
-              <DataTable
-                columns={poColumns}
-                data={po_data_for_posummary || []}
-                vendorOptions={vendorOptions}
-                itemSearch={true}
-                wpOptions={
-                  [
-                    ...wpOptions,
-                    { label: "Tool & Equipments", value: "Tool & Equipments" },
-                  ] || []
-                }
-              />
-            )
-            // <p>RESOLVE PO TABLE</p>
-          }
-        </div>
+      {activePage === "posummary" && (
+        <>
+          {/* Card for Totals */}
+          <Card>
+            <CardContent className="flex flex-row items-center justify-between p-4">
+            <CardDescription>
+              <h3 className="text-lg font-semibold text-gray-700">Summary</h3>
+              <p className="text-sm text-gray-500">
+                Overview of totals across all work packages
+              </p>
+            </CardDescription>
+              <CardDescription className="text-right">
+                {/* Calculating Totals */}
+                {(() => {
+                  let totalAmountWithTax = 0;
+                  let totalAmountWithoutTax = 0;
+
+                  Object.keys(workPackageTotalAmounts || {}).forEach((key) => {
+                    const wpTotal = workPackageTotalAmounts[key];
+                    totalAmountWithTax += wpTotal.amountWithTax || 0;
+                    totalAmountWithoutTax += wpTotal.amountWithoutTax || 0;
+                  });
+
+                  return (
+                    <div className="flex flex-col items-start">
+                      <p className="text-gray-700">
+                        <span className="font-bold">Total inc. GST:</span>{" "}
+                        <span className="text-blue-600">
+                          ₹{totalAmountWithTax.toLocaleString()}
+                        </span>
+                      </p>
+                      <p className="text-gray-700">
+                        <span className="font-bold">Total exc. GST:</span>{" "}
+                        <span className="text-blue-600">
+                          ₹{totalAmountWithoutTax.toLocaleString()}
+                        </span>
+                      </p>
+                    </div>
+                  );
+                })()}
+              </CardDescription>
+            </CardContent>
+          </Card>
+          <div>
+            {
+              po_data_for_posummary_loading ? (
+                <TableSkeleton />
+              ) : (
+                <DataTable
+                  columns={poColumns}
+                  data={po_data_for_posummary || []}
+                  vendorOptions={vendorOptions}
+                  itemSearch={true}
+                  wpOptions={
+                    [
+                      ...wpOptions,
+                      {
+                        label: "Tool & Equipments",
+                        value: "Tool & Equipments",
+                      },
+                    ]
+                  }
+                />
+              )
+              // <p>RESOLVE PO TABLE</p>
+            }
+          </div>
+        </>
       )}
 
-      {page === "projectspends" && (
+      {activePage === "projectspends" && (
         <>
           {options && (
             <Radio.Group
@@ -2007,7 +2147,8 @@ const ProjectView = ({
               defaultValue="All"
               optionType="button"
               buttonStyle="solid"
-              onChange={(e) => setSelectedPackage(e.target.value)}
+              value={activeTab}
+              onChange={(e) => setProjectSpendsTab(e.target.value)}
             />
           )}
           {/* <div className="w-full flex flex-col gap-2">
@@ -2038,20 +2179,21 @@ const ProjectView = ({
               </Select>
             )} */}
           {/* </div> */}
-          {selectedPackage &&
-            !["All", "Services"].includes(selectedPackage) && (
+          {activeTab &&
+            !["All", "Services"].includes(activeTab) && (
               <CategoryAccordion
                 categorizedData={categorizedData}
-                selectedPackage={selectedPackage}
+                selectedPackage={activeTab}
                 projectEstimates={
                   project_estimates?.filter(
-                    (i) => i?.work_package === selectedPackage
+                    (i) => i?.work_package === activeTab
                   ) || []
                 }
+                po_data={po_data}
               />
             )}
 
-          {selectedPackage === "All" && (
+          {/* {activeTab === "All" && (
             <>
               <div>
                 <div className="flex gap-2 items-center">
@@ -2096,11 +2238,89 @@ const ProjectView = ({
               </div>
               <Separator />
             </>
+          )} */}
+
+          {/* {activeTab === "All" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Object.keys(workPackageTotalAmounts)
+                ?.sort((a, b) => a?.localeCompare(b))
+                ?.map((wp) => {
+                  const totalAmount =
+                    workPackageTotalAmounts[wp]?.amountWithoutTax || 0;
+                  const estimatedAmount =
+                    workPackageTotalAmounts[wp]?.total_estimated_amount || 0;
+
+                  return (
+                    <div
+                      key={wp}
+                      className="bg-white shadow-lg rounded-lg p-4 border border-gray-200"
+                    >
+                      <h3
+                        onClick={() => setProjectSpendsTab(wp)}
+                        className="text-lg cursor-pointer font-semibold text-gray-700 flex items-center underline"
+                      >
+                        {wp}
+                        <ArrowBigRightIcon className="text-gray-500" />
+                      </h3>
+                      <div className="mt-4">
+                        <p className="text-sm text-gray-500">Total Amount:</p>
+                        <p className="text-xl font-bold text-green-600">
+                          ₹{totalAmount.toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="mt-4">
+                        <p className="text-sm text-gray-500">
+                          Estimated Amount:
+                        </p>
+                        <p className="text-xl font-bold text-blue-600">
+                          ₹{estimatedAmount.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              {totalServiceOrdersAmt && (
+                <div
+                  key="Services"
+                  className="bg-white shadow-lg rounded-lg p-4 border border-gray-200"
+                >
+                  <h3
+                    onClick={() => setProjectSpendsTab("Services")}
+                    className="text-lg cursor-pointer font-semibold text-gray-700 flex items-center underline"
+                  >
+                    Services
+                    <ArrowBigRightIcon className="text-gray-500" />
+                  </h3>
+                  <div className="mt-4">
+                    <p className="text-sm text-gray-500">Total Amount:</p>
+                    <p className="text-xl font-bold text-green-600">
+                      ₹{totalServiceOrdersAmt.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="mt-4">
+                    <p className="text-sm text-gray-500">Estimated Amount:</p>
+                    <p className="text-xl font-bold text-blue-600">
+                      ₹
+                      {segregatedServiceOrderData
+                        ?.reduce((acc, i) => {
+                          const { estimate_total } = Object.values(i)[0];
+                          return acc + parseFloat(estimate_total);
+                        }, 0)
+                        .toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )} */}
+
+          {activeTab === "All" && (
+            <AllTab workPackageTotalAmounts={workPackageTotalAmounts} setProjectSpendsTab={setProjectSpendsTab} segregatedServiceOrderData={segregatedServiceOrderData} totalServiceOrdersAmt={totalServiceOrdersAmt} />
           )}
 
-          {["All", "Services"].includes(selectedPackage) && (
+          {["Services"].includes(activeTab) && (
             <div>
-              {selectedPackage === "All" && (
+              {activeTab === "All" && (
                 <div className="flex gap-2 items-center mb-4">
                   <h2 className="font-semibold text-gray-500">
                     Service Requests
@@ -2119,7 +2339,7 @@ const ProjectView = ({
         </>
       )}
 
-      {page === "SRSummary" && (
+      {activePage === "SRSummary" && (
         <DataTable
           columns={srSummaryColumns}
           data={allServiceRequestsData || []}
@@ -2620,190 +2840,708 @@ export const CategoryAccordion = ({
   categorizedData,
   selectedPackage,
   projectEstimates,
+  po_data,
 }) => {
+
   const selectedData = categorizedData?.[selectedPackage] || null;
 
-  const defaultValues = selectedData && Object.keys(selectedData);
+  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
+  const [expandedPORowKyes, setExpandedPORowKeys] = useState([]);
 
-  // console.log("defaultValues", defaultValues)
+  const navigate = useNavigate();
+
+  // console.log("selectedData", selectedData)
+
+  const getItemAttributes = (item) => {
+    const estimateItem = projectEstimates?.find(
+       (i) => i?.item === item?.item_id
+     );
+
+     const quantityDif =
+         item?.quantity -
+         estimateItem?.quantity_estimate;
+
+    let dynamicQtyClass = null;
+
+    if (estimateItem) {
+      if (quantityDif > 0) {
+        dynamicQtyClass = "text-primary";
+      } else if (
+        quantityDif < 0 &&
+        Math.abs(quantityDif) < 5
+      ) {
+        dynamicQtyClass = "text-yellow-600";
+      } else if (quantityDif === 0) {
+        dynamicQtyClass = "text-green-500";
+      } else {
+        dynamicQtyClass = "text-blue-500";
+      }
+    }
+
+    const updated_estd_amt =
+      estimateItem?.quantity_estimate > item?.quantity
+        ? estimateItem?.quantity_estimate *
+          item?.averageRate
+        : item.amount;
+
+    const percentage_change = Math.floor(
+      ((updated_estd_amt -
+        estimateItem?.rate_estimate *
+          estimateItem?.quantity_estimate) /
+        (estimateItem?.rate_estimate *
+          estimateItem?.quantity_estimate)) *
+        100
+    );
+
+    return {dynamicQtyClass, updated_estd_amt, percentage_change, estimateItem}
+  }
+
+  const columns = [
+    {
+      title: "Category",
+      dataIndex: "category",
+      key: "category",
+      width: "45%",
+      render: (text) => <span className="text-primary font-extrabold">{text}</span>,
+    },
+    {
+      title: "Total Amount (exc. GST)",
+      dataIndex: "total_amount",
+      key: "total_amount",
+      width: "30%",
+      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+    },
+    {
+      title: "Total Estd. Amount (exc. GST)",
+      dataIndex: "total_estimate_amount",
+      key: "total_estimate_amount",
+      width: "30%",
+      render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+    },
+  ];
+
+  const innerColumns = [
+    // {
+    //   title: "Item ID",
+    //   dataIndex: "item_id",
+    //   key: "item_id",
+    //   render: (text) => <span className="italic">{text}</span>,
+    // },
+    {
+      title: "Item Name",
+      dataIndex: "item_name",
+      key: "item_name",
+      width: "30%",
+      render: (text) => <span className="italic">{text}</span>,
+    },
+    {
+      title: "Unit",
+      dataIndex: "unit",
+      key: "unit",
+      render: (text) => <span className="italic">{text || "--"}</span>,
+    },
+    {
+      title: "Qty Ordered",
+      dataIndex: "quantity",
+      key: "qty_quantity",
+      render: (text, data) => {
+        const {dynamicQtyClass} = getItemAttributes(data)
+        return <span className={`${text && dynamicQtyClass} italic`}>{text || "--"}</span>
+      }
+    },
+    {
+      title: "Estd. Qty",
+      key: "estd_quantity",
+      render: (text, data) => {
+        const {estimateItem} = getItemAttributes(data)
+        return <span className="italic">{estimateItem?.quantity_estimate || "--"}</span>
+      }
+    },
+    {
+      title: "PO Amt",
+      dataIndex: "amount",
+      key: "amount_spent",
+      render: (text) => (
+        <span className="italic">
+          {text ? formatToIndianRupee(text) : "--"}
+        </span>
+      ),
+    },
+    {
+      title: "Estd. Amt",
+      key: "amount_estd",
+      render: (text, data) => {
+        const {estimateItem} = getItemAttributes(data)
+        return <span className="italic">
+          {formatToIndianRupee(
+             estimateItem?.rate_estimate *
+               estimateItem?.quantity_estimate
+           )}
+        </span>
+      },
+    },
+    {
+      title: "Updated Estd. Amt",
+      key: "updated_amount_estd",
+      render: (text, data) => {
+        const {updated_estd_amt, percentage_change, estimateItem} = getItemAttributes(data)
+        return <span
+        className={`${
+           (estimateItem?.quantity_estimate !==
+           undefined && updated_estd_amt)
+             ? updated_estd_amt >
+               (estimateItem?.rate_estimate *
+                 estimateItem?.quantity_estimate)
+               ? "text-red-500"
+               : "text-green-500"
+             : ""
+         } italic`}
+       >
+         {estimateItem?.quantity_estimate !==
+         undefined
+           ? formatToIndianRupee(updated_estd_amt)
+           : "--"}
+         {!isNaN(percentage_change) && (estimateItem?.quantity_estimate !==
+           undefined && ` (${percentage_change}%)`) }
+        </span>
+      },
+    },
+  ];
+
+  const innerPOColumns = [
+    {
+      title: "PO ID",
+      dataIndex: "name",
+      key: "name",
+      render: (text, data) => {
+        return <span className="underline cursor-pointer text-blue-600" onClick={() => navigate(`po/${text?.replaceAll("/", "&=")}`)}>
+          {text}
+        </span>
+      },
+      width: "42%",
+    },
+    {
+      title: "Quantity",
+      dataIndex: "po_item_quantity",
+      key: "po_item_quantity",
+    },
+    {
+      title: "Rate",
+      dataIndex: "po_item_quote",
+      key: "po_item_quote",
+      render: (text) => (
+        <span>{formatToIndianRupee(text)}</span>
+      )
+     },
+    {
+      title: "Vendor",
+      dataIndex: "vendor_name",
+      key: "vendor_name",
+    },
+  ];
 
   return (
     <div className="w-full">
-      {selectedData ? (
-        <div className="flex flex-col gap-4">
-          {defaultValues?.length > 0 && (
-            <Accordion
-              type="multiple"
-              className="space-y-4"
-              defaultValue={defaultValues || []}
-            >
-              {Object.entries(selectedData)
-                ?.sort(([a], [b]) => a?.localeCompare(b))
-                ?.map(([category, items]) => {
-                  const totalAmount = items.reduce(
-                    (sum, item) => sum + parseFloat(item?.amount),
-                    0
-                  );
+    {selectedData ? (
+      <div className="overflow-x-auto pb-4">
+        <ConfigProvider>
+          <AntTable
+            dataSource={Object.keys(selectedData)
+              ?.sort((a, b) =>
+                a?.localeCompare(b)
+              )
+              ?.map((key) => {
+                const totalAmount = selectedData[key]?.reduce(
+                   (sum, item) => sum + parseFloat(item?.amount),
+                   0
+                 );
+                 const categoryEstimates = projectEstimates?.filter(
+                   (i) => i?.category === key
+                 );
+                 const totalCategoryEstdAmt = categoryEstimates?.reduce(
+                   (sum, item) =>
+                     sum +
+                     parseFloat(item?.rate_estimate) *
+                       parseFloat(item?.quantity_estimate),
+                   0
+                 );
+                return {
+                key: key,
+                total_amount: totalAmount,
+                total_estimate_amount: totalCategoryEstdAmt,
+                category: key,
+                items: selectedData[key],
+              }})?.sort((a,b) => b?.total_estimate_amount - a?.total_estimate_amount)}
+            columns={columns}
+            pagination={false}
+            expandable={{
+              expandedRowKeys,
+              onExpandedRowsChange: setExpandedRowKeys,
+              expandedRowRender: (record) => (
+                <AntTable
+                  dataSource={record.items}
+                  columns={innerColumns}
+                  pagination={false}
+                  rowKey={(item) => item.item_id || uuidv4()}
+                  expandable={{
+                    expandedPORowKyes,
+                    onExpandedRowsChange: setExpandedPORowKeys,
+                    expandedRowRender: (record) => {
+                      if(!record?.po_number) return null;
+                      const filteredPOData = po_data?.filter((i) => {
+                        const po_numbers = record?.po_number?.split(",");
+                        return po_numbers?.includes(i.name);
+                      });
+                    
+                      // Add the `item_id` field to each data object
+                      const enrichedPOData = filteredPOData?.map((item) => ({
+                        ...item,
+                        po_item_quantity: item?.order_list?.list?.find((i) => i?.name === record?.item_id)?.quantity,
+                        po_item_quote: item?.order_list?.list?.find((i) => i?.name === record?.item_id)?.quote,
+                      }));
+                      return (
+                        <AntTable
+                        dataSource={enrichedPOData}
+                        columns={innerPOColumns}
+                        pagination={false}
+                        rowKey={(item) => item.name || uuidv4()}
+                      />
+                      )
+                      },
+                      rowExpandable: (record) => !!record?.po_number
+                  }}
+                />
+              ),
+            }}
+            rowKey="key"
+          />
+        </ConfigProvider>
+      </div>
+    ) : (
+      <div className="h-[10vh] flex items-center justify-center">
+        No Results.
+      </div>
+    )}
+  </div>
+  )
+}
 
-                  const categoryEstimates = projectEstimates?.filter(
-                    (i) => i?.category === category
-                  );
-                  const totalCategoryEstdAmt = categoryEstimates?.reduce(
-                    (sum, item) =>
-                      sum +
-                      parseFloat(item?.rate_estimate) *
-                        parseFloat(item?.quantity_estimate) *
-                        (1 + parseFloat(item?.item_tax) / 100),
-                    0
-                  );
-                  return (
-                    <AccordionItem
-                      key={category}
-                      value={category}
-                      defaultChecked
-                      className="border-b rounded-lg shadow"
-                    >
-                      <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
-                        <div className="flex space-x-4 text-sm text-gray-600">
-                          <span className="font-semibold">{category}:</span>
-                          <span>
-                            Total Amount: ₹{totalAmount.toLocaleString()}
-                          </span>
-                          <span>
-                            Total Estd Amount:{" "}
-                            {formatToIndianRupee(totalCategoryEstdAmt)}
-                          </span>
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="overflow-x-auto">
-                        <Table className="min-w-full text-left text-sm">
-                          <TableHeader>
-                            <TableRow className="bg-gray-100 text-gray-700">
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Item ID
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold w-[40%]">
-                                Item Name
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Unit
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Qty Ordered
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Estd Qty
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Amt Spent
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Estd. Amt
-                              </TableHead>
-                              <TableHead className="px-4 py-2 font-semibold">
-                                Updated Estd. Amt
-                              </TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {items?.map((item) => {
-                              const estimateItem = projectEstimates?.find(
-                                (i) => i?.item === item?.item_id
-                              );
-                              const quantityDif =
-                                item?.quantity -
-                                estimateItem?.quantity_estimate;
-                              let dynamicQtyClass = null;
+export const AllTab = ({workPackageTotalAmounts, setProjectSpendsTab, segregatedServiceOrderData, totalServiceOrdersAmt }) => {
 
-                              if (estimateItem) {
-                                if (quantityDif > 0) {
-                                  dynamicQtyClass = "text-primary";
-                                } else if (
-                                  quantityDif < 0 &&
-                                  Math.abs(quantityDif) < 5
-                                ) {
-                                  dynamicQtyClass = "text-yellow-600";
-                                } else if (quantityDif === 0) {
-                                  dynamicQtyClass = "text-green-500";
-                                } else {
-                                  dynamicQtyClass = "text-blue-500";
-                                }
-                              }
+const [totalsAmounts, setTotalsAmounts] = useState({})
 
-                              const updated_estd_amt =
-                                estimateItem?.quantity_estimate > item?.quantity
-                                  ? estimateItem?.quantity_estimate *
-                                    item?.averageRate
-                                  : item.amount;
+const serviceTotalEstdAmt = segregatedServiceOrderData
+  ?.reduce((acc, i) => {
+    const { estimate_total } = Object.values(i)[0];
+    return acc + parseFloat(estimate_total);
+}, 0)
 
-                              const percentage_change = Math.floor(
-                                ((updated_estd_amt -
-                                  estimateItem?.rate_estimate *
-                                    estimateItem?.quantity_estimate) /
-                                  (estimateItem?.rate_estimate *
-                                    estimateItem?.quantity_estimate)) *
-                                  100
-                              );
+useEffect(() => {
+    const totalAmountsObject = {...workPackageTotalAmounts}
+    if((serviceTotalEstdAmt || totalServiceOrdersAmt)) {
+        totalAmountsObject["Services"] = {amountWithoutTax : totalServiceOrdersAmt, total_estimated_amount : serviceTotalEstdAmt}
+    }
+    setTotalsAmounts(totalAmountsObject)
+}, [serviceTotalEstdAmt, workPackageTotalAmounts, totalServiceOrdersAmt])
 
-                              return (
-                                <TableRow key={item.item_id}>
-                                  <TableCell className="px-4 py-2">
-                                    {item.item_id.slice(5)}
-                                  </TableCell>
-                                  <TableCell className="px-4 py-2">
-                                    {item.item_name}
-                                  </TableCell>
-                                  <TableCell className="px-4 py-2">
-                                    {item.unit}
-                                  </TableCell>
-                                  <TableCell
-                                    className={`px-4 py-2 ${dynamicQtyClass}`}
-                                  >
-                                    {item.quantity}
-                                  </TableCell>
-                                  <TableCell className="px-4 py-2">
-                                    {estimateItem?.quantity_estimate || "--"}
-                                  </TableCell>
-                                  <TableCell className="px-4 py-2">
-                                    ₹{parseFloat(item.amount).toLocaleString()}
-                                  </TableCell>
-                                  {/* <TableCell className="px-4 py-2">{formatToIndianRupee((estimateItem?.rate_estimate * (1 + parseFloat(estimateItem?.item_tax / 100))) * estimateItem?.quantity_estimate)}</TableCell> */}
-                                  <TableCell className="px-4 py-2">
-                                    {formatToIndianRupee(
-                                      estimateItem?.rate_estimate *
-                                        estimateItem?.quantity_estimate
-                                    )}
-                                  </TableCell>
-                                  <TableCell
-                                    className={`px-4 py-2 ${
-                                      estimateItem?.quantity_estimate !==
-                                      undefined
-                                        ? updated_estd_amt >
-                                          estimateItem?.rate_estimate *
-                                            estimateItem?.quantity_estimate
-                                          ? "text-red-500"
-                                          : "text-green-500"
-                                        : ""
-                                    }`}
-                                  >
-                                    {estimateItem?.quantity_estimate !==
-                                    undefined
-                                      ? formatToIndianRupee(updated_estd_amt)
-                                      : "--"}
-                                    {estimateItem?.quantity_estimate !==
-                                      undefined && ` (${percentage_change}%)`}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </AccordionContent>
-                    </AccordionItem>
-                  );
-                })}
-            </Accordion>
-          )}
+const columns = [
+  {
+    title: "Work Package",
+    dataIndex: "work_package",
+    key: "work_package",
+    width: "40%",
+    render: (text) => <strong onClick={() => setProjectSpendsTab(text)} className="text-primary underline cursor-pointer">{text}</strong>,
+  },
+  {
+    title: "Total Amount (exc. GST)",
+    dataIndex: "amountWithoutTax",
+    key: "amountWithoutTax",
+    width: "30%",
+    render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+  },
+  {
+    title: "Total Estd. Amount (exc. GST)",
+    dataIndex: "total_estimated_amount",
+    key: "total_estimated_amount",
+    width: "30%",
+    render: (text) => <Badge className="font-bold">{text ? formatToIndianRupee(text) : "--"}</Badge>,
+  },
+];
+
+  return (
+    <div className="w-full">
+    {Object.keys(totalsAmounts)?.length !== 0 ? (
+      <div className="overflow-x-auto">
+        <ConfigProvider>
+          <AntTable
+            dataSource={Object.keys(totalsAmounts)
+              ?.sort((a, b) =>
+                a?.localeCompare(b)
+              )
+              ?.map((key) => {
+                return {
+                  key: key,
+                  amountWithoutTax: totalsAmounts[key]?.amountWithoutTax,
+                  total_estimated_amount: totalsAmounts[key]?.total_estimated_amount,
+                  work_package: key,
+                }
+              })?.
+              sort((a,b) => b?.total_estimated_amount - a?.total_estimated_amount)}
+            columns={columns}
+          />
+        </ConfigProvider>
+      </div>
+    ) : (
+      <div className="h-[10vh] flex items-center justify-center">
+        No Results.
+      </div>
+    )}
+  </div>
+  )
+}
+
+
+// export const CategoryAccordion = ({
+//   categorizedData,
+//   selectedPackage,
+//   projectEstimates,
+//   po_data,
+// }) => {
+//   const [expandedItem, setExpandedItem] = useState(null); // State to track expanded item
+
+//   const selectedData = categorizedData?.[selectedPackage] || null;
+
+//   const navigate = useNavigate();
+
+//   const toggleExpandedItem = (itemId) => {
+//     setExpandedItem((prev) => (prev === itemId ? null : itemId));
+//   };
+
+//   // console.log('po_data',po_data)
+
+//   return (
+//     <div className="w-full">
+//       {selectedData ? (
+//         <div className="flex flex-col gap-4">
+//           <Accordion type="multiple" className="space-y-4">
+//             {Object.entries(selectedData)
+//               ?.sort(([a], [b]) => a?.localeCompare(b))
+//               ?.map(([category, items]) => {
+//                 const totalAmount = items.reduce(
+//                   (sum, item) => sum + parseFloat(item?.amount),
+//                   0
+//                 );
+
+//                 const categoryEstimates = projectEstimates?.filter(
+//                   (i) => i?.category === category
+//                 );
+//                 const totalCategoryEstdAmt = categoryEstimates?.reduce(
+//                   (sum, item) =>
+//                     sum +
+//                     parseFloat(item?.rate_estimate) *
+//                       parseFloat(item?.quantity_estimate),
+//                   0
+//                 );
+
+//                 return (
+//                   <AccordionItem
+//                     key={category}
+//                     value={category}
+//                     defaultChecked
+//                     className="border-b rounded-lg shadow"
+//                   >
+//                     <AccordionTrigger className="bg-[#FFD3CC] px-4 py-2 rounded-lg text-blue-900 flex justify-between items-center">
+//                       <div className="flex space-x-4 text-sm text-gray-600">
+//                         <span className="font-semibold">{category}:</span>
+//                         <span>
+//                           Total Amount: ₹{totalAmount.toLocaleString()}
+//                         </span>
+//                         <span>
+//                           Total Estd Amount:{" "}
+//                           {formatToIndianRupee(totalCategoryEstdAmt)}
+//                         </span>
+//                       </div>
+//                     </AccordionTrigger>
+//                     <AccordionContent className="overflow-x-auto">
+//                       <Table className="min-w-full text-left text-sm">
+//                         <TableHeader>
+//                           <TableRow className="bg-gray-100 text-gray-700">
+//                             <TableHead className="px-4 py-2 font-semibold">
+//                               Item ID
+//                             </TableHead>
+//                             <TableHead className="px-4 py-2 font-semibold w-[40%]">
+//                               Item Name
+//                             </TableHead>
+//                             <TableHead className="px-4 py-2 font-semibold">
+//                               Unit
+//                             </TableHead>
+//                             <TableHead className="px-4 py-2 font-semibold">
+//                               Qty Ordered
+//                             </TableHead>
+//                             <TableHead className="px-4 py-2 font-semibold">
+//                               Estd Qty
+//                             </TableHead>
+//                             <TableHead className="px-4 py-2 font-semibold">
+//                               Amt Spent
+//                             </TableHead>
+//                             <TableHead className="px-4 py-2 font-semibold">
+//                               Estd. Amt
+//                             </TableHead>
+//                             <TableHead className="px-4 py-2 font-semibold">
+//                               Updated Estd. Amt
+//                             </TableHead>
+//                           </TableRow>
+//                         </TableHeader>
+//                         <TableBody>
+//                           {items?.map((item) => {
+//                             const estimateItem = projectEstimates?.find(
+//                               (i) => i?.item === item?.item_id
+//                             );
+
+//                             const quantityDif =
+//                                 item?.quantity -
+//                                 estimateItem?.quantity_estimate;
+//                               let dynamicQtyClass = null;
+
+//                               if (estimateItem) {
+//                                 if (quantityDif > 0) {
+//                                   dynamicQtyClass = "text-primary";
+//                                 } else if (
+//                                   quantityDif < 0 &&
+//                                   Math.abs(quantityDif) < 5
+//                                 ) {
+//                                   dynamicQtyClass = "text-yellow-600";
+//                                 } else if (quantityDif === 0) {
+//                                   dynamicQtyClass = "text-green-500";
+//                                 } else {
+//                                   dynamicQtyClass = "text-blue-500";
+//                                 }
+//                               }
+
+//                               const updated_estd_amt =
+//                                 estimateItem?.quantity_estimate > item?.quantity
+//                                   ? estimateItem?.quantity_estimate *
+//                                     item?.averageRate
+//                                   : item.amount;
+
+//                               const percentage_change = Math.floor(
+//                                 ((updated_estd_amt -
+//                                   estimateItem?.rate_estimate *
+//                                     estimateItem?.quantity_estimate) /
+//                                   (estimateItem?.rate_estimate *
+//                                     estimateItem?.quantity_estimate)) *
+//                                   100
+//                               );
+
+//                             const po_numbers = item?.po_number?.split(",");
+//                             const po_data_array = po_data?.filter((i) =>
+//                               po_numbers?.includes(i.name)
+//                             );
+
+//                             return (
+//                               <>
+//                                 <TableRow
+//                                   key={item.item_id}
+//                                   onClick={() => toggleExpandedItem(item.item_id)}
+//                                   className="cursor-pointer hover:bg-gray-100"
+//                                 >
+//                                   <TableCell className="px-4 py-2">
+//                                     {item.item_id.slice(5)}
+//                                   </TableCell>
+//                                   <TableCell className="px-4 py-2 text-blue-600 underline">
+//                                     {item.item_name}
+//                                   </TableCell>
+//                                   <TableCell className="px-4 py-2">
+//                                     {item.unit}
+//                                   </TableCell>
+//                                   <TableCell
+//                                     className={`px-4 py-2 ${dynamicQtyClass}`}
+//                                   >
+//                                     {item.quantity}
+//                                   </TableCell>
+//                                   <TableCell className="px-4 py-2">
+//                                     {estimateItem?.quantity_estimate || "--"}
+//                                   </TableCell>
+//                                   <TableCell className="px-4 py-2">
+//                                     ₹{parseFloat(item.amount).toLocaleString()}
+//                                   </TableCell>
+//                                   <TableCell className="px-4 py-2">
+//                                     {formatToIndianRupee(
+//                                       estimateItem?.rate_estimate *
+//                                         estimateItem?.quantity_estimate
+//                                     )}
+//                                   </TableCell>
+//                                   <TableCell
+//                                     className={`px-4 py-2 ${
+//                                       estimateItem?.quantity_estimate !==
+//                                       undefined
+//                                         ? updated_estd_amt >
+//                                           estimateItem?.rate_estimate *
+//                                             estimateItem?.quantity_estimate
+//                                           ? "text-red-500"
+//                                           : "text-green-500"
+//                                         : ""
+//                                     }`}
+//                                   >
+//                                     {estimateItem?.quantity_estimate !==
+//                                     undefined
+//                                       ? formatToIndianRupee(updated_estd_amt)
+//                                       : "--"}
+//                                     {estimateItem?.quantity_estimate !==
+//                                       undefined && ` (${percentage_change}%)`}
+//                                   </TableCell>
+//                                 </TableRow>
+//                                 {expandedItem === item.item_id && (
+//                                   <TableRow>
+//                                     <TableCell colSpan={8} className="px-4 py-2">
+//                                       <Table className="min-w-full text-left text-sm bg-gray-50">
+//                                         <TableHeader>
+//                                           <TableRow>
+//                                             <TableHead>PO ID</TableHead>
+//                                             <TableHead>Quantity</TableHead>
+//                                             <TableHead>Rate</TableHead>
+//                                             <TableHead>Vendor</TableHead>
+//                                           </TableRow>
+//                                         </TableHeader>
+//                                         <TableBody>
+//                                           {po_data_array?.map((po) => (
+//                                             <TableRow key={po?.name}>
+//                                               <TableCell className="text-blue-600 underline cursor-pointer" onClick={() => navigate(`po/${po?.name?.replaceAll("/", "&=")}`)}>{po?.name}</TableCell>
+//                                               <TableCell>{po?.order_list?.list?.find((i) => i?.name === item?.item_id)?.quantity}</TableCell>
+//                                               <TableCell>₹{parseFloat(po?.order_list?.list?.find((i) => i?.name === item?.item_id)?.quote).toLocaleString()}</TableCell>
+//                                               <TableCell>
+//                                               {po?.vendor_name}
+//                                               </TableCell>
+//                                             </TableRow>
+//                                           ))}
+//                                         </TableBody>
+//                                       </Table>
+//                                     </TableCell>
+//                                   </TableRow>
+//                                 )}
+//                               </>
+//                             );
+//                           })}
+//                         </TableBody>
+//                       </Table>
+//                     </AccordionContent>
+//                   </AccordionItem>
+//                 );
+//               })}
+//           </Accordion>
+//         </div>
+//       ) : (
+//         <div className="h-[10vh] flex items-center justify-center">
+//           No Results.
+//         </div>
+//       )}
+//     </div>
+//   );
+// };
+
+
+export const ServiceRequestsAccordion = ({
+  projectEstimates,
+  segregatedData,
+}) => {
+  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
+
+  // useEffect(() => {
+  //   if (segregatedData) {
+  //     setExpandedRowKeys(Object.keys(segregatedData));
+  //   }
+  // }, [segregatedData]);
+
+  // Main table columns
+  const columns = [
+    {
+      title: "Category",
+      dataIndex: "category",
+      key: "category",
+      width: "50%",
+      render: (text) => <strong className="text-primary">{text}</strong>,
+    },
+    {
+      title: "Total Amount (exc. GST)",
+      dataIndex: "amount",
+      key: "amount",
+      width: "20%",
+      render: (text) => <Badge>{text ? formatToIndianRupee(text) : "--"}</Badge>,
+    },
+    {
+      title: "Total Estd. Amount (exc. GST)",
+      dataIndex: "estimate_total",
+      key: "estimate_total",
+      width: "25%",
+      render: (text) => <Badge>{text ? formatToIndianRupee(text) : "--"}</Badge>,
+    },
+  ];
+
+  const innerColumns = [
+    {
+      title: "Description",
+      dataIndex: "description",
+      key: "description",
+      width: "40%",
+    },
+    {
+      title: "Unit",
+      dataIndex: "uom",
+      key: "unit",
+    },
+    {
+      title: "Quantity",
+      dataIndex: "quantity",
+      key: "quantity",
+      width: "20%",
+    },
+    {
+      title: "Amount Spent",
+      dataIndex: "amount",
+      key: "amount",
+      width: "25%",
+      render: (text) => (
+        <span className="italic">
+          {text ? formatToIndianRupee(text) : "--"}
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <div className="w-full">
+      {segregatedData?.length > 0 ? (
+        <div className="overflow-x-auto">
+          <ConfigProvider>
+            <AntTable
+              dataSource={segregatedData
+                ?.sort((a, b) =>
+                  Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
+                )
+                ?.map((key) => ({
+                  key: Object.values(key)[0]?.key,
+                  amount: Object.values(key)[0]?.amount,
+                  estimate_total: Object.values(key)[0]?.estimate_total,
+                  category: Object.keys(key)[0],
+                  items: Object.values(key)[0]?.children,
+                }))?.sort((a,b) => b?.estimate_total - a?.estimate_total)}
+              columns={columns}
+              pagination={false}
+              expandable={{
+                expandedRowKeys,
+                onExpandedRowsChange: setExpandedRowKeys,
+                expandedRowRender: (record) => (
+                  <AntTable
+                    dataSource={record.items}
+                    columns={innerColumns}
+                    pagination={false}
+                    rowKey={(item) => item.id || uuidv4()}
+                  />
+                ),
+              }}
+              rowKey="key"
+            />
+          </ConfigProvider>
         </div>
       ) : (
         <div className="h-[10vh] flex items-center justify-center">
@@ -2811,6 +3549,99 @@ export const CategoryAccordion = ({
         </div>
       )}
     </div>
+  );
+};
+
+const CustomHoverCard = ({
+  totalPosRaised,
+  totalServiceOrdersAmt,
+  categorizedData,
+  workPackageTotalAmounts,
+}) => {
+  // Generate tree data for the Tree component
+  const generateTreeData = () => {
+    const treeData =
+      categorizedData &&
+      Object.entries(categorizedData)?.map(([workPackage, categories]) => {
+        // Children for each category in the work package
+        const categoryNodes = Object.entries(categories).map(
+          ([category, items]) => {
+            const totalAmount = items.reduce(
+              (sum, item) => sum + item.amount,
+              0
+            );
+            const totalAmountWithTax = items.reduce(
+              (sum, item) => sum + item.amountWithTax,
+              0
+            );
+
+            return {
+              title: `${category}: ₹${parseFloat(
+                totalAmountWithTax
+              ).toLocaleString()} (Base: ₹${parseFloat(
+                totalAmount
+              ).toLocaleString()})`,
+              key: `${workPackage}-${category}`,
+              children: items.map((item, index) => ({
+                title: `${item.item_name} - Qty: ${item.quantity}`,
+                key: `${workPackage}-${category}-${index}`,
+              })),
+            };
+          }
+        );
+
+        return {
+          title: `${workPackage} - Total: ₹${parseFloat(
+            workPackageTotalAmounts[workPackage]?.amountWithoutTax
+          ).toLocaleString()}`,
+          key: workPackage,
+          children: categoryNodes,
+        };
+      });
+
+    // Add service requests total as a standalone item
+    if (totalServiceOrdersAmt) {
+      treeData?.push({
+        title: `Service Requests Total: ₹${parseFloat(
+          totalServiceOrdersAmt
+        ).toLocaleString()}`,
+        key: "service-requests-total",
+      });
+    }
+
+    return treeData;
+  };
+
+  return (
+    <HoverCard>
+      <HoverCardTrigger>
+        <div className=" underline">
+          <span className="whitespace-nowrap">PO Amt (ex. GST): </span>
+          <span className="max-sm:text-end max-sm:w-full text-primary">
+            {formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}
+          </span>
+        </div>
+      </HoverCardTrigger>
+      <HoverCardContent className="overflow-y-auto max-h-[80vh]">
+        {generateTreeData()?.length !== 0 ? (
+          <div>
+            <h3 className="font-semibold text-lg mb-2">
+              Total Spent Breakdown
+            </h3>
+            <Tree
+              showLine
+              switcherIcon={<DownOutlined />}
+              defaultExpandedKeys={["0-0"]}
+              treeData={generateTreeData()}
+            />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center font-semibold text-xs">
+            Empty!
+          </div>
+        )}
+      </HoverCardContent>
+    </HoverCard>
   );
 };
 
@@ -2985,210 +3816,5 @@ export const ToolandEquipementAccordion = ({
         </div>
       )}
     </div>
-  );
-};
-
-export const ServiceRequestsAccordion = ({
-  projectEstimates,
-  segregatedData,
-}) => {
-  const [expandedRowKeys, setExpandedRowKeys] = useState([]);
-
-  useEffect(() => {
-    if (segregatedData) {
-      setExpandedRowKeys(Object.keys(segregatedData));
-    }
-  }, [segregatedData]);
-
-  // Main table columns
-  const columns = [
-    {
-      title: "Category",
-      dataIndex: "category",
-      key: "category",
-      width: "60%",
-      render: (text) => <strong className="text-primary">{text}</strong>,
-    },
-    {
-      title: "Amount",
-      dataIndex: "amount",
-      key: "amount",
-      width: "20%",
-      render: (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>,
-    },
-    {
-      title: "Estd. Amount",
-      dataIndex: "estimate_total",
-      key: "estimate_total",
-      width: "30%",
-      render: (text) => <span>{text ? formatToIndianRupee(text) : "--"}</span>,
-    },
-  ];
-
-  const innerColumns = [
-    {
-      title: "Description",
-      dataIndex: "description",
-      key: "description",
-      width: "40%",
-    },
-    {
-      title: "Unit",
-      dataIndex: "uom",
-      key: "unit",
-      width: "20%",
-    },
-    {
-      title: "Quantity",
-      dataIndex: "quantity",
-      key: "quantity",
-      width: "20%",
-    },
-    {
-      title: "Amount",
-      dataIndex: "amount",
-      key: "amount",
-      width: "20%",
-      render: (text) => (
-        <span className="italic">
-          {text ? formatToIndianRupee(text) : "--"}
-        </span>
-      ),
-    },
-  ];
-
-  return (
-    <div className="w-full">
-      {segregatedData?.length > 0 ? (
-        <div className="pt-6 overflow-x-auto">
-          <ConfigProvider>
-            <AntTable
-              dataSource={segregatedData
-                ?.sort((a, b) =>
-                  Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
-                )
-                ?.map((key) => ({
-                  key: Object.values(key)[0]?.key,
-                  amount: Object.values(key)[0]?.amount,
-                  estimate_total: Object.values(key)[0]?.estimate_total,
-                  category: Object.keys(key)[0],
-                  items: Object.values(key)[0]?.children,
-                }))}
-              columns={columns}
-              expandable={{
-                expandedRowKeys,
-                onExpandedRowsChange: setExpandedRowKeys,
-                expandedRowRender: (record) => (
-                  <AntTable
-                    dataSource={record.items}
-                    columns={innerColumns}
-                    pagination={false}
-                    rowKey={(item) => item.id || uuidv4()}
-                  />
-                ),
-              }}
-              rowKey="key"
-            />
-          </ConfigProvider>
-        </div>
-      ) : (
-        <div className="h-[10vh] flex items-center justify-center">
-          No Results.
-        </div>
-      )}
-    </div>
-  );
-};
-
-const CustomHoverCard = ({
-  totalPosRaised,
-  totalServiceOrdersAmt,
-  categorizedData,
-  workPackageTotalAmounts,
-}) => {
-  // Generate tree data for the Tree component
-  const generateTreeData = () => {
-    const treeData =
-      categorizedData &&
-      Object.entries(categorizedData)?.map(([workPackage, categories]) => {
-        // Children for each category in the work package
-        const categoryNodes = Object.entries(categories).map(
-          ([category, items]) => {
-            const totalAmount = items.reduce(
-              (sum, item) => sum + item.amount,
-              0
-            );
-            const totalAmountWithTax = items.reduce(
-              (sum, item) => sum + item.amountWithTax,
-              0
-            );
-
-            return {
-              title: `${category}: ₹${parseFloat(
-                totalAmountWithTax
-              ).toLocaleString()} (Base: ₹${parseFloat(
-                totalAmount
-              ).toLocaleString()})`,
-              key: `${workPackage}-${category}`,
-              children: items.map((item, index) => ({
-                title: `${item.item_name} - Qty: ${item.quantity}`,
-                key: `${workPackage}-${category}-${index}`,
-              })),
-            };
-          }
-        );
-
-        return {
-          title: `${workPackage} - Total: ₹${parseFloat(
-            workPackageTotalAmounts[workPackage]?.amountWithoutTax
-          ).toLocaleString()}`,
-          key: workPackage,
-          children: categoryNodes,
-        };
-      });
-
-    // Add service requests total as a standalone item
-    if (totalServiceOrdersAmt) {
-      treeData?.push({
-        title: `Service Requests Total: ₹${parseFloat(
-          totalServiceOrdersAmt
-        ).toLocaleString()}`,
-        key: "service-requests-total",
-      });
-    }
-
-    return treeData;
-  };
-
-  return (
-    <HoverCard>
-      <HoverCardTrigger>
-        <div className="ml-2 underline">
-          <span className="whitespace-nowrap">Total Spent: </span>
-          <span className="max-sm:text-end max-sm:w-full text-primary">
-            {formatToIndianRupee(totalPosRaised() + totalServiceOrdersAmt)}
-          </span>
-        </div>
-      </HoverCardTrigger>
-      <HoverCardContent className="overflow-y-auto max-h-[80vh]">
-        {generateTreeData()?.length !== 0 ? (
-          <div>
-            <h3 className="font-semibold text-lg mb-2">
-              Total Spent Breakdown
-            </h3>
-            <Tree
-              showLine
-              switcherIcon={<DownOutlined />}
-              defaultExpandedKeys={["0-0"]}
-              treeData={generateTreeData()}
-            />
-          </div>
-        ) : (
-          <div className="flex items-center justify-center font-semibold text-xs">
-            Empty!
-          </div>
-        )}
-      </HoverCardContent>
-    </HoverCard>
   );
 };
