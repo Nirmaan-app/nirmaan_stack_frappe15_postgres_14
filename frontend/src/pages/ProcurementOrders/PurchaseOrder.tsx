@@ -30,7 +30,7 @@ import ReactSelect from 'react-select'
 
 export const PurchaseOrder = () => {
 
-  const { id } = useParams()
+  const { poId: id } = useParams()
 
   const [searchParams] = useSearchParams();
 
@@ -148,10 +148,10 @@ export const PurchaseOrder = () => {
     limit: 1000,
   });
 
-  const {data : poPayments, isLoading: poPaymentsLoading, error: poPaymentsError, mutate: poPaymentsMutate} = useFrappeGetDocList("Project Payments", {
-          fields: ["*"],
-          filters: [["document_name", "=", poId]],
-          limit: 10000
+  const { data: poPayments, isLoading: poPaymentsLoading, error: poPaymentsError, mutate: poPaymentsMutate } = useFrappeGetDocList("Project Payments", {
+    fields: ["*"],
+    filters: [["document_name", "=", poId]],
+    limit: 10000
   })
 
   const { control, handleSubmit, reset } = useForm({
@@ -274,7 +274,7 @@ export const PurchaseOrder = () => {
           data.freightCharges !== "" ? parseInt(data.freightCharges) : 0,
         notes: data.notes || "",
       };
-  
+
       const res = await updateDoc("Procurement Orders", po?.name, updateData)
 
       await poMutate();
@@ -284,7 +284,7 @@ export const PurchaseOrder = () => {
         description: `${res.name} updated successfully!`,
         variant: "success",
       });
-      
+
     } catch (error) {
       console.log("update_submit_error", error);
       toast({
@@ -627,7 +627,7 @@ export const PurchaseOrder = () => {
       (curValue) => curValue.item === itemName
     );
 
-    if(parseFloat(newQuantity) !== parseFloat(previousItem?.quantity)){
+    if (parseFloat(newQuantity) !== parseFloat(previousItem?.quantity)) {
       setStack((prevStack) => [
         ...prevStack,
         {
@@ -638,9 +638,9 @@ export const PurchaseOrder = () => {
       ]);
     }
 
-    const makes = previousItem?.makes?.list?.map(i => i?.make === selectedMake?.value ? {make : selectedMake?.value, enabled : "true"} : {make : i?.make, enabled : "false"})
+    const makes = previousItem?.makes?.list?.map(i => i?.make === selectedMake?.value ? { make: selectedMake?.value, enabled: "true" } : { make: i?.make, enabled: "false" })
 
-    if(previousItem?.makes?.list?.find(i => i?.make === selectedMake?.value)?.enabled === "false"){
+    if (previousItem?.makes?.list?.find(i => i?.make === selectedMake?.value)?.enabled === "false") {
       setStack((prevStack) => [
         ...prevStack,
         {
@@ -653,7 +653,7 @@ export const PurchaseOrder = () => {
 
     curRequest = curRequest.map((curValue) => {
       if (curValue.item === itemName) {
-        return { ...curValue, quantity: parseInt(newQuantity), makes : {list : makes} };
+        return { ...curValue, quantity: parseInt(newQuantity), makes: { list: makes } };
       }
       return curValue;
     });
@@ -700,10 +700,10 @@ export const PurchaseOrder = () => {
         }
         return curValue;
       });
-    } else if(lastOperation.operation === "make_change") {
+    } else if (lastOperation.operation === "make_change") {
       curRequest = curRequest.map((curValue) => {
         if (curValue.item === lastOperation.item) {
-          return { ...curValue, makes: {list: lastOperation?.previousMakeList} };
+          return { ...curValue, makes: { list: lastOperation?.previousMakeList } };
         }
         return curValue;
       });
@@ -792,12 +792,12 @@ export const PurchaseOrder = () => {
 
   return (
     <div className="flex-1 space-y-4">
-      <div className="flex items-center gap-1 text-lg">
+      {/* <div className="flex items-center gap-1 text-lg">
         <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
         <span>
           Summary-<span className="text-red-700">{po?.name}</span>
         </span>
-      </div>
+      </div> */}
       {po?.status === "PO Approved" &&
         po?.merged !== "true" &&
         mergeablePOs.length > 0 && !poPayments?.length > 0 && (
@@ -1150,42 +1150,42 @@ export const PurchaseOrder = () => {
                   <DialogTrigger>
                     <span className="font-light underline text-blue-500">{formatToIndianRupee(amountPaid)}</span>
                   </DialogTrigger>
-                <DialogContent className="text-start">
-                        <DialogHeader className="text-start py-8 overflow-auto">
-                            <Table>
-                                <TableHeader className="bg-gray-300">
-                                    <TableRow>
-                                        <TableHead>Date</TableHead>
-                                        <TableHead>Amount</TableHead>
-                                        <TableHead>UTR No.</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {poPayments?.map((payment) => {
-                                            return (
-                                                <TableRow key={payment?.name}>
-                                                    <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
-                                                    <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
-                                                    <TableCell className="font-semibold text-blue-500 underline">
-                                                    {import.meta.env.MODE === "development" ? (
-                                                          <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
-                                                              {payment?.utr}
-                                                          </a>
-                                                      ) : (
-                                                          <a href={`${siteUrl}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
-                                                              {payment?.utr}
-                                                          </a>
-                                                      )}
-                                                    </TableCell>
-                                                </TableRow>
-                                            )
-                                    })}
-                                </TableBody>
-                            </Table>
+                  <DialogContent className="text-start">
+                    <DialogHeader className="text-start py-8 overflow-auto">
+                      <Table>
+                        <TableHeader className="bg-gray-300">
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>UTR No.</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {poPayments?.map((payment) => {
+                            return (
+                              <TableRow key={payment?.name}>
+                                <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
+                                <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                <TableCell className="font-semibold text-blue-500 underline">
+                                  {import.meta.env.MODE === "development" ? (
+                                    <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                      {payment?.utr}
+                                    </a>
+                                  ) : (
+                                    <a href={`${siteUrl}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                      {payment?.utr}
+                                    </a>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
 
-                        </DialogHeader>
-                </DialogContent>
-            </Dialog>
+                    </DialogHeader>
+                  </DialogContent>
+                </Dialog>
               ) : (
                 <span className="font-light">--</span>
               )}
@@ -1197,96 +1197,96 @@ export const PurchaseOrder = () => {
             <CardTitle className="text-xl text-red-600 flex items-center justify-between">
               PO Options
 
-<Dialog open={editPOTermsDialog} onOpenChange={toggleEditPOTermsDialog}>
-  <DialogTrigger>
-    <Button variant={"outline"} className="flex items-center gap-1">
-      <PencilIcon className="w-4 h-4" />
-      Edit
-    </Button>
-  </DialogTrigger>
-  <DialogContent className="overflow-auto max-h-[80vh] w-full" disableCloseIcon={false}>
-    {/* Sticky Header with Buttons */}
-    <div className="sticky top-0 z-10 bg-white shadow-md px-4 py-2 flex justify-between items-center">
-      <h3 className="text-black font-semibold">Edit Purchase Order Terms</h3>
-      <div className="flex gap-2 items-center">
-      {loadingFuncName === "OnSubmit" ? <TailSpin color="red" height={40} width={40} /> : (
-                          <>
-        <DialogClose asChild>
-          <Button variant={"outline"} className="flex items-center gap-1">
-            <CircleX className="h-4 w-4" />
-            Cancel
-          </Button>
-        </DialogClose>
-        <Button
-          type="submit"
-          className="flex items-center gap-1"
-          disabled={checkPrintDisabled}
-          onClick={() => onSubmit(control._formValues)}
-        >
-          <ListChecks className="h-4 w-4" />
-          Save
-        </Button>
-        </>)}
-      </div>
-    </div>
+              <Dialog open={editPOTermsDialog} onOpenChange={toggleEditPOTermsDialog}>
+                <DialogTrigger>
+                  <Button variant={"outline"} className="flex items-center gap-1">
+                    <PencilIcon className="w-4 h-4" />
+                    Edit
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="overflow-auto max-h-[80vh] w-full" disableCloseIcon={false}>
+                  {/* Sticky Header with Buttons */}
+                  <div className="sticky top-0 z-10 bg-white shadow-md px-4 py-2 flex justify-between items-center">
+                    <h3 className="text-black font-semibold">Edit Purchase Order Terms</h3>
+                    <div className="flex gap-2 items-center">
+                      {loadingFuncName === "OnSubmit" ? <TailSpin color="red" height={40} width={40} /> : (
+                        <>
+                          <DialogClose asChild>
+                            <Button variant={"outline"} className="flex items-center gap-1">
+                              <CircleX className="h-4 w-4" />
+                              Cancel
+                            </Button>
+                          </DialogClose>
+                          <Button
+                            type="submit"
+                            className="flex items-center gap-1"
+                            disabled={checkPrintDisabled}
+                            onClick={() => onSubmit(control._formValues)}
+                          >
+                            <ListChecks className="h-4 w-4" />
+                            Save
+                          </Button>
+                        </>)}
+                    </div>
+                  </div>
 
-    {/* Dialog Content */}
-    <div className="py-2 px-4">
-      <h3 className="text-black font-semibold pb-2">Include Comments</h3>
-      <Switch
-        id="commentsToggler"
-        defaultChecked={includeComments}
-        onCheckedChange={(e) => setIncludeComments(e)}
-      />
-      <Separator className="my-2" />
-    </div>
-    <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4 space-y-6">
-      {/* Additional Charges Section */}
-      <section>
-        <h3 className="font-semibold text-lg">Additional Charges</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-          <div>
-            <Label>Loading Charges</Label>
-            <Controller
-              control={control}
-              name="loadingCharges"
-              render={({ field }) => (
-                <Input
-                  {...field}
-                  className="w-full"
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    field.onChange(e);
-                    setLoadingCharges(value !== "" ? parseInt(value) : 0);
-                  }}
-                />
-              )}
-            />
-          </div>
-          <div>
-            <Label>Freight Charges</Label>
-            <Controller
-              control={control}
-              name="freightCharges"
-              render={({ field }) => (
-                <Input
-                  {...field}
-                  className="w-full"
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    field.onChange(e);
-                    setFreightCharges(value !== "" ? parseInt(value) : 0);
-                  }}
-                />
-              )}
-            />
-          </div>
-        </div>
-      </section>
+                  {/* Dialog Content */}
+                  <div className="py-2 px-4">
+                    <h3 className="text-black font-semibold pb-2">Include Comments</h3>
+                    <Switch
+                      id="commentsToggler"
+                      defaultChecked={includeComments}
+                      onCheckedChange={(e) => setIncludeComments(e)}
+                    />
+                    <Separator className="my-2" />
+                  </div>
+                  <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4 space-y-6">
+                    {/* Additional Charges Section */}
+                    <section>
+                      <h3 className="font-semibold text-lg">Additional Charges</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                        <div>
+                          <Label>Loading Charges</Label>
+                          <Controller
+                            control={control}
+                            name="loadingCharges"
+                            render={({ field }) => (
+                              <Input
+                                {...field}
+                                className="w-full"
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  field.onChange(e);
+                                  setLoadingCharges(value !== "" ? parseInt(value) : 0);
+                                }}
+                              />
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <Label>Freight Charges</Label>
+                          <Controller
+                            control={control}
+                            name="freightCharges"
+                            render={({ field }) => (
+                              <Input
+                                {...field}
+                                className="w-full"
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  field.onChange(e);
+                                  setFreightCharges(value !== "" ? parseInt(value) : 0);
+                                }}
+                              />
+                            )}
+                          />
+                        </div>
+                      </div>
+                    </section>
 
-      {/* Payments Section */}
-      <section>
-          <h3 className="font-semibold text-lg mt-4">Terms and Other Description</h3>
+                    {/* Payments Section */}
+                    <section>
+                      <h3 className="font-semibold text-lg mt-4">Terms and Other Description</h3>
                       <div className="flex-1 py-2">
                         <Label>Payments (in %)</Label>
 
@@ -1297,22 +1297,22 @@ export const PurchaseOrder = () => {
                             <p>2. Material Readiness:</p>
                             <p>3. After Delivery:</p>
                             <p>4. After {" "}
-                            <Controller
-                              control={control}
-                              name="xDays"
-                              render={({ field }) => (
-                                <input
-                                  {...field}
-                                  className="w-[60px] inline border px-2 rounded text-center text-black"
-                                  onChange={(e) => {
-                                    const value = e.target.value;
-                                    field.onChange(e);
-                                    setXDays(value !== "" ? parseInt(value) : 0);
-                                  }}
-                                />
-                              )}
-                            />
-                            {" "} days of delivery:</p>
+                              <Controller
+                                control={control}
+                                name="xDays"
+                                render={({ field }) => (
+                                  <input
+                                    {...field}
+                                    className="w-[60px] inline border px-2 rounded text-center text-black"
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      field.onChange(e);
+                                      setXDays(value !== "" ? parseInt(value) : 0);
+                                    }}
+                                  />
+                                )}
+                              />
+                              {" "} days of delivery:</p>
                           </div>
                           <div className="flex flex-col gap-4">
                             <Controller
@@ -1384,36 +1384,36 @@ export const PurchaseOrder = () => {
                           </div>
                         </div>
                       </div>
-        <p className="ml-2">
-          <Badge variant={"gray"}>Total aggregated percentages:</Badge> {advance + materialReadiness + afterDelivery + xDaysAfterDelivery} %
-        </p>
-        <p className="ml-2 my-2">
-          <Badge variant={"red"}>Note:</Badge> <strong>Total aggregated percentage must sum up to 100% to enable save button!</strong>
-        </p>
-      </section>
+                      <p className="ml-2">
+                        <Badge variant={"gray"}>Total aggregated percentages:</Badge> {advance + materialReadiness + afterDelivery + xDaysAfterDelivery} %
+                      </p>
+                      <p className="ml-2 my-2">
+                        <Badge variant={"red"}>Note:</Badge> <strong>Total aggregated percentage must sum up to 100% to enable save button!</strong>
+                      </p>
+                    </section>
 
-      {/* Notes Section */}
-      <section>
-        <Label>Add Notes</Label>
-        <Controller
-          control={control}
-          name="notes"
-          render={({ field }) => (
-            <Textarea
-              {...field}
-              onChange={(e) => {
-                const value = e.target.value;
-                field.onChange(value);
-                setNotes(value);
-              }}
-              className="w-full"
-            />
-          )}
-        />
-      </section>
-    </form>
-  </DialogContent>
-</Dialog>
+                    {/* Notes Section */}
+                    <section>
+                      <Label>Add Notes</Label>
+                      <Controller
+                        control={control}
+                        name="notes"
+                        render={({ field }) => (
+                          <Textarea
+                            {...field}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              field.onChange(value);
+                              setNotes(value);
+                            }}
+                            className="w-full"
+                          />
+                        )}
+                      />
+                    </section>
+                  </form>
+                </DialogContent>
+              </Dialog>
 
             </CardTitle>
           </CardHeader>
@@ -2190,14 +2190,14 @@ export const PurchaseOrder = () => {
                               <AlertDialog>
                                 <AlertDialogTrigger
                                   onClick={() => {
-                                    const options = item?.makes?.list?.map(i => ({label : i?.make, value : i?.make})) || []
+                                    const options = item?.makes?.list?.map(i => ({ label: i?.make, value: i?.make })) || []
                                     const selected = item?.makes?.list?.find(i => i?.enabled === "true")
 
                                     setQuantity(
                                       parseFloat(item.quantity)
                                     )
                                     setEditMakeOptions(options)
-                                    setSelectedMake({label : selected?.make, value : selected?.make})
+                                    setSelectedMake({ label: selected?.make, value: selected?.make })
                                   }
                                   }
                                 >
@@ -2227,48 +2227,48 @@ export const PurchaseOrder = () => {
                                           </div>
                                         </div>
                                         <div className="flex space-x-2 w-full">
-                                        <div className="w-[60%]">
-                                          <h5 className="text-base text-gray-400 text-left mb-1">
-                                            Make
-                                          </h5>
-                                          <div className="w-full">
-                                            {/* {item.unit} */}
-                                            <ReactSelect className="w-full" placeholder="Select Make..." value={selectedMake} options={editMakeOptions}
-                                            onChange={(e) => setSelectedMake(e)}
-                                             />
+                                          <div className="w-[60%]">
+                                            <h5 className="text-base text-gray-400 text-left mb-1">
+                                              Make
+                                            </h5>
+                                            <div className="w-full">
+                                              {/* {item.unit} */}
+                                              <ReactSelect className="w-full" placeholder="Select Make..." value={selectedMake} options={editMakeOptions}
+                                                onChange={(e) => setSelectedMake(e)}
+                                              />
+                                            </div>
                                           </div>
-                                        </div>
-                                        <div className="w-[30%]">
-                                          <h5 className="text-base text-gray-400 text-left mb-1">
-                                            UOM
-                                          </h5>
-                                          <div className=" w-full  p-2 text-center justify-left flex">
-                                            {item.unit}
+                                          <div className="w-[30%]">
+                                            <h5 className="text-base text-gray-400 text-left mb-1">
+                                              UOM
+                                            </h5>
+                                            <div className=" w-full  p-2 text-center justify-left flex">
+                                              {item.unit}
+                                            </div>
                                           </div>
-                                        </div>
-                                        <div className="w-[25%]">
-                                          <h5 className="text-base text-gray-400 text-left mb-1">
-                                            Qty
-                                          </h5>
-                                          <input
-                                            type="number"
-                                            defaultValue={
-                                              item.quantity
-                                            }
-                                            className=" rounded-lg w-full border p-2"
-                                            onChange={(e) =>
-                                              setQuantity(
-                                                e.target.value !==
-                                                  ""
-                                                  ? parseFloat(
-                                                    e.target
-                                                      .value
-                                                  )
-                                                  : null
-                                              )
-                                            }
-                                          />
-                                        </div>
+                                          <div className="w-[25%]">
+                                            <h5 className="text-base text-gray-400 text-left mb-1">
+                                              Qty
+                                            </h5>
+                                            <input
+                                              type="number"
+                                              defaultValue={
+                                                item.quantity
+                                              }
+                                              className=" rounded-lg w-full border p-2"
+                                              onChange={(e) =>
+                                                setQuantity(
+                                                  e.target.value !==
+                                                    ""
+                                                    ? parseFloat(
+                                                      e.target
+                                                        .value
+                                                    )
+                                                    : null
+                                                )
+                                              }
+                                            />
+                                          </div>
                                         </div>
                                       </div>
                                     </AlertDialogDescription>
@@ -2747,7 +2747,7 @@ export const PurchaseOrder = () => {
                           </td>
                           <td className="py-2 text-sm whitespace-nowrap text-wrap">
                             {item.item}
-                             <p className="text-xs italic font-semibold text-gray-500"> - {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
+                            <p className="text-xs italic font-semibold text-gray-500"> - {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
                             {item.comment && includeComments && (
                               <div className="flex gap-1 items-start block p-1">
                                 <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
