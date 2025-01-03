@@ -196,7 +196,7 @@ const router = createBrowserRouter(
           </Route>
 
           {/* Approved PO Paths  */}
-          <Route path="release-po">
+          {/* <Route path="release-po">
             <Route
               index
               element={<ReleasePOSelect not={false} status="PO Approved" />}
@@ -205,10 +205,10 @@ const router = createBrowserRouter(
               // element={<ReleasePONew not={false} />} 
               element={<PurchaseOrder not={false} />}
             />
-          </Route>
+          </Route> */}
 
           {/* Released PO Paths  */}
-          <Route path="released-po">
+          {/* <Route path="released-po">
             <Route
               index
               element={<ReleasePOSelect not={true} status="PO Approved" />}
@@ -218,6 +218,11 @@ const router = createBrowserRouter(
               // element={<ReleasePONew not={true} />} 
               element={<PurchaseOrder not={true} />}
             />
+          </Route> */}
+
+          <Route path='purchase-orders'>
+            <Route index element={<ReleasePOSelect />} />
+            <Route path=":id" element={<PurchaseOrder />} />
           </Route>
 
           {/* Sent Back Paths */}
@@ -268,7 +273,6 @@ const router = createBrowserRouter(
               path=":projectId/add-estimates"
               lazy={() => import("@/components/add-project-estimates")}
             />
-            <Route path=":projectId/edit" element={<EditProjectForm />} />
             <Route path=":projectId/:id">
               <Route index lazy={() => import("@/components/pr-summary")} />
               <Route path=":id" lazy={() => import("@/components/POSummary")} />
@@ -282,7 +286,6 @@ const router = createBrowserRouter(
             <Route index element={<Users />} />
             <Route path="new" element={<UserForm />} />
             <Route path=":id" element={<Profile />} />
-            <Route path=":id/edit" element={<EditUserForm />} />
           </Route>
 
           {/* Item Paths  */}
@@ -299,7 +302,6 @@ const router = createBrowserRouter(
               <Route index lazy={() => import("@/pages/vendors/vendor")} />
               <Route path=":id" lazy={() => import("@/components/POSummary")} />
             </Route>
-            <Route path=":id/edit" element={<EditVendor />} />
           </Route>
 
           {/* Customer Paths */}
@@ -310,7 +312,6 @@ const router = createBrowserRouter(
               path=":customerId"
               lazy={() => import("@/pages/customers/customer")}
             />
-            <Route path=":id/edit" element={<EditCustomer />} />
           </Route>
 
           <Route path="roles">

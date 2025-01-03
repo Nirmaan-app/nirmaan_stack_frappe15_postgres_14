@@ -5,7 +5,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { AlertTriangle, ArrowLeft, BookCheck, Building, Calendar, CalendarDays, CheckCheck, CircleX, Download, Eye, HandCoins, List, ListChecks, Mail, MapPin, Merge, MessageCircleMore, MessageCircleWarning, Package, Pencil, PencilIcon, PencilRuler, Phone, Printer, ReceiptIndianRupee, Send, Split, Trash2, Truck, Undo, Undo2, User, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import logo from "@/assets/logo-svg.svg";
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import { useReactToPrint } from "react-to-print";
@@ -25,10 +25,15 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tree } from "antd";
 import { useUserData } from "@/hooks/useUserData";
+import { formatDate } from "@/utils/FormatDate";
 
-export const PurchaseOrder = ({ not }) => {
+export const PurchaseOrder = () => {
 
   const { id } = useParams()
+
+  const [searchParams] = useSearchParams();
+
+  const tab = searchParams.get("tab") || "Approved";
 
   const poId = id?.replaceAll("&=", "/")
 
@@ -40,6 +45,7 @@ export const PurchaseOrder = ({ not }) => {
   const [materialReadiness, setMaterialReadiness] = useState(0)
   const [afterDelivery, setAfterDelivery] = useState(0)
   const [xDaysAfterDelivery, setXDaysAfterDelivery] = useState(0)
+  const [xDays, setXDays] = useState(0)
   const [loadingCharges, setLoadingCharges] = useState(0)
   const [freightCharges, setFreightCharges] = useState(0)
   const [includeComments, setIncludeComments] = useState(false)
@@ -137,12 +143,19 @@ export const PurchaseOrder = ({ not }) => {
     limit: 1000,
   });
 
+  const {data : poPayments, isLoading: poPaymentsLoading, error: poPaymentsError, mutate: poPaymentsMutate} = useFrappeGetDocList("Project Payments", {
+          fields: ["*"],
+          filters: [["document_name", "=", poId]],
+          limit: 10000
+  })
+
   const { control, handleSubmit, reset } = useForm({
     defaultValues: {
       advance: 0,
       materialReadiness: 0,
       afterDelivery: 0,
       xDaysAfterDelivery: 0,
+      xDays: 0,
       loadingCharges: 0,
       freightCharges: 0,
       notes: "",
@@ -156,6 +169,7 @@ export const PurchaseOrder = ({ not }) => {
       setMaterialReadiness(parseFloat(chargesArray[1] || 0))
       setAfterDelivery(parseFloat(chargesArray[2] || 0))
       setXDaysAfterDelivery(parseFloat(chargesArray[3] || 0))
+      setXDays(parseFloat(chargesArray[4] || 0))
       setLoadingCharges(parseFloat(po?.loading_charges || 0))
       setFreightCharges(parseFloat(po?.freight_charges || 0))
       setNotes(po?.notes || "")
@@ -164,6 +178,7 @@ export const PurchaseOrder = ({ not }) => {
         materialReadiness: parseFloat(chargesArray[1] || 0),
         afterDelivery: parseFloat(chargesArray[2] || 0),
         xDaysAfterDelivery: parseFloat(chargesArray[3] || 0),
+        xDays: parseFloat(chargesArray[4] || 0),
         loadingCharges: parseFloat(po.loading_charges || 0),
         freightCharges: parseFloat(po.freight_charges || 0),
         notes: po.notes || "",
@@ -236,39 +251,40 @@ export const PurchaseOrder = ({ not }) => {
     return { total, totalGst: totalGst, totalAmt: total + totalGst };
   };
 
-  const onSubmit = (data: any) => {
+  const onSubmit = async (data: any) => {
     setLoadingFuncName("onSubmit")
-    const updateData = {
-      advance: `${data.advance !== "" ? parseInt(data.advance) : 0}, ${data.materialReadiness !== "" ? parseInt(data.materialReadiness) : 0
-        }, ${data.afterDelivery !== "" ? parseInt(data.afterDelivery) : 0}, ${data.xDaysAfterDelivery !== "" ? parseInt(data.xDaysAfterDelivery) : 0
-        }`,
-      loading_charges:
-        data.loadingCharges !== "" ? parseInt(data.loadingCharges) : 0,
-      freight_charges:
-        data.freightCharges !== "" ? parseInt(data.freightCharges) : 0,
-      notes: data.notes || "",
-    };
+    try {
+      const updateData = {
+        advance: `${data.advance !== "" ? parseInt(data.advance) : 0}, ${data.materialReadiness !== "" ? parseInt(data.materialReadiness) : 0
+          }, ${data.afterDelivery !== "" ? parseInt(data.afterDelivery) : 0}, ${data.xDaysAfterDelivery !== "" ? parseInt(data.xDaysAfterDelivery) : 0
+          }, ${data.xDays !== "" ? parseInt(data.xDays) : 0}`,
+        loading_charges:
+          data.loadingCharges !== "" ? parseInt(data.loadingCharges) : 0,
+        freight_charges:
+          data.freightCharges !== "" ? parseInt(data.freightCharges) : 0,
+        notes: data.notes || "",
+      };
+  
+      const res = await updateDoc("Procurement Orders", po?.name, updateData)
 
-    updateDoc("Procurement Orders", po?.name, updateData)
-      .then((doc) => {
-        poMutate();
-        toggleEditPOTermsDialog()
-        toast({
-          title: "Success!",
-          description: `${doc.name} updated successfully!`,
-          variant: "success",
-        });
-      })
-      .catch(() => {
-        console.log("update_submit_error", update_submit_error);
-        toast({
-          title: "Failed!",
-          description: `Failed to update ${po?.name}`,
-          variant: "destructive",
-        });
-      }).finally(() => {
-        setLoadingFuncName("")
-      })
+      await poMutate();
+      toggleEditPOTermsDialog()
+      toast({
+        title: "Success!",
+        description: `${res.name} updated successfully!`,
+        variant: "success",
+      });
+      
+    } catch (error) {
+      console.log("update_submit_error", error);
+      toast({
+        title: "Failed!",
+        description: `Failed to update ${po?.name}`,
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingFuncName("")
+    }
   };
 
   const checkPrintDisabled =
@@ -297,6 +313,7 @@ export const PurchaseOrder = ({ not }) => {
       setMaterialReadiness(parseFloat(chargesArray[1] || 0))
       setAfterDelivery(parseFloat(chargesArray[2] || 0))
       setXDaysAfterDelivery(parseFloat(chargesArray[3] || 0))
+      setXDays(parseFloat(chargesArray[4] || 0))
       setLoadingCharges(parseFloat(po?.loading_charges || 0))
       setFreightCharges(parseFloat(po?.freight_charges || 0))
       setNotes(po?.notes || "")
@@ -305,6 +322,7 @@ export const PurchaseOrder = ({ not }) => {
         materialReadiness: parseFloat(chargesArray[1] || 0),
         afterDelivery: parseFloat(chargesArray[2] || 0),
         xDaysAfterDelivery: parseFloat(chargesArray[3] || 0),
+        xDays: parseFloat(chargesArray[4] || 0),
         loadingCharges: parseFloat(po.loading_charges || 0),
         freightCharges: parseFloat(po.freight_charges || 0),
         notes: po.notes || "",
@@ -685,6 +703,8 @@ export const PurchaseOrder = ({ not }) => {
     }
   };
 
+  const amountPaid = poPayments?.reduce((acc, i) => acc + parseFloat(i?.amount), 0)
+
   if (
     poLoading ||
     vendor_address_loading ||
@@ -700,7 +720,7 @@ export const PurchaseOrder = ({ not }) => {
     );
   if (associated_po_list_error || vendor_address_error || project_address_error || usersListError || prError || poError)
     return <h1>Error</h1>;
-  if (!not && !["PO Approved", "Merged"].includes(po?.status))
+  if (tab === "Approved" && !["PO Approved", "Merged"].includes(po?.status))
     return (
       <div className="flex items-center justify-center h-full">
         <div className="bg-white shadow-lg rounded-lg p-8 max-w-lg w-full text-center space-y-4">
@@ -724,7 +744,7 @@ export const PurchaseOrder = ({ not }) => {
           </p>
           <button
             className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-            onClick={() => navigate("/release-po")}
+            onClick={() => navigate("/purchase-orders")}
           >
             Go Back
           </button>
@@ -742,7 +762,7 @@ export const PurchaseOrder = ({ not }) => {
       </div>
       {po?.status === "PO Approved" &&
         po?.merged !== "true" &&
-        mergeablePOs.length > 0 && (
+        mergeablePOs.length > 0 && !poPayments?.length > 0 && (
           <>
             <Alert variant="warning" className="">
               <AlertTitle className="text-sm flex items-center gap-2">
@@ -1022,12 +1042,12 @@ export const PurchaseOrder = ({ not }) => {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4 max-sm:text-sm w-full">
-            <div className="flex items-center justify-between">
+            <div className="flex items-start justify-between">
               <div className="flex items-start gap-1">
                 <Building className="w-4 h-4 text-muted-foreground" />
                 <Label className="font-light text-red-700">Project:</Label>
               </div>
-              <span className=" font-light">{po?.project_name}</span>
+              <span className="font-light">{po?.project_name}</span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1">
@@ -1083,71 +1103,140 @@ export const PurchaseOrder = ({ not }) => {
               <Label className="ml-1 font-light text-red-700">Total (Incl. GST):</Label>
               <span className="font-light">{formatToIndianRupee(overallTotal.withGst)}</span>
             </div>
+            <div className="flex items-center justify-between">
+              <Label className="ml-1 font-light text-red-700">Total Amount Paid:</Label>
+              {amountPaid ? (
+                <Dialog>
+                  <DialogTrigger>
+                    <span className="font-light underline text-blue-500">{formatToIndianRupee(amountPaid)}</span>
+                  </DialogTrigger>
+                <DialogContent className="text-start">
+                        <DialogHeader className="text-start py-8 overflow-auto">
+                            <Table>
+                                <TableHeader className="bg-gray-300">
+                                    <TableRow>
+                                        <TableHead>Date</TableHead>
+                                        <TableHead>Amount</TableHead>
+                                        <TableHead>UTR No.</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {poPayments?.map((payment) => {
+                                            return (
+                                                <TableRow key={payment?.name}>
+                                                    <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
+                                                    <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
+                                                    <TableCell className="font-semibold text-blue-500">{payment?.utr}</TableCell>
+                                                </TableRow>
+                                            )
+                                    })}
+                                </TableBody>
+                            </Table>
+
+                        </DialogHeader>
+                </DialogContent>
+            </Dialog>
+              ) : (
+                <span className="font-light">--</span>
+              )}
+            </div>
           </CardContent>
         </Card>
         <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">
           <CardHeader>
             <CardTitle className="text-xl text-red-600 flex items-center justify-between">
               PO Options
-              <AlertDialog open={editPOTermsDialog} onOpenChange={toggleEditPOTermsDialog}>
-                <AlertDialogTrigger>
-                  <Button variant={"outline"} className="felx items-center gap-1">
-                    <PencilIcon className="w-4 h-4" />
-                    Edit
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="overflow-auto max-h-[80vh] w-full">
-                  <div className="py-2 px-4">
-                    <h3 className="text-black font-semibold pb-2">Include Comments</h3>
-                    <Switch
-                      id="commentsToggler"
-                      defaultChecked={includeComments}
-                      onCheckedChange={(e) => setIncludeComments(e)}
-                    />
-                    <Separator className="my-2" />
-                  </div>
-                  <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4">
-                    <div className="flex-col">
-                      <h3 className="font-semibold text-lg">Additional Charges</h3>
-                      <div className="flex-1 mt-2">
-                        <Label>Loading Charges</Label>
-                        <Controller
-                          control={control}
-                          name="loadingCharges"
-                          render={({ field }) => (
-                            <Input
-                              {...field}
-                              className="w-full"
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                field.onChange(e);
-                                setLoadingCharges(value !== "" ? parseInt(value) : 0);
-                              }}
-                            />
-                          )}
-                        />
-                      </div>
-                      <div className="flex-1 mt-2 border-b border-gray-400 pb-4">
-                        <Label>Freight Charges</Label>
-                        <Controller
-                          control={control}
-                          name="freightCharges"
-                          render={({ field }) => (
-                            <Input
-                              {...field}
-                              className="w-full"
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                field.onChange(e);
-                                setFreightCharges(value !== "" ? parseInt(value) : 0);
-                              }}
-                            />
-                          )}
-                        />
-                      </div>
-                      <h3 className="font-semibold text-lg mt-4">
-                        Terms and Other Description
-                      </h3>
+
+<Dialog open={editPOTermsDialog} onOpenChange={toggleEditPOTermsDialog}>
+  <DialogTrigger>
+    <Button variant={"outline"} className="flex items-center gap-1">
+      <PencilIcon className="w-4 h-4" />
+      Edit
+    </Button>
+  </DialogTrigger>
+  <DialogContent className="overflow-auto max-h-[80vh] w-full" disableCloseIcon={false}>
+    {/* Sticky Header with Buttons */}
+    <div className="sticky top-0 z-10 bg-white shadow-md px-4 py-2 flex justify-between items-center">
+      <h3 className="text-black font-semibold">Edit Purchase Order Terms</h3>
+      <div className="flex gap-2 items-center">
+      {loadingFuncName === "OnSubmit" ? <TailSpin color="red" height={40} width={40} /> : (
+                          <>
+        <DialogClose asChild>
+          <Button variant={"outline"} className="flex items-center gap-1">
+            <CircleX className="h-4 w-4" />
+            Cancel
+          </Button>
+        </DialogClose>
+        <Button
+          type="submit"
+          className="flex items-center gap-1"
+          disabled={checkPrintDisabled}
+          onClick={() => onSubmit(control._formValues)}
+        >
+          <ListChecks className="h-4 w-4" />
+          Save
+        </Button>
+        </>)}
+      </div>
+    </div>
+
+    {/* Dialog Content */}
+    <div className="py-2 px-4">
+      <h3 className="text-black font-semibold pb-2">Include Comments</h3>
+      <Switch
+        id="commentsToggler"
+        defaultChecked={includeComments}
+        onCheckedChange={(e) => setIncludeComments(e)}
+      />
+      <Separator className="my-2" />
+    </div>
+    <form onSubmit={handleSubmit(onSubmit)} className="px-4 pb-4 space-y-6">
+      {/* Additional Charges Section */}
+      <section>
+        <h3 className="font-semibold text-lg">Additional Charges</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+          <div>
+            <Label>Loading Charges</Label>
+            <Controller
+              control={control}
+              name="loadingCharges"
+              render={({ field }) => (
+                <Input
+                  {...field}
+                  className="w-full"
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    field.onChange(e);
+                    setLoadingCharges(value !== "" ? parseInt(value) : 0);
+                  }}
+                />
+              )}
+            />
+          </div>
+          <div>
+            <Label>Freight Charges</Label>
+            <Controller
+              control={control}
+              name="freightCharges"
+              render={({ field }) => (
+                <Input
+                  {...field}
+                  className="w-full"
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    field.onChange(e);
+                    setFreightCharges(value !== "" ? parseInt(value) : 0);
+                  }}
+                />
+              )}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Payments Section */}
+      <section>
+          <h3 className="font-semibold text-lg mt-4">Terms and Other Description</h3>
                       <div className="flex-1 py-2">
                         <Label>Payments (in %)</Label>
 
@@ -1157,7 +1246,23 @@ export const PurchaseOrder = ({ not }) => {
                             <p>1. Advance:</p>
                             <p>2. Material Readiness:</p>
                             <p>3. After Delivery:</p>
-                            <p>4. After 30 days of delivery:</p>
+                            <p>4. After {" "}
+                            <Controller
+                              control={control}
+                              name="xDays"
+                              render={({ field }) => (
+                                <input
+                                  {...field}
+                                  className="w-[60px] inline border px-2 rounded text-center text-black"
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    field.onChange(e);
+                                    setXDays(value !== "" ? parseInt(value) : 0);
+                                  }}
+                                />
+                              )}
+                            />
+                            {" "} days of delivery:</p>
                           </div>
                           <div className="flex flex-col gap-4">
                             <Controller
@@ -1228,62 +1333,38 @@ export const PurchaseOrder = ({ not }) => {
                             />
                           </div>
                         </div>
-                        <p className="ml-2">
-                          <Badge variant={"gray"}>Total agregated percentages: </Badge>{" "}
-                          {advance +
-                            materialReadiness +
-                            afterDelivery +
-                            xDaysAfterDelivery}{" "}
-                          %
-                        </p>
-                        <p className="ml-2 my-2">
-                          <Badge variant={"red"}>Note:</Badge>{" "}
-                          <strong>
-                            Total agregated percentage must sum up to 100% in order to
-                            enable save button!
-                          </strong>{" "}
-                        </p>
                       </div>
-                      <div className="flex-1 mt-2">
-                        <Label>Add Notes</Label>
-                        <Controller
-                          control={control}
-                          name="notes"
-                          render={({ field }) => (
-                            <Textarea
-                              {...field}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                field.onChange(value);
-                                setNotes(value);
-                              }}
-                              className="w-full"
-                            />
-                          )}
-                        />
-                      </div>
-                      <div className="mt-4 flex items-center gap-2 justify-end">
-                        {loadingFuncName === "OnSubmit" ? <TailSpin color="red" height={40} width={40} /> : (
-                          <>
-                            <AlertDialogCancel className="flex items-center gap-1">
-                              <CircleX className="h-4 w-4" />
-                              Cancel
-                            </AlertDialogCancel>
-                            <Button
-                              type="submit"
-                              className="flex items-center gap-1"
-                              disabled={checkPrintDisabled}
-                            >
-                              <ListChecks className="h-4 w-4" />
-                              Save
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </form>
-                </AlertDialogContent>
-              </AlertDialog>
+        <p className="ml-2">
+          <Badge variant={"gray"}>Total aggregated percentages:</Badge> {advance + materialReadiness + afterDelivery + xDaysAfterDelivery} %
+        </p>
+        <p className="ml-2 my-2">
+          <Badge variant={"red"}>Note:</Badge> <strong>Total aggregated percentage must sum up to 100% to enable save button!</strong>
+        </p>
+      </section>
+
+      {/* Notes Section */}
+      <section>
+        <Label>Add Notes</Label>
+        <Controller
+          control={control}
+          name="notes"
+          render={({ field }) => (
+            <Textarea
+              {...field}
+              onChange={(e) => {
+                const value = e.target.value;
+                field.onChange(value);
+                setNotes(value);
+              }}
+              className="w-full"
+            />
+          )}
+        />
+      </section>
+    </form>
+  </DialogContent>
+</Dialog>
+
             </CardTitle>
           </CardHeader>
           <CardContent className="">
@@ -1307,7 +1388,7 @@ export const PurchaseOrder = ({ not }) => {
                 </div>
                 <div className="flex items-center gap-1">
                   <CalendarDays className="w-4 h-4 text-muted-foreground" />
-                  <Label className="font-light">After X days of delivery:</Label>
+                  <Label className="font-light">After {xDays || "--"} days of delivery:</Label>
                 </div>
               </div>
 
@@ -1816,7 +1897,7 @@ export const PurchaseOrder = ({ not }) => {
       {/* Unmerge, Amend and Cancel PO Buttons  */}
       <div className="flex items-center justify-between">
         {po?.status === "PO Approved" &&
-          po?.merged === "true" ? (
+          po?.merged === "true" && !poPayments?.length > 0 ? (
           <AlertDialog open={unMergeDialog} onOpenChange={toggleUnMergeDialog}>
             <AlertDialogTrigger asChild>
               <Button
@@ -2265,7 +2346,7 @@ export const PurchaseOrder = ({ not }) => {
             </SheetContent>
           </Sheet>
 
-          {["PO Approved"].includes(po?.status) ? (
+          {(["PO Approved"].includes(po?.status) && !poPayments?.length > 0) ? (
             //  && (orderData?.order_list.list.some(item => 'po' in item) === false)
             po?.merged !== "true" ? (
               <Button onClick={toggleCancelPODialog} variant={"outline"} className="border-primary text-primary flex items-center gap-1">
@@ -2306,7 +2387,7 @@ export const PurchaseOrder = ({ not }) => {
                     Cancellation
                   </span>
                   is not allowed for this PO. This might be due to
-                  the status is not PO Approved.
+                  the status is not PO Approved or there are payment(s) created for it.
                 </div>
               </HoverCardContent>
             </HoverCard>

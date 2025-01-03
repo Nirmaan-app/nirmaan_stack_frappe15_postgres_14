@@ -1,5 +1,5 @@
 import { FrappeConfig, FrappeContext, useFrappeDocTypeEventListener, useFrappeGetDocList } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useContext, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
@@ -12,19 +12,24 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { Button } from "@/components/ui/button";
 
 
-interface ReleasePOSelectProps {
-    status: string
-    not: boolean
-}
+// interface ReleasePOSelectProps {
+//     status: string
+//     not: boolean
+// }
 
-export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
+export const ReleasePOSelect = () => {
+
+    const [searchParams] = useSearchParams();
+
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || "Approved");    
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
-            filters: [["status", not ? "not in" : "in", not ? [status, "PO Amendment", "Merged"] : [status]]],
+            filters: [["status", tab === "Released" ? "not in" : "in", tab === "Released" ? ["PO Approved", "PO Amendment", "Merged"] : ["PO Approved"]]],
             limit: 1000,
             orderBy: { field: "modified", order: "desc" }
         },
@@ -85,6 +90,24 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
         }
     }
 
+    useEffect(() => {
+        const currentTab = searchParams.get("tab") || "Approved";
+        setTab(currentTab);
+        updateURL("tab", currentTab);
+      }, []);
+    
+    const updateURL = (key, value) => {
+      const url = new URL(window.location);
+      url.searchParams.set(key, value);
+      window.history.pushState({}, "", url);
+    };
+
+    const setPOTab = (changeTab) => {
+      if (tab === changeTab) return; // Prevent redundant updates
+      setTab(changeTab);
+      updateURL("tab", changeTab);
+    };
+
     const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
         () => [
             {
@@ -98,7 +121,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                     const id = row.getValue("name")
                     const poId = id?.replaceAll("/", "&=")
                     const isNew = notifications.find(
-                        (item) => item.docname === id && item.seen === "false" && item.event_id === "po:new" && !not
+                        (item) => item.docname === id && item.seen === "false" && item.event_id === "po:new" && tab === "Approved"
                     )
                     return (
                         <div onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 relative">
@@ -107,7 +130,7 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
                             )}
                             <Link
                                 className="underline hover:underline-offset-2"
-                                to={`${poId}`}
+                                to={`${poId}?tab=${tab}`}
                             >
                                 {id?.toUpperCase()}
                             </Link>
@@ -256,8 +279,12 @@ export const ReleasePOSelect = ({ not, status }: ReleasePOSelectProps) => {
     return (
         <>
             <div className="flex-1 md:space-y-4">
-                <div className="flex items-center justify-between space-y-2">
+                {/* <div className="flex items-center justify-between space-y-2">
                     <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">{not ? "Released" : "Approved"} PO</h2>
+                </div> */}
+                <div className="flex items-center gap-4">
+                    <Button variant={`${tab === "Approved" ? "default" : "outline"}`} onClick={() => setPOTab("Approved")}>Approved PO</Button>
+                    <Button variant={`${tab === "Released" ? "default" : "outline"}`} onClick={() => setPOTab("Released")}>Released PO</Button>
                 </div>
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list?.filter((po) => po?.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
