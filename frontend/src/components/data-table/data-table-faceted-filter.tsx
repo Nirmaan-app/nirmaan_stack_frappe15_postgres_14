@@ -69,54 +69,102 @@ export function DataTableFacetedFilter<TData, TValue>({
     // };
 
     const [selectedValues, setSelectedValues] = React.useState<Set<string>>(new Set());
-    const [searchParams, setSearchParams] = useSearchParams();
+    // const [searchParams, setSearchParams] = useSearchParams();
 
     // Initialize selected values from URL parameters
+    // React.useEffect(() => {
+    //     const filterParam = searchParams.get(title);
+    //     if (filterParam) {
+    //         const values = new Set(filterParam.split(","));
+    //         setSelectedValues(values);
+    //         column?.setFilterValue(Array.from(values));
+    //     } else {
+    //         setSelectedValues(new Set());
+    //         column?.setFilterValue(undefined);
+    //     }
+    // }, [searchParams, title, column]);
+
+    // const handleSelect = (option: { value: string }) => {
+    //     const newSelectedValues = new Set(selectedValues);
+
+    //     if (newSelectedValues.has(option.value)) {
+    //         newSelectedValues.delete(option.value);
+    //     } else {
+    //         newSelectedValues.add(option.value);
+    //     }
+
+    //     setSelectedValues(newSelectedValues);
+
+    //     const filterValues = Array.from(newSelectedValues);
+    //     column?.setFilterValue(filterValues.length ? filterValues : undefined);
+
+    //     // Update URL parameters
+    //     const newSearchParams = new URLSearchParams(searchParams);
+    //     if (filterValues.length) {
+    //         newSearchParams.set(title, filterValues.join(","));
+    //     } else {
+    //         newSearchParams.delete(title);
+    //     }
+    //     setSearchParams(newSearchParams);
+    // };
+
+    // const clearFilters = () => {
+    //     setSelectedValues(new Set());
+    //     column?.setFilterValue(undefined);
+
+    //     // Remove filter from URL parameters
+    //     const newSearchParams = new URLSearchParams(searchParams);
+    //     newSearchParams.delete(title);
+    //     setSearchParams(newSearchParams);
+    // };
+
     React.useEffect(() => {
-        const filterParam = searchParams.get(title);
+        const urlParams = new URLSearchParams(window.location.search);
+        const filterParam = urlParams.get(title);
         if (filterParam) {
-            const values = new Set(filterParam.split(","));
-            setSelectedValues(values);
-            column?.setFilterValue(Array.from(values));
+          const values = new Set(filterParam.split(","));
+          setSelectedValues(values);
+          column?.setFilterValue(Array.from(values));
         } else {
-            setSelectedValues(new Set());
-            column?.setFilterValue(undefined);
+          setSelectedValues(new Set());
+          column?.setFilterValue(undefined);
         }
-    }, [searchParams, title, column]);
-
-    const handleSelect = (option: { value: string }) => {
+      }, [title, column]);
+    
+      const updateURL = (key: string, value: string[] | undefined) => {
+        const url = new URL(window.location.href);
+        if (value && value.length) {
+          url.searchParams.set(key, value.join(","));
+        } else {
+          url.searchParams.delete(key);
+        }
+        window.history.pushState({}, "", url);
+      };
+    
+      const handleSelect = (option: { value: string }) => {
         const newSelectedValues = new Set(selectedValues);
-
+    
         if (newSelectedValues.has(option.value)) {
-            newSelectedValues.delete(option.value);
+          newSelectedValues.delete(option.value);
         } else {
-            newSelectedValues.add(option.value);
+          newSelectedValues.add(option.value);
         }
-
-        setSelectedValues(newSelectedValues);
-
+    
         const filterValues = Array.from(newSelectedValues);
+        setSelectedValues(newSelectedValues);
         column?.setFilterValue(filterValues.length ? filterValues : undefined);
-
+    
         // Update URL parameters
-        const newSearchParams = new URLSearchParams(searchParams);
-        if (filterValues.length) {
-            newSearchParams.set(title, filterValues.join(","));
-        } else {
-            newSearchParams.delete(title);
-        }
-        setSearchParams(newSearchParams);
-    };
-
-    const clearFilters = () => {
+        updateURL(title, filterValues.length ? filterValues : undefined);
+      };
+    
+      const clearFilters = () => {
         setSelectedValues(new Set());
         column?.setFilterValue(undefined);
-
-        // Remove filter from URL parameters
-        const newSearchParams = new URLSearchParams(searchParams);
-        newSearchParams.delete(title);
-        setSearchParams(newSearchParams);
-    };
+    
+        // Clear filter from URL parameters
+        updateURL(title, undefined);
+      };
 
 
     return (
