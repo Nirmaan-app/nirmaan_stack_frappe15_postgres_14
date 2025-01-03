@@ -1,6 +1,6 @@
-import React, { useContext, useMemo, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
@@ -21,8 +21,13 @@ import { Toast } from "@/components/ui/toast";
 import { TailSpin } from "react-loader-spinner";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ProjectPaymentsPaymentWise } from "./project-payments-payment-wise";
 
 export const ProjectPaymentsList = () => {
+
+    const [searchParams] = useSearchParams();
+    
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || "po-wise");   
 
     const {createDoc, loading: createLoading} = useFrappeCreateDoc()
 
@@ -58,6 +63,24 @@ export const ProjectPaymentsList = () => {
         fields: ["*"],
         limit: 10000
     })
+
+     useEffect(() => {
+            const currentTab = searchParams.get("tab") || "po-wise";
+            setTab(currentTab);
+            updateURL("tab", currentTab);
+    }, []);
+        
+    const updateURL = (key, value) => {
+      const url = new URL(window.location);
+      url.searchParams.set(key, value);
+      window.history.pushState({}, "", url);
+    };
+
+    const setPaymentsTab = (changeTab) => {
+      if (tab === changeTab) return; // Prevent redundant updates
+      setTab(changeTab);
+      updateURL("tab", changeTab);
+    };
 
     useFrappeDocTypeEventListener("Procurement Orders", async () => {
         await poMutate();
@@ -326,9 +349,14 @@ export const ProjectPaymentsList = () => {
 
     return (
         <div className="flex-1 md:space-y-4">
-            <div className="flex items-center justify-between space-y-2">
+            {/* <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Project Payments List</h2>
-            </div>
+            </div> */}
+
+                <div className="flex items-center gap-4">
+                    <Button variant={`${tab === "po-wise" ? "default" : "outline"}`} onClick={() => setPaymentsTab("po-wise")}>PO Wise</Button>
+                    <Button variant={`${tab === "payment-wise" ? "default" : "outline"}`} onClick={() => setPaymentsTab("payment-wise")}>Payment Wise</Button>
+                </div>
 
                         <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                             <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
@@ -344,9 +372,9 @@ export const ProjectPaymentsList = () => {
 
                                 <div className="flex justify-between pt-4">
                                 <div className="flex flex-col">
-                                    <Label className="py-4">Amount Paid:</Label>
-                                    <Label className="py-4">Date(of Transaction):</Label>
-                                    <Label className="py-4">UTR:</Label>
+                                    <Label className="py-4">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
+                                    {/* <Label className="py-4">Date(of Transaction):</Label> */}
+                                    <Label className="py-4">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                 </div>
                                 <div className="flex flex-col gap-4" >
                                     <Input
@@ -356,12 +384,12 @@ export const ProjectPaymentsList = () => {
                                         onChange={(e) => setNewPayment({...newPayment, amount: e.target.value})}
                                      />
 
-                                    <Input
+                                    {/* <Input
                                         type="date"
                                         value={newPayment.transaction_date}
                                         placeholder="DD/MM/YYYY"
                                         onChange={(e) => setNewPayment({...newPayment, transaction_date: e.target.value})}
-                                     />
+                                     /> */}
 
                                      <Input
                                         type="text"
@@ -409,7 +437,7 @@ export const ProjectPaymentsList = () => {
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.transaction_date || !newPayment.utr}
+                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>
@@ -466,10 +494,14 @@ export const ProjectPaymentsList = () => {
                                     </DialogHeader>
                             </DialogContent>
                         </Dialog>
-            {poLoading || srLoading || projectsLoading || vendorsLoading ? (
-                <TableSkeleton />
+            {tab === "po-wise" ? (
+                (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
+                    <TableSkeleton />
+                ) : (
+                    <DataTable columns={columns} data={combinedData} project_values={projectValues} approvedQuotesVendors={vendorValues} />
+                )
             ) : (
-                <DataTable columns={columns} data={combinedData} project_values={projectValues} approvedQuotesVendors={vendorValues} />
+                <ProjectPaymentsPaymentWise />
             )}
         </div>
     );

@@ -34,6 +34,7 @@ const OrderPaymentSummary = () => {
     const [materialReadiness, setMaterialReadiness] = useState(0)
     const [afterDelivery, setAfterDelivery] = useState(0)
     const [xDaysAfterDelivery, setXDaysAfterDelivery] = useState(0)
+    const [xDays, setXDays] = useState(0)
 
     const [newPaymentDialog, setNewPaymentDialog] = useState(false);
     
@@ -96,6 +97,7 @@ const OrderPaymentSummary = () => {
           setMaterialReadiness(parseFloat(chargesArray[1] || 0))
           setAfterDelivery(parseFloat(chargesArray[2] || 0))
           setXDaysAfterDelivery(parseFloat(chargesArray[3] || 0))
+          setXDays(parseFloat(chargesArray[4] || 0))
         }
       }, [endpoint, documentData])
 
@@ -243,19 +245,21 @@ const OrderPaymentSummary = () => {
                             <Label className=" text-red-700">Total (Excl. GST):</Label>
                             <span>{formatToIndianRupee(totals.total)}</span>
                         </div>
-                        <div className="flex flex-col gap-2">
-                            <Label className=" text-red-700">Total (Incl. GST):</Label>
-                            <span>{formatToIndianRupee(totals.totalWithGST)}</span>
+                        {(endpoint === "Procurement Orders" || (endpoint === "Service Requests" && documentData?.gst === "true")) && (
+                            <div className="flex flex-col gap-2">
+                                <Label className=" text-red-700">Total (Incl. GST):</Label>
+                                <span>{formatToIndianRupee(totals.totalWithGST)}</span>
+                            </div>
+                        ) }
                         </div>
-                        </div>
-                        <div className="flex-1 py-4">
+                        {/* <div className="flex-1 py-4">
                             <Label className="pr-1 text-red-700">Vendor Address:</Label>
                             <span>{vendorAddress}</span>
                         </div>
                         <div className="flex-1 py-2">
                             <Label className="text-red-700 pr-1">Project Address:</Label>
                             <span>{projectAddress}</span>
-                        </div>
+                        </div> */}
                     </CardContent>
                 </Card>
 
@@ -283,9 +287,9 @@ const OrderPaymentSummary = () => {
 
                                 <div className="flex justify-between pt-4">
                                 <div className="flex flex-col">
-                                    <Label className="py-4">Amount Paid:</Label>
-                                    <Label className="py-4">Date(of Transaction):</Label>
-                                    <Label className="py-4">UTR:</Label>
+                                    <Label className="py-4">Amount Paid<sup className=" text-sm text-red-600">*</sup></Label>
+                                    {/* <Label className="py-4">Date(of Transaction):</Label> */}
+                                    <Label className="py-4">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                 </div>
                                 <div className="flex flex-col gap-4" >
                                     <Input
@@ -295,12 +299,12 @@ const OrderPaymentSummary = () => {
                                         onChange={(e) => setNewPayment({...newPayment, amount: e.target.value})}
                                      />
 
-                                    <Input
+                                    {/* <Input
                                         type="date"
                                         value={newPayment.transaction_date}
                                         placeholder="DD/MM/YYYY"
                                         onChange={(e) => setNewPayment({...newPayment, transaction_date: e.target.value})}
-                                     />
+                                     /> */}
 
                                      <Input
                                         type="text"
@@ -348,7 +352,7 @@ const OrderPaymentSummary = () => {
                                         </AlertDialogCancel>
                                         <Button
                                             onClick={AddPayment}
-                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.transaction_date || !newPayment.utr}
+                                            disabled={!paymentScreenshot || !newPayment.amount || !newPayment.utr}
                                             className="flex-1">Add Payment
                                         </Button>
                                         </>
@@ -394,7 +398,7 @@ const OrderPaymentSummary = () => {
                         <CardTitle className="text-xl text-red-600">Payment Terms</CardTitle>  
                     </CardHeader>
                 <CardContent>
-            <div className="grid grid-cols-5 gap-4 border-b border-gray-200 border-b-2 pb-4">
+            <div className="grid grid-cols-5 gap-4">
                 {/* Terms */}
                 <div className="col-span-3 flex flex-col gap-6">
                     <div className="flex items-center gap-1">
@@ -414,7 +418,7 @@ const OrderPaymentSummary = () => {
                     </div>
                     <div className="flex items-center gap-1">
                         <CalendarDays className="w-4 h-4 text-muted-foreground" /> 
-                        <Label className="font-light">After X days of delivery:</Label>
+                        <Label className="font-light">After {xDays || "--"} days of delivery:</Label>
                     </div>
                 </div>
 
@@ -477,7 +481,7 @@ const OrderPaymentSummary = () => {
 
                     <div className="flex items-center justify-between">
                         <div className="flex flex-col gap-2 items-start mt-4">
-                            <Label className="font-bold">GST calculation Enabled/Disabled?</Label>
+                            <Label className="font-bold">GST?</Label>
                             <span>{documentData?.gst === "true" ? "Yes" : "No"}</span>
                         </div>
                     </div>
