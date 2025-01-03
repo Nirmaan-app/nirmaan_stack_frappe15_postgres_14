@@ -190,7 +190,7 @@ export default function Vendors() {
                 },
             },
         ],
-        []
+        [data, category_data]
     )
 
     // if (isLoading || category_loading) return <h1>Loading...</h1>

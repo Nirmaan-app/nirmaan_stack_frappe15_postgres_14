@@ -136,7 +136,6 @@ export const NewPRPage = ({
   const [requestCategory, setRequestCategory] = useState("");
   const [fuzzyMatches, setFuzzyMatches] = useState([]);
   const [matchFound, setMatchFound] = useState(false);
-  const [activeAccordion, setActiveAccordion] = useState(null);
   const [isFocused, setIsFocused] = useState(false);
 
   const toggleRequestItemDialog = () => {
@@ -804,6 +803,8 @@ export const NewPRPage = ({
     }
   };
 
+  // console.log("fuzzyMatches", fuzzyMatches)
+
   // console.log("orderData", orderData);
 
   // console.log("userData", userData)
@@ -1238,11 +1239,12 @@ export const NewPRPage = ({
             onOpenChange={toggleRequestItemDialog}
           >
             <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle className="flex justify-between">
+              <AlertDialogHeader className="text-start">
+                <AlertDialogTitle>
                   Request New Item
                 </AlertDialogTitle>
                 <AlertDialogDescription className="flex flex-col gap-4">
+                  <div className="space-y-1">
                   <label
                     htmlFor="itemName"
                     className="block text-sm font-medium text-gray-700"
@@ -1263,8 +1265,9 @@ export const NewPRPage = ({
                       }));
                       handleFuzzySearch(e.target.value);
                     }}
-                    className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   />
+                  </div>
 
                   {/* Matching Items Accordion */}
                   {/* {fuzzyMatches.length > 0 ? (
@@ -1330,37 +1333,48 @@ export const NewPRPage = ({
                         {fuzzyMatches.slice(0, 5).map((item, index) => (
                           <li
                             key={item.item_name}
-                            className="p-2 hover:bg-gray-100 flex justify-between items-center cursor-pointer"
-                            onMouseDown={() => {
-                              setCurCategory(item.category);
-                              setCurItem(item.item_name);
-                              setUnit(item.unit_name);
-                              toggleRequestItemDialog();
-                            }}
+                            className="p-2 hover:bg-gray-100 flex flex-col gap-1 border-b"
+                            // onMouseDown={() => {
+                            //   setCurCategory(item.category);
+                            //   setCurItem(item.item_name);
+                            //   setUnit(item.unit_name);
+                            //   toggleRequestItemDialog();
+                            // }}
                           >
-                            <span>
-                              <strong>{item.item_name}</strong>
+                            <p className="flex justify-between items-center">
+                              <strong>{item?.item_name}</strong>
                               <span className="text-gray-500">
                                 {" "}
-                                - {item.matchPercentage}% match
+                                - {item?.matchPercentage}% match
                               </span>
-                            </span>
-                            {item.matchPercentage > 60 && index === 0 && (
+                            </p>
+                            <div className="flex justify-between items-center">
+                              <p className="text-gray-400 font-semibold">{item?.category}</p>
+                              <p
+                               onMouseDown={() => {
+                                 setCurCategory(item.category);
+                                 setCurItem(item.item_name);
+                                 setUnit(item.unit_name);
+                                 toggleRequestItemDialog();
+                               }}
+                               className="text-primary font-bold text-xs cursor-pointer">Add Item</p>
+                            </div>
+                            {/* {item.matchPercentage > 60 && index === 0 && (
                               <div className="flex items-center gap-2 px-2 py-1 bg-blue-100 rounded-md shadow">
                                 <Sparkles className="w-4 h-4" />
                                 <p className="text-blue-700">
                                   <strong>Recommended</strong>
                                 </p>
                               </div>
-                            )}
+                            )} */}
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between mt-4">
-                    <div>
+                  <div className="flex items-center gap-6">
+                    <div className="flex-1 space-y-1">
                       <label
                         htmlFor="itemUnit"
                         className="block text-sm font-medium text-gray-700"
@@ -1377,7 +1391,7 @@ export const NewPRPage = ({
                         }
                         disabled={!matchFound && !requestItem.name.trim()}
                       >
-                        <SelectTrigger className="w-[180px]">
+                        <SelectTrigger className="">
                           <SelectValue
                             className="text-gray-200"
                             placeholder="Select Unit"
@@ -1403,7 +1417,7 @@ export const NewPRPage = ({
                       </Select>
                     </div>
 
-                    <div>
+                    <div className="flex-1 space-y-1">
                       <label
                         htmlFor="quantity"
                         className="block text-sm font-medium text-gray-700"
@@ -1423,7 +1437,7 @@ export const NewPRPage = ({
                           }))
                         }
                         value={requestItem.quantity || ""}
-                        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                         disabled={!matchFound && !requestItem.name.trim()}
                       />
                     </div>

@@ -369,7 +369,7 @@ export const ApprovedSR = () => {
                                 <Building className="w-4 h-4 text-muted-foreground" />
                                 <Label className="font-light text-red-700">Project:</Label>
                             </div>
-                            <span className=" font-light">{orderData?.project_name}</span>
+                            <span className=" font-light">{project?.project_name}</span>
                         </div>
                         {/* <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1">
@@ -379,7 +379,7 @@ export const ApprovedSR = () => {
                         <span className=" font-light">{pr?.work_package}</span>
                     </div> */}
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1 w-[100%]">
+                            <div className="flex items-center gap-1">
                                 <User className="w-4 h-4 text-muted-foreground" />
                                 <Label className="font-light text-red-700">Vendor:</Label>
                             </div>

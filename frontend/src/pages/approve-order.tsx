@@ -80,6 +80,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { TailSpin } from "react-loader-spinner";
 import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
+import Fuse from "fuse.js";
 
 const ApprovePRList = () => {
   const { id } = useParams<{ id: string }>();
@@ -292,6 +293,15 @@ const ApprovePRListPage = ({
   const [uploadedFiles, setUploadedFiles] = useState({});
   const [managersIdList, setManagersIdList] = useState(null);
   const [requestCategory, setRequestCategory] = useState("");
+  const [requestItemName, setRequestItemName] = useState("");
+
+  const [requestItemDialog, setRequestItemDialog] = useState(false);
+
+  const toggleRequestItemDialog = () => {
+    setRequestItemDialog((prevState) => !prevState);
+  };
+
+  const [fuzzyMatches, setFuzzyMatches] = useState([]);
 
   useEffect(() => {
     if (usersList) {
@@ -320,18 +330,16 @@ const ApprovePRListPage = ({
 
   const addCategory = (categoryName: string) => {
     setCurCategory(categoryName);
-    setTax(
-      category_list?.find((category) => category.category_name === categoryName)
-        .tax
-    );
-    // const isDuplicate = categories.list.some(category => category.name === categoryName);
-    // if (!isDuplicate) {
-    //     setCategories(prevState => ({
-    //         ...prevState,
-    //         list: [...prevState.list, { name: categoryName }]
-    //     }));
-    // }
   };
+
+  useEffect(() => {
+    if(curCategory) {
+      setTax(
+        category_list?.find((category) => category.category_name === curCategory)
+          .tax
+      );
+    }
+  }, [curCategory])
 
   const handleCategoryClick = (category: string, value: string) => {
     addCategory(category);
@@ -339,10 +347,6 @@ const ApprovePRListPage = ({
   };
 
   const triggerFileInput = (name: string) => {
-    // console.log("triggering input", name)
-    // if (fileInputRefs.current[name]) {
-    //     fileInputRefs.current[name].click();
-    // }
     document.getElementById(`file-upload-${name}`)?.click();
   };
 
@@ -412,6 +416,8 @@ const ApprovePRListPage = ({
   }, [pr_data]);
 
   const item_options: string[] = [];
+
+  // console.log("tax", tax)
 
   if (curCategory) {
     item_list?.map((item) => {
@@ -583,6 +589,92 @@ const ApprovePRListPage = ({
     setCurItem("");
   };
 
+  const handleAddMatchingItem = (item, requestItem) => {
+
+    if (item?.item_name && item?.quantity) {
+      let itemIdToUpdate = null;
+      let itemMake = null;
+
+      // Find item ID and make
+      item_list.forEach((i) => {
+        if (i.item_name === item?.item_name) {
+          itemIdToUpdate = i.name;
+          itemMake = i.make_name;
+        }
+      });
+
+      if (itemIdToUpdate) {
+        let curRequest = [...orderData.procurement_list.list];
+
+        curRequest = curRequest.filter((curValue) => curValue.name !== requestItem?.name);
+
+        const curValue = {
+          item: `${item?.item_name}${itemMake ? "-" + itemMake : ""}`,
+          name: itemIdToUpdate,
+          unit: item?.unit,
+          quantity: item?.quantity,
+          category: item?.category,
+          tax: parseFloat(category_list?.find((c) => c.name === item?.category)?.tax),
+          status: "Pending",
+        };
+
+        // Check if item exists in the current list
+        const isDuplicate = curRequest.some(
+          (j) => j.name === curValue.name
+        );
+
+        if (!isDuplicate) {
+
+          // Check if the stack has this item and remove it
+          const itemInStackIndex = stack.findIndex(
+            (stackItem) => stackItem?.name === curValue.name
+          );
+
+          if (itemInStackIndex > -1) {
+            stack.splice(itemInStackIndex, 1);
+            setStack([...stack]); // Update stack state after removal
+          }
+
+          // Add item to the current request list
+          curRequest.push(curValue);
+
+          setOrderData((prevState) => ({
+            ...prevState,
+            procurement_list: {
+              list: curRequest,
+            }
+          }));
+
+          toast({
+            title: "Success!",
+            description: (
+              <ul className="pl-2 list-disc">
+                <li>Item <strong>{item?.item_name}</strong> added to the order_list successfully!</li>
+                <li>The requested item <strong>{requestItem?.item_name}</strong> is now removed from the order_list!</li>
+              </ul>
+            ),
+            variant: "success",
+          })
+
+          toggleRequestItemDialog()
+        } else {
+          toast({
+            title: "Invalid Request!",
+            description: (
+              <span>
+                The <b>item: {item?.item_name}</b> cannot be added because it is already present in the order_list!
+              </span>
+            ),
+          });
+        }
+        setCurItem("");
+        setUnit("");
+        setQuantity("");
+        setRequestCategory("");
+      }
+    }
+  }
+
   const UndoDeleteOperation = () => {
     let curRequest = orderData.procurement_list.list;
     let itemToRestore = stack.pop();
@@ -601,12 +693,14 @@ const ApprovePRListPage = ({
 
   // console.log("userdata", userData)
   const { toast } = useToast();
+
   const {
     updateDoc: updateDoc,
     loading: updateLoading,
     isCompleted: submit_complete,
     error: submit_error,
   } = useFrappeUpdateDoc();
+
   const { upload } = useFrappeFileUpload();
   const { call, loading: callLoading } = useFrappePostCall(
     "frappe.client.set_value"
@@ -858,6 +952,8 @@ const ApprovePRListPage = ({
       setUnit("");
       setQuantity("");
       setRequestCategory("");
+
+      toggleRequestItemDialog()
     } catch (error) {
       toast({
         title: "Failed!",
@@ -868,10 +964,38 @@ const ApprovePRListPage = ({
     }
   };
 
+  const fuse = new Fuse(item_list, {
+    keys: ["item_name"], // Fields to search
+    threshold: 0.3, // Lower threshold for stricter matches
+    distance: 100, // Maximum distance for matching
+    includeScore: true, // Include scores for sorting
+  });
+
+  const handleFuzzySearch = (input) => {
+    console.log("input", input)
+    if (!input.trim()) {
+      setFuzzyMatches([]);
+      return;
+    }
+
+    const results = fuse.search(input);
+    if (results.length > 0) {
+      const matches = results.map((result) => ({
+        ...result.item,
+        matchPercentage: Math.round((1 - result.score) * 100), // Convert score to percentage
+      }));
+      setFuzzyMatches(matches);
+    } else {
+      setFuzzyMatches([]);
+    }
+  };
+
   // console.log("stack", stack)
   // console.log("uploadedFiles", uploadedFiles)
 
-  // console.log("orderData", orderData)
+  console.log("orderData", orderData)
+
+  console.log("fuzzyMatches", fuzzyMatches)
 
   return (
     <>
@@ -1366,11 +1490,13 @@ const ApprovePRListPage = ({
                                     </td>
                                     <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center ">
                                       <div className="flex items-center gap-1">
-                                        <AlertDialog>
+                                        <AlertDialog open={requestItemDialog} onOpenChange={toggleRequestItemDialog}>
                                           <AlertDialogTrigger>
                                             <ListChecks
                                               onClick={() => {
+                                                handleFuzzySearch(item?.item)
                                                 setCurItem(item.item);
+                                                setRequestItemName({item_name : item.item, name : item?.name})
                                                 setUnit(item.unit);
                                                 setQuantity(item.quantity);
                                                 setRequestCategory(
@@ -1380,16 +1506,16 @@ const ApprovePRListPage = ({
                                               className="h-4 w-4 text-green-600"
                                             />
                                           </AlertDialogTrigger>
-                                          <AlertDialogContent>
+                                          <AlertDialogContent className="overflow-auto max-h-[80vh]">
                                             <AlertDialogHeader>
                                               <AlertDialogTitle>
                                                 Approve and Add{" "}
                                                 <span className="text-primary">
-                                                  {item.item}
+                                                  {curItem}
                                                 </span>
                                               </AlertDialogTitle>
                                             </AlertDialogHeader>
-                                            <AlertDialogDescription className="flex flex-col gap-2">
+                                            <AlertDialogDescription className="flex flex-col gap-4">
                                               <p>
                                                 Please check and rectify the
                                                 details of the item before
@@ -1400,7 +1526,7 @@ const ApprovePRListPage = ({
                                                   Category
                                                 </h5>
                                                 <Select
-                                                  defaultValue={item.category}
+                                                  defaultValue={requestCategory}
                                                   onValueChange={(value) =>
                                                     setRequestCategory(value)
                                                   }
@@ -1430,6 +1556,7 @@ const ApprovePRListPage = ({
                                                   </SelectContent>
                                                 </Select>
                                               </div>
+                                              <div className="space-y-1">
                                               <label
                                                 htmlFor="itemName"
                                                 className="block text-sm font-medium text-gray-700"
@@ -1446,11 +1573,12 @@ const ApprovePRListPage = ({
                                                 onChange={(e) =>
                                                   setCurItem(e.target.value)
                                                 }
-                                                className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                                className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                               />
+                                              </div>
 
-                                              <div className="flex items-center justify-between">
-                                                <div>
+                                              <div className="flex items-center gap-6">
+                                                <div className="flex-1 space-y-1">
                                                   <label
                                                     htmlFor="itemUnit"
                                                     className="block text-sm font-medium text-gray-700"
@@ -1466,7 +1594,7 @@ const ApprovePRListPage = ({
                                                       setUnit(value)
                                                     }
                                                   >
-                                                    <SelectTrigger className="w-[180px]">
+                                                    <SelectTrigger>
                                                       <SelectValue
                                                         className="text-gray-200"
                                                         placeholder="Select Unit"
@@ -1518,7 +1646,7 @@ const ApprovePRListPage = ({
                                                   </Select>
                                                 </div>
 
-                                                <div>
+                                                <div className="flex-1 space-y-1">
                                                   <label
                                                     htmlFor="quantity"
                                                     className="block text-sm font-medium text-gray-700"
@@ -1541,7 +1669,7 @@ const ApprovePRListPage = ({
                                                       )
                                                     }
                                                     value={quantity || ""}
-                                                    className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                                    className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                                   />
                                                 </div>
                                               </div>
@@ -1578,11 +1706,41 @@ const ApprovePRListPage = ({
                                                 </>
                                               )}
                                             </AlertDialogDescription>
+
+                                            {fuzzyMatches?.length > 0 && (
+                                              <div className="border rounded p-2 bg-red-50 text-sm">
+                                                <h3 className="text-sm">Below are the top 3 matches for the above requested item <span className="text-primary">{curItem}</span></h3>
+                                                <span className="text-xs italic">- You can click on <span className="bg-gray-200">Add this item</span> button to add the item to the order_list automatically with the default quantity as {quantity}!</span>
+                                                <p className="text-xs italic">- This will also permanently remove the current request item entry from the order_list!</p>
+                                              <div className="flex flex-col gap-2 mt-4 border rounded p-2 bg-gray-50">
+                                                {fuzzyMatches?.slice(0, 3)?.map((i, index) => (
+                                                  <div className="flex flex-col gap-1 border-b pb-1">
+                                                    <p className="flex justify-between items-center">
+                                                      <strong>{i?.item_name}</strong>
+                                                      <span className="text-gray-500">
+                                                        {" "}
+                                                        - {i?.matchPercentage}% match
+                                                      </span>
+                                                    </p>
+                                                    <div className="flex justify-between items-center">
+                                                      <p className="text-gray-400 font-semibold">{i?.category}</p>
+                                                      <p
+                                                       onClick={() => handleAddMatchingItem({item_name : i?.item_name, unit: i?.unit_name, quantity: quantity || 1, category: i?.category}, requestItemName)}
+                                                       className="text-primary font-bold text-xs cursor-pointer border p-1 rounded-md bg-gray-200">Add this item</p>
+                                                    </div>
+
+                                                  </div>
+                                                ))}
+                                              </div>
+                                              </div>
+                                            )}
                                           </AlertDialogContent>
                                         </AlertDialog>
                                         <span>|</span>
                                         <AlertDialog>
-                                          <AlertDialogTrigger>
+                                          <AlertDialogTrigger
+                                            onClick={() => setCurItem(item?.item)}
+                                          >
                                             <Trash className="w-4 h-4 text-primary cursor-pointer" />
                                           </AlertDialogTrigger>
                                           <AlertDialogContent>
@@ -1590,7 +1748,7 @@ const ApprovePRListPage = ({
                                               <AlertDialogTitle>
                                                 Reject{" "}
                                                 <span className="text-primary">
-                                                  {item.item}
+                                                  {curItem}
                                                 </span>
                                               </AlertDialogTitle>
                                             </AlertDialogHeader>
@@ -1606,7 +1764,7 @@ const ApprovePRListPage = ({
                                               </AlertDialogCancel>
                                               <AlertDialogAction
                                                 onClick={() =>
-                                                  handleDelete(item.item)
+                                                  handleDelete(curItem)
                                                 }
                                                 className="flex items-center gap-1"
                                               >
