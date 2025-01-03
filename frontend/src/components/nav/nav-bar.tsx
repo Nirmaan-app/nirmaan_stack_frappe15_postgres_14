@@ -612,36 +612,36 @@ export const NavBar = () => {
                 },
 
                 {
-                    key: 'pe-po-actions',
+                    key: '/purchase-orders',
                     icon: <ShoppingCart className="h-4 w-4" />,
                     label: 'Purchase Orders',
-                    children: [
-                        {
-                            key: '/release-po', label: (
-                                <div className="flex justify-between items-center relative">
-                                    Approved PO
-                                    {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
-                                        <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                            <span className="text-white text-xs font-bold">
-                                                {adminNewPOCount}
-                                            </span>
-                                        </div>
-                                    ) : (
-                                        (newPOCount && newPOCount !== 0) ? (
-                                            <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
-                                                <span className="text-white text-xs font-bold">
-                                                    {newPOCount}
-                                                </span>
-                                            </div>
-                                        ) : ""
-                                    )}
-                                </div>
+                    // children: [
+                    //     {
+                    //         key: '/release-po', label: (
+                    //             <div className="flex justify-between items-center relative">
+                    //                 Approved PO
+                    //                 {(role === "Nirmaan Admin Profile" || user_id === "Administrator") && adminNewPOCount && adminNewPOCount !== 0 ? (
+                    //                     <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                    //                         <span className="text-white text-xs font-bold">
+                    //                             {adminNewPOCount}
+                    //                         </span>
+                    //                     </div>
+                    //                 ) : (
+                    //                     (newPOCount && newPOCount !== 0) ? (
+                    //                         <div className="absolute right-0 flex items-center justify-center rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-5 h-5 shadow-md">
+                    //                             <span className="text-white text-xs font-bold">
+                    //                                 {newPOCount}
+                    //                             </span>
+                    //                         </div>
+                    //                     ) : ""
+                    //                 )}
+                    //             </div>
 
-                            ),
+                    //         ),
 
-                        },
-                        { key: '/released-po', label: 'Released PO' }
-                    ]
+                    //     },
+                    //     { key: '/released-po', label: 'Released PO' }
+                    // ]
                 }
             ]
             : []),
@@ -727,7 +727,7 @@ export const NavBar = () => {
         ...(user_id == "Administrator" || role == "Nirmaan Accountant Profile"
             ? [
                 {
-                    key: 'project-payments',
+                    key: '/project-payments',
                     icon: <WalletCards className="h-4 w-4" />,
                     label: 'Project Payments',
                     // children: [
@@ -747,16 +747,16 @@ export const NavBar = () => {
         "projects", "users", "items", "vendors", "customers",
         "prs&milestones", "approve-order", "approve-vendor",
         "approve-sent-back", "approve-amended-po", "procure-request", "update-quote",
-        "select-vendor-list", "release-po", "released-po", "rejected-sb", "delayed-sb", "cancelled-sb",
-        "service-request", "approve-service-request", "select-service-vendor", "approved-sr", "procurement-packages"
+        "select-vendor-list", "purchase-orders", "rejected-sb", "delayed-sb", "cancelled-sb",
+        "service-request", "approve-service-request", "select-service-vendor", "approved-sr", "procurement-packages", "project-payments"
     ];
 
     const selectedKeys = location.pathname !== "/" ? allKeys.find((key) => location.pathname.split("/").includes(key)) : "";
 
     const openKey = ["prs&milestones", "approve-order", "approve-vendor",
         "approve-sent-back", "approve-amended-po", "approve-service-request"].includes(selectedKeys) ? "pl-actions" : ["service-request", "procure-request", "update-quote",
-            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["release-po", "released-po"].includes(selectedKeys) ? "pe-po-actions" :
-        ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : ""
+            "select-vendor-list"].includes(selectedKeys) ? "pe-actions" : ["purchase-orders"].includes(selectedKeys) ? "purchase-orders" :
+        ["rejected-sb", "delayed-sb", "cancelled-sb"].includes(selectedKeys) ? "sent-back-actions" : ["service-request", "select-service-vendor", "approved-sr"].includes(selectedKeys) ? "pe-sr-actions" : selectedKeys === "project-payments" ? "project-payments" : ""
 
     if (user_id !== "Administrator" && !role) {
         return (<div>loading...</div>)
@@ -791,7 +791,7 @@ export const NavBar = () => {
                         <ConfigProvider theme={{ components: { Menu: { itemActiveBg: "#FFD3CC", itemSelectedColor: "#D03B45", itemSelectedBg: "#FFD3CC", collapsedWidth: 70, dropdownWidth: 220 } } }}>
                             <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} inlineCollapsed={collapsed} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                 ...item,
-                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                label: ["pe-actions", "pl-actions", "admin-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                 children: item.children?.map((child) => ({
                                     ...child,
                                     label: <Link to={child.key}>{child.label}</Link>
@@ -810,7 +810,7 @@ export const NavBar = () => {
                                     <Menu triggerSubMenuAction="hover" theme="light" mode="inline" defaultSelectedKeys={["/"]} defaultOpenKeys={["admin-actions", openKey, role === "Nirmaan Project Lead Profile" ? "pl-actions" : role === "Nirmaan Procurement Executive Profile" ? "pe-actions" : ""]} selectedKeys={[`/${selectedKeys}`]} items={items.map((item) => ({
                                         ...item,
                                         onClick: () => setIsMobileSidebarOpen(false),
-                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-po-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
+                                        label: ["pe-actions", "pl-actions", "admin-actions", "pe-sr-actions", "sent-back-actions"].includes(item.key) ? item.label : <Link to={item.key}>{item.label}</Link>,
                                         children: item.children?.map((child) => ({
                                             ...child,
                                             label: <Link to={child.key}>{child.label}</Link>

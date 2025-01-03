@@ -124,28 +124,34 @@ export function DataTable<TData, TValue>({
   //     return combinedString.includes(filterValue.toLowerCase());
   // };
 
-  const initialGlobalSearch = searchParams.get("search") || "";
-  const [globalFilter, setGlobalFilter] = React.useState(initialGlobalSearch);
+  const [globalFilter, setGlobalFilter] = React.useState(searchParams.get("search") || "");
 
   React.useEffect(() => {
-    if (initialGlobalSearch) {
-      setGlobalFilter(initialGlobalSearch);
+    const urlParams = new URLSearchParams(window.location.search);
+
+    // Initialize global search filter
+    const initialSearch = urlParams.get("search") || "";
+    setGlobalFilter(initialSearch);
+  }, []);
+
+  const updateURL = (key, value) => {
+    const url = new URL(window.location);
+    if (value) {
+      url.searchParams.set(key, value);
+    } else {
+      url.searchParams.delete(key);
     }
-  }, [initialGlobalSearch]);
+    window.history.pushState({}, "", url);
+  };
 
   const handleGlobalFilterChange = React.useCallback(
     debounce((value: string) => {
       // setGlobalFilter(value);
 
-      if (value) {
-        setSearchParams({ ...Object.fromEntries(searchParams), search: value });
-      } else {
-        const params = new URLSearchParams(searchParams);
-        params.delete("search");
-        setSearchParams(params);
-      }
+      setGlobalFilter(value);
+      updateURL("search", value);
     }, 1000),
-    [searchParams]
+    []
   );
 
   const customGlobalFilter = (row, columnId, filterValue) => {
