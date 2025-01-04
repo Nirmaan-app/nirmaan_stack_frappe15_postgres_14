@@ -525,7 +525,7 @@ export const ProcurementOrder = () => {
                               ?.filter(
                                 (value) =>
                                   value.item_id === item.name &&
-                                  value.quote != null
+                                ![null, "0", 0, undefined].includes(value.quote)
                               )
                               ?.map((value) => value.quote);
                             let minQuote;
