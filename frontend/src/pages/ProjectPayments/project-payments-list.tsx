@@ -22,12 +22,13 @@ import { TailSpin } from "react-loader-spinner";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ProjectPaymentsPaymentWise } from "./project-payments-payment-wise";
+import { ConfigProvider, Menu, MenuProps, Radio } from "antd";
 
 export const ProjectPaymentsList = () => {
 
     const [searchParams] = useSearchParams();
     
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || "po-wise");   
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || "PO Wise");   
 
     const {createDoc, loading: createLoading} = useFrappeCreateDoc()
 
@@ -65,7 +66,7 @@ export const ProjectPaymentsList = () => {
     })
 
      useEffect(() => {
-            const currentTab = searchParams.get("tab") || "po-wise";
+            const currentTab = searchParams.get("tab") || "PO Wise";
             setTab(currentTab);
             updateURL("tab", currentTab);
     }, []);
@@ -76,11 +77,24 @@ export const ProjectPaymentsList = () => {
       window.history.pushState({}, "", url);
     };
 
-    const setPaymentsTab = (changeTab) => {
-      if (tab === changeTab) return; // Prevent redundant updates
-      setTab(changeTab);
-      updateURL("tab", changeTab);
-    };
+    // const setPaymentsTab = (changeTab) => {
+    //   if (tab === changeTab) return; // Prevent redundant updates
+    //   setTab(changeTab);
+    //   updateURL("tab", changeTab);
+    // };
+
+    const onClick = (value) => {
+        if (tab === value) return; // Prevent redundant updates
+    
+        const newTab = value;
+        setTab(newTab);
+        updateURL("tab", newTab);
+
+      };
+
+    // type MenuItem = Required<MenuProps>["items"][number];
+    
+    const items = ["PO Wise", "Payment Wise"];
 
     useFrappeDocTypeEventListener("Procurement Orders", async () => {
         await poMutate();
@@ -347,16 +361,49 @@ export const ProjectPaymentsList = () => {
         });
     }
 
+    const siteUrl = `${window.location.protocol}//${window.location.host}`;
+
     return (
         <div className="flex-1 md:space-y-4">
             {/* <div className="flex items-center justify-between space-y-2">
                 <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">Project Payments List</h2>
             </div> */}
 
-                <div className="flex items-center gap-4">
+                {/* <div className="flex items-center gap-4">
                     <Button variant={`${tab === "po-wise" ? "default" : "outline"}`} onClick={() => setPaymentsTab("po-wise")}>PO Wise</Button>
                     <Button variant={`${tab === "payment-wise" ? "default" : "outline"}`} onClick={() => setPaymentsTab("payment-wise")}>Payment Wise</Button>
-                </div>
+                </div> */}
+                {/* <div className="w-full">
+                  <ConfigProvider
+                    theme={{
+                      components: {
+                        Menu: {
+                          horizontalItemSelectedColor: "#D03B45",
+                          itemSelectedBg: "#FFD3CC",
+                          itemSelectedColor: "#D03B45",
+                        },
+                      },
+                    }}
+                  >
+                    <Menu
+                      selectedKeys={[tab]}
+                      onClick={onClick}
+                      mode="horizontal"
+                      items={items}
+                    />
+                  </ConfigProvider>
+                </div> */}
+                {items && (
+            <Radio.Group
+              block
+              options={items}
+              defaultValue="PO Wise"
+              optionType="button"
+              buttonStyle="solid"
+              value={tab}
+              onChange={(e) => onClick(e.target.value)}
+            />
+          )}
 
                         <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                             <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
@@ -481,7 +528,17 @@ export const ProjectPaymentsList = () => {
                                                             <TableRow key={payment?.name}>
                                                                 <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
                                                                 <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
-                                                                <TableCell className="font-semibold text-blue-500">{payment?.utr}</TableCell>
+                                                                <TableCell className="font-semibold text-blue-500 underline">
+                                                                    {import.meta.env.MODE === "development" ? (
+                                                                        <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                                            {payment?.utr}
+                                                                        </a>
+                                                                    ) : (
+                                                                        <a href={`${siteUrl}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                                            {payment?.utr}
+                                                                        </a>
+                                                                    )}
+                                                                </TableCell>
                                                             </TableRow>
                                                         )
                                                     })
@@ -494,7 +551,7 @@ export const ProjectPaymentsList = () => {
                                     </DialogHeader>
                             </DialogContent>
                         </Dialog>
-            {tab === "po-wise" ? (
+            {tab === "PO Wise" ? (
                 (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
                     <TableSkeleton />
                 ) : (

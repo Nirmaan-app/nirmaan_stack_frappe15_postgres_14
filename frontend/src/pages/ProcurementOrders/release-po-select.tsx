@@ -13,6 +13,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { Button } from "@/components/ui/button";
+import { ConfigProvider, Menu, MenuProps, Radio } from "antd";
 
 
 // interface ReleasePOSelectProps {
@@ -24,12 +25,12 @@ export const ReleasePOSelect = () => {
 
     const [searchParams] = useSearchParams();
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || "Approved");    
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || "Approved PO");    
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
             fields: ["*"],
-            filters: [["status", tab === "Released" ? "not in" : "in", tab === "Released" ? ["PO Approved", "PO Amendment", "Merged"] : ["PO Approved"]]],
+            filters: [["status", tab === "Released PO" ? "not in" : "in", tab === "Released PO" ? ["PO Approved", "PO Amendment", "Merged"] : ["PO Approved"]]],
             limit: 1000,
             orderBy: { field: "modified", order: "desc" }
         },
@@ -91,7 +92,7 @@ export const ReleasePOSelect = () => {
     }
 
     useEffect(() => {
-        const currentTab = searchParams.get("tab") || "Approved";
+        const currentTab = searchParams.get("tab") || "Approved PO";
         setTab(currentTab);
         updateURL("tab", currentTab);
       }, []);
@@ -102,11 +103,25 @@ export const ReleasePOSelect = () => {
       window.history.pushState({}, "", url);
     };
 
-    const setPOTab = (changeTab) => {
-      if (tab === changeTab) return; // Prevent redundant updates
-      setTab(changeTab);
-      updateURL("tab", changeTab);
+    // const setPOTab = (changeTab) => {
+    //   if (tab === changeTab) return; // Prevent redundant updates
+    //   setTab(changeTab);
+    //   updateURL("tab", changeTab);
+    // };
+
+    const onClick = (value) => {
+        
+        if (tab === value) return; // Prevent redundant updates
+    
+        const newTab = value;
+        setTab(newTab);
+        updateURL("tab", newTab);
+    
     };
+    
+    // type MenuItem = Required<MenuProps>["items"][number];
+    
+    const items = ["Approved PO", "Released PO"];
 
     const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
         () => [
@@ -278,14 +293,46 @@ export const ReleasePOSelect = () => {
 
     return (
         <>
-            <div className="flex-1 md:space-y-4">
+            <div className="flex-1 space-y-4">
                 {/* <div className="flex items-center justify-between space-y-2">
                     <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">{not ? "Released" : "Approved"} PO</h2>
                 </div> */}
-                <div className="flex items-center gap-4">
+                {/* <div className="flex items-center gap-4">
                     <Button variant={`${tab === "Approved" ? "default" : "outline"}`} onClick={() => setPOTab("Approved")}>Approved PO</Button>
                     <Button variant={`${tab === "Released" ? "default" : "outline"}`} onClick={() => setPOTab("Released")}>Released PO</Button>
-                </div>
+                </div> */}
+
+                {/* <div className="w-full">
+                  <ConfigProvider
+                    theme={{
+                      components: {
+                        Menu: {
+                          horizontalItemSelectedColor: "#D03B45",
+                          itemSelectedBg: "#FFD3CC",
+                          itemSelectedColor: "#D03B45",
+                        },
+                      },
+                    }}
+                  >
+                    <Menu
+                      selectedKeys={[tab]}
+                      onClick={onClick}
+                      mode="horizontal"
+                      items={items}
+                    />
+                  </ConfigProvider>
+                </div> */}
+                {items && (
+            <Radio.Group
+              block
+              options={items}
+              defaultValue="Approved PO"
+              optionType="button"
+              buttonStyle="solid"
+              value={tab}
+              onChange={(e) => onClick(e.target.value)}
+            />
+          )}
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list?.filter((po) => po?.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
                 )}

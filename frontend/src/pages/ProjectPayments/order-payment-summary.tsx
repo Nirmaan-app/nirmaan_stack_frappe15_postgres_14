@@ -192,6 +192,8 @@ const OrderPaymentSummary = () => {
         }
     }
 
+    const siteUrl = `${window.location.protocol}//${window.location.host}`;
+
     return (
         <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">
@@ -380,7 +382,17 @@ const OrderPaymentSummary = () => {
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">{formatDate(payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{formatToIndianRupee(payment?.amount)}</TableCell>
-                                                <TableCell className="font-semibold text-blue-500">{payment?.utr}</TableCell>
+                                                <TableCell className="font-semibold text-blue-500 underline">
+                                                {import.meta.env.MODE === "development" ? (
+                                                    <a href={`http://localhost:8000${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                        {payment?.utr}
+                                                    </a>
+                                                ) : (
+                                                    <a href={`${siteUrl}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                        {payment?.utr}
+                                                    </a>
+                                                )}
+                                                </TableCell>
                                             </TableRow>
                                         )
                                     })
