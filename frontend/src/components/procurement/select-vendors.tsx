@@ -182,7 +182,7 @@ export const SelectVendors = () => {
         });
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item_id', 'quote'],
+            fields: ["*"],
             limit: 2000
         });
     const { createDoc: createDoc, loading: create_loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
@@ -229,14 +229,20 @@ export const SelectVendors = () => {
                 const items: DataType[] = [];
 
                 orderData.procurement_list?.list.forEach((item) => {
+                    const threeMonthsAgo = new Date();
+                    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
                     if (item.category === cat.name) {
                         const price = Number(getPrice(selectedVendors[item.name], item.name))
-                        const quotesForItem = quote_data
-                            ?.filter(value => value.item_id === item.name && value.quote)
+                        const quotesForItem = quote_data?.filter((value) => {
+                            // Parse the modified date and compare it with the timeframe
+                            const modifiedDate = new Date(value.modified);
+                            return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                          })
+                            ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                             ?.map(value => value.quote);
                         let minQuote;
                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                        minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
+                        minQuote = minQuote ? parseFloat(minQuote) * item.quantity : 0
 
                         items.push({
                             item: item.item,
@@ -261,8 +267,8 @@ export const SelectVendors = () => {
                         unit: null,
                         quantity: null,
                         amount: getTotal(cat.name),
-                        lowest2: getLowest(cat.name).quote,
-                        lowest3: getLowest3(cat.name),
+                        lowest2: getLowest(cat.name).quote || "N/A",
+                        lowest3: getLowest3(cat.name) || "N/A",
                         children: items,
                     };
                     newData.push(node);
@@ -582,25 +588,24 @@ export const SelectVendors = () => {
 
     const getLowest = (cat: string) => {
         let price: number = 0;
-        let vendor: string = 'vendor';
 
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat) {
                 const quotesForItem = quote_data
-                    ?.filter(value => value.item_id === item.name && value.quote)
+                    ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+                price += parseFloat(minQuote || 0) * item.quantity;
             }
         })
 
-        return { quote: price, vendor: vendor }
+        return { quote: price }
     }
 
     const getLowest2 = (item: string) => {
         const quotesForItem = quote_data
-            ?.filter(value => value.item_id === item && value.quote)
+            ?.filter(value => value.item_id === item && ![null, "0", 0, undefined].includes(value.quote))
             ?.map(value => value.quote);
         let minQuote;
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -609,14 +614,19 @@ export const SelectVendors = () => {
 
     const getLowest3 = (cat: string) => {
         let total: number = 0;
+        const threeMonthsAgo = new Date();
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat) {
-                const quotesForItem = quote_data
-                    ?.filter(value => value.item_id === item.name && value.quote)
+                const quotesForItem = quote_data?.filter((value) => {
+                    const modifiedDate = new Date(value.modified);
+                    return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                  })
+                    ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+                total += parseFloat(minQuote || 0) * item.quantity;
             }
         })
         return total;
@@ -625,9 +635,9 @@ export const SelectVendors = () => {
     const getLeadTime = (vendor: string, category: string) => {
         return quotation_request_list?.find(item => item.vendor === vendor && item.category === category)?.lead_time;
     }
-    const getSelectedVendor = (cat: string) => {
-        return selectedVendors[cat] ? getVendorName(selectedVendors[cat]) : ""
-    }
+    // const getSelectedVendor = (cat: string) => {
+    //     return selectedCategories[cat] ? getVendorName(selectedCategories[cat]?.[0]) : "--"
+    // }
 
     const getTotal = (cat: string) => {
         let total: number = 0;
@@ -706,6 +716,10 @@ export const SelectVendors = () => {
         vendorWiseApprovalItems,
         approvalOverallTotal,
     } = generateActionSummary();
+
+    console.log("selectedCategories", selectedCategories)
+
+    console.log("selectedVendors", selectedVendors)
     
     
 
@@ -739,19 +753,17 @@ export const SelectVendors = () => {
                                         <CardTitle className="font-bold text-xl text-red-700">
                                             {cat.name}
                                         </CardTitle>
-                                        <CardTitle className="font-bold text-xl">
+                                        {/* <CardTitle className="font-bold text-xl">
                                             {getSelectedVendor(cat.name)}
-                                        </CardTitle>
+                                        </CardTitle> */}
                                     </div>
                                     <table className="w-full ">
                                         <thead className="w-full border-b border-black ">
                                             <tr className=''>
-                                                <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-slate-600'>Delivery Time:</div></th>
+                                                <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<p className='py-2 font-light text-sm text-slate-600'>Delivery Time:</p></th>
                                                 {selectedCategories[curCategory]?.map((item) => {
-                                                    const isSelected = selectedVendors[curCategory] === item;
-                                                    const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                    return <th className="bg-gray-200 font-semibold p-2 text-left "><span className={dynamicClass}>{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
-                                                        <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, cat.name) || "--"} Days</div>
+                                                    return <th className="bg-gray-200 font-semibold p-2 text-left "><span >{getVendorName(item)}</span>
+                                                        <p className={`py-2 font-light text-sm text-opacity-50`}>{getLeadTime(item, cat.name) || "--"} Days</p>
                                                     </th>
                                                 })}
                                                 <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
@@ -759,8 +771,16 @@ export const SelectVendors = () => {
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200 ">
                                             {orderData?.procurement_list?.list.map((item) => {
+
+                                                const threeMonthsAgo = new Date();
+                                                threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
                                                 const quotesForItem = quote_data
-                                                    ?.filter(value => value.item_id === item.name && value.quote)
+                                                    ?.filter(value => {
+                                                        const modifiedDate = new Date(value.modified);
+                                                        return modifiedDate >= threeMonthsAgo;
+                                                    })?.filter(
+                                                        value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                                                     ?.map(value => value.quote);
                                                 let minQuote;
                                                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -803,9 +823,7 @@ export const SelectVendors = () => {
                                             <tr>
                                                 <td className="py-4 text-sm px-2 font-semibold">Total</td>
                                                 {selectedCategories[curCategory]?.map((value) => {
-                                                    const isSelected = selectedVendors[curCategory] === value;
-                                                    const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                    return <td className={`py-2 text-sm max-sm:pl-2 pl-8 text-left font-bold ${dynamicClass}`}>
+                                                    return <td className={`py-2 text-sm max-sm:pl-2 pl-8 text-left font-bold`}>
                                                         {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
                                                     </td>
                                                 })}

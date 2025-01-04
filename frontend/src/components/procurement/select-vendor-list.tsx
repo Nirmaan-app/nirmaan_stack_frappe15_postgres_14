@@ -52,7 +52,7 @@ export const SelectVendorList = () => {
         const orderData = procurement_request_list?.find(item => item.name === order_id)?.procurement_list;
         orderData?.list.map((item: any) => {
             const quotesForItem = quote_data
-                ?.filter(value => value.item_id === item.name && value.quote != null)
+                ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                 ?.map(value => value.quote);
             let minQuote;
             if (quotesForItem && quotesForItem.length > 0) {

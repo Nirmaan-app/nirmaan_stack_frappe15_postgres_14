@@ -284,7 +284,7 @@ const ApprovePRListPage = ({
   const [quantity, setQuantity] = useState<number | null | string>(null);
   // const [item_id, setItem_id] = useState<string>('');
   // const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
-  const [make, setMake] = useState("");
+  // const [make, setMake] = useState("");
   const [tax, setTax] = useState<number | null>(null);
   const [dynamicPage, setDynamicPage] = useState<string | null>(null);
   const [comments, setComments] = useState({});
@@ -415,7 +415,7 @@ const ApprovePRListPage = ({
     }
   }, [pr_data]);
 
-  const item_options: string[] = [];
+  const item_options: any[] = [];
 
   // console.log("tax", tax)
 
@@ -424,9 +424,7 @@ const ApprovePRListPage = ({
       if (item.category === curCategory)
         item_options.push({
           value: item.item_name,
-          label: `${item.item_name}${
-            item.make_name ? "-" + item.make_name : ""
-          }`,
+          label: item.item_name,
         });
     });
   }
@@ -467,7 +465,7 @@ const ApprovePRListPage = ({
     item_list?.map((item) => {
       if (item.item_name == selectedItem.value) {
         setUnit(item.unit_name);
-        setMake(item.make_name);
+        // setMake(item.make_name);
       }
     });
   };
@@ -475,20 +473,20 @@ const ApprovePRListPage = ({
   const handleAdd = () => {
     if (curItem && Number(quantity)) {
       let itemIdToUpdate = null;
-      let itemMake = null;
+      // let itemMake = null;
 
       // Find item ID and make
       item_list.forEach((item) => {
         if (item.item_name === curItem) {
           itemIdToUpdate = item.name;
-          itemMake = item.make_name;
+          // itemMake = item.make_name;
         }
       });
 
       if (itemIdToUpdate) {
         const curRequest = [...orderData.procurement_list.list];
         const curValue = {
-          item: `${curItem}${itemMake ? "-" + itemMake : ""}`,
+          item: `${curItem}`,
           name: itemIdToUpdate,
           unit: unit,
           quantity: Number(quantity),
@@ -536,7 +534,7 @@ const ApprovePRListPage = ({
         setCurItem("");
         setUnit("");
         // setItem_id('');
-        setMake("");
+        // setMake("");
       }
     }
   };
@@ -593,13 +591,13 @@ const ApprovePRListPage = ({
 
     if (item?.item_name && item?.quantity) {
       let itemIdToUpdate = null;
-      let itemMake = null;
+      // let itemMake = null;
 
       // Find item ID and make
       item_list.forEach((i) => {
         if (i.item_name === item?.item_name) {
           itemIdToUpdate = i.name;
-          itemMake = i.make_name;
+          // itemMake = i.make_name;
         }
       });
 
@@ -609,7 +607,7 @@ const ApprovePRListPage = ({
         curRequest = curRequest.filter((curValue) => curValue.name !== requestItem?.name);
 
         const curValue = {
-          item: `${item?.item_name}${itemMake ? "-" + itemMake : ""}`,
+          item: `${item?.item_name}`,
           name: itemIdToUpdate,
           unit: item?.unit,
           quantity: item?.quantity,
@@ -824,7 +822,7 @@ const ApprovePRListPage = ({
   const handleCreateItem = () => {
     setUnit("");
     setCurItem("");
-    setMake("");
+    // setMake("");
     setPage("additem");
   };
 
@@ -838,7 +836,7 @@ const ApprovePRListPage = ({
       category: curCategory,
       unit_name: unit,
       item_name: curItem,
-      make_name: make,
+      // make_name: make,
     };
     // console.log("itemData", itemData)
     createDoc("Items", itemData)
@@ -846,7 +844,7 @@ const ApprovePRListPage = ({
         // console.log(itemData)
         setUnit("");
         setCurItem("");
-        setMake("");
+        // setMake("");
         setPage("itemlist");
         item_list_mutate();
       })
@@ -1104,7 +1102,7 @@ const ApprovePRListPage = ({
                 <div
                   onClick={() => {
                     setCurItem("");
-                    setMake("");
+                    // setMake("");
                     setPage("categorylist");
                   }}
                   className="text-blue-400 underline flex items-center gap-1 cursor-pointer"
@@ -1116,7 +1114,7 @@ const ApprovePRListPage = ({
                   className="text-red-600"
                   onClick={() => {
                     setCurItem("");
-                    setMake("");
+                    // setMake("");
                     setCurCategory("");
                   }}
                 >
@@ -1130,7 +1128,7 @@ const ApprovePRListPage = ({
                   <ReactSelect
                     value={{
                       value: curItem,
-                      label: `${curItem}${make ? "-" + make : ""}`,
+                      label: `${curItem}`,
                     }}
                     options={item_options}
                     onChange={handleChange}
@@ -2173,7 +2171,7 @@ const ApprovePRListPage = ({
               className="cursor-pointer"
               onClick={() => {
                 setCurItem("");
-                setMake("");
+                // setMake("");
                 setPage("itemlist");
               }}
             />
@@ -2187,7 +2185,7 @@ const ApprovePRListPage = ({
               <button
                 onClick={() => {
                   setCurItem("");
-                  setMake("");
+                  // setMake("");
                   setPage("categorylist2");
                 }}
                 className="text-blue-500 underline ml-1"
@@ -2211,7 +2209,7 @@ const ApprovePRListPage = ({
               onChange={(e) => setCurItem(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
             />
-            <label
+            {/* <label
               htmlFor="makeName"
               className="block text-sm font-medium text-gray-700"
             >
@@ -2223,7 +2221,7 @@ const ApprovePRListPage = ({
               value={make}
               onChange={(e) => setMake(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            />
+            /> */}
           </div>
           <div className="mb-4">
             <label

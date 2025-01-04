@@ -111,7 +111,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {formatToIndianRupee(text)}
+                { text === "N/A" ? text : formatToIndianRupee(text) }
             </span>
         ),
     },
@@ -122,7 +122,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {formatToIndianRupee(text)}
+                {text === "N/A" ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -232,15 +232,15 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             filters: [["status", "=", "Selected"], ["procurement_task", "=", pr_data?.name]],
             limit: 2000
         });
-    const { data: quotation_request_list2 } = useFrappeGetDocList("Quotation Requests",
-        {
-            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
-            filters: [["procurement_task", "=", pr_data?.name]],
-            limit: 2000
-        });
+    // const { data: quotation_request_list2 } = useFrappeGetDocList("Quotation Requests",
+    //     {
+    //         fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
+    //         filters: [["procurement_task", "=", pr_data?.name]],
+    //         limit: 2000
+    //     });
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item_id', 'quote'],
+            fields: ['*'],
             limit: 2000
         });
 
@@ -350,37 +350,47 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
             }, 0);
     }
 
+    // console.log("selectedVendors", selectedVendors)
+
+    // console.log("orderData", orderData?.procurement_list?.list)
+
     const getLowest = (cat: string) => {
         let price: number = 0;
-        let vendor: string = 'vendor';
-        orderData.procurement_list?.list.map((item) => {
-            if (item.category === cat && selectedVendors[item.name]) {
-                const quotesForItem = quotation_request_list2
-                    ?.filter(q => q.item === item.name && q.quote)
-                    ?.map(q => q.quote);
-                const minQuote = quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
-                price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
-            }
-        })
-        return { quote: price, vendor: vendor }
-    }
-
-    const getLowest2 = useCallback((item: string) => {
-        const quotesForItem = quotation_request_list2
-            ?.filter(q => q.item === item && q.quote)
-            ?.map(q => q.quote);
-        return quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
-    }, [quotation_request_list2]);
-
-    const getLowest3 = useCallback((cat: string) => {
-        let total: number = 0;
         orderData.procurement_list?.list.forEach((item) => {
             if (item.category === cat && selectedVendors[item.name]) {
                 const quotesForItem = quote_data
-                    ?.filter(q => q.item_id === item.name && q.quote)
+                    ?.filter(q => q.item_id === item.name && ![null, "0", 0, undefined].includes(q.quote))
                     ?.map(q => q.quote);
                 const minQuote = quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
-                total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+                price += parseFloat(minQuote || 0) * item.quantity;
+            }
+        })
+        return { quote: price }
+    }
+
+    const getLowest2 = useCallback((item: string) => {
+        const quotesForItem = quote_data
+            ?.filter(q => q.item_id === item && ![null, "0", 0, undefined].includes(q.quote))
+            ?.map(q => q.quote);
+        return quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
+    }, [quote_data, orderData.procurement_list]);
+
+    const getLowest3 = useCallback((cat: string) => {
+        let total: number = 0;
+        const threeMonthsAgo = new Date();
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
+        orderData.procurement_list?.list.forEach((item) => {
+            if (item.category === cat && selectedVendors[item.name]) {
+                const quotesForItem = quote_data?.filter((value) => {
+                      // Parse the modified date and compare it with the timeframe
+                      const modifiedDate = new Date(value.modified);
+                      return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                    })
+                    ?.filter(q => q.item_id === item.name && ![null, "0", 0, undefined].includes(q.quote))
+                    ?.map(q => q.quote);
+                const minQuote = quotesForItem?.length > 0 ? Math.min(...quotesForItem) : 0;
+                total +=  parseFloat(minQuote || 0) * item.quantity;
             }
         })
         return total;
@@ -393,15 +403,22 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         orderData.category_list?.list.forEach((cat) => {
             const items: DataType[] = [];
 
+            const threeMonthsAgo = new Date();
+            threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
             orderData.procurement_list?.list.forEach((item) => {
                 if (item.category === cat.name) {
                     if (selectedVendors[item.name]) {
                         const price = Number(getPrice(selectedVendors[item.name], item.name))
-                        const quotesForItem = quote_data
-                            ?.filter(q => q.item_id === item.name && q.quote)
+                        const quotesForItem = quote_data?.filter((value) => {
+                            // Parse the modified date and compare it with the timeframe
+                            const modifiedDate = new Date(value.modified);
+                            return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                          })
+                            ?.filter(q => q.item_id === item.name && ![null, "0", 0, undefined].includes(q.quote))
                             ?.map(q => q.quote);
                         let minQuote = quotesForItem?.length ? Math.min(...quotesForItem) : 0;
-                        minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
+                        minQuote = parseFloat(minQuote || 0) * item.quantity
 
                         items.push({
                             item: item.item,
@@ -414,7 +431,7 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                             rate: price,
                             amount: price * item.quantity,
                             selectedVendor: getVendorName(selectedVendors[item.name]),
-                            lowest2: getLowest2(item.name) * item.quantity,
+                            lowest2: getLowest2(item.name) ? getLowest2(item?.name) * item.quantity : "N/A",
                             lowest3: minQuote ? minQuote : "N/A",
                         });
                     }
@@ -428,8 +445,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
                     unit: null,
                     quantity: null,
                     amount: getTotal(cat.name),
-                    lowest2: getLowest(cat.name).quote,
-                    lowest3: getLowest3(cat.name),
+                    lowest2: getLowest(cat.name).quote || "N/A",
+                    lowest3: getLowest3(cat.name) || "N/A",
                     children: items,
                 };
                 newData.push(node);
@@ -437,6 +454,8 @@ export const ApproveVendorPage = ({ pr_data, project_data, owner_data, procureme
         });
         setData(newData)
     }, [orderData, selectedVendors, quote_data]);
+
+    console.log("data", data)
 
 
     const rowSelection: TableRowSelection<DataType> = {

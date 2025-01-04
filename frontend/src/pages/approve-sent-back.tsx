@@ -109,7 +109,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {formatToIndianRupee(text)}
+                {text === "N/A" ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -217,7 +217,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
 
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item_id', 'quote'],
+            fields: ['*'],
             limit: 2000
         });
 
@@ -264,10 +264,17 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
             orderData.category_list?.list?.forEach((cat) => {
                 const items: DataType[] = [];
 
+                const threeMonthsAgo = new Date();
+                threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
                 orderData.item_list?.list?.forEach((item) => {
                     if (item.category === cat.name) {
-                        const quotesForItem = quote_data
-                            ?.filter(value => value.item_id === item.name && value.quote)
+                        const quotesForItem = quote_data?.filter((value) => {
+                            // Parse the modified date and compare it with the timeframe
+                            const modifiedDate = new Date(value.modified);
+                            return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                          })
+                            ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                             ?.map(value => value.quote);
                         let minQuote;
                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -298,7 +305,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                         quantity: null,
                         amount: getTotal(cat.name),
                         // lowest2: getLowest(cat.name).quote,
-                        lowest3: getLowest3(cat.name),
+                        lowest3: getLowest3(cat.name) || "N/A",
                         children: items,
                     };
                     newData.push(node);
@@ -653,10 +660,16 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
 
     const getLowest3 = (cat: string) => {
         let total: number = 0;
+        const threeMonthsAgo = new Date();
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
         orderData.item_list?.list.map((item) => {
             if (item.category === cat) {
-                const quotesForItem = quote_data
-                    ?.filter(value => value.item_id === item.name && value.quote)
+                const quotesForItem = quote_data?.filter((value) => {
+                    // Parse the modified date and compare it with the timeframe
+                    const modifiedDate = new Date(value.modified);
+                    return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                  })
+                    ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(q.quote))
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);

@@ -497,11 +497,13 @@ const ProjectView = ({
       if (user) {
         const { role_profile, full_name } = user;
 
-        if (!acc[role_profile.split(" ").slice(1, 3).join(" ")]) {
-          acc[role_profile.split(" ").slice(1, 3).join(" ")] = [];
+        const formattedRoleProfile = role_profile.replace(/Nirmaan\s|\sProfile/g, "");
+
+        if (!acc[formattedRoleProfile]) {
+          acc[formattedRoleProfile] = [];
         }
 
-        acc[role_profile.split(" ").slice(1, 3).join(" ")].push(full_name);
+        acc[formattedRoleProfile].push(full_name);
       }
 
       return acc;
@@ -1914,7 +1916,7 @@ const ProjectView = ({
                                 <SelectValue placeholder="Select User" />
                               </SelectTrigger>
                               <SelectContent>
-                                {userOptions.length
+                                {userOptions.length > 0
                                   ? userOptions?.map((option) => (
                                       <SelectItem value={option?.value}>
                                         {option?.label}

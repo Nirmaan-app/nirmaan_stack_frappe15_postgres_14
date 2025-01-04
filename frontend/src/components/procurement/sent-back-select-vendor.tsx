@@ -83,7 +83,7 @@ const columns: TableColumnsType<DataType> = [
             // console.log("text", text)
             return (
                 <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                    {Number.isNaN(text) ? "Delayed" : text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}
+                    {text === "N/A" ? text : formatToIndianRupee(text)}
                 </span>
             )
         }
@@ -95,7 +95,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text === "Delayed" ? text : formatToIndianRupee(text)}
+                {text === "N/A" ? text : formatToIndianRupee(text)}
             </span>
         ),
     },
@@ -106,7 +106,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'lowest3',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {formatToIndianRupee(text)}
+                { text === "N/A" ? text : formatToIndianRupee(text) }
             </span>
         ),
     },
@@ -144,7 +144,7 @@ export const SentBackSelectVendor = () => {
         });
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
-            fields: ['item_id', 'quote'],
+            fields: ['*'],
             limit: 2000
         });
     const { updateDoc: updateDoc, loading: update_loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
@@ -226,15 +226,22 @@ export const SentBackSelectVendor = () => {
             orderData.category_list?.list.forEach((cat) => {
                 const items: DataType[] = [];
 
+                const threeMonthsAgo = new Date();
+                threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
                 orderData.item_list?.list.forEach((item) => {
                     if (item.category === cat.name) {
                         const price = Number(getPrice(selectedVendors[item.name], item.name))
-                        const quotesForItem = quote_data
-                            ?.filter(value => value.item_id === item.name && value.quote)
+                        const quotesForItem = quote_data?.filter((value) => {
+                              // Parse the modified date and compare it with the timeframe
+                              const modifiedDate = new Date(value.modified);
+                              return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                            })
+                            ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                             ?.map(value => value.quote);
                         let minQuote;
                         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                        minQuote = (minQuote ? parseFloat(minQuote) * item.quantity : 0)
+                        minQuote = parseFloat(minQuote || 0) * item.quantity
 
                         items.push({
                             item: item.item,
@@ -245,10 +252,10 @@ export const SentBackSelectVendor = () => {
                             quantity: item.quantity,
                             category: item.category,
                             comment: item.comment,
-                            rate: selectedVendors[item.name] ? price : "Delayed",
-                            amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
-                            selectedVendor: selectedVendors[item.name] ? getVendorName(selectedVendors[item.name]) : "Delayed",
-                            lowest2: selectedVendors[item.name] ? getLowest2(item.name) * item.quantity : "Delayed",
+                            rate: price,
+                            amount: price * item.quantity,
+                            selectedVendor: getVendorName(selectedVendors[item.name]),
+                            lowest2: (getLowest2(item.name) * item.quantity) || "N/A",
                             lowest3: minQuote ? minQuote : "N/A",
                         });
                     }
@@ -261,8 +268,8 @@ export const SentBackSelectVendor = () => {
                         unit: null,
                         quantity: null,
                         amount: getTotal(cat.name),
-                        lowest2: getLowest(cat.name).quote,
-                        lowest3: getLowest3(cat.name),
+                        lowest2: getLowest(cat.name).quote || "N/A",
+                        lowest3: getLowest3(cat.name) || "N/A",
                         children: items,
                     };
                     newData.push(node);
@@ -417,9 +424,9 @@ export const SentBackSelectVendor = () => {
         const item = filtered_quotation_data?.find(item => item.vendor === vendor && item.category === category)
         return item?.lead_time;
     }
-    const getSelectedVendor = (item: string) => {
-        return selectedVendors[item] ? getVendorName(selectedVendors[item]) : ""
-    }
+    // const getSelectedVendor = (item: string) => {
+    //     return selectedVendors[item] ? getVendorName(selectedVendors[item]) : ""
+    // }
 
     const getTotal = (cat: string) => {
         let total: number = 0;
@@ -433,8 +440,8 @@ export const SentBackSelectVendor = () => {
     }
 
     const getLowest2 = (item: string) => {
-        const quotesForItem = quotation_request_list
-            ?.filter(value => value.item === item && value.procurement_task === orderData?.procurement_request && value.quote)
+        const quotesForItem = quote_data
+            ?.filter(value => value.item_id === item && ![null, "0", 0, undefined].includes(value.quote))
             ?.map(value => value.quote);
         let minQuote;
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -443,24 +450,7 @@ export const SentBackSelectVendor = () => {
 
     const getLowest = (cat: string) => {
         let price: number = 0;
-        let vendor: string = 'vendor';
 
-        orderData.item_list?.list.map((item) => {
-            if (item.category === cat) {
-                const quotesForItem = quotation_request_list
-                    ?.filter(value => value.item === item.name && value.quote && value.procurement_task === orderData.procurement_request)
-                    ?.map(value => value.quote);
-                let minQuote;
-                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                price += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
-            }
-        })
-
-        return { quote: price, vendor: vendor }
-    }
-
-    const getLowest3 = (cat: string) => {
-        let total: number = 0;
         orderData.item_list?.list.map((item) => {
             if (item.category === cat) {
                 const quotesForItem = quote_data
@@ -468,7 +458,29 @@ export const SentBackSelectVendor = () => {
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
-                total += (minQuote ? parseFloat(minQuote) : 0) * item.quantity;
+                price += parseFloat(minQuote || 0) * item.quantity;
+            }
+        })
+
+        return { quote: price }
+    }
+
+    const getLowest3 = (cat: string) => {
+        let total: number = 0;
+        const threeMonthsAgo = new Date();
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        orderData.item_list?.list.map((item) => {
+            if (item.category === cat) {
+                const quotesForItem = quote_data?.filter((value) => {
+                    // Parse the modified date and compare it with the timeframe
+                    const modifiedDate = new Date(value.modified);
+                    return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                  })
+                    ?.filter(value => value.item_id === item.name && value.quote)
+                    ?.map(value => value.quote);
+                let minQuote;
+                if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
+                total += parseFloat(minQuote || 0) * item.quantity;
             }
         })
         return total;
@@ -503,29 +515,33 @@ export const SentBackSelectVendor = () => {
                                         <CardTitle className="font-bold text-xl">
                                             {curCategory}
                                         </CardTitle>
-                                        <CardTitle className="font-bold text-xl">
+                                        {/* <CardTitle className="font-bold text-xl">
                                             {getSelectedVendor(curCategory)}
-                                        </CardTitle>
+                                        </CardTitle> */}
                                     </div>
                                     <table className="w-full">
                                         <thead className="w-full border-b border-black">
                                             <tr>
                                                 <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></th>
                                                 {selectedCategories[curCategory]?.map((item) => {
-                                                    const isSelected = selectedVendors[curCategory] === item;
-                                                    const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                    return <th className="bg-gray-200 font-semibold p-2 text-left"><span className={dynamicClass}>{getVendorName(item)?.length >= 12 ? getVendorName(item).slice(0, 12) + '...' : getVendorName(item)}</span>
-                                                        <div className={`py-2 font-light text-sm text-opacity-50 ${dynamicClass}`}>{getLeadTime(item, curCategory) || "--"} Days</div>
+                                                    return <th className="bg-gray-200 font-semibold p-2 text-left"><span>{getVendorName(item)}</span>
+                                                        <p className={`py-2 font-light text-sm text-opacity-50`}>{getLeadTime(item, curCategory) || "--"} Days</p>
                                                     </th>
                                                 })}
-                                                <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
+                                                <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <p className=''>Lowest Quote</p></th>
                                             </tr>
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200">
 
                                             {orderData?.item_list?.list.map((item) => {
-                                                const quotesForItem = quote_data
-                                                    ?.filter(value => value.item_id === item.name && value.quote)
+                                                const threeMonthsAgo = new Date();
+                                                threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+                                                const quotesForItem = quote_data?.filter((value) => {
+                                                      // Parse the modified date and compare it with the timeframe
+                                                      const modifiedDate = new Date(value.modified);
+                                                      return modifiedDate >= threeMonthsAgo; // Within the last 3 months
+                                                    })
+                                                    ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                                                     ?.map(value => value.quote);
                                                 let minQuote;
                                                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -554,9 +570,7 @@ export const SentBackSelectVendor = () => {
                                             <tr>
                                                 <td className="py-4 text-sm px-2 font-semibold">Total</td>
                                                 {selectedCategories[curCategory]?.map((value) => {
-                                                    const isSelected = selectedVendors[curCategory] === value;
-                                                    const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                    return <td className={`py-2 text-sm max-sm:pl-2 pl-8 text-left font-bold ${dynamicClass}`}>
+                                                    return <td className={`py-2 text-sm max-sm:pl-2 pl-8 text-left font-bold`}>
                                                         {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
                                                     </td>
                                                 })}

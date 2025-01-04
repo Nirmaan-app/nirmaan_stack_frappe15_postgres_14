@@ -21,7 +21,7 @@ import { useUserData } from "@/hooks/useUserData";
 export default function Items() {
 
     const [curItem, setCurItem] = useState('');
-    const [make, setMake] = useState('');
+    // const [make, setMake] = useState('');
     const [unit, setUnit] = useState('');
     const [category, setCategory] = useState('');
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
@@ -95,24 +95,24 @@ export default function Items() {
                     )
                 }
             },
-            {
-                accessorKey: "make_name",
-                header: ({ column }) => {
-                    return (
-                        <DataTableColumnHeader column={column} title="Make" />
-                    )
-                },
-                cell: ({ row }) => {
-                    return (
-                        <div className="font-medium">
-                            {row.getValue("make_name") || "--"}
-                            {/* `${item.item_name} ${ ? "-" + row.getValue("make_name") : ""}` */}
-                        </div>
-                    )
-                }
+            // {
+            //     accessorKey: "make_name",
+            //     header: ({ column }) => {
+            //         return (
+            //             <DataTableColumnHeader column={column} title="Make" />
+            //         )
+            //     },
+            //     cell: ({ row }) => {
+            //         return (
+            //             <div className="font-medium">
+            //                 {row.getValue("make_name") || "--"}
+            //                 {/* `${item.item_name} ${ ? "-" + row.getValue("make_name") : ""}` */}
+            //             </div>
+            //         )
+            //     }
 
 
-            },
+            // },
             {
                 accessorKey: "creation",
                 header: ({ column }) => {
@@ -170,7 +170,6 @@ export default function Items() {
             category: category,
             unit_name: unit,
             item_name: curItem,
-            make_name: make
         }
         createDoc('Items', itemData)
             .then(() => {
@@ -184,7 +183,6 @@ export default function Items() {
                 setUnit('')
                 setCurItem('')
                 setCategory('')
-                setMake('')
                 mutate()
             }).catch(() => {
                 console.log("submit_error", submit_error)
@@ -243,7 +241,7 @@ export default function Items() {
                                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                     />
                                 </div>
-                                <div className="flex flex-col items-start">
+                                {/* <div className="flex flex-col items-start">
                                     <label htmlFor="makeName" className="block text-sm font-medium text-gray-700">Make Name(optional)</label>
                                     <Input
                                         type="text"
@@ -252,7 +250,7 @@ export default function Items() {
                                         onChange={(e) => setMake(e.target.value)}
                                         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                     />
-                                </div>
+                                </div> */}
                                 <div className="flex flex-col items-start">
                                     <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Item Unit<sup className="pl-1 text-sm text-red-600">*</sup></label>
                                     <Select onValueChange={(value) => setUnit(value)}>
