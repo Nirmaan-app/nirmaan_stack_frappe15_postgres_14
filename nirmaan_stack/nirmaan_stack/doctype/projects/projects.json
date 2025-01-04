@@ -25,6 +25,7 @@
   "project_work_details_section",
   "status",
   "project_work_packages",
+  "project_category_list",
   "project_scopes",
   "subdivisions",
   "subdivision_list"
@@ -156,11 +157,16 @@
    "fieldname": "estimates_exec",
    "fieldtype": "Data",
    "label": "Estimates Executive"
+  },
+  {
+   "fieldname": "project_category_list",
+   "fieldtype": "JSON",
+   "label": "Project Category List"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-31 12:37:53.753894",
+ "modified": "2025-01-04 13:16:50.432386",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
