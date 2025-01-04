@@ -121,7 +121,7 @@ export const NewPRPage = ({
   const [unit, setUnit] = useState<string>("");
   const [quantity, setQuantity] = useState<number | null | string>(null);
   // const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
-  const [make, setMake] = useState("");
+  // const [make, setMake] = useState("");
   const [tax, setTax] = useState<number | null>(null);
   const [comments, setComments] = useState({});
   const [universalComment, setUniversalComment] = useState<string | null>(null);
@@ -332,15 +332,13 @@ export const NewPRPage = ({
     setPage("additem");
   };
 
-  const item_options: string[] = [];
+  const item_options: any[] = [];
   if (curCategory) {
     item_list?.map((item) => {
       if (item.category === curCategory)
         item_options.push({
           value: item.item_name,
-          label: `${item.item_name}${
-            item.make_name ? "-" + item.make_name : ""
-          }`,
+          label: item?.item_name,
         });
     });
   }
@@ -352,7 +350,7 @@ export const NewPRPage = ({
     item_list?.map((item) => {
       if (item.item_name == selectedItem.value) {
         setUnit(item.unit_name);
-        setMake(item.make_name);
+        // setMake(item.make_name);
       }
     });
   };
@@ -363,27 +361,25 @@ export const NewPRPage = ({
       (request && requestItem.name && requestItem.unit && requestItem.quantity)
     ) {
       let itemIdToUpdate = null;
-      let itemMake = null;
+      // let itemMake = null;
 
       // Find item ID and make
       if (!request) {
         item_list.forEach((item) => {
           if (item.item_name === curItem) {
             itemIdToUpdate = item.name;
-            itemMake = item.make_name;
+            // itemMake = item.make_name;
           }
         });
       } else {
         itemIdToUpdate = uuidv4();
-        itemMake = "";
+        // itemMake = "";
       }
 
       if (itemIdToUpdate) {
         const curRequest = [...orderData.procurement_list.list];
         const curValue = {
-          item: `${request ? requestItem.name : curItem}${
-            itemMake ? "-" + itemMake : ""
-          }`,
+          item: `${request ? requestItem.name : curItem}`,
           name: itemIdToUpdate,
           unit: request ? requestItem.unit : unit,
           quantity: request
@@ -443,7 +439,7 @@ export const NewPRPage = ({
           setQuantity("");
           setCurItem("");
           setUnit("");
-          setMake("");
+          // setMake("");
         }
       }
     }
@@ -593,7 +589,7 @@ export const NewPRPage = ({
       category: curCategory,
       unit_name: unit,
       item_name: curItem,
-      make_name: make,
+      // make_name: make,
     };
     // console.log("itemData", itemData)
     createDoc("Items", itemData)
@@ -601,7 +597,7 @@ export const NewPRPage = ({
         // console.log(itemData)
         setUnit("");
         setCurItem("");
-        setMake("");
+        // setMake("");
         setPage("itemlist");
         item_list_mutate();
       })
@@ -613,7 +609,7 @@ export const NewPRPage = ({
   const handleCreateItem = () => {
     setUnit("");
     setCurItem("");
-    setMake("");
+    // setMake("");
     setPage("additem");
   };
 
@@ -929,7 +925,7 @@ export const NewPRPage = ({
                 className="cursor-pointer"
                 onClick={() => {
                   setCurItem("");
-                  setMake("");
+                  // setMake("");
                   setQuantity(null);
                   setPage("categorylist");
                 }}
@@ -939,7 +935,7 @@ export const NewPRPage = ({
                 className="cursor-pointer"
                 onClick={() => {
                   setCurItem("");
-                  setMake("");
+                  // setMake("");
                   setQuantity(null);
                   setSection("pr-summary");
                 }}
@@ -1008,7 +1004,7 @@ export const NewPRPage = ({
               className="text-sm py-2 md:text-lg text-blue-400 flex items-center gap-1"
               onClick={() => {
                 setCurItem("");
-                setMake("");
+                // setMake("");
                 setQuantity(null);
                 setPage("categorylist");
               }}
@@ -1024,7 +1020,7 @@ export const NewPRPage = ({
               <ReactSelect
                 value={{
                   value: curItem,
-                  label: `${curItem}${make ? "-" + make : ""}`,
+                  label: curItem,
                 }}
                 options={item_options}
                 onChange={handleChange}
@@ -2198,7 +2194,7 @@ export const NewPRPage = ({
               className="cursor-pointer"
               onClick={() => {
                 setCurItem("");
-                setMake("");
+                // setMake("");
                 setQuantity(null);
                 setPage("itemlist");
               }}
@@ -2233,7 +2229,7 @@ export const NewPRPage = ({
               onChange={(e) => setCurItem(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
             />
-            <label
+            {/* <label
               htmlFor="makeName"
               className="block text-sm font-medium text-gray-700 mt-2"
             >
@@ -2247,7 +2243,7 @@ export const NewPRPage = ({
               placeholder="disabled"
               onChange={(e) => setMake(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            />
+            /> */}
           </div>
           <div className="mb-4">
             <label
