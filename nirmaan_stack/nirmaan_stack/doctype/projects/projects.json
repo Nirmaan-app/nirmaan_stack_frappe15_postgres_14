@@ -22,6 +22,7 @@
   "design_lead",
   "project_manager",
   "estimates_exec",
+  "accountant",
   "project_work_details_section",
   "status",
   "project_work_packages",
@@ -156,11 +157,16 @@
    "fieldname": "estimates_exec",
    "fieldtype": "Data",
    "label": "Estimates Executive"
+  },
+  {
+   "fieldname": "accountant",
+   "fieldtype": "Data",
+   "label": "Accountant"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-01-06 14:17:13.470116",
+ "modified": "2025-01-06 18:08:58.890929",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
