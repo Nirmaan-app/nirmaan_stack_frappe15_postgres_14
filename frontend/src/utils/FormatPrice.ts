@@ -1,4 +1,4 @@
-function formatToIndianRupee(price) {
+function formatToIndianRupee(price, retainDecimal = false) {
     // Ensure the price is a number before formatting
     const amount = parseFloat(price);
   
@@ -9,7 +9,7 @@ function formatToIndianRupee(price) {
     // Convert the number to Indian currency format
     return `₹${amount.toLocaleString('en-IN', {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      maximumFractionDigits: 2,
     })}`;
   }
   

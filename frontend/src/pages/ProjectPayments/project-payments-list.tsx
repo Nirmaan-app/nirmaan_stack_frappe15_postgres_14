@@ -309,7 +309,7 @@ export const ProjectPaymentsList = () => {
             },
             {
                 accessorKey: "total",
-                header: "Total PO Amount",
+                header: "Total PO Amt",
                 cell: ({ row }) => (
                     <div className="font-medium">
                         {formatToIndianRupee(getTotalAmount(row.original, row.original.type))}
@@ -318,7 +318,7 @@ export const ProjectPaymentsList = () => {
             },
             {
                 id: "Amount_paid",
-                header: "Amount Paid",
+                header: "Amt Paid",
                 cell: ({ row }) => {
                     const data = row.original
                     const amountPaid = getTotalAmountPaid(data?.name);
