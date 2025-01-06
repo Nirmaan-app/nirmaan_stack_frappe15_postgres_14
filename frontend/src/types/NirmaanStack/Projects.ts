@@ -40,8 +40,6 @@ export interface Projects{
 	status?: string
 	/**	Project Work Packages : JSON	*/
 	project_work_packages?: any
-	/**	Project Category List : JSON	*/
-	project_category_list?: any
 	/**	Project Scopes : JSON	*/
 	project_scopes?: any
 	/**	Subdivisions : Data	*/
