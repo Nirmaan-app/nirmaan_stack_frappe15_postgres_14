@@ -709,7 +709,7 @@ export const ApprovedSR = () => {
 
                                             <td className="space-y-4 py-4 text-sm whitespace-nowrap">
                                                 {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal() * 1.18 - getTotal())}</div>}
-                                                <div className="ml-4">- {formatToIndianRupee((getTotal() * (gstEnabled ? 1.18 : 1)).toFixed(2) - Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
+                                                <div className="ml-4">- {formatToIndianRupee((getTotal() * (gstEnabled ? 1.18 : 1)) - Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
                                                 <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal() * (gstEnabled ? 1.18 : 1)))}</div>
                                             </td>
 

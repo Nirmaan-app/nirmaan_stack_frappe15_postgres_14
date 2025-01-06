@@ -35,6 +35,8 @@ const OrderPaymentSummary = () => {
     const [afterDelivery, setAfterDelivery] = useState(0)
     const [xDaysAfterDelivery, setXDaysAfterDelivery] = useState(0)
     const [xDays, setXDays] = useState(0)
+    const [loadingCharges, setLoadingCharges] = useState(0)
+    const [freightCharges, setFreightCharges] = useState(0)
 
     const [newPaymentDialog, setNewPaymentDialog] = useState(false);
     
@@ -98,6 +100,8 @@ const OrderPaymentSummary = () => {
           setAfterDelivery(parseFloat(chargesArray[2] || 0))
           setXDaysAfterDelivery(parseFloat(chargesArray[3] || 0))
           setXDays(parseFloat(chargesArray[4] || 0))
+          setLoadingCharges(parseFloat(documentData?.loading_charges || 0))
+          setFreightCharges(parseFloat(documentData?.freight_charges || 0))
         }
       }, [endpoint, documentData])
 
@@ -107,19 +111,21 @@ const OrderPaymentSummary = () => {
 
         if (isPO) {
             JSON.parse(documentData.order_list).list.forEach((item) => {
-                const price = parseFloat(item?.quote) || 0;
-                const quantity = parseFloat(item?.quantity) || 1;
-                const tax = parseFloat(item?.tax) || 0;
+                const price = parseFloat(item?.quote || 0);
+                const quantity = parseFloat(item?.quantity || 1);
+                const tax = parseFloat(item?.tax || 0);
                 const amount = price * quantity;
-                const gstAmount = (amount * tax) / 100;
+                const gstAmount = amount * (tax / 100);
 
                 total += amount;
                 totalWithGST += amount + gstAmount;
             });
+            total += loadingCharges + freightCharges;
+            totalWithGST += loadingCharges * 0.18 + freightCharges * 0.18;
         } else {
             JSON.parse(documentData.service_order_list).list.forEach((item) => {
-                const price = parseFloat(item?.rate) || 0;
-                const quantity = parseFloat(item?.quantity) || 1;
+                const price = parseFloat(item?.rate || 0);
+                const quantity = parseFloat(item?.quantity || 1);
                 total += price * quantity;
             });
 
@@ -131,6 +137,17 @@ const OrderPaymentSummary = () => {
             totalWithGST,
         };
     };
+
+    const getTotalAmtPaid = (id) => {
+
+        if(projectPayments) {
+            const payments = projectPayments?.filter((i) => i?.document_name === id);
+
+            return payments?.reduce((acc, i) => acc + parseFloat(i?.amount), 0);
+        }
+
+        return 0;
+    }
 
     const componentRef = useRef<HTMLDivElement>(null);
 
@@ -236,10 +253,6 @@ const OrderPaymentSummary = () => {
                             <span>{formatDate(documentData?.creation)}</span>
                         </div>
                         <div className="flex flex-col gap-2">
-                            <Label className=" text-red-700">Amount Paid:</Label>
-                            <span>{projectPayments?.filter((i) => i?.document_name === poId)?.length > 0 ? formatToIndianRupee(projectPayments?.filter((i) => i?.document_name === poId)?.reduce((acc, i) => acc + i?.amount, 0)) : "--"}</span>    
-                        </div>
-                        <div className="flex flex-col gap-2">
                             <Label className=" text-red-700">Vendor GST:</Label>
                             <span>{vendorData?.vendor_gst || "--"}</span>
                         </div>
@@ -252,7 +265,11 @@ const OrderPaymentSummary = () => {
                                 <Label className=" text-red-700">Total (Incl. GST):</Label>
                                 <span>{formatToIndianRupee(totals.totalWithGST)}</span>
                             </div>
-                        ) }
+                        )}
+                        <div className="flex flex-col gap-2">
+                            <Label className=" text-red-700">Amount Paid:</Label>
+                            <span>{getTotalAmtPaid(poId) ? formatToIndianRupee(getTotalAmtPaid(poId)) : "--"}</span>    
+                        </div>
                         </div>
                         {/* <div className="flex-1 py-4">
                             <Label className="pr-1 text-red-700">Vendor Address:</Label>
@@ -432,6 +449,12 @@ const OrderPaymentSummary = () => {
                         <CalendarDays className="w-4 h-4 text-muted-foreground" /> 
                         <Label className="font-light">After {xDays || "--"} days of delivery:</Label>
                     </div>
+                    <div className="flex items-center gap-1">
+                      <Label className="font-light">Loading Charges</Label>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Label className="font-light">Freight Charges</Label>
+                    </div>
                 </div>
 
                 {/* Percentages */}
@@ -469,6 +492,12 @@ const OrderPaymentSummary = () => {
                     </div>
                     <div className="flex items-center gap-1">
                         <Label className="font-light">{formatToIndianRupee(totals?.totalWithGST * (xDaysAfterDelivery / 100))}</Label>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Label className="font-light">{formatToIndianRupee(loadingCharges * 1.18)}</Label>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Label className="font-light">{formatToIndianRupee(freightCharges * 1.18)}</Label>
                     </div>
                 </div>
             </div>

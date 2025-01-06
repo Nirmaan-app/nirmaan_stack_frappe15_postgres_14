@@ -207,23 +207,23 @@ export const PurchaseOrder = () => {
     }
   }, [associated_po_list, po])
 
-  const categoryTotals = useMemo(() => orderData?.list?.reduce((acc, item) => {
-    const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
-    const itemTotal = item.quantity * item.quote;
-    const itemTotalWithGst = itemTotal * (1 + item.tax / 100);
-    category.withoutGst += itemTotal;
-    category.withGst += itemTotalWithGst;
-    acc[item.category] = category;
-    return acc;
-  }, {}), [orderData]);
+  // const categoryTotals = useMemo(() => orderData?.list?.reduce((acc, item) => {
+  //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
+  //   const itemTotal = item.quantity * item.quote;
+  //   const itemTotalWithGst = itemTotal * (1 + item.tax / 100);
+  //   category.withoutGst += itemTotal;
+  //   category.withGst += itemTotalWithGst;
+  //   acc[item.category] = category;
+  //   return acc;
+  // }, {}), [orderData]);
 
-  const overallTotal = useMemo(() => Object.values(categoryTotals || "[]").reduce(
-    (acc, totals) => ({
-      withoutGst: acc.withoutGst + totals.withoutGst,
-      withGst: acc.withGst + totals.withGst,
-    }),
-    { withoutGst: 0, withGst: 0 }
-  ), [categoryTotals]);
+  // const overallTotal = useMemo(() => Object.values(categoryTotals || "[]").reduce(
+  //   (acc, totals) => ({
+  //     withoutGst: acc.withoutGst + totals.withoutGst,
+  //     withGst: acc.withGst + totals.withGst,
+  //   }),
+  //   { withoutGst: 0, withGst: 0 }
+  // ), [categoryTotals]);
 
   const componentRef = useRef<HTMLDivElement>(null);
 
@@ -241,8 +241,7 @@ export const PurchaseOrder = () => {
 
       totalGst += gst;
       total +=
-        (price ? parseFloat(price) : 0) *
-        (item.quantity ? parseFloat(item.quantity) : 1);
+        parseFloat(price || 0) * parseFloat(item.quantity || 1);
     });
 
     total += loadingCharges + freightCharges;
@@ -250,6 +249,12 @@ export const PurchaseOrder = () => {
 
     return { total, totalGst: totalGst, totalAmt: total + totalGst };
   };
+
+  // console.log("total", getTotal()?.total)
+
+  // console.log("totalGst", getTotal()?.totalGst)
+
+  // console.log("totalAmt+gst", getTotal()?.totalAmt)
 
   const onSubmit = async (data: any) => {
     setLoadingFuncName("onSubmit")
@@ -1099,11 +1104,11 @@ export const PurchaseOrder = () => {
             </div>
             <div className="flex items-center justify-between">
               <Label className="ml-1 font-light text-red-700">Total (Excl. GST):</Label>
-              <span className="font-light">{formatToIndianRupee(overallTotal.withoutGst)}</span>
+              <span className="font-light">{formatToIndianRupee(getTotal()?.total)}</span>
             </div>
             <div className="flex items-center justify-between">
               <Label className="ml-1 font-light text-red-700">Total (Incl. GST):</Label>
-              <span className="font-light">{formatToIndianRupee(overallTotal.withGst)}</span>
+              <span className="font-light">{formatToIndianRupee(Math.floor(getTotal()?.totalAmt))}</span>
             </div>
             <div className="flex items-center justify-between">
               <Label className="ml-1 font-light text-red-700">Total Amount Paid:</Label>
@@ -1429,16 +1434,16 @@ export const PurchaseOrder = () => {
                   <span className="font-semibold">Amount</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Label className="font-light">{formatToIndianRupee(overallTotal?.withGst * (advance / 100))}</Label>
+                  <Label className="font-light">{formatToIndianRupee(getTotal()?.totalAmt * (advance / 100))}</Label>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Label className="font-light">{formatToIndianRupee(overallTotal?.withGst * (materialReadiness / 100))}</Label>
+                  <Label className="font-light">{formatToIndianRupee(getTotal()?.totalAmt * (materialReadiness / 100))}</Label>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Label className="font-light">{formatToIndianRupee(overallTotal?.withGst * (afterDelivery / 100))}</Label>
+                  <Label className="font-light">{formatToIndianRupee(getTotal()?.totalAmt * (afterDelivery / 100))}</Label>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Label className="font-light">{formatToIndianRupee(overallTotal?.withGst * (xDaysAfterDelivery / 100))}</Label>
+                  <Label className="font-light">{formatToIndianRupee(getTotal()?.totalAmt * (xDaysAfterDelivery / 100))}</Label>
                 </div>
               </div>
             </div>
@@ -1462,10 +1467,10 @@ export const PurchaseOrder = () => {
                   <span className="font-semibold">Amount</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Label className="font-light">{formatToIndianRupee(loadingCharges)}</Label>
+                  <Label className="font-light">{formatToIndianRupee(loadingCharges * 1.18)}</Label>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Label className="font-light">{formatToIndianRupee(freightCharges)}</Label>
+                  <Label className="font-light">{formatToIndianRupee(freightCharges * 1.18)}</Label>
                 </div>
               </div>
             </div>
@@ -2626,7 +2631,7 @@ export const PurchaseOrder = () => {
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.quote)}</td>
                                                         <td className="px-4 py-2 text-sm whitespace-nowrap">{item.tax}%</td>
-                                                        <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(((item.quote) * (item.quantity)).toFixed(2))}</td>
+                                                        <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(((item.quote) * (item.quantity)))}</td>
                                                     </tr>)
                                                 })} */}
 
@@ -2705,9 +2710,7 @@ export const PurchaseOrder = () => {
                             {item.tax}%
                           </td>
                           <td className="px-4 py-2 text-sm whitespace-nowrap">
-                            {formatToIndianRupee(
-                              (item.quote * item.quantity).toFixed(2)
-                            )}
+                            {formatToIndianRupee(item.quote * item.quantity)}
                           </td>
                         </tr>
                       )
@@ -2749,7 +2752,7 @@ export const PurchaseOrder = () => {
                           18%
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
-                          {formatToIndianRupee(loadingCharges.toFixed(2))}
+                          {formatToIndianRupee(loadingCharges)}
                         </td>
                       </tr>
                     ) : (
@@ -2776,7 +2779,7 @@ export const PurchaseOrder = () => {
                           18%
                         </td>
                         <td className="px-4 py-2 text-sm whitespace-nowrap">
-                          {formatToIndianRupee(freightCharges.toFixed(2))}
+                          {formatToIndianRupee(freightCharges)}
                         </td>
                       </tr>
                     ) : (
@@ -2792,7 +2795,7 @@ export const PurchaseOrder = () => {
                         Sub-Total
                       </td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">
-                        {formatToIndianRupee(getTotal().total.toFixed(2))}
+                        {formatToIndianRupee(getTotal().total)}
                       </td>
                     </tr>
                     <tr className="border-none">
@@ -2810,21 +2813,21 @@ export const PurchaseOrder = () => {
                       <td className="space-y-4 py-4 text-sm whitespace-nowrap">
                         <div className="ml-4">
                           {formatToIndianRupee(
-                            getTotal().totalGst.toFixed(2)
+                            getTotal().totalGst
                           )}
                         </div>
                         <div className="ml-4">
                           -{" "}
                           {formatToIndianRupee(
                             (
-                              getTotal().totalAmt.toFixed(2) -
-                              Math.floor(getTotal().totalAmt).toFixed(2)
-                            ).toFixed(2)
+                              getTotal().totalAmt -
+                              Math.floor(getTotal().totalAmt)
+                            )
                           )}
                         </div>
                         <div className="ml-4">
                           {formatToIndianRupee(
-                            Math.floor(getTotal().totalAmt).toFixed(2)
+                            Math.floor(getTotal().totalAmt)
                           )}
                         </div>
                       </td>
