@@ -62,57 +62,6 @@
  {
   "docstatus": 0,
   "doctype": "Role Profile",
-  "modified": "2025-01-04 15:39:21.418452",
-  "name": "Nirmaan Admin Profile",
-  "role_profile": "Nirmaan Admin Profile",
-  "roles": [
-   {
-    "parent": "Nirmaan Admin Profile",
-    "parentfield": "roles",
-    "parenttype": "Role Profile",
-    "role": "Nirmaan Procurement Executive"
-   },
-   {
-    "parent": "Nirmaan Admin Profile",
-    "parentfield": "roles",
-    "parenttype": "Role Profile",
-    "role": "Nirmaan Project Lead"
-   },
-   {
-    "parent": "Nirmaan Admin Profile",
-    "parentfield": "roles",
-    "parenttype": "Role Profile",
-    "role": "Nirmaan Design Executive"
-   },
-   {
-    "parent": "Nirmaan Admin Profile",
-    "parentfield": "roles",
-    "parenttype": "Role Profile",
-    "role": "Nirmaan Project Manager"
-   },
-   {
-    "parent": "Nirmaan Admin Profile",
-    "parentfield": "roles",
-    "parenttype": "Role Profile",
-    "role": "System Manager"
-   },
-   {
-    "parent": "Nirmaan Admin Profile",
-    "parentfield": "roles",
-    "parenttype": "Role Profile",
-    "role": "Nirmaan Accountant"
-   },
-   {
-    "parent": "Nirmaan Admin Profile",
-    "parentfield": "roles",
-    "parenttype": "Role Profile",
-    "role": "Nirmaan Estimates Executive"
-   }
-  ]
- },
- {
-  "docstatus": 0,
-  "doctype": "Role Profile",
   "modified": "2024-04-13 21:22:05.753047",
   "name": "Nirmaan Procurement Executive Profile",
   "role_profile": "Nirmaan Procurement Executive Profile",
@@ -167,6 +116,57 @@
     "parentfield": "roles",
     "parenttype": "Role Profile",
     "role": "Nirmaan Accountant"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2025-01-04 15:39:21.418452",
+  "name": "Nirmaan Admin Profile",
+  "role_profile": "Nirmaan Admin Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Admin Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Procurement Executive"
+   },
+   {
+    "parent": "Nirmaan Admin Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Project Lead"
+   },
+   {
+    "parent": "Nirmaan Admin Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Design Executive"
+   },
+   {
+    "parent": "Nirmaan Admin Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Project Manager"
+   },
+   {
+    "parent": "Nirmaan Admin Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "System Manager"
+   },
+   {
+    "parent": "Nirmaan Admin Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Accountant"
+   },
+   {
+    "parent": "Nirmaan Admin Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Estimates Executive"
    }
   ]
  }

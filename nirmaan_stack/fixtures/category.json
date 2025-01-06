@@ -737,17 +737,6 @@
   "work_package": "Electrical Work"
  },
  {
-  "category_name": "Reader",
-  "docstatus": 0,
-  "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20access/reader.jpg",
-  "modified": "2024-11-23 14:28:30.516576",
-  "name": "Reader",
-  "new_items": "true",
-  "tax": "18",
-  "work_package": "Access Control System"
- },
- {
   "category_name": "UPS Batteries",
   "docstatus": 0,
   "doctype": "Category",
@@ -759,12 +748,12 @@
   "work_package": "Electrical Work"
  },
  {
-  "category_name": "Controllers",
+  "category_name": "Controllers & Readers",
   "docstatus": 0,
   "doctype": "Category",
-  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20access/controller.jpg",
-  "modified": "2024-11-23 14:28:30.492983",
-  "name": "Controllers",
+  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped access/cnr.jpg",
+  "modified": "2025-01-06 16:04:31.958022",
+  "name": "Controllers & Readers",
   "new_items": "true",
   "tax": "18",
   "work_package": "Access Control System"
@@ -856,5 +845,27 @@
   "new_items": "false",
   "tax": "18",
   "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "Lock & Accessories",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped access/lock.jpg",
+  "modified": "2025-01-06 16:03:42.824872",
+  "name": "Lock & Accessories",
+  "new_items": "true",
+  "tax": "18",
+  "work_package": "Access Control System"
+ },
+ {
+  "category_name": "Access Cables",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped access/cable.jpg",
+  "modified": "2025-01-06 16:04:08.379946",
+  "name": "Access Cables",
+  "new_items": "true",
+  "tax": "18",
+  "work_package": "Access Control System"
  }
 ]
