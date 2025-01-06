@@ -34,4 +34,6 @@ export interface QuotationRequests{
 	attachment?: string
 	/**	Status : Data	*/
 	status?: string
+	/**	Makes : JSON	*/
+	makes?: any
 }

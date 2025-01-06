@@ -20,7 +20,8 @@
   "quote",
   "comments",
   "attachment",
-  "status"
+  "status",
+  "makes"
  ],
  "fields": [
   {
@@ -102,11 +103,16 @@
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
+  },
+  {
+   "fieldname": "makes",
+   "fieldtype": "JSON",
+   "label": "Makes"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-31 12:45:33.697188",
+ "modified": "2025-01-06 21:05:12.982193",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Quotation Requests",

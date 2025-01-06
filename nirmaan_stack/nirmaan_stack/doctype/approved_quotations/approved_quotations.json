@@ -18,7 +18,8 @@
   "quote",
   "tax",
   "city",
-  "state"
+  "state",
+  "make"
  ],
  "fields": [
   {
@@ -95,11 +96,16 @@
    "fieldtype": "Link",
    "label": "Procurement Package",
    "options": "Procurement Packages"
+  },
+  {
+   "fieldname": "make",
+   "fieldtype": "Data",
+   "label": "Make"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-31 12:57:02.954684",
+ "modified": "2025-01-06 21:05:36.939940",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Approved Quotations",

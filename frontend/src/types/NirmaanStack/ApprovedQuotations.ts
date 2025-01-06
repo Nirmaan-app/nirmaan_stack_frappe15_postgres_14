@@ -34,4 +34,6 @@ export interface ApprovedQuotations{
 	city?: string
 	/**	State : Data	*/
 	state?: string
+	/**	Make : Data	*/
+	make?: string
 }
