@@ -30,7 +30,7 @@ export default function ProcurementDashboard() {
             </div>
             <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procure-request">
+                    <Link to="/procurement-requests?tab=New PR Request">
                         <p className="text-center py-6 font-bold text-gray-500">New PR Request</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {approvedPRCount || 0}
@@ -39,7 +39,7 @@ export default function ProcurementDashboard() {
                 </Card>
 
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/update-quote">
+                    <Link to="/procurement-requests?tab=Update Quote">
                         <p className="text-center py-6 font-bold text-gray-500">Update Quote</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {updateQuotePRCount || 0}
@@ -47,7 +47,7 @@ export default function ProcurementDashboard() {
                     </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/select-vendor-list">
+                    <Link to="/procurement-requests?tab=Choose Vendor">
                         <p className="text-center py-6 font-bold text-gray-500">Choose Vendor</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {chooseVendorPRCount || 0}
@@ -91,7 +91,7 @@ export default function ProcurementDashboard() {
             </div>
             <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/release-po">
+                    <Link to="/purchase-orders?tab=Approved PO">
                         <p className="text-center py-6 font-bold text-gray-500">Approved PO</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {newPOCount || 0}
@@ -99,7 +99,7 @@ export default function ProcurementDashboard() {
                     </Link>
                 </Card>
                 <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/released-po">
+                    <Link to="/purchase-orders?tab=Released PO">
                         <p className="text-center py-6 font-bold text-gray-500">Released PO</p>
                         <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
                             {otherPOCount || 0}
