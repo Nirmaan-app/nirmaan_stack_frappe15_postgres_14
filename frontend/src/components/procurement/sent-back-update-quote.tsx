@@ -36,12 +36,12 @@ export const SentBackUpdateQuote = () => {
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate();
 
-    const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
+    const { data: category_data, isLoading: category_loading } = useFrappeGetDocList("Category", {
         fields: ["*"],
         limit: 1000
     })
 
-    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
+    const { data: vendor_list, isLoading: vendor_list_loading, mutate: vendor_list_mutate } = useFrappeGetDocList("Vendors",
         {
             fields: ["*"],
             filters: [["vendor_type", "=", "Material"]],
@@ -49,15 +49,8 @@ export const SentBackUpdateQuote = () => {
         },
         "Material Vendors"
     );
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error, mutate: quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
-        {
-            fields: ["*"],
-            limit: 10000
-        },
-        "Quotation Requests"
-    );
 
-    const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
+    const { data: sent_back_list, isLoading: sent_back_list_loading } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['*'],
             limit: 1000
@@ -94,6 +87,15 @@ export const SentBackUpdateQuote = () => {
         project: ''
     })
 
+    const { data: quotation_request_list, isLoading: quotation_request_list_loading, mutate: quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ["*"],
+            filters: [["procurement_task", "=", orderData?.procurement_request]],
+            limit: 10000
+        },
+        orderData?.procurement_request ? "Quotation Requests" : null
+    );
+
     const { createDoc } = useFrappeCreateDoc()
 
     useEffect(() => {
@@ -116,7 +118,7 @@ export const SentBackUpdateQuote = () => {
 
     // console.log("uniqueVendors", uniqueVendors)
 
-    // console.log("orderData", orderData)
+    console.log("orderData", orderData)
 
     useEffect(() => {
         if (orderData.project) {
@@ -166,12 +168,14 @@ export const SentBackUpdateQuote = () => {
         try {
             const promises = [];
             orderData?.item_list?.list.forEach((item) => {
+                const makes = orderData?.category_list?.list?.find(i => i?.name ===  item?.category)?.makes?.map(j => ({make: j, enabled : "false"})) || [];
                 const newItem = {
                     procurement_task: orderData.procurement_request,
                     category: item.category,
                     item: item.name,
                     vendor: vendorId,
-                    quantity: item.quantity
+                    quantity: item.quantity,
+                    makes: {list : makes}
                 };
                 promises.push(createDoc("Quotation Requests", newItem));
             });
@@ -509,7 +513,7 @@ export const SentBackUpdateQuote = () => {
                     })}
                     <div className="flex items-center justify-between mt-6">
                         <Sheet>
-                            <SheetTrigger className="text-blue-500"><div className="flex items-center gap-1 ml-4"><CirclePlus className="w-4 h-4" />Add New Vendor</div></SheetTrigger>
+                            <SheetTrigger className="text-blue-500"><div className="flex items-center gap-1 ml-4"><CirclePlus className="w-4 h-4" /> <span className="max-sm:hidden">Add</span> New Vendor</div></SheetTrigger>
                             <SheetContent className="overflow-auto">
                                 <SheetHeader className="text-start">
                                     <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>

@@ -1,4 +1,4 @@
-import { ArrowBigUpDash, ArrowLeft, CheckCheck, Pencil, Undo2 } from 'lucide-react';
+import { ArrowBigUpDash, ArrowLeft, CheckCheck, Info, MessageCircleMore, Pencil, Undo2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
@@ -22,6 +22,7 @@ import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
 import { TailSpin } from 'react-loader-spinner';
 import { Textarea } from '../ui/textarea';
 import { useUserData } from '@/hooks/useUserData';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -37,13 +38,44 @@ interface DataType {
     lowest2: string;
     lowest3: string;
     children?: DataType[];
+    makes: any[];
 }
 
 const columns: TableColumnsType<DataType> = [
     {
         title: 'Items',
         dataIndex: 'item',
-        key: 'item'
+        key: 'item',
+        render: (text, record) => {
+            return (
+                <>
+                <div className="inline items-baseline">
+                    <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
+                        {text}
+                    </span>
+                    {(!record.children && record.comment) && (
+                        <HoverCard>
+                            <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-6 h-6 inline-block ml-1" /></HoverCardTrigger>
+                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                <div className="relative pb-4">
+                                    <span className="block">{record.comment}</span>
+                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                </div>
+
+                            </HoverCardContent>
+                        </HoverCard>
+                    )}
+                </div>
+                {(record?.makes?.filter(m => m?.enabled === "true")?.length > 0) && (
+                <div className="text-xs text-gray-500 lg:ml-10">
+                    <span className='text-primary'>makes</span> - {record?.makes?.filter(m => m?.enabled === "true")?.map((i, index, arr) => (
+                        <i className='font-semibold'>{i?.make}{index < arr.length - 1 && ", "}</i>
+                      ))}
+                  </div>
+                )}
+                </>
+            )
+        }
     },
     {
         title: 'Unit',
@@ -52,9 +84,9 @@ const columns: TableColumnsType<DataType> = [
         width: '7%',
     },
     {
-        title: 'Quantity',
+        title: 'Qty',
         dataIndex: 'quantity',
-        width: '7%',
+        width: '5%',
         key: 'quantity',
     },
     {
@@ -71,7 +103,7 @@ const columns: TableColumnsType<DataType> = [
     {
         title: 'Selected Vendor',
         dataIndex: 'selectedVendor',
-        width: '15%',
+        width: '12%',
         key: 'selectedVendor',
     },
     {
@@ -91,7 +123,7 @@ const columns: TableColumnsType<DataType> = [
     {
         title: 'Lowest Quoted Amount',
         dataIndex: 'lowest2',
-        width: '10%',
+        width: '8%',
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
@@ -119,11 +151,6 @@ export const SentBackSelectVendor = () => {
 
     const userData  = useUserData()
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
-        {
-            fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation'],
-            limit: 1000
-        });
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type'],
@@ -132,10 +159,11 @@ export const SentBackSelectVendor = () => {
         });
     const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'item', 'vendor', 'category', 'procurement_task', 'quote'],
+            fields: ['name', 'lead_time', 'item', 'vendor', 'category', 'procurement_task', 'quote', 'makes'],
             limit: 10000,
             orderBy: { field: "creation", order: "desc" }
         });
+
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['*'],
@@ -147,7 +175,7 @@ export const SentBackSelectVendor = () => {
             fields: ['*'],
             limit: 2000
         });
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+    const { updateDoc: updateDoc, loading: update_loading, error: submit_error } = useFrappeUpdateDoc()
     const { createDoc: createDoc, loading: create_loading } = useFrappeCreateDoc()
 
     const [page, setPage] = useState<string>('updatequotation')
@@ -197,13 +225,15 @@ export const SentBackSelectVendor = () => {
 
     const [delayedItems, setDelayedItems] = useState({})
 
+    console.log("data", data)
+
     const delayedItemsCheck = () => {
         let delayedItems = {};
 
         if (data) {
             data.forEach((item) => {
                 item.children.forEach((i) => {
-                    if (i.rate === "Delayed") {
+                    if (i.rate === "Delayed" || !selectedVendors[i.key]) {
                         if (!delayedItems[i.category]) {
                             delayedItems[i.category] = [];
                         }
@@ -216,6 +246,14 @@ export const SentBackSelectVendor = () => {
         setDelayedItems(delayedItems);
     };
 
+    useEffect(() => {
+        delayedItemsCheck()
+    }, [selectedVendors, data])
+
+    const getItemQuoteMakes = (item: string, category: string, vendor: string) => {
+        return filtered_quotation_data?.find(i => i.vendor === vendor && i.category === category && i.item === item)?.makes?.list || [];
+    }
+
     // console.log("data", data)
     // console.log("delayedItems", delayedItems)
 
@@ -225,18 +263,17 @@ export const SentBackSelectVendor = () => {
             const newData: DataType[] = [];
             orderData.category_list?.list.forEach((cat) => {
                 const items: DataType[] = [];
-
-                const threeMonthsAgo = new Date();
-                threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+                // const threeMonthsAgo = new Date();
+                // threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
                 orderData.item_list?.list.forEach((item) => {
                     if (item.category === cat.name) {
-                        const price = Number(getPrice(selectedVendors[item.name], item.name))
-                        const quotesForItem = quote_data?.filter((value) => {
-                              // Parse the modified date and compare it with the timeframe
-                              const modifiedDate = new Date(value.modified);
-                              return modifiedDate >= threeMonthsAgo; // Within the last 3 months
-                            })
+                        const price = getPrice(selectedVendors[item.name], item.name)
+                        // const quotesForItem = quote_data?.filter((value) => {
+                        //       const modifiedDate = new Date(value.modified);
+                        //       return modifiedDate >= threeMonthsAgo;
+                        //     })
+                        const quotesForItem = quote_data
                             ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                             ?.map(value => value.quote);
                         let minQuote;
@@ -252,8 +289,9 @@ export const SentBackSelectVendor = () => {
                             quantity: item.quantity,
                             category: item.category,
                             comment: item.comment,
-                            rate: price,
-                            amount: price * item.quantity,
+                            makes: getItemQuoteMakes(item?.name, item?.category, selectedVendors[item.name]),
+                            rate: price !== "-" ? Number(price) : "Delayed",
+                            amount: price !== "-" ? Number(price * item.quantity) : "Delayed",
                             selectedVendor: getVendorName(selectedVendors[item.name]),
                             lowest2: (getLowest2(item.name) * item.quantity) || "N/A",
                             lowest3: minQuote ? minQuote : "N/A",
@@ -312,6 +350,10 @@ export const SentBackSelectVendor = () => {
 
     };
 
+    console.log("delayedItems", delayedItems)
+
+    console.log("selectedVendors", selectedVendors)
+
     const handleChangeWithParam = (item, vendor) => {
         return () => handleRadioChange(item, vendor);
     };
@@ -362,13 +404,6 @@ export const SentBackSelectVendor = () => {
                 console.log("submit_error", submit_error, error)
             })
     }
-
-    // useEffect(() => {
-    //     setOrderData(prevState => ({
-    //         ...prevState,
-    //         vendor: selectedVendors[curCategory]
-    //     }));
-    // }, [selectedVendors]);
 
     const handleUpdateOrderData = () => {
         setPage('approvequotation')
@@ -440,8 +475,8 @@ export const SentBackSelectVendor = () => {
     }
 
     const getLowest2 = (item: string) => {
-        const quotesForItem = quote_data
-            ?.filter(value => value.item_id === item && ![null, "0", 0, undefined].includes(value.quote))
+        const quotesForItem = filtered_quotation_data
+            ?.filter(value => value.item === item && ![null, "0", 0, undefined].includes(value.quote))
             ?.map(value => value.quote);
         let minQuote;
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -453,8 +488,8 @@ export const SentBackSelectVendor = () => {
 
         orderData.item_list?.list.map((item) => {
             if (item.category === cat) {
-                const quotesForItem = quote_data
-                    ?.filter(value => value.item_id === item.name && value.quote)
+                const quotesForItem = filtered_quotation_data
+                    ?.filter(value => value.item === item.name && value.quote)
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -467,15 +502,15 @@ export const SentBackSelectVendor = () => {
 
     const getLowest3 = (cat: string) => {
         let total: number = 0;
-        const threeMonthsAgo = new Date();
-        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        // const threeMonthsAgo = new Date();
+        // threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
         orderData.item_list?.list.map((item) => {
             if (item.category === cat) {
-                const quotesForItem = quote_data?.filter((value) => {
-                    // Parse the modified date and compare it with the timeframe
-                    const modifiedDate = new Date(value.modified);
-                    return modifiedDate >= threeMonthsAgo; // Within the last 3 months
-                  })
+                // const quotesForItem = quote_data?.filter((value) => {
+                //     const modifiedDate = new Date(value.modified);
+                //     return modifiedDate >= threeMonthsAgo;
+                //   })
+                const quotesForItem = quote_data
                     ?.filter(value => value.item_id === item.name && value.quote)
                     ?.map(value => value.quote);
                 let minQuote;
@@ -519,28 +554,31 @@ export const SentBackSelectVendor = () => {
                                             {getSelectedVendor(curCategory)}
                                         </CardTitle> */}
                                     </div>
-                                    <table className="w-full">
-                                        <thead className="w-full border-b border-black">
-                                            <tr>
-                                                <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<div className='py-2 font-light text-sm text-gray-400'>Delivery Time:</div></th>
-                                                {selectedCategories[curCategory]?.map((item) => {
-                                                    return <th className="bg-gray-200 font-semibold p-2 text-left"><span>{getVendorName(item)}</span>
-                                                        <p className={`py-2 font-light text-sm text-opacity-50`}>{getLeadTime(item, curCategory) || "--"} Days</p>
-                                                    </th>
-                                                })}
-                                                <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <p className=''>Lowest Quote</p></th>
+                                    <table className="w-full min-w-[600px]">
+                                        <thead className="w-full border-b border-black bg-gray-200">
+                                        <tr className='w-full'>
+                                                <th className="p-2 font-semibold text-left w-[30%]">Items<p className='py-2 font-light text-sm text-slate-600'>Delivery Time:</p></th>
+                                                <th className='w-[50%] '>
+                                                    <div className='flex p-2'>
+                                                    {selectedCategories[curCategory]?.map((ven) => {
+                                                        return <div key={ven} className="font-semibold flex-1 flex flex-col items-start"><p>{getVendorName(ven)}</p>
+                                                            <p className={`py-2 font-light text-sm text-opacity-50`}>{getLeadTime(ven, cat.name) || "--"} Days</p>
+                                                        </div>
+                                                    })}
+                                                    </div>
+                                                </th>
+                                                <th className="p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
                                             </tr>
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200">
-
                                             {orderData?.item_list?.list.map((item) => {
-                                                const threeMonthsAgo = new Date();
-                                                threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-                                                const quotesForItem = quote_data?.filter((value) => {
-                                                      // Parse the modified date and compare it with the timeframe
-                                                      const modifiedDate = new Date(value.modified);
-                                                      return modifiedDate >= threeMonthsAgo; // Within the last 3 months
-                                                    })
+                                                // const threeMonthsAgo = new Date();
+                                                // threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+                                                // const quotesForItem = quote_data?.filter((value) => {
+                                                //       const modifiedDate = new Date(value.modified);
+                                                //       return modifiedDate >= threeMonthsAgo;
+                                                //     })
+                                                const quotesForItem = quote_data
                                                     ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                                                     ?.map(value => value.quote);
                                                 let minQuote;
@@ -548,33 +586,62 @@ export const SentBackSelectVendor = () => {
 
                                                 if (item.category === curCategory) {
                                                     return <tr>
-                                                        <td className="py-2 text-sm px-2 font-semibold border-b w-[40%]">
+                                                        <td className="py-2 text-sm px-2 font-semibold w-[30%]">
                                                             {item.item}
                                                         </td>
-                                                        {selectedCategories[curCategory]?.map((value) => {
-                                                            const price = getPrice(value, item.name);
+                                                        <td className='w-[50%]'>
+                                                            <div className='flex p-2'>
+                                                            {selectedCategories[curCategory]?.map((ven) => {
+                                                            const price = getPrice(ven, item.name);
                                                             // total += (price ? parseFloat(price) : 0)*item.quantity;
-                                                            const isSelected = selectedVendors[item.name] === value;
+                                                            const isSelected = selectedVendors[item.name] === ven;
                                                             const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                            return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
-                                                                <input className="mr-2" disabled={price === "-" ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
+                                                            return <div className={`text-sm flex gap-1 items-center  ${dynamicClass}`}>
+                                                                <input disabled={price === "-" || price === 0} type="radio" id={`${item.name}-${ven}`} name={item.name} value={`${item.name}-${ven}`} onChange={handleChangeWithParam(item.name, ven)} />
                                                                 {Number.isNaN((price * item.quantity)) ? "N/A" : formatToIndianRupee(price * item.quantity)}
-                                                            </td>
-                                                        })}
-                                                        <td className="py-2 text-sm px-2 border-b">
+                                                                {(price !== "-" && price !== 0) && (
+                                                                <HoverCard>
+                                                                    <HoverCardTrigger><Info className="w-4 h-4 text-blue-500" /></HoverCardTrigger>
+                                                                    <HoverCardContent>
+                                                                        {getItemQuoteMakes(item?.name, curCategory, ven)?.filter(k => k?.enabled === "true")?.length > 0 ?
+                                                                        (
+                                                                            <div>
+                                                                                <h2 className='font-bold text-primary mb-2'>Selected Makes:</h2>
+                                                                                <ul className='list-disc pl-4'>
+                                                                                    {
+                                                                                        getItemQuoteMakes(item?.name, curCategory, ven)?.map(m => {
+                                                                                            if(m?.enabled === "true") {
+                                                                                                return <li key={m?.make}><strong>{m?.make}</strong></li>
+                                                                                            }
+                                                                                        })
+                                                                                    }
+                                                                                </ul>
+                                                                            </div>
+                                                                        ) : <strong>No selected makes found for this item!</strong>}
+                                                                    </HoverCardContent>
+                                                                </HoverCard>
+                                                                )}
+                                                            </div>
+                                                                })}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-2 text-sm px-2">
                                                             {minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}
                                                         </td>
                                                     </tr>
                                                 }
                                             })}
                                             <tr>
-                                                <td className="py-4 text-sm px-2 font-semibold">Total</td>
-                                                {selectedCategories[curCategory]?.map((value) => {
-                                                    return <td className={`py-2 text-sm max-sm:pl-2 pl-8 text-left font-bold`}>
-                                                        {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
-                                                    </td>
-                                                })}
-                                                <td></td>
+                                                <td className="py-4 text-sm px-2 font-semibold w-[30%]">Total</td>
+                                                <td className='w-[50%]'>
+                                                    <div className='flex '>
+                                                    {selectedCategories[curCategory]?.map((value) => {
+                                                        return <div className={`py-2 flex-1 text-sm max-sm:pl-2 pl-8 font-bold`}>
+                                                            {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
+                                                        </div>
+                                                    })}
+                                                    </div>
+                                                </td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -593,7 +660,7 @@ export const SentBackSelectVendor = () => {
 
                         <Dialog>
                             <DialogTrigger asChild>
-                                <Button onClick={delayedItemsCheck} className='flex items-center gap-1'>
+                                <Button className='flex items-center gap-1'>
                                     <CheckCheck className="h-4 w-4" />
                                     Confirm
                                 </Button>
@@ -646,7 +713,6 @@ export const SentBackSelectVendor = () => {
                                                 <Undo2 className="h-4 w-4" />
                                                 Cancel</Button></DialogClose>
                                             <Button variant="default" className="flex items-center gap-1" onClick={() => {
-                                                delayedItemsCheck()
                                                 handleUpdateOrderData()
                                             }}>
                                                 <CheckCheck className="h-4 w-4" />

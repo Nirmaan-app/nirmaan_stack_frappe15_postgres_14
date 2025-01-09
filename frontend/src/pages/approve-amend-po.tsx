@@ -159,8 +159,6 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
         }
     }, [versionsData]);
 
-    // console.log("previousOrderList", previousOrderList)
-
 
     // console.log("comment", comment)
 
@@ -276,6 +274,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                                             {renderCell("Category", item.category, item.category !== amendedItem?.category)}
                                             {renderCell("Tax", `${item.tax}%`, item.tax !== amendedItem?.tax)}
                                             {renderCell("Unit", item.unit, item.unit !== amendedItem?.unit)}
+                                            {renderCell("Make", item.makes?.list?.find(i => i?.enabled === "true")?.make, item.makes?.list?.find(i => i?.enabled === "true")?.make !== amendedItem?.makes?.list?.find(i => i?.enabled === "true")?.make)}
                                         </div>
                                     </TableCell>
 
@@ -289,6 +288,7 @@ const ApproveAmendPOPage = ({ po_data, project_data, owner_data, versionsData }:
                                                     {renderCell("Category", amendedItem.category, item.category !== amendedItem.category)}
                                                     {renderCell("Tax", `${amendedItem.tax}%`, item.tax !== amendedItem.tax)}
                                                     {renderCell("Unit", amendedItem.unit, item.unit !== amendedItem.unit)}
+                                            {renderCell("Make", amendedItem.makes?.list?.find(i => i?.enabled === "true")?.make, item.makes?.list?.find(i => i?.enabled === "true")?.make !== amendedItem?.makes?.list?.find(i => i?.enabled === "true")?.make)}
                                                 </>
                                             ) : (
                                                 <p className="text-red-500">Deleted</p>

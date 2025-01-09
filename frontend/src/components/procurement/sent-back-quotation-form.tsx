@@ -10,6 +10,9 @@ import { ListChecks, MessageCircleMore, Paperclip } from "lucide-react";
 import { toast } from "../ui/use-toast";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 import { TailSpin } from "react-loader-spinner";
+import { RadioGroup, RadioGroupItem } from "../ui/radiogroup";
+import { Label } from "../ui/label";
+import ReactSelect from 'react-select';
 
 interface Category {
     name: string;
@@ -23,10 +26,12 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
             filters: [["name", "=", sb_id]],
             limit: 1000
         });
+
     const [orderData, setOrderData] = useState({
         project: '',
         category: ''
     })
+
     if (!orderData.project) {
         sent_back_list?.map(item => {
             if (item.name === sb_id) {
@@ -34,12 +39,13 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
             }
         })
     }
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
+    const { data: quotation_request_list, mutate: quotation_request_list_mutate  } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'quote', 'item', 'category', 'vendor', 'procurement_task', 'quantity'],
+            fields: ['name', 'lead_time', 'quote', 'item', 'category', 'vendor', 'procurement_task', 'quantity', 'makes'],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
             limit: 2000
         });
+
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
         {
             fields: ["*"],
@@ -80,6 +86,27 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
     const [deliveryTime, setDeliveryTime] = useState<number | string | null>(null)
     const [selectedFile, setSelectedFile] = useState(null);
 
+    const [mandatoryMakesQs, setMandatoryMakesQs] = useState([])
+
+    const [saveEnabled, setSaveEnabled] = useState(false)
+
+    useEffect(() => {
+            const filteredMandatoryMakes = quotationData?.list?.filter(i => mandatoryMakesQs.includes(i?.qr_id))
+            const allMakesChanged = filteredMandatoryMakes?.every(i => {
+              if(i?.price !== undefined && i?.makes !== undefined) {
+                return true
+              } else if(i?.price === undefined && i?.makes !== undefined) {
+                return true
+              } else if(i?.price !== undefined && i?.makes === undefined) {
+                return false
+              }
+              return false
+            })
+    
+            setSaveEnabled(allMakesChanged)
+    
+    }, [quotationData, mandatoryMakesQs]);
+
     useEffect(() => {
       if(quotation_request_list && sent_back_list) {
         const cats = categories.list
@@ -93,10 +120,20 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         setCategories({
             list: cats
         })
+      }
 
+      if(quotation_request_list) {
         setDeliveryTime(quotation_request_list[0].lead_time)
       }
     }, [quotation_request_list, sent_back_list]);
+
+    useEffect(() => {
+      if(quotation_request_list && sent_back_list) {
+        const sbCats = sent_back_list[0]?.category_list.list.map((item) => item.name)
+        const mandatoryMakes = quotation_request_list?.map(item => (item?.makes?.list?.length > 0 && item?.makes?.list?.every(j => j?.enabled === "false")) && sbCats?.includes(item?.category)  && item?.name)?.filter(i => !!i) || []
+        setMandatoryMakesQs(mandatoryMakes)
+      }
+    }, [quotation_request_list, sent_back_list])
 
     const getItem = (item: string) => {
         const item_name = item_list?.find(value => value.name === item).item_name;
@@ -106,19 +143,14 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         const item_unit = item_list?.find(value => value.name === item).unit_name;
         return item_unit
     }
-    // const getQuantity = (item: string) => {
-    //     const procurement_list = procurement_request_list?.find(value => value.name === pr_id).procurement_list;
-    //     const quantity = procurement_list?.list.find(value => value.name === item).quantity
-    //     return quantity
-    // }
 
     const getComment = (item) => {
         const procurement_list = procurement_request_list?.find(value => value.name === pr_id)?.procurement_list.list
         return procurement_list?.find((i) => i.name === item)?.comment || ""
     }
 
-    const handlePriceChange = (item: string, value: number) => {
-        const new_qrid = quotation_request_list?.find(q => q.item === item)?.name;
+    const handlePriceChange = (new_qrid : string, item: string, value: number) => {
+        // const new_qrid = quotation_request_list?.find(q => q.item === item)?.name;
         const existingIndex = quotationData.list.findIndex(q => q.qr_id === new_qrid);
         const newList = [...quotationData.list];
 
@@ -133,17 +165,35 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
                 price: value
             });
         }
-        setQuotationData(prevState => ({
-            ...prevState,
-            list: newList
-        }));
+        setQuotationData({list: newList});
     };
 
-    // console.log("orderData", orderData)
+    const handleMakeChange = (new_qrid, makes, make) => {
+      const newList = [...quotationData.list];
+    
+      const existingIndex = quotationData.list.findIndex(q => q.qr_id === new_qrid);
+    
+      if (existingIndex !== -1) {
 
-    // console.log("quotation", quotation_request_list)
+        const filteredMakes = makes?.map(m => m?.make === make ? { make, enabled: "true" } : {make : m?.make, enabled: "false"});
+    
+        newList[existingIndex] = {
+          ...newList[existingIndex],
+          makes: filteredMakes,
+        };
+      } else {
+        const updatedMakes = makes?.map((m) =>
+          m.make === make ? { make, enabled:  "true" } : {make : m?.make, enabled: "false"}
+        );
+    
+        newList.push({
+          qr_id: new_qrid,
+          makes: updatedMakes,
+        });
+      }
 
-    // console.log("quotationData", quotationData)
+      setQuotationData({list: newList});
+    };
 
     const handleDeliveryTimeChange = () => {
       if(orderData && quotation_request_list) {
@@ -151,38 +201,34 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
       
         const updatedList = filteredQuotationList.map(q => {
           const existingItem = quotationData.list.find(item => item.qr_id === q.name);
-  
-          // If the item already exists in quotationData, update its lead_time
+
           if (existingItem) {
               return {
                   ...existingItem
               };
           }
-  
-          // If the item is not in quotationData, add it with the new lead_time
           return {
               qr_id: q.name,
-              price: parseFloat(q.quote),
+              price: parseFloat(q.quote || 0),
           };
       });
   
-      setQuotationData(prevState => ({
-          ...prevState,
-          list: updatedList,
-      }));
+      setQuotationData({list: updatedList});
       }
   };
 
   useEffect(() => {
-    handleDeliveryTimeChange()
+    if(deliveryTime && quotation_request_list[0].lead_time !== deliveryTime) {
+      handleDeliveryTimeChange()
+    }
   }, [deliveryTime])
 
     const handleFileChange = (event) => {
         setSelectedFile(event.target.files[0]);
     };
 
-    const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
-    const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
+    const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
+    const { call } = useFrappePostCall('frappe.client.set_value')
 
 
     useEffect(() => {
@@ -194,36 +240,56 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         }
     }, [prAttachment])
 
-    const { createDoc: createDoc, loading: create_loading, isCompleted: create_submit_complete, error: create_submit_error } = useFrappeCreateDoc()
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+    const { createDoc: createDoc, loading: create_loading } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
     const {mutate} = useSWRConfig()
 
     const handleSubmit = async () => {
         try {
-          await Promise.all(
-            quotationData.list.map(async (item) => {
-              try {
-                await updateDoc("Quotation Requests", item.qr_id, {
-                  lead_time: deliveryTime,
-                  quote: item.price,
-                });
-                mutate(`Quotations Requests,Procurement_task=${pr_id}`)
-                toast({
-                  title: "Success!",
-                  description: `Quote(s) for ${vendor_name} updated successfully`,
-                  variant: "success",
-                });
-              } catch (error) {
-                console.error(`Error updating quotation request for ${item.qr_id}:`, error);
-                toast({
-                  title: "Failed!",
-                  description: `There was an error while updating the Quote(s) for ${vendor_name}`,
-                  variant: "destructive",
-                });
-              }
-            })
-          );
+          const batchSize = 10; // Number of items per batch
+          const promises = [];
+
+          for (let i = 0; i < quotationData.list.length; i += batchSize) {
+            const batch = quotationData.list.slice(i, i + batchSize);
+            promises.push(
+              Promise.all(
+                batch.map(async (item) => {
+                  if(item?.makes !== undefined && item?.price !== undefined) {
+                    await updateDoc("Quotation Requests", item.qr_id, {
+                      lead_time: deliveryTime,
+                      quote: !item.price ? null : item.price,
+                      makes: {list : item?.makes}
+                    });
+                  } else if(item?.makes === undefined && item?.price !== undefined){
+                    await updateDoc("Quotation Requests", item.qr_id, {
+                      lead_time: deliveryTime,
+                      quote: !item.price ? null : item.price,
+                    });
+                  } else {
+                    await updateDoc("Quotation Requests", item.qr_id, {
+                      lead_time: deliveryTime,
+                      makes: {list : item?.makes},
+                    });
+                  }
+                })
+              )
+            );
+          }
+    
+        // Wait for all the batches to complete.
+        await Promise.all(promises);
+
+        await quotation_request_list_mutate()
+
+        await mutate(`Quotations Requests,Procurement_task=${pr_id}`)
+
+        // Single success toast after all batches have completed.
+        toast({
+          title: "Success!",
+          description: `All Quote(s) for ${vendor_name} have been updated successfully.`,
+          variant: "success",
+        });
       
           // Handle file upload if a file is selected.
           if (selectedFile) {
@@ -272,6 +338,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
           // Trigger the save button click if everything is completed successfully.
           const btn = document.getElementById("save-button");
           btn?.click();
+
         } catch (error) {
           console.error("Error during submission:", error);
           toast({
@@ -285,9 +352,9 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         }
       };
 
-    const vendor_name = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_name;
-    const vendor_address = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_address;
-    const doc = address_list?.find(item => item.name == vendor_address);
+    const vendor_name = vendor_list?.find(vendor => vendor?.name === vendor_id)?.vendor_name;
+    const vendor_address = vendor_list?.find(vendor => vendor?.name === vendor_id)?.vendor_address;
+    const doc = address_list?.find(item => item?.name == vendor_address);
     const address = `${doc?.address_line1}, ${doc?.address_line2}, ${doc?.city}, ${doc?.state}-${doc?.pincode}`
 
     return (
@@ -334,16 +401,17 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         </CardContent>
       </Card>
 
-{categories.list.map((cat, index) => (
+      {categories.list.map((cat, index) => (
         <Card key={index} className="mb-6">
           <CardHeader className="bg-gray-100 border-b">
             <CardTitle className="text-lg font-medium">Category: {cat.name}</CardTitle>
           </CardHeader>
-          <CardContent className="max-sm:p-2">
+          {/* <CardContent className="max-sm:p-2">
             {quotation_request_list?.map((q) => (
               (q.category === cat.name && q.vendor === vendor_id && orderData?.item_list?.list.some(item => item.name === q.item)) && (
                 <div key={q.item} className="flex max-md:flex-col max-md:gap-2 items-center justify-between py-2 border-b last:border-none">
-                  <div className="w-1/4 max-md:w-full font-semibold text-black inline items-baseline">
+                  <div className="flex items-center max-md:justify-between">
+                  <div className="w-1/2 font-semibold text-black inline items-baseline">
                   <span>{getItem(q.item)}</span>
                   {getComment(q.item) && (
                     <HoverCard>
@@ -357,14 +425,115 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
                     </HoverCard>
                   )}
                   </div>
-                  <div className="w-[70%] max-md:w-full flex gap-2">
+                  <div className="mx-1 px-1 text-xs shadow-sm text-gray-500 bg-gray-100 rounded-md py-1 flex items-center ">
+                  {q?.makes?.list?.length > 0 ? (
+                    <RadioGroup onValueChange={(e) => handleMakeChange(q.name, q?.makes?.list , e)}>
+                    {q?.makes?.list?.map((i) => {
+                      const makeData = quotationData?.list
+                      ?.find((j) => j?.qr_id === q?.name)
+                      ?.makes?.find((m) => m?.make === i?.make);
+              
+                    // Determine the checked state dynamically
+                    const isChecked = makeData 
+                      ? makeData?.enabled === "true" 
+                      : i?.enabled === "true"; 
+
+                      // return <div className="flex gap-2">
+                      //       <input type="radio" checked={isChecked} onChange={(e) => handleMakeChange(q.name, q?.makes?.list , i?.make, e.target.checked)} />
+                      //       <label>{i?.make}</label>
+                      // </div>
+                      return <div className="flex items-center space-x-2">
+                        <RadioGroupItem checked={isChecked} value={i?.make} id={`${q?.name}-${i?.make}`} />
+                        <Label htmlFor={`${q?.name}-${i?.make}`}>{i?.make}</Label>
+                      </div>
+                      })}
+                    </RadioGroup>
+                  ) : <span>make(s) not specified!</span>}
+                  </div>
+                  </div>
+                  <div className="w-[50%] max-md:w-full flex gap-2">
                     <Input value={getUnit(q.item)} disabled />
-                    <Input className="w-[24%]" value={q?.quantity} disabled />
-                    <Input type="number" placeholder="Enter Price" defaultValue={q.quote} onChange={(e) => handlePriceChange(q.item, Number(e.target.value))} />
+                    <Input className="w-[45%]" value={q?.quantity} disabled />
+                    <Input type="number" placeholder="Enter Price" defaultValue={q.quote} onChange={(e) => handlePriceChange(q?.name, q.item, Number(e.target.value))} />
                   </div>
                 </div>
               )
             ))}
+          </CardContent> */}
+          <CardContent className="max-sm:p-2 bg-gray-50 rounded-md">
+            {quotation_request_list?.map(
+              (q) =>
+                q.category === cat.name &&
+                q.vendor === vendor_id &&
+                orderData?.item_list?.list.some(item => item.name === q.item) &&  (
+                  <div
+                    key={q.item}
+                    className="flex flex-col gap-4 p-4 m-2 bg-white border border-gray-200 rounded-md shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    {/* Item and Comment Section */}
+                    <div className="flex gap-4 items-start">
+                      <div className="text-base font-semibold text-gray-800 flex-1">
+                        <span>{getItem(q.item)}</span>
+                        {getComment(q.item) && (
+                          <HoverCard>
+                            <HoverCardTrigger>
+                              <MessageCircleMore className="text-blue-400 w-5 h-5 ml-2 inline-block cursor-pointer" />
+                            </HoverCardTrigger>
+                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-3 rounded-md shadow-lg">
+                              <div className="relative pb-4">
+                                <span className="block">{getComment(q.item)}</span>
+                                <span className="text-xs absolute right-0 italic text-gray-400">
+                                  - Comment by PL
+                                </span>
+                              </div>
+                            </HoverCardContent>
+                          </HoverCard>
+                        )}
+                      </div>
+                      <div className="text-sm flex-1">
+                        {q?.makes?.list?.length > 0 ? (
+                          <MakesSelection
+                            q={q}
+                            quotationData={quotationData}
+                            handleMakeChange={handleMakeChange}
+                          />
+                        ) : (
+                          <span className="text-gray-500 bg-gray-100 rounded-md px-3 py-1 shadow-sm">Make(s) not specified!</span>
+                        )}
+                      </div>
+                    </div>
+          
+                    {/* Input Section */}
+                    <div className="flex  gap-4">
+                      <div className="w-1/4">
+                        <Input
+                          value={getUnit(q.item)}
+                          disabled
+                          className="w-full text-gray-700 bg-gray-50 border-gray-300 focus:ring-2 focus:ring-blue-300 rounded-md"
+                        />
+                      </div>
+                      <div className="w-1/4">
+                        <Input
+                          value={q?.quantity}
+                          disabled
+                          className="w-full text-gray-700 bg-gray-50 border-gray-300 focus:ring-2 focus:ring-blue-300 rounded-md"
+                        />
+                      </div>
+                      <div className="w-1/2">
+                        <Input
+                          type="number"
+                          placeholder="Enter Price"
+                          defaultValue={q?.quote}
+                          onChange={(e) =>
+                            handlePriceChange(q.name, q.item, Number(e.target.value))
+                          }
+                          className="w-full text-gray-700 bg-gray-50 border-gray-300 focus:ring-2 focus:ring-blue-300 rounded-md"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+            )}
           </CardContent>
         </Card>
       ))}
@@ -372,7 +541,7 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         {(upload_loading || create_loading || update_loading) ? (
           <TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" />
         ) : (
-          <Button onClick={handleSubmit} disabled={!deliveryTime} className="flex items-center gap-1">
+          <Button onClick={handleSubmit} disabled={!deliveryTime || !saveEnabled} className="flex items-center gap-1">
             <ListChecks className="h-4 w-4" />
             Save</Button>
         )}
@@ -381,3 +550,38 @@ export default function SentBackQuotationForm({ vendor_id, pr_id, sb_id }) {
         </div>
     )
 }
+
+const MakesSelection = ({ q, quotationData, handleMakeChange }) => {
+  // Prepare options for React Select
+  const editMakeOptions = q?.makes?.list?.map((i) => ({
+    value: i?.make,
+    label: i?.make,
+    isEnabled: i?.enabled === "true",
+  }));
+
+  // Get the selected make dynamically based on quotationData
+  const selectedMake = quotationData?.list
+    ?.find((j) => j?.qr_id === q?.name)
+    ?.makes?.find((m) => m?.enabled === "true");
+
+  // React Select expects the value as an object
+  const selectedMakeValue = selectedMake
+    ? { value: selectedMake?.make, label: selectedMake?.make }
+    : null;
+
+  return q?.makes?.list?.length > 0 ? (
+    <div className="w-full">
+      <ReactSelect
+        className="w-full"
+        placeholder="Select Make..."
+        value={selectedMakeValue}
+        options={editMakeOptions}
+        onChange={(selectedOption) =>
+          handleMakeChange(q?.name, q?.makes?.list, selectedOption?.value, true)
+        }
+      />
+    </div>
+  ) : (
+    <span>make(s) not specified!</span>
+  );
+};
