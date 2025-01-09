@@ -16,7 +16,7 @@ export const EstimatedPriceHoverCard = ({ total, prUsedQuotes }) => {
                     {formatToIndianRupee(total)}
                 </div>
             </HoverCardTrigger>
-            <HoverCardContent>
+            <HoverCardContent className="max-h-96">
                 <div>
                     <h2 className="text-primary font-semibold mb-4">Estimate Summary:</h2>
                     <div className="flex flex-col gap-4">

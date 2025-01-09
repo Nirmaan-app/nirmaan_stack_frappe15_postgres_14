@@ -8,10 +8,10 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { useFrappeGetDoc } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Badge } from "./ui/badge";
-import { ArrowLeft, Building, Calendar, MapPin, Printer, ReceiptIndianRupee, User } from "lucide-react";
+import { ArrowLeft, Building, Calendar, MapPin, MessageCircleMore, Printer, ReceiptIndianRupee, User } from "lucide-react";
 import { Label } from "./ui/label";
 import { useEffect, useRef, useState } from "react";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
@@ -82,6 +82,16 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
   const [materialReadiness, setMaterialReadiness] = useState(0)
   const [afterDelivery, setAfterDelivery] = useState(0)
   const [xDaysAfterDelivery, setXDaysAfterDelivery] = useState(0)
+
+  const {data : mergedPOs, isLoading: mergedPOsLoading} = useFrappeGetDocList("Procurement Orders", {
+    fields: ["name", "merged"],
+    filters: [["merged", "=", po_data?.name]],
+  })
+
+  const {data : poPayments, isLoading: poPaymentsLoading} = useFrappeGetDocList("Project Payments", {
+    fields: ["amount"],
+    filters: [["document_name", "=", po_data?.name]],
+  })
 
   // const { data: vendorAddress } = useFrappeGetDoc("Address", po_data?.vendor_address);
 
@@ -213,6 +223,33 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                 {vendorAddress?.address_line1}, {vendorAddress?.address_line2}, {vendorAddress?.city}, {vendorAddress?.state}-{vendorAddress?.pincode}
               </span>
             </div>
+            {po_data?.status === "Merged" && (
+              <>
+            <div className="flex items-center gap-2">
+              <Label className="font-light text-red-700">Master PO:</Label>
+              <span>{po_data?.merged}</span>
+            </div>
+              </>
+            )}
+
+          {po_data?.merged === "true" && (
+            <>
+            <div className="flex items-center gap-2">
+              <Label className="font-light text-red-700">Master PO:</Label>
+              <span>Yes</span>
+            </div>
+            <div className="flex gap-2">
+              <Label className="font-light text-red-700 mt-2">Child PO(s):</Label>
+              <ul className="list-disc pl-5">
+              {mergedPOs?.length > 0 ? (
+                mergedPOs?.map((po) => (
+                  <li>{po?.name}</li>
+                ))
+              ) : "--"}
+              </ul>
+            </div>
+            </>
+          )}
           </CardContent>
         </Card>
 
@@ -244,11 +281,14 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                 <span>Total (Incl. GST):</span>
                 <span className="font-semibold">{formatToIndianRupee(getTotal().totalAmt)}</span>
               </div>
+              <div className="flex justify-between">
+                <span>Total Amt Paid:</span>
+                <span className="font-semibold">{formatToIndianRupee(poPayments?.reduce((acc, i) => acc + parseFloat(i?.amount), 0))}</span>
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
-
 
       {/* Order Details and Totals */}
       <Card className="w-full">
@@ -281,7 +321,17 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                   <TableBody>
                     {items.map((item) => (
                       <TableRow key={item.name}>
-                        <TableCell>{item.item}</TableCell>
+                        <TableCell>
+                        <span>{item.item} - <span className="text-xs italic font-semibold text-gray-500">{item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</span></span>
+                    {item.comment && (
+                      <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
+                        <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
+                        <div className="text-xs ">
+                          {item.comment}
+                        </div>
+                      </div>
+                    )}
+                        </TableCell>
                         <TableCell>{item.quantity}</TableCell>
                         <TableCell>{formatToIndianRupee(item.quote)}</TableCell>
                         <TableCell>{item.unit}</TableCell>
@@ -428,7 +478,10 @@ const POSummaryPage = ({ po_data, vendorAddress, projectAddress }: POSummaryPage
                   return (
                     <tr key={index} className={`${(!parseFloat(po_data?.loading_charges) && !parseFloat(po_data?.freight_charges) && index === length - 1) && "border-b border-black"} page-break-inside-avoid ${index === 15 ? 'page-break-before' : ''}`}>
                       <td className="py-2 text-sm whitespace-nowrap w-[7%]">{index + 1}.</td>
-                      <td className="py-2 text-sm whitespace-nowrap text-wrap">{item.item}</td>
+                      <td className="py-2 text-sm whitespace-nowrap text-wrap">
+                      {item.item}
+                         <p className="text-xs italic font-semibold text-gray-500"> - {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
+                      </td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{item.unit}</td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{item.quantity}</td>
                       <td className="px-4 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.quote)}</td>

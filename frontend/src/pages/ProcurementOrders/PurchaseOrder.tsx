@@ -26,6 +26,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Tree } from "antd";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
+import ReactSelect from 'react-select'
 
 export const PurchaseOrder = () => {
 
@@ -74,6 +75,10 @@ export const PurchaseOrder = () => {
   const [quantity, setQuantity] = useState<number | null | string>(null);
   const [stack, setStack] = useState([]);
   const [comment, setComment] = useState("");
+
+  const [editMakeOptions, setEditMakeOptions] = useState([])
+
+  const [selectedMake, setSelectedMake] = useState(null)
 
   const [poPdfSheet, setPoPdfSheet] = useState(false)
 
@@ -548,10 +553,14 @@ export const PurchaseOrder = () => {
 
     const itemList = [];
 
+    const prCategories = JSON.parse(pr?.category_list)?.list
+
     orderData?.list?.map((item) => {
       if (categories?.every((i) => i?.name !== item.category)) {
-        categories.push({ name: item.category });
+        const makes = prCategories?.find(j => j?.name === item?.category)?.makes
+        categories.push({ name: item.category, makes });
       }
+      delete item["makes"]
       itemList.push({ ...item, status: "Pending" });
     });
     try {
@@ -610,7 +619,7 @@ export const PurchaseOrder = () => {
     }
   };
 
-  const handleSave = (itemName: string, newQuantity: string) => {
+  const handleSave = (itemName: string, newQuantity: string, selectedMake: any) => {
     let curRequest = orderData?.list;
 
     // Find the current item and store its previous quantity in the stack
@@ -618,18 +627,33 @@ export const PurchaseOrder = () => {
       (curValue) => curValue.item === itemName
     );
 
-    setStack((prevStack) => [
-      ...prevStack,
-      {
-        operation: "quantity_change",
-        item: previousItem.item,
-        previousQuantity: previousItem.quantity,
-      },
-    ]);
+    if(parseFloat(newQuantity) !== parseFloat(previousItem?.quantity)){
+      setStack((prevStack) => [
+        ...prevStack,
+        {
+          operation: "quantity_change",
+          item: previousItem.item,
+          previousQuantity: previousItem.quantity,
+        },
+      ]);
+    }
+
+    const makes = previousItem?.makes?.list?.map(i => i?.make === selectedMake?.value ? {make : selectedMake?.value, enabled : "true"} : {make : i?.make, enabled : "false"})
+
+    if(previousItem?.makes?.list?.find(i => i?.make === selectedMake?.value)?.enabled === "false"){
+      setStack((prevStack) => [
+        ...prevStack,
+        {
+          operation: "make_change",
+          item: previousItem.item,
+          previousMakeList: previousItem.makes?.list,
+        },
+      ]);
+    }
 
     curRequest = curRequest.map((curValue) => {
       if (curValue.item === itemName) {
-        return { ...curValue, quantity: parseInt(newQuantity) };
+        return { ...curValue, quantity: parseInt(newQuantity), makes : {list : makes} };
       }
       return curValue;
     });
@@ -673,6 +697,13 @@ export const PurchaseOrder = () => {
       curRequest = curRequest.map((curValue) => {
         if (curValue.item === lastOperation.item) {
           return { ...curValue, quantity: lastOperation.previousQuantity };
+        }
+        return curValue;
+      });
+    } else if(lastOperation.operation === "make_change") {
+      curRequest = curRequest.map((curValue) => {
+        if (curValue.item === lastOperation.item) {
+          return { ...curValue, makes: {list: lastOperation?.previousMakeList} };
         }
         return curValue;
       });
@@ -847,9 +878,10 @@ export const PurchaseOrder = () => {
                                   {orderData?.list
                                     ?.filter((i) => !i?.po)
                                     ?.map((j) => (
-                                      <li>
+                                      <li key={j?.item}>
                                         {j?.item}{" "}
                                         <span>(Qty-{j?.quantity})</span>
+                                        <p className="text-primary text-sm">Make: <span className="text-xs text-gray-500 italic">{j?.makes?.list?.find(k => k?.enabled === "true")?.make || "--"}</span></p>
                                       </li>
                                     ))}
                                 </ul>
@@ -890,11 +922,12 @@ export const PurchaseOrder = () => {
                                     <ul className="list-disc">
                                       {po?.order_list?.list?.map(
                                         (i) => (
-                                          <li>
-                                            {i?.item}{" "}
+                                          <li key={i?.item}>
+                                            {i?.item} {" "}
                                             <span>
                                               (Qty-{i?.quantity})
                                             </span>
+                                            <p className="text-primary text-sm">Make: <span className="text-xs text-gray-500 italic">{i?.makes?.list?.find(k => k?.enabled === "true")?.make || "--"}</span></p>
                                           </li>
                                         )
                                       )}
@@ -1882,7 +1915,7 @@ export const PurchaseOrder = () => {
                     {index + 1}
                   </td>
                   <td className="w-[50%] text-left py-1">
-                    {item.item}
+                    <span>{item.item} - <span className="text-xs italic font-semibold text-gray-500">{item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</span></span>
                     {item.comment && (
                       <div className="flex gap-1 items-start block border rounded-md p-1 md:w-[60%]">
                         <MessageCircleMore className="w-4 h-4 flex-shrink-0" />
@@ -2120,14 +2153,17 @@ export const PurchaseOrder = () => {
                   <table className="table-auto w-full">
                     <thead>
                       <tr className="bg-gray-200">
-                        <th className="w-[60%] text-left  py-1 text-xs">
+                        <th className="w-[45%] text-left  py-1 text-xs">
                           Item Name
                         </th>
                         <th className="w-[20%]  py-1 text-xs text-center">
-                          Unit
+                          Make
                         </th>
                         <th className="w-[10%]  py-1 text-xs text-center">
-                          Quantity
+                          Unit
+                        </th>
+                        <th className="w-[5%]  py-1 text-xs text-center">
+                          Qty
                         </th>
                         <th className="w-[10%]  py-1 text-xs text-center">
                           Edit
@@ -2137,28 +2173,37 @@ export const PurchaseOrder = () => {
                     <tbody>
                       {orderData?.list?.map((item) => {
                         return (
-                          <tr key={item.item}>
-                            <td className="w-[60%] text-left border-b-2 py-1 text-sm">
+                          <tr key={item.name}>
+                            <td className="w-[45%] text-left border-b-2 py-1 text-sm">
                               {item.item}
                             </td>
                             <td className="w-[20%] border-b-2 py-1 text-sm text-center">
-                              {item.unit}
+                              {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "--"}
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
+                              {item.unit}
+                            </td>
+                            <td className="w-[5%] border-b-2 py-1 text-sm text-center">
                               {item.quantity}
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
                               <AlertDialog>
                                 <AlertDialogTrigger
-                                  onClick={() =>
+                                  onClick={() => {
+                                    const options = item?.makes?.list?.map(i => ({label : i?.make, value : i?.make})) || []
+                                    const selected = item?.makes?.list?.find(i => i?.enabled === "true")
+
                                     setQuantity(
                                       parseFloat(item.quantity)
                                     )
+                                    setEditMakeOptions(options)
+                                    setSelectedMake({label : selected?.make, value : selected?.make})
+                                  }
                                   }
                                 >
                                   <Pencil className="w-4 h-4" />
                                 </AlertDialogTrigger>
-                                <AlertDialogContent>
+                                <AlertDialogContent className="max-w-3xl">
                                   <AlertDialogHeader>
                                     <AlertDialogTitle className="flex justify-between">
                                       Edit Item
@@ -2172,13 +2217,25 @@ export const PurchaseOrder = () => {
                                       </AlertDialogCancel>
                                     </AlertDialogTitle>
                                     <AlertDialogDescription className="flex flex-col gap-2">
-                                      <div className="flex space-x-2">
-                                        <div className="w-1/2 md:w-2/3">
+                                      <div className="flex space-x-2 max-md:flex-col space-y-2">
+                                        <div className="w-full md:w-2/3">
                                           <h5 className="text-base text-gray-400 text-left mb-1">
                                             Item Name
                                           </h5>
                                           <div className="w-full  p-1 text-left">
                                             {item.item}
+                                          </div>
+                                        </div>
+                                        <div className="flex space-x-2 w-full">
+                                        <div className="w-[60%]">
+                                          <h5 className="text-base text-gray-400 text-left mb-1">
+                                            Make
+                                          </h5>
+                                          <div className="w-full">
+                                            {/* {item.unit} */}
+                                            <ReactSelect className="w-full" placeholder="Select Make..." value={selectedMake} options={editMakeOptions}
+                                            onChange={(e) => setSelectedMake(e)}
+                                             />
                                           </div>
                                         </div>
                                         <div className="w-[30%]">
@@ -2212,6 +2269,7 @@ export const PurchaseOrder = () => {
                                             }
                                           />
                                         </div>
+                                        </div>
                                       </div>
                                     </AlertDialogDescription>
                                     <AlertDialogDescription className="flex justify-end">
@@ -2242,7 +2300,8 @@ export const PurchaseOrder = () => {
                                           onClick={() =>
                                             handleSave(
                                               item.item,
-                                              quantity
+                                              quantity,
+                                              selectedMake
                                             )
                                           }
                                           asChild
@@ -2688,6 +2747,7 @@ export const PurchaseOrder = () => {
                           </td>
                           <td className="py-2 text-sm whitespace-nowrap text-wrap">
                             {item.item}
+                             <p className="text-xs italic font-semibold text-gray-500"> - {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
                             {item.comment && includeComments && (
                               <div className="flex gap-1 items-start block p-1">
                                 <MessageCircleMore className="w-4 h-4 flex-shrink-0" />

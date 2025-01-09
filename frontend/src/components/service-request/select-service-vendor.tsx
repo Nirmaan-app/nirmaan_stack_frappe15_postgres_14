@@ -18,6 +18,7 @@ import {
   CheckCheck,
   CirclePlus,
   Settings2,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
@@ -31,7 +32,7 @@ import {
 } from "../ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { formatDate } from "@/utils/FormatDate";
-import Select from "react-select";
+import ReactSelect from "react-select";
 import {
   Sheet,
   SheetContent,
@@ -57,6 +58,8 @@ import { useUserData } from "@/hooks/useUserData";
 import { toast } from "../ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
 import { Input } from "../ui/input";
+import { Select, SelectContent, SelectItem, SelectValue, SelectTrigger } from "../ui/select";
+import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 
 const SelectServiceVendor = () => {
   const { id }: any = useParams();
@@ -262,6 +265,14 @@ export const SelectServiceVendorPage = ({
     // },
   ];
 
+  const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
+    fields: ["*"],
+    filters: [['work_package', '=', 'Services']],
+    orderBy: { field: 'name', order: 'asc' }
+  })
+
+  console.log("category_data", category_data)
+
   const {
     data: vendor_list,
     isLoading: vendor_list_loading,
@@ -298,12 +309,15 @@ export const SelectServiceVendorPage = ({
     isCompleted: submit_complete,
     error: submit_error,
   } = useFrappeCreateDoc();
+
   const {
     updateDoc: updateDoc,
     loading: update_loading,
     isCompleted: update_complete,
     error: update_error,
   } = useFrappeUpdateDoc();
+
+  console.log("orderData", order)
 
   // const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
   //     {
@@ -522,6 +536,8 @@ export const SelectServiceVendorPage = ({
     }
   };
 
+  console.log("amounts", amounts)
+
   // console.log("selectedVendor", selectedVendor)
 
   // console.log("orderData", order)
@@ -590,7 +606,7 @@ export const SelectServiceVendorPage = ({
                 </SheetContent>
               </Sheet>
             </div>
-            <Select
+            <ReactSelect
               className="w-full"
               value={selectedVendor}
               options={vendorOptions}
@@ -605,23 +621,36 @@ export const SelectServiceVendorPage = ({
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-red-100">
-                      <TableHead className="w-[10%]">
-                        <span className="text-red-700 pr-1 font-extrabold">
+                      <TableHead className="w-[10%] text-red-700 font-extrabold">
                           Service
-                        </span>
                       </TableHead>
                       <TableHead className="w-[50%]">Description</TableHead>
                       <TableHead className="w-[10%]">Unit</TableHead>
                       <TableHead className="w-[10%]">Quantity</TableHead>
-                      <TableHead className="w-[10%]">Rate</TableHead>
+                      <TableHead className="w-[20%]">Rate</TableHead>
                       <TableHead className="w-[10%]">Amount</TableHead>
+                      <TableHead className="w-[10%]">Delete</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {order?.map((item: any) => (
                       <TableRow key={item.id}>
                         <TableCell className="w-[10%] font-semibold">
-                          {item.category}
+                          {/* {item.category} */}
+                          <Select
+                            value={item.category}
+                            onValueChange={(value) => handleInputChange(item.id, "category", value)}
+                          >
+                            <SelectTrigger >
+                              <SelectValue className="text-gray-200" placeholder="Select Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {category_data
+                                ?.map((cat) => (
+                                  <SelectItem value={cat?.name}>{cat?.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
                         </TableCell>
                         {/* Description Field */}
                         <TableCell className="w-[50%] whitespace-pre-wrap">
@@ -662,10 +691,9 @@ export const SelectServiceVendorPage = ({
                             }
                           />
                         </TableCell>
-                        <TableCell className="w-[10%]">
-                          <input
+                        <TableCell className="w-[20%]">
+                          <Input
                             type="text"
-                            className="border p-1 w-full rounded-md"
                             value={
                               amounts[item.id] ? `₹ ${amounts[item.id]}` : "₹"
                             }
@@ -680,20 +708,29 @@ export const SelectServiceVendorPage = ({
                             item?.quantity * (amounts[item.id] || 0)
                           )}
                         </TableCell>
+                        <TableCell className="w-[10%]">
+                          <Trash2 className="text-red-500 cursor-pointer" onClick={() => {
+                            setOrder(prev => prev.filter(i => i.id !== item.id))
+                            const updatedAmounts = { ...amounts }
+                            delete updatedAmounts[item.id]
+                            setAmounts(updatedAmounts)
+                          }} />
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </div>
             </div>
-            <div className="flex justify-end mt-4">
+            <div className="flex justify-between items-center mt-4">
+              <Button onClick={() => setOrder(prev => [...prev, {id : uuidv4(), category: "", description: "", quantity: "", uom: "", rate: ""}])}>New Service</Button>
               <Button
                 disabled={
                   !isNextEnabled ||
                   order?.some(
                     (i) =>
-                      !parseFloat(i?.quantity) || !i?.uom || !i?.description
-                  )
+                      !parseFloat(i?.quantity) || !i?.uom || !i?.description || !i?.category
+                  ) || order.length === 0
                 }
                 onClick={handleSaveAmounts}
               >

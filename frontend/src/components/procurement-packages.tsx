@@ -613,24 +613,6 @@ export const ProcurementPackages = () => {
 
                                             
                                             {showNewMakeInput ? (
-                                            // <div className="flex gap-2 items-end mt-4">
-                                            //   <div className="flex-1">
-                                            //     <Label>Add New Make:</Label>
-                                            //     <Input
-                                            //       type="text"
-                                            //       placeholder="Enter new make name..."
-                                            //       value={newMake || ""}
-                                            //       onChange={(e) => setNewMake(e.target.value)}
-                                            //      />
-                                            //   </div>
-                                            //   <div className="w-[80px]">
-                                            //   {loadingFunc === "handleAddNewMake" ? (
-                                            //     <TailSpin color={"red"} height={30} width={30} />
-                                            //   ) : (
-                                            //       <Button disabled={!newMake} onClick={handleAddNewMake}>Submit</Button>
-                                            //   )}
-                                            //   </div>
-                                            // </div>
                                             <AddMakeComponent makeList={makeList} loadingFunc={loadingFunc} handleAddNewMake={handleAddNewMake} />
                                             ) : (
                                               <Button className="mt-4" onClick={() => setShowNewMakeInput(true)}>Create New Make</Button>

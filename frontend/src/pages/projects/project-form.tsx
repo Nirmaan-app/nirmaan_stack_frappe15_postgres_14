@@ -122,7 +122,7 @@ const projectFormSchema = z.object({
             work_packages: z.array(
                 z.object({
                     work_package_name: z.string(),
-                    categories_list: z
+                    category_list: z
                     .object({
                         list: z.array(
                             z.object({
@@ -341,14 +341,14 @@ export const ProjectForm = () => {
                 throw new Error('Please select atleast one work package associated with this project')
             } else {
                 reformattedWorkPackages = values.project_work_packages.work_packages.map((workPackage) => {
-                    const updatedCategoriesList = workPackage.categories_list.list.map((category) => ({
+                    const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
                       name: category.name,
                       makes: category.makes.map((make) => make.label), // Extract only the labels
                     }));
                   
                     return {
                       ...workPackage,
-                      categories_list: {
+                      category_list: {
                         list: updatedCategoriesList,
                       },
                     };
@@ -1282,7 +1282,7 @@ export const ProjectForm = () => {
                                                                     if(categoryOptions.length > 0) {
                                                                     wpCategoryOptions.push({
                                                                         work_package_name: wp.work_package_name,
-                                                                        categories_list: {
+                                                                        category_list: {
                                                                             list: categoryOptions
                                                                         }
                                                                     })
@@ -1297,7 +1297,7 @@ export const ProjectForm = () => {
                                                         form.setValue(("project_work_packages.work_packages"), wpCategoryOptions)
                                                     }
                                                     else {
-                                                        // form.setValue(("project_work_packages.work_packages.categories_list.list"), [])
+                                                        // form.setValue(("project_work_packages.work_packages.category_list.list"), [])
                                                         form.setValue(("project_work_packages.work_packages"), [])
                                                     }
                                                 }}
@@ -1339,7 +1339,7 @@ export const ProjectForm = () => {
                                                                                             })
                                                                                         })
                                                                                         return checked
-                                                                                            ? field.onChange([...field.value, { work_package_name: item.work_package_name, categories_list : {list : categoryOptions} }])
+                                                                                            ? field.onChange([...field.value, { work_package_name: item.work_package_name, category_list : {list : categoryOptions} }])
                                                                                             : field.onChange(
                                                                                                 field.value?.filter(
                                                                                                     (value) => value.work_package_name !== item.work_package_name
@@ -1368,7 +1368,7 @@ export const ProjectForm = () => {
                                                                                 name="project_work_packages.work_packages"
                                                                                 render={({ field }) => {
                                                                                     const categoryMakeOptions = category_make_list?.filter(cat => cat.category === catOption.name)
-                                                                                    const selectedMakes = field.value?.find((i) => i?.work_package_name === catOption?.work_package)?.categories_list?.list?.find((i) => i?.name === catOption?.name)?.makes || []
+                                                                                    const selectedMakes = field.value?.find((i) => i?.work_package_name === catOption?.work_package)?.category_list?.list?.find((i) => i?.name === catOption?.name)?.makes || []
                                                                                     const renderMakeOptions = categoryMakeOptions?.map((i) => ({
                                                                                         label: i?.make,
                                                                                         value: i?.make,
@@ -1388,14 +1388,14 @@ export const ProjectForm = () => {
                                                                                               options={renderMakeOptions}
                                                                                               value={selectedMakes}
                                                                                               onChange={(selected) => {
-                                                                                                const updatedCategories = [...(field.value?.find(i => i?.work_package_name === catOption?.work_package)?.categories_list?.list || [])];
+                                                                                                const updatedCategories = [...(field.value?.find(i => i?.work_package_name === catOption?.work_package)?.category_list?.list || [])];
                                                                                                 const categoryIndex = updatedCategories.findIndex(
                                                                                                   (cat) => cat.name === catOption.name
                                                                                                 );
                                                                                             
                                                                                                 updatedCategories[categoryIndex].makes = selected;
                                                                                             
-                                                                                                field.onChange([...(field.value?.find(i => i?.work_package_name === catOption?.work_package)?.categories_list?.list || []), ...updatedCategories]);
+                                                                                                field.onChange([...(field.value?.find(i => i?.work_package_name === catOption?.work_package)?.category_list?.list || []), ...updatedCategories]);
                                                                                               }}
                                                                                             />
                                                                                         </FormControl>
@@ -1535,14 +1535,14 @@ const WorkPackageSelection = ({form, wp_list}) => {
       const allWorkPackages = categoriesList.reduce((acc, category) => {
         const existingPackage = acc.find((wp) => wp.work_package_name === category.work_package);
         if (existingPackage) {
-          existingPackage.categories_list.list.push({
+          existingPackage.category_list.list.push({
             name: category.category_name,
             makes: [],
           });
         } else {
           acc.push({
             work_package_name: category.work_package,
-            categories_list: {
+            category_list: {
               list: [
                 {
                   name: category.category_name,
@@ -1576,7 +1576,7 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
   
       workPackage = {
         work_package_name: workPackageName,
-        categories_list: {
+        category_list: {
           list: associatedCategories,
         },
       };
@@ -1584,10 +1584,10 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
       updatedWorkPackages.push(workPackage);
     }
 
-    const category = workPackage.categories_list.list.find((cat) => cat.name === categoryName);
+    const category = workPackage.category_list.list.find((cat) => cat.name === categoryName);
   
     if (!category) {
-      workPackage.categories_list.list.push({
+      workPackage.category_list.list.push({
         name: categoryName,
         makes: selectedMakes,
       });
@@ -1651,7 +1651,7 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
                                 const updatedWorkPackages = checked
                                   ? [
                                       ...field.value,
-                                      { work_package_name: item.work_package_name, categories_list: { list: updatedCategories } },
+                                      { work_package_name: item.work_package_name, category_list: { list: updatedCategories } },
                                     ]
                                   : field.value.filter((wp) => wp.work_package_name !== item.work_package_name);
 
@@ -1677,7 +1677,7 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
                         const selectedMakes =
                           workPackages
                             .find((wp) => wp.work_package_name === item.work_package_name)
-                            ?.categories_list.list.find((c) => c.name === cat.category_name)?.makes || [];
+                            ?.category_list.list.find((c) => c.name === cat.category_name)?.makes || [];
 
                         return (
                           <div key={cat.name}>

@@ -20,6 +20,7 @@ type PRTable = {
 }
 
 export const SentBackRequest = ({type}) => {
+    
     const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error } = useFrappeGetDocList("Sent Back Category",
         {
             fields: ['name', 'item_list', 'workflow_state', 'procurement_request', 'project', 'creation', 'type', 'modified'],

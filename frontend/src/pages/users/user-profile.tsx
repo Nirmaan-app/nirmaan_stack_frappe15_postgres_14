@@ -83,7 +83,7 @@ export default function Profile() {
     const getProjectName = (item: string) => {
         const projectName = project_list?.find(proj => proj.name === item)?.project_name
         const address = addressData?.find(add => add.address_title === projectName)
-        const formatAddress = `${address?.city}, ${address?.state}`
+        const formatAddress = `${address?.city || "--"}, ${address?.state || "--"}`
         return { projectName, formatAddress }
     }
 

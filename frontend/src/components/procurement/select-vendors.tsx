@@ -1,4 +1,4 @@
-import { ArrowBigUpDash, ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, Pencil, SendToBack, Undo2 } from 'lucide-react';
+import { ArrowBigUpDash, ArrowLeft, BookOpenText, CheckCheck, Info, ListChecks, MessageCircleMore, Pencil, SendToBack, Undo2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useParams, useNavigate } from "react-router-dom";
@@ -22,6 +22,7 @@ import TextArea from 'antd/es/input/TextArea';
 import { useUserData } from '@/hooks/useUserData';
 import { ProcurementHeaderCard } from '../ui/ProcurementHeaderCard';
 import { TailSpin } from 'react-loader-spinner';
+import { QuestionMarkIcon } from '@radix-ui/react-icons';
 
 // type TableRowSelection<T> = TableProps<T>['rowSelection'];
 
@@ -37,6 +38,7 @@ interface DataType {
     lowest2: string;
     lowest3: string;
     children?: DataType[];
+    makes: any[];
 }
 
 const columns: TableColumnsType<DataType> = [
@@ -46,6 +48,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'item',
         render: (text, record) => {
             return (
+                <>
                 <div className="inline items-baseline">
                     <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
                         {text}
@@ -63,6 +66,14 @@ const columns: TableColumnsType<DataType> = [
                         </HoverCard>
                     )}
                 </div>
+                {(record?.makes?.filter(m => m?.enabled === "true")?.length > 0 && record?.rate !== "Delayed") && (
+                <div className="text-xs text-gray-500 lg:ml-10">
+                    <span className='text-primary'>makes</span> - {record?.makes?.filter(m => m?.enabled === "true")?.map((i, index, arr) => (
+                        <i className='font-semibold'>{i?.make}{index < arr.length - 1 && ", "}</i>
+                      ))}
+                  </div>
+                )}
+                </>
             )
         }
     },
@@ -73,9 +84,9 @@ const columns: TableColumnsType<DataType> = [
         width: '7%',
     },
     {
-        title: 'Quantity',
+        title: 'Qty',
         dataIndex: 'quantity',
-        width: '7%',
+        width: '5%',
         key: 'quantity',
     },
     {
@@ -85,14 +96,14 @@ const columns: TableColumnsType<DataType> = [
         key: 'rate',
         render: (text) => {
             return (
-                <span>{text === undefined ? "" : text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}</span>
+                <span>{text === "Delayed" ? "Delayed" : formatToIndianRupee(text)}</span>
             )
         }
     },
     {
         title: 'Selected Vendor',
         dataIndex: 'selectedVendor',
-        width: '15%',
+        width: '12%',
         key: 'selectedVendor',
     },
     {
@@ -109,7 +120,7 @@ const columns: TableColumnsType<DataType> = [
     {
         title: 'Lowest Quoted Amount',
         dataIndex: 'lowest2',
-        width: '10%',
+        width: '8%',
         key: 'lowest2',
         render: (text, record) => (
             <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
@@ -162,21 +173,21 @@ export const SelectVendors = () => {
 
     const [submitClicked, setSubmitClicked] = useState(false)
 
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ['name', 'category_list', 'workflow_state', 'owner', 'project', 'work_package', 'procurement_list', 'creation', 'procurement_executive'],
             filters: [['name', '=', orderId]],
             limit: 1000
         });
-    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
+    const { data: vendor_list, isLoading: vendor_list_loading } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type'],
             filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
+    const { data: quotation_request_list, isLoading: quotation_request_list_loading } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'lead_time', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'quantity'],
+            fields: ['name', 'lead_time', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'quantity', 'makes'],
             filters: [["procurement_task", "=", orderId]],
             limit: 2000
         });
@@ -185,8 +196,8 @@ export const SelectVendors = () => {
             fields: ["*"],
             limit: 2000
         });
-    const { createDoc: createDoc, loading: create_loading, isCompleted: submit_complete, error: submit_error } = useFrappeCreateDoc()
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: update_submit_complete, error: update_submit_error } = useFrappeUpdateDoc()
+    const { createDoc: createDoc, loading: create_loading, error: submit_error } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
 
     if (!orderData.project) {
@@ -229,15 +240,15 @@ export const SelectVendors = () => {
                 const items: DataType[] = [];
 
                 orderData.procurement_list?.list.forEach((item) => {
-                    const threeMonthsAgo = new Date();
-                    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+                    // const threeMonthsAgo = new Date();
+                    // threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
                     if (item.category === cat.name) {
                         const price = Number(getPrice(selectedVendors[item.name], item.name))
-                        const quotesForItem = quote_data?.filter((value) => {
-                            // Parse the modified date and compare it with the timeframe
-                            const modifiedDate = new Date(value.modified);
-                            return modifiedDate >= threeMonthsAgo; // Within the last 3 months
-                          })
+                        // const quotesForItem = quote_data?.filter((value) => {
+                        //     const modifiedDate = new Date(value.modified);
+                        //     return modifiedDate >= threeMonthsAgo;
+                        //   })
+                          const quotesForItem = quote_data
                             ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                             ?.map(value => value.quote);
                         let minQuote;
@@ -250,6 +261,7 @@ export const SelectVendors = () => {
                             unit: item.unit,
                             quantity: item.quantity,
                             comment: item.comment || "",
+                            makes: getItemQuoteMakes(item.name, item.category, selectedVendors[item.name]),
                             category: item.category,
                             rate: selectedVendors[item.name] ? price : "Delayed",
                             amount: selectedVendors[item.name] ? price * item.quantity : "Delayed",
@@ -266,7 +278,7 @@ export const SelectVendors = () => {
                         key: cat.name,
                         unit: null,
                         quantity: null,
-                        amount: getTotal(cat.name),
+                        amount: getTotal(cat.name) || "Delayed",
                         lowest2: getLowest(cat.name).quote || "N/A",
                         lowest3: getLowest3(cat.name) || "N/A",
                         children: items,
@@ -315,114 +327,6 @@ export const SelectVendors = () => {
     const handleChangeWithParam = (item, vendor) => {
         return () => handleRadioChange(item, vendor);
     };
-    // console.log("orderData in select vendors", orderData)
-    // console.log("selected Vendors", selectedVendors)
-
-    // const handleSubmit = () => {
-    //     const delayedItems = [];
-    //     quotation_request_list?.map((item) => {
-    //         if (selectedVendors[item.item] === item.vendor) {
-    //             updateDoc('Quotation Requests', item.name, {
-    //                 status: "Selected",
-    //             })
-    //                 .then(() => {
-    //                     console.log("item", item.name)
-    //                 }).catch(() => {
-    //                     console.log(update_submit_error)
-    //                 })
-    //         }
-    //     })
-
-    //     const itemlist = [];
-    //     orderData.procurement_list?.list.map((value) => {
-    //         if (!selectedVendors[value.name]) {
-    //             itemlist.push({
-    //                 name: value.name,
-    //                 item: value.item,
-    //                 quantity: value.quantity,
-    //                 quote: 0,
-    //                 unit: value.unit,
-    //                 category: value.category,
-    //                 tax: value.tax,
-    //                 status: "Pending",
-    //                 comment: value.comment || ""
-    //             })
-
-    //             delayedItems.push(value.name);
-    //         }
-    //     })
-
-    //     const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map((item) => {
-    //         if (delayedItems.some((i) => i === item.name)) {
-    //             return { ...item, status: "Delayed" }
-    //         }
-    //         return item
-    //     })
-
-    //     const newCategories = [];
-    //     itemlist.forEach((item) => {
-    //         const isDuplicate = newCategories.some(category => category.name === item.category);
-    //         if (!isDuplicate) {
-    //             newCategories.push({ name: item.category })
-    //         }
-    //     })
-
-    //     const newSendBack = {
-    //         procurement_request: orderId,
-    //         project: orderData.project,
-    //         category_list: {
-    //             list: newCategories
-    //         },
-    //         item_list: {
-    //             list: itemlist
-    //         },
-    //         type: "Delayed"
-    //     }
-
-    //     if (itemlist.length > 0) {
-    //         createDoc('Sent Back Category', newSendBack)
-    //             .then(() => {
-    //                 console.log(newSendBack);
-    //             })
-    //             .catch(() => {
-    //                 console.log("submit_error", submit_error);
-    //             })
-    //     }
-    //     if (itemlist.length === orderData.procurement_list?.list.length) {
-    //         updateDoc('Procurement Requests', orderId, {
-    //             workflow_state: "Delayed",
-    //             procurement_list: { list: updatedProcurementList }
-    //         })
-    //             .then(() => {
-    //                 console.log(orderId)
-    //                 toast({
-    //                     title: "Oops!",
-    //                     description: `You just delayed all the items, you can see them in "New Sent Back" tab!`,
-    //                     variant: "default"
-    //                 })
-    //                 navigate("/")
-    //             }).catch(() => {
-    //                 console.log(update_submit_error)
-    //             })
-    //     }
-    //     else {
-    //         updateDoc('Procurement Requests', orderId, {
-    //             workflow_state: "Vendor Selected",
-    //             procurement_list: { list: updatedProcurementList }
-    //         })
-    //             .then(() => {
-    //                 console.log(orderId)
-    //                 toast({
-    //                     title: "Success!",
-    //                     description: `Items Sent for Approval`,
-    //                     variant: "success"
-    //                 })
-    //                 navigate("/")
-    //             }).catch(() => {
-    //                 console.log(update_submit_error)
-    //             })
-    //     }
-    // }
 
     const handleSubmit = async () => {
         try {
@@ -447,18 +351,19 @@ export const SelectVendors = () => {
             });
 
             // Update the procurement list to mark delayed items
-            const updatedProcurementList = procurement_request_list?.[0].procurement_list.list.map((item) => {
+            const updatedProcurementList = orderData.procurement_list.list.map((item) => {
                 if (delayedItems.some((i) => i === item.name)) {
                     return { ...item, status: "Delayed" };
                 }
                 return item;
             });
 
-            const newCategories: { name: string }[] = [];
+            const newCategories: { name: string, makes: string[] }[] = [];
             itemlist.forEach((item) => {
                 const isDuplicate = newCategories.some((category) => category.name === item.category);
                 if (!isDuplicate) {
-                    newCategories.push({ name: item.category });
+                    const makes = orderData?.category_list?.list?.find((category) => category.name === item.category)?.makes;
+                    newCategories.push({ name: item.category, makes: makes || [] });
                 }
             });
 
@@ -524,7 +429,7 @@ export const SelectVendors = () => {
                         description: `You just delayed all the items, you can see them in "New Sent Back" tab!`,
                         variant: "default",
                     });
-                    navigate("/select-vendor-list");
+                    navigate(`/procurement-requests?tab=Choose Vendor`);
                 } catch (error) {
                     console.log("update_submit_error", error);
                 }
@@ -552,7 +457,7 @@ export const SelectVendors = () => {
                         description: `Items Sent for Approval`,
                         variant: "success",
                     });
-                    navigate("/select-vendor-list");
+                    navigate(`/procurement-requests?tab=Choose Vendor`);
                 } catch (error) {
                     console.log("update_submit_error", error);
                 }
@@ -572,11 +477,11 @@ export const SelectVendors = () => {
         return `${vendor}-${item}`;
     };
 
-
     const getPrice = (vendor: string, item: string): string | undefined => {
         const key = generateVendorItemKey(vendor, item);
-        return priceMap.get(key) ? priceMap.get(key) : "-";
+        return priceMap.get(key) || "-";
     };
+
     useEffect(() => {
         const newPriceMap = new Map<string, string>();
         quotation_request_list?.forEach((item) => {
@@ -591,8 +496,8 @@ export const SelectVendors = () => {
 
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat) {
-                const quotesForItem = quote_data
-                    ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
+                const quotesForItem = quotation_request_list
+                    ?.filter(value => value.item === item.name && ![null, "0", 0, undefined].includes(value.quote))
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -604,8 +509,8 @@ export const SelectVendors = () => {
     }
 
     const getLowest2 = (item: string) => {
-        const quotesForItem = quote_data
-            ?.filter(value => value.item_id === item && ![null, "0", 0, undefined].includes(value.quote))
+        const quotesForItem = quotation_request_list
+            ?.filter(value => value.item === item && ![null, "0", 0, undefined].includes(value.quote))
             ?.map(value => value.quote);
         let minQuote;
         if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -614,14 +519,15 @@ export const SelectVendors = () => {
 
     const getLowest3 = (cat: string) => {
         let total: number = 0;
-        const threeMonthsAgo = new Date();
-        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        // const threeMonthsAgo = new Date();
+        // threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
         orderData.procurement_list?.list.map((item) => {
             if (item.category === cat) {
-                const quotesForItem = quote_data?.filter((value) => {
-                    const modifiedDate = new Date(value.modified);
-                    return modifiedDate >= threeMonthsAgo; // Within the last 3 months
-                  })
+                // const quotesForItem = quote_data?.filter((value) => {
+                //     const modifiedDate = new Date(value.modified);
+                //     return modifiedDate >= threeMonthsAgo;
+                //   })
+                  const quotesForItem = quote_data
                     ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                     ?.map(value => value.quote);
                 let minQuote;
@@ -635,9 +541,10 @@ export const SelectVendors = () => {
     const getLeadTime = (vendor: string, category: string) => {
         return quotation_request_list?.find(item => item.vendor === vendor && item.category === category)?.lead_time;
     }
-    // const getSelectedVendor = (cat: string) => {
-    //     return selectedCategories[cat] ? getVendorName(selectedCategories[cat]?.[0]) : "--"
-    // }
+
+    const getItemQuoteMakes = (item: string, category: string, vendor: string) => {
+        return quotation_request_list?.find(i => i.vendor === vendor && i.category === category && i.item === item)?.makes?.list || [];
+    }
 
     const getTotal = (cat: string) => {
         let total: number = 0;
@@ -666,7 +573,7 @@ export const SelectVendors = () => {
         })
             .then(() => {
                 console.log("orderId", orderId)
-                navigate(`/update-quote/${orderId}`)
+                navigate(`/procurement-requests/${orderId}?tab=Update Quote`)
             }).catch(() => {
                 console.log(submit_error)
             })
@@ -717,12 +624,6 @@ export const SelectVendors = () => {
         approvalOverallTotal,
     } = generateActionSummary();
 
-    console.log("selectedCategories", selectedCategories)
-
-    console.log("selectedVendors", selectedVendors)
-    
-    
-
     // const getPercentdiff = (a: number, b: number) => {
     //     if (a === 0 && b === 0) {
     //         return 0;
@@ -740,13 +641,13 @@ export const SelectVendors = () => {
             {page == 'updatequotation' &&
                 <div className="flex-1 space-y-2 md:space-y-4">
                     <div className="flex items-center pt-1  pb-4">
-                        <ArrowLeft onClick={() => navigate("/select-vendor-list")} />
+                        <ArrowLeft onClick={() => navigate("/procurement-requests?tab=Choose Vendor")} />
                         <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Choose Vendor/Item Quotes</h2>
                     </div>
                     <ProcurementHeaderCard orderData={orderData} />
                     {orderData?.category_list?.list.map((cat) => {
                         const curCategory = cat.name;
-                        return <div>
+                        return <div key={curCategory}>
                             <Card className="flex w-full shadow-none border border-grey-500 overflow-x-auto" >
                                 <CardHeader className="w-full overflow-x-auto">
                                     <div className='flex justify-between py-5'>
@@ -757,29 +658,34 @@ export const SelectVendors = () => {
                                             {getSelectedVendor(cat.name)}
                                         </CardTitle> */}
                                     </div>
-                                    <table className="w-full ">
-                                        <thead className="w-full border-b border-black ">
-                                            <tr className=''>
-                                                <th scope="col" className="bg-gray-200 p-2 font-semibold text-left">Items<p className='py-2 font-light text-sm text-slate-600'>Delivery Time:</p></th>
-                                                {selectedCategories[curCategory]?.map((item) => {
-                                                    return <th className="bg-gray-200 font-semibold p-2 text-left "><span >{getVendorName(item)}</span>
-                                                        <p className={`py-2 font-light text-sm text-opacity-50`}>{getLeadTime(item, cat.name) || "--"} Days</p>
-                                                    </th>
-                                                })}
-                                                <th className="bg-gray-200 p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
+                                    <table className="w-full min-w-[600px]">
+                                        <thead className="w-full border-b border-black bg-gray-200">
+                                            <tr className='w-full'>
+                                                <th className="p-2 font-semibold text-left w-[30%]">Items<p className='py-2 font-light text-sm text-slate-600'>Delivery Time:</p></th>
+                                                <th className='w-[50%] '>
+                                                    <div className='flex p-2'>
+                                                    {selectedCategories[curCategory]?.map((ven) => {
+                                                        return <div key={ven} className="font-semibold flex-1 flex flex-col items-start"><p>{getVendorName(ven)}</p>
+                                                            <p className={`py-2 font-light text-sm text-opacity-50`}>{getLeadTime(ven, cat.name) || "--"} Days</p>
+                                                        </div>
+                                                    })}
+                                                    </div>
+                                                </th>
+                                                <th className="p-2 font-medium truncate text-left">Last 3 months <div className=''>Lowest Quote</div></th>
                                             </tr>
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200 ">
                                             {orderData?.procurement_list?.list.map((item) => {
+                                                // const threeMonthsAgo = new Date();
+                                                // threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
-                                                const threeMonthsAgo = new Date();
-                                                threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-
+                                                // const quotesForItem = quote_data
+                                                //     ?.filter(value => {
+                                                //         const modifiedDate = new Date(value.modified);
+                                                //         return modifiedDate >= threeMonthsAgo;
+                                                //     })
                                                 const quotesForItem = quote_data
-                                                    ?.filter(value => {
-                                                        const modifiedDate = new Date(value.modified);
-                                                        return modifiedDate >= threeMonthsAgo;
-                                                    })?.filter(
+                                                    ?.filter(
                                                         value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                                                     ?.map(value => value.quote);
                                                 let minQuote;
@@ -787,7 +693,7 @@ export const SelectVendors = () => {
 
                                                 if (item.category === cat.name) {
                                                     return <tr>
-                                                        <td className="py-2 text-sm px-2 font-slim w-[40%]">
+                                                        <td className="py-2 text-sm px-2 font-slim w-[30%]">
                                                             <div className="inline items-baseline">
                                                                 <span>{item.item}</span>
                                                                 {item.comment && (
@@ -804,30 +710,59 @@ export const SelectVendors = () => {
                                                                 )}
                                                             </div>
                                                         </td>
-                                                        {selectedCategories[curCategory]?.map((value) => {
-                                                            const price = getPrice(value, item.name);
+                                                        <td className='w-[50%]'>
+                                                            <div className='flex p-2'>
+                                                            {selectedCategories[curCategory]?.map((ven) => {
+                                                            const price = getPrice(ven, item.name);
                                                             // total += (price ? parseFloat(price) : 0)*item.quantity;
-                                                            const isSelected = selectedVendors[item.name] === value;
+                                                            const isSelected = selectedVendors[item.name] === ven;
                                                             const dynamicClass = `flex-1 ${isSelected ? 'text-red-500' : ''}`
-                                                            return <td className={`py-2 text-sm px-2 border-b text-left ${dynamicClass}`}>
-                                                                <input className="mr-2" disabled={(price === "-" || price === 0) ? true : false} type="radio" id={`${item.name}-${value}`} name={item.name} value={`${item.name}-${value}`} onChange={handleChangeWithParam(item.name, value)} />
+                                                            return <div className={`text-sm flex gap-1 items-center  ${dynamicClass}`}>
+                                                                <input disabled={price === "-" || price === 0} type="radio" id={`${item.name}-${ven}`} name={item.name} value={`${item.name}-${ven}`} onChange={handleChangeWithParam(item.name, ven)} />
                                                                 {Number.isNaN((price * item.quantity)) ? "N/A" : formatToIndianRupee(price * item.quantity)}
-                                                            </td>
-                                                        })}
-                                                        <td className="py-2 text-sm px-2 border-b">
+                                                                {(price !== "-" && price !== 0) && (
+                                                                <HoverCard>
+                                                                    <HoverCardTrigger><Info className="w-4 h-4 text-blue-500" /></HoverCardTrigger>
+                                                                    <HoverCardContent>
+                                                                        {getItemQuoteMakes(item?.name, curCategory, ven)?.filter(k => k?.enabled === "true")?.length > 0 ?
+                                                                        (
+                                                                            <div>
+                                                                                <h2 className='font-bold text-primary mb-2'>Selected Makes:</h2>
+                                                                                <ul className='list-disc pl-4'>
+                                                                                    {
+                                                                                        getItemQuoteMakes(item?.name, curCategory, ven)?.map(m => {
+                                                                                            if(m?.enabled === "true") {
+                                                                                                return <li key={m?.make}><strong>{m?.make}</strong></li>
+                                                                                            }
+                                                                                        })
+                                                                                    }
+                                                                                </ul>
+                                                                            </div>
+                                                                        ) : <strong>No selected makes found for this item!</strong>}
+                                                                    </HoverCardContent>
+                                                                </HoverCard>
+                                                                )}
+                                                            </div>
+                                                                })}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-2 text-sm px-2">
                                                             {minQuote ? formatToIndianRupee(minQuote * item.quantity) : "N/A"}
                                                         </td>
                                                     </tr>
                                                 }
                                             })}
                                             <tr>
-                                                <td className="py-4 text-sm px-2 font-semibold">Total</td>
-                                                {selectedCategories[curCategory]?.map((value) => {
-                                                    return <td className={`py-2 text-sm max-sm:pl-2 pl-8 text-left font-bold`}>
-                                                        {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
-                                                    </td>
-                                                })}
-                                                <td></td>
+                                                <td className="py-4 text-sm px-2 font-semibold w-[30%]">Total</td>
+                                                <td className='w-[50%]'>
+                                                    <div className='flex '>
+                                                    {selectedCategories[curCategory]?.map((value) => {
+                                                        return <div className={`py-2 flex-1 text-sm max-sm:pl-2 pl-8 font-bold`}>
+                                                            {Number.isNaN(getTotal2(value, curCategory)) ? "--" : formatToIndianRupee(getTotal2(value, curCategory))}
+                                                        </div>
+                                                    })}
+                                                    </div>
+                                                </td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -984,8 +919,6 @@ export const SelectVendors = () => {
                                     // Seed Token
                                     colorPrimary: '#FF2828',
                                     borderRadius: 4,
-
-
                                     // Alias Token
                                     colorBgContainer: '#FFFFFF',
                                 },

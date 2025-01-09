@@ -897,7 +897,7 @@ export default function DeliveryNote() {
                   <TableRow key={item.name}>
                     <TableCell>
                       <div className="inline items-baseline">
-                        <span>{item.item}</span>
+                        <span>{item.item} </span>
                         {item.comment && (
                           <HoverCard>
                             <HoverCardTrigger>
@@ -914,6 +914,7 @@ export default function DeliveryNote() {
                           </HoverCard>
                         )}
                       </div>
+                      <p className="text-xs italic font-semibold text-gray-500">- {item?.makes?.list?.find(i => i?.enabled === "true")?.make || "no make specified"}</p>
                     </TableCell>
                     <TableCell>{item.unit}</TableCell>
                     <TableCell>

@@ -22,9 +22,7 @@ const DeliveryNotes = () => {
         fields: ["*"],
         filters: [["status", "not in", ["PO Sent", "PO Approved", "PO Amendment", "Cancelled", "Merged"]]],
         limit: 1000,
-    },
-        "Procurement Orders"
-    )
+    })
 
     // console.log("data", procurementOrdersList, procurementRequestsList)
 
@@ -126,34 +124,79 @@ const DeliveryNotes = () => {
     // console.log("project", project)
 
     return (
-        <div className="flex-1 space-y-2 md:space-y-4">
+        <div className="flex-1 space-y-4">
                 <div className="flex items-center ">
                     <Link to="/prs&milestones"><ArrowLeft className="" /></Link>
                     <h2 className="pl-2 text-xl md:text-2xl font-bold tracking-tight">Update Delivery Notes</h2>
                 </div>
-            {/* {(!procurementRequestsLoading && !procurementRequestsListLoading) && <DataTable columns={columns} data={procurementRequestsList} />} */}
 
-            <div className="gap-4 border border-gray-200 rounded-lg p-0.5 ">
-
+            <div className="border border-gray-200 rounded-lg p-0.5 w-full overflow-auto">
                 <ProjectSelect onChange={handleChange} />
-                {project && <div className="mx-0 px-0 pt-4">
-                    {/* <h2 className="text-lg pl-2 font-semibold tracking-normal py-2">Created By {userData?.full_name}</h2> */}
-                    <Table>
+                {project && <div className="pt-4">
+                    <Table className="min-w-[400px] overflow-auto">
                         <TableHeader className="bg-red-100">
                             <TableRow>
-                                <TableHead className=" font-extrabold">PR no.</TableHead>
                                 <TableHead className=" font-extrabold">Delivery Note</TableHead>
-                                <TableHead className=" font-extrabold">Creation</TableHead>
-                                <TableHead className=" font-extrabold">Status</TableHead>
+                                <TableHead className="w-[30%] font-extrabold">PR No.</TableHead>
+                                <TableHead className="w-[20%] font-extrabold">Creation</TableHead>
+                                <TableHead className="w-[20%] font-extrabold">Status</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {procurementRequestsList?.map((item) => {
+                            {procurementOrdersList?.filter(i => i?.project === project)?.length > 0 ? (
+                                procurementOrdersList?.filter(i => i?.project === project)?.map(item => (
+                                    <TableRow key={item.name}>
+                                            <TableCell>
+                                                <Link className="underline text-blue-300 hover:text-blue-500" to={`${item.name.replaceAll("/", "&=")}`}>DN-{item.name.split('/')[1]}</Link>
+                                            </TableCell>
+                                            <TableCell>{item?.procurement_request}</TableCell>
+                                            <TableCell>{formatDate(item.creation)}</TableCell>
+                                            <TableCell>
+                                                <Badge variant={`${item?.status === "Dispatched" ? "orange" : "green"}`}>
+                                                    {item?.status}
+                                                </Badge>
+                                            </TableCell>
+                                                    {/* <TableCell className="text-sm">{getPOsAssociated(item.name)?.map((po) => (
+                                                        <TableRow>
+                                                            <TableCell>
+                                                                <Link className="underline text-blue-300 hover:text-blue-500" to={`${po.name.replaceAll("/", "&=")}`}>DN-{po.name.split('/')[1]}</Link>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}</TableCell>
+                                                    <TableCell className="text-sm">
+                                                        {getPOsAssociated(item.name)?.map((po) => (
+                                                            <TableRow>
+                                                                <TableCell>
+                                                                    {formatDate(po.creation)}
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableCell>
+                                                    <TableCell className="text-sm">
+                                                        {getPOsAssociated(item.name)?.map((po) => (
+                                                            <TableRow>
+                                                                <TableCell>
+                                                                    <Badge variant={`${po?.status === "Dispatched" ? "orange" : "green"}`} className="">
+                                                                        {po?.status}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableCell> */}
+                                        </TableRow>
+                                ))
+                            ) : (
+                                <>
+                                    <TableCell></TableCell>
+                                    <TableCell className="text-red-300 text-end">**Not Found**</TableCell>
+                                </>
+                            )}
+                            {/* {procurementRequestsList?.map((item) => {
                                 if (item.project === project) {
                                     return (
                                         <TableRow key={item.name}>
                                             <TableCell className="text-sm">{item.name.split("-")[2]}</TableCell>
-                                            {getPOsAssociated(item.name).length ? (
+                                            {getPOsAssociated(item.name).length > 0 ? (
                                                 <>
                                                     <TableCell className="text-sm">{getPOsAssociated(item.name)?.map((po) => (
                                                         <TableRow>
@@ -192,7 +235,7 @@ const DeliveryNotes = () => {
                                         </TableRow>
                                     )
                                 }
-                            })}
+                            })} */}
                         </TableBody>
                     </Table>
                 </div>}

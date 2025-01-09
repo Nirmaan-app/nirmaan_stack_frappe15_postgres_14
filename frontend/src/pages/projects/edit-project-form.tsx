@@ -128,7 +128,7 @@ const projectFormSchema = z.object({
               work_packages: z.array(
                   z.object({
                       work_package_name: z.string(),
-                      categories_list: z
+                      category_list: z
                       .object({
                           list: z.array(
                               z.object({
@@ -260,14 +260,14 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
   useEffect(() => {
     if (data && project_address) {
       const reformattedWorkPackages = JSON.parse(data?.project_work_packages || "{}")?.work_packages?.map((workPackage) => {
-        const updatedCategoriesList = workPackage.categories_list.list.map((category) => ({
+        const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
           name: category.name,
           makes: category.makes.map((make) => ({label : make, value : make})), // Extract only the labels
         }));
       
         return {
           ...workPackage,
-          categories_list: {
+          category_list: {
             list: updatedCategoriesList,
           },
         };
@@ -374,14 +374,14 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
       );
 
       const reformattedWorkPackages = values.project_work_packages.work_packages.map((workPackage) => {
-        const updatedCategoriesList = workPackage.categories_list.list.map((category) => ({
+        const updatedCategoriesList = workPackage.category_list.list.map((category) => ({
           name: category.name,
           makes: category.makes.map((make) => make.label), // Extract only the labels
         }));
       
         return {
           ...workPackage,
-          categories_list: {
+          category_list: {
             list: updatedCategoriesList,
           },
         };
@@ -915,7 +915,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                                           })
                                       })
                                       return checked
-                                          ? field.onChange([...field.value, { work_package_name: item.work_package_name, categories_list : {list : categoryOptions} }])
+                                          ? field.onChange([...field.value, { work_package_name: item.work_package_name, category_list : {list : categoryOptions} }])
                                           : field.onChange(
                                               field.value?.filter(
                                                   (value) => value.work_package_name !== item.work_package_name
@@ -942,7 +942,7 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
               (wp) => wp.work_package_name === item.work_package_name
             );
             const selectedCategories =
-              selectedWorkPackage?.categories_list?.list || [];
+              selectedWorkPackage?.category_list?.list || [];
             const categoryOptions = categoriesList
               ?.filter((cat) => cat.work_package === item.work_package_name)
               .map((cat) => ({
@@ -963,12 +963,12 @@ export const EditProjectForm = ({ toggleEditSheet }) => {
                     );
 
                     if (workPackageIndex > -1) {
-                      updatedWorkPackages[workPackageIndex].categories_list.list =
+                      updatedWorkPackages[workPackageIndex].category_list.list =
                         selected;
                     } else {
                       updatedWorkPackages.push({
                         work_package_name: item.work_package_name,
-                        categories_list: { list: selected },
+                        category_list: { list: selected },
                       });
                     }
 
@@ -1030,14 +1030,14 @@ const WorkPackageSelection = ({form, wp_list}) => {
       const allWorkPackages = categoriesList.reduce((acc, category) => {
         const existingPackage = acc.find((wp) => wp.work_package_name === category.work_package);
         if (existingPackage) {
-          existingPackage.categories_list.list.push({
+          existingPackage.category_list.list.push({
             name: category.category_name,
             makes: [],
           });
         } else {
           acc.push({
             work_package_name: category.work_package,
-            categories_list: {
+            category_list: {
               list: [
                 {
                   name: category.category_name,
@@ -1071,7 +1071,7 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
   
       workPackage = {
         work_package_name: workPackageName,
-        categories_list: {
+        category_list: {
           list: associatedCategories,
         },
       };
@@ -1079,10 +1079,10 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
       updatedWorkPackages.push(workPackage);
     }
 
-    const category = workPackage.categories_list.list.find((cat) => cat.name === categoryName);
+    const category = workPackage.category_list.list.find((cat) => cat.name === categoryName);
   
     if (!category) {
-      workPackage.categories_list.list.push({
+      workPackage.category_list.list.push({
         name: categoryName,
         makes: selectedMakes,
       });
@@ -1151,7 +1151,7 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
                                 const updatedWorkPackages = checked
                                   ? [
                                       ...field.value,
-                                      { work_package_name: item.work_package_name, categories_list: { list: updatedCategories } },
+                                      { work_package_name: item.work_package_name, category_list: { list: updatedCategories } },
                                     ]
                                   : field.value.filter((wp) => wp.work_package_name !== item.work_package_name);
 
@@ -1177,7 +1177,7 @@ const handleSelectMake = (workPackageName, categoryName, selectedMakes) => {
                         const selectedMakes =
                           workPackages
                             .find((wp) => wp.work_package_name === item.work_package_name)
-                            ?.categories_list.list.find((c) => c.name === cat.category_name)?.makes || [];
+                            ?.category_list.list.find((c) => c.name === cat.category_name)?.makes || [];
 
                         return (
                           <div key={cat.name}>

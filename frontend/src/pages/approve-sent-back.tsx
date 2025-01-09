@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2 } from 'lucide-react';
+import { ArrowLeft, BookOpenText, CheckCheck, ListChecks, MessageCircleMore, SendToBack, Undo2, MoveDown, MoveUp } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"
 import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
@@ -33,6 +33,7 @@ interface DataType {
     lowest2: string;
     lowest3: string;
     children?: DataType[];
+    makes: any[];
 }
 
 const columns: TableColumnsType<DataType> = [
@@ -42,6 +43,7 @@ const columns: TableColumnsType<DataType> = [
         key: 'item',
         render: (text, record) => {
             return (
+                <>
                 <div className="inline items-baseline">
                     <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal', fontStyle: record.unit !== null ? 'italic' : "normal" }}>
                         {text}
@@ -59,6 +61,14 @@ const columns: TableColumnsType<DataType> = [
                         </HoverCard>
                     )}
                 </div>
+                {(record?.makes?.filter(m => m?.enabled === "true")?.length > 0 ) && (
+                    <div className="text-xs text-gray-500 lg:ml-10">
+                        <span className='text-primary'>make</span> - {record?.makes?.filter(m => m?.enabled === "true")?.map((i, index, arr) => (
+                            <i className='font-semibold'>{i?.make}{index < arr.length - 1 && ", "}</i>
+                          ))}
+                      </div>
+                )}
+                </>
             )
         }
     },
@@ -69,9 +79,9 @@ const columns: TableColumnsType<DataType> = [
         width: '7%',
     },
     {
-        title: 'Quantity',
+        title: 'Qty',
         dataIndex: 'quantity',
-        width: '7%',
+        width: '5%',
         key: 'quantity',
     },
     {
@@ -88,30 +98,70 @@ const columns: TableColumnsType<DataType> = [
     {
         title: 'Selected Vendor',
         dataIndex: 'selectedVendor',
-        width: '15%',
+        width: '12%',
         key: 'selectedVendor',
     },
     {
         title: 'Amount',
         dataIndex: 'amount',
-        width: '9%',
+        width: '12%',
         key: 'amount',
-        render: (text, record) => (
-            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {formatToIndianRupee(text)}
-            </span>
-        ),
+        render: (text, record) => {
+
+            const amount = parseFloat(text);
+            const lowest3 = parseFloat(record?.lowest3);
+                
+            // Ensure valid numerical values
+            if (isNaN(amount) || isNaN(lowest3)) {
+              return <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>{formatToIndianRupee(amount)}</span>;
+            }
+        
+            const percentageDifference =
+              ((Math.abs(amount - lowest3) / lowest3) * 100).toFixed(0);
+        
+            // Determine color and direction
+            const isLessThan = amount < lowest3;
+            const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
+            const Icon = isLessThan ? MoveDown : MoveUp;
+
+            return <div className='flex items-center gap-1' style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+            <span>{formatToIndianRupee(amount)}</span>{" "}
+            {record.unit !== null && record?.lowest3 !== 'N/A' && percentageDifference !== 0 && (
+             <div className={`${colorClass} flex items-center`}>
+                <span className={`text-sm`}>
+                  ({isLessThan
+                    ? `${percentageDifference}%`
+                    : `${percentageDifference}%`})
+                </span>
+                <Icon className={`w-4 h-4`} />
+            </div>
+            )}
+          </div>
+        },
     },
     {
         title: '3 months Lowest Amount',
         dataIndex: 'lowest3',
         width: '10%',
         key: 'lowest3',
-        render: (text, record) => (
-            <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
-                {text === "N/A" ? text : formatToIndianRupee(text)}
-            </span>
-        ),
+        render: (text, record) => {
+
+            const amount = parseFloat(record?.amount);
+            const lowest3 = parseFloat(record?.lowest3);
+                
+            // Ensure valid numerical values
+            if (isNaN(amount) || isNaN(lowest3)) {
+              return <span style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>N/A</span>;
+            }
+        
+            // Determine color and direction
+            const isLessThan = amount < lowest3;
+            const colorClass = isLessThan ? 'text-green-500' : 'text-red-500';
+
+            return  <div style={{ fontWeight: record.unit === null ? 'bold' : 'normal' }}>
+                        <span className={`${record.unit !== null && colorClass}`}>{formatToIndianRupee(text)}</span>
+                    </div>
+        },
     },
 ];
 
@@ -189,7 +239,7 @@ interface ApproveSentBackPageProps {
 
 
 const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sent_back_list_mutate }: ApproveSentBackPageProps) => {
-    // const { id } = useParams<{ id: string }>()
+    
     const navigate = useNavigate()
 
     const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
@@ -199,32 +249,28 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
             limit: 200
         });
 
-        const { data: universalComment } = useFrappeGetDocList("Nirmaan Comments", {
-            fields: ["*"],
-            filters: [["reference_name", "=", sb_data.name], ["subject", "=", "sr vendors selected"]]
-        })
-    // const { data: project_list, isLoading: project_list_loading, error: project_list_error } = useFrappeGetDocList("Projects",
-    //     {
-    //         fields: ['name', 'project_name', 'project_address'],
-    //         limit: 1000
-    //     });
-    // const { data: sent_back_list, isLoading: sent_back_list_loading, error: sent_back_list_error, mutate: sent_back_list_mutate } = useFrappeGetDocList("Sent Back Category",
-    //     {
-    //         fields: ["*"],
-    //         filters: [["name", "=", id]],
-    //         limit: 1000
-    //     });
-
+    const { data: universalComment } = useFrappeGetDocList("Nirmaan Comments", {
+        fields: ["*"],
+        filters: [["reference_name", "=", sb_data.name], ["subject", "=", "sr vendors selected"]]
+    })
+    
     const { data: quote_data } = useFrappeGetDocList("Approved Quotations",
         {
             fields: ['*'],
             limit: 2000
         });
 
+    const { data: quotation_request_list } = useFrappeGetDocList("Quotation Requests",
+        {
+            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity', 'makes'],
+            filters: [["status", "=", "Selected"], ["procurement_task", "=", sb_data?.procurement_request]],
+            limit: 2000
+    });
+
 
     const [orderData, setOrderData] = useState({
-        project_name: '',
-        category: ''
+        category_list : {list : []},
+        item_list: {list : []}
     })
 
     const [data, setData] = useState<DataType>([])
@@ -235,7 +281,6 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
     }
 
     useEffect(() => {
-        // if (sent_back_list) {
         const newOrderData = sb_data;
         const newCategories: { name: string }[] = [];
         const newList: DataType[] = [];
@@ -255,25 +300,27 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                 list: newCategories
             }
         }));
-        // }
     }, [sb_data]);
+
+    const getItemQuoteMakes = (item: string, category: string, vendor: string) => {
+        return quotation_request_list?.find(i => i.vendor === vendor && i.category === category && i.item === item)?.makes?.list || [];
+    }
 
     useEffect(() => {
         if (orderData.project) {
             const newData: DataType[] = [];
             orderData.category_list?.list?.forEach((cat) => {
                 const items: DataType[] = [];
-
-                const threeMonthsAgo = new Date();
-                threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+                // const threeMonthsAgo = new Date();
+                // threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
                 orderData.item_list?.list?.forEach((item) => {
                     if (item.category === cat.name) {
-                        const quotesForItem = quote_data?.filter((value) => {
-                            // Parse the modified date and compare it with the timeframe
-                            const modifiedDate = new Date(value.modified);
-                            return modifiedDate >= threeMonthsAgo; // Within the last 3 months
-                          })
+                        // const quotesForItem = quote_data?.filter((value) => {
+                        //     const modifiedDate = new Date(value.modified);
+                        //     return modifiedDate >= threeMonthsAgo;
+                        //   })
+                        const quotesForItem = quote_data
                             ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                             ?.map(value => value.quote);
                         let minQuote;
@@ -287,6 +334,7 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                             quantity: item.quantity,
                             category: item.category,
                             tax: Number(item.tax),
+                            makes: getItemQuoteMakes(item?.name, item?.category, item?.vendor),
                             rate: item.quote,
                             comment: item.comment,
                             amount: item.vendor ? item.quote * item.quantity : "Delayed",
@@ -395,7 +443,8 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                         tax: item.tax,
                         unit: item.unit,
                         item: item.item,
-                        comment: item.comment
+                        comment: item.comment,
+                        makes: {list : item?.makes || []},
                     });
                 }
 
@@ -526,8 +575,18 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
                 })
             })
 
-            const newCategories = Array.from(new Set(itemList.map(item => item.category)))
-                .map(name => ({ name }));
+            // const newCategories = Array.from(new Set(itemList.map(item => item.category)))
+            //     .map(name => ({ name }));
+
+            const newCategories: { name: string, makes: string[] }[] = [];
+
+            itemList.forEach((item) => {
+                const isDuplicate = newCategories.some((category) => category.name === item.category);
+                if (!isDuplicate) {
+                    const makes = orderData?.category_list?.list?.find((category) => category.name === item.category)?.makes || [];
+                    newCategories.push({ name: item.category, makes });
+                }
+            });
 
 
             const newSendBack = {
@@ -660,16 +719,16 @@ const ApproveSentBackPage = ({ sb_data, project_data, usersList, owner_data, sen
 
     const getLowest3 = (cat: string) => {
         let total: number = 0;
-        const threeMonthsAgo = new Date();
-        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        // const threeMonthsAgo = new Date();
+        // threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
         orderData.item_list?.list.map((item) => {
             if (item.category === cat) {
-                const quotesForItem = quote_data?.filter((value) => {
-                    // Parse the modified date and compare it with the timeframe
-                    const modifiedDate = new Date(value.modified);
-                    return modifiedDate >= threeMonthsAgo; // Within the last 3 months
-                  })
-                    ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(q.quote))
+                // const quotesForItem = quote_data?.filter((value) => {
+                //     const modifiedDate = new Date(value.modified);
+                //     return modifiedDate >= threeMonthsAgo;
+                //   })
+                const quotesForItem = quote_data
+                    ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                     ?.map(value => value.quote);
                 let minQuote;
                 if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);

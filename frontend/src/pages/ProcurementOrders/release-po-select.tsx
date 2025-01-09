@@ -14,6 +14,8 @@ import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { Button } from "@/components/ui/button";
 import { ConfigProvider, Menu, MenuProps, Radio } from "antd";
+import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { useUserData } from "@/hooks/useUserData";
 
 
 // interface ReleasePOSelectProps {
@@ -25,7 +27,9 @@ export const ReleasePOSelect = () => {
 
     const [searchParams] = useSearchParams();
 
-    const [tab, setTab] = useState<string>(searchParams.get("tab") || "Approved PO");    
+    const [tab, setTab] = useState<string>(searchParams.get("tab") || "Approved PO");
+
+    const {role, user_id} = useUserData()    
 
     const { data: procurement_order_list, isLoading: procurement_order_list_loading, error: procurement_order_list_error, mutate: mutate } = useFrappeGetDocList("Procurement Orders",
         {
@@ -82,6 +86,8 @@ export const ReleasePOSelect = () => {
     };
 
 
+    const {newPOCount, otherPOCount, adminNewPOCount, adminOtherPOCount} = useDocCountStore()
+
     const { notifications, mark_seen_notification } = useNotificationStore()
 
     const { db } = useContext(FrappeContext) as FrappeConfig
@@ -121,7 +127,30 @@ export const ReleasePOSelect = () => {
     
     // type MenuItem = Required<MenuProps>["items"][number];
     
-    const items = ["Approved PO", "Released PO"];
+    const items = [
+        {
+          label: (
+            <div className="flex items-center">
+              <span>Approved PO</span>
+              <span className="ml-2 text-xs font-bold">
+                {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminNewPOCount : newPOCount}
+              </span>
+            </div>
+          ),
+          value: "Approved PO",
+        },
+        {
+          label: (
+            <div className="flex items-center">
+              <span>Released PO</span>
+              <span className="ml-2 rounded text-xs font-bold">
+              {(role === "Nirmaan Admin Profile" || user_id === "Administrator") ? adminOtherPOCount : otherPOCount}
+              </span>
+            </div>
+          ),
+          value: "Released PO",
+        },
+      ];
 
     const columns: ColumnDef<ProcurementOrdersType>[] = useMemo(
         () => [
@@ -323,16 +352,16 @@ export const ReleasePOSelect = () => {
                   </ConfigProvider>
                 </div> */}
                 {items && (
-            <Radio.Group
-              block
-              options={items}
-              defaultValue="Approved PO"
-              optionType="button"
-              buttonStyle="solid"
-              value={tab}
-              onChange={(e) => onClick(e.target.value)}
-            />
-          )}
+                    <Radio.Group
+                        block
+                        options={items}
+                        defaultValue="Approved PO"
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={tab}
+                        onChange={(e) => onClick(e.target.value)}
+                      />
+                )}
                 {(procurement_order_list_loading || projects_loading || vendorsListLoading) ? (<TableSkeleton />) : (
                     <DataTable columns={columns} data={procurement_order_list?.filter((po) => po?.status !== "Cancelled") || []} project_values={project_values} vendorOptions={vendorOptions} itemSearch={true} />
                 )}

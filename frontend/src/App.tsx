@@ -8,7 +8,6 @@ import WorkPackages from './pages/work-packages'
 import Profile from './pages/users/user-profile'
 import { EditProjectForm } from './pages/projects/edit-project-form'
 import { ApprovePR } from './pages/approve-pr'
-import { PRList } from './components/procurement/procurement-approved'
 import { ProcurementOrder } from './components/procurement/procurement-vendor'
 import { SelectVendors } from './components/procurement/select-vendors'
 import { UpdateQuote } from './components/procurement/update-quote'
@@ -16,8 +15,6 @@ import { SentBackRequest } from './components/procurement/sent-back-request'
 import { SentBackUpdateQuote } from './components/procurement/sent-back-update-quote'
 import { SentBackSelectVendor } from './components/procurement/sent-back-select-vendor'
 import { ReleasePOSelect } from './pages/ProcurementOrders/release-po-select'
-import { QuoteUpdateSelect } from './components/procurement/quote-update-select'
-import { SelectVendorList } from './components/procurement/select-vendor-list'
 import { ApproveSelectSentBack } from './pages/approve-select-sent-back'
 import { PDF } from './pages/pdf'
 import { ThemeProvider } from './components/ui/theme-provider'
@@ -65,6 +62,8 @@ import { ManPowerOverallSummary } from "./components/ManPowerOverallSummary";
 import { PurchaseOrder } from './pages/ProcurementOrders/PurchaseOrder'
 import { ProjectPaymentsList } from './pages/ProjectPayments/project-payments-list'
 import OrderPaymentSummary from './pages/ProjectPayments/order-payment-summary'
+import { ProcurementRequests } from './components/procurement/procurement-requests'
+import { RenderProcurementRequest } from './components/procurement/render-procurement-request'
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -177,23 +176,31 @@ const router = createBrowserRouter(
             <Route path=":id" element={<ApprovedSR />} />
           </Route>
 
+
+          {/* Procurement PR Path */}
+
+          <Route path="procurement-requests">
+            <Route index element={<ProcurementRequests />} />
+            <Route path=":orderId" element={<RenderProcurementRequest />} />
+          </Route>
+
           {/* New PR Request Paths  */}
-          <Route path="procure-request">
+          {/* <Route path="procure-request">
             <Route index element={<PRList />} />
             <Route path=":orderId" element={<ProcurementOrder />} />
-          </Route>
+          </Route> */}
 
           {/* Update Quote Paths  */}
-          <Route path="update-quote">
+          {/* <Route path="update-quote">
             <Route index element={<QuoteUpdateSelect />} />
             <Route path=":orderId" element={<UpdateQuote />} />
-          </Route>
+          </Route> */}
 
           {/* Select Vendor Paths  */}
-          <Route path="select-vendor-list">
+          {/* <Route path="select-vendor-list">
             <Route index element={<SelectVendorList />} />
             <Route path=":orderId" element={<SelectVendors />} />
-          </Route>
+          </Route> */}
 
           {/* Approved PO Paths  */}
           {/* <Route path="release-po">

@@ -265,6 +265,11 @@ const ApprovePRListPage = ({
     ],
   });
 
+  const {data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error} = useFrappeGetDocList("Category Makelist", {
+    fields: ["*"],
+    limit: 10000
+  })
+
   // console.log("universalCOmment", universalComments)
 
   const {
@@ -438,7 +443,12 @@ const ApprovePRListPage = ({
             category.name === item.category && category?.status === item.status
         );
         if (!isDuplicate) {
-          newCategories.push({ name: item.category, status: item.status });
+          if(item.status === "Pending") {
+            const makes = category_make_list?.filter(i => i?.category === item.category)?.map(i => i?.make);
+            newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
+          } else {
+            newCategories.push({ name: item.category, status: item.status });
+          }
         }
       });
     } else {
@@ -447,7 +457,8 @@ const ApprovePRListPage = ({
           (category) => category.name === item.category
         );
         if (!isDuplicate) {
-          newCategories.push({ name: item.category });
+          const makes = category_make_list?.filter(i => i?.category === item.category)?.map(i => i?.make);
+          newCategories.push({ name: item.category, makes : makes || [] });
         }
       });
     }
@@ -778,6 +789,8 @@ const ApprovePRListPage = ({
     }
   };
 
+  console.log("orderData", orderData)
+
   const handleReject = async () => {
     try {
       // await Promise.all(
@@ -990,10 +1003,6 @@ const ApprovePRListPage = ({
 
   // console.log("stack", stack)
   // console.log("uploadedFiles", uploadedFiles)
-
-  console.log("orderData", orderData)
-
-  console.log("fuzzyMatches", fuzzyMatches)
 
   return (
     <>
@@ -1233,6 +1242,7 @@ const ApprovePRListPage = ({
                   ?.map((cat) => {
                     return (
                       <div key={cat.name}>
+                        <div className="flex items-center justify-between">
                         <div key={cat.id} className="flex gap-1 items-center">
                           <h3 className="text-sm font-semibold py-2">
                             {cat.name}
@@ -1271,6 +1281,14 @@ const ApprovePRListPage = ({
                               </button>
                             </div>
                           )}
+                        </div>
+                        <div className="text-sm font-bold text-gray-500">
+                          {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
+                            category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
+                              <i>{i?.make}{index < arr.length - 1 && ", "}</i>
+                            ))
+                          ) : "--"}
+                          </div>
                         </div>
                         <table className="table-auto w-full">
                           <thead>
@@ -1924,9 +1942,14 @@ const ApprovePRListPage = ({
                       <TableHeader>
                         <TableRow className="bg-red-100">
                           <TableHead className="w-[50%]">
-                            <span className="text-red-700 pr-1 font-extrabold">
-                              {cat.name}
-                            </span>
+                            <div>
+                              <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
+                              ({category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
+                            category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
+                              <i>{i?.make}{index < arr.length - 1 && ", "}</i>
+                            ))
+                          ) : "--"})
+                            </div>
                             {uploadedFiles[cat.name] && (
                               <div className="flex gap-1 items-end">
                                 <p>Attached File:</p>{" "}

@@ -56,8 +56,6 @@ export const UpdateQuote = () => {
         `Quotations Requests,Procurement_task=${orderId}`
     );
 
-    // console.log("quotations requests", quotation_request_list)
-
     const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["*"],
         limit: 1000
@@ -70,7 +68,7 @@ export const UpdateQuote = () => {
         return vendor_list?.find(vendor => vendor.name === vendorName)?.vendor_name;
     }
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
-    const [page, setPage] = useState<string>('quotation')
+
     const [uniqueVendors, setUniqueVendors] = useState({
         list: []
     })
@@ -133,12 +131,14 @@ export const UpdateQuote = () => {
         try {
             const promises = [];
             orderData?.procurement_list?.list.forEach((item) => {
+                const makes = orderData?.category_list?.list?.find(i => i?.name ===  item?.category)?.makes?.map(j => ({make: j, enabled : "false"})) || [];
                 const newItem = {
                     procurement_task: orderData.name,
                     category: item.category,
                     item: item.name,
                     vendor: vendorId,
-                    quantity: item.quantity
+                    quantity: item.quantity,
+                    makes: {list : makes}
                 };
                 promises.push(createDoc("Quotation Requests", newItem));
             });
@@ -335,7 +335,7 @@ export const UpdateQuote = () => {
         })
             .then(() => {
                 console.log("orderId", orderId)
-                navigate(`/select-vendor-list/${orderId}`);
+                navigate(`/procurement-requests/${orderId}?tab=Choose Vendor`);
             }).catch(() => {
                 console.log("submit_error", update_error)
             })
@@ -347,10 +347,9 @@ export const UpdateQuote = () => {
 
     return (
         <>
-            {page == 'quotation' &&
                     <div className="flex-1 md:space-y-4">
                         <div className="flex items-center pt-1 pb-4">
-                            <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
+                            <ArrowLeft className="cursor-pointer" onClick={() => navigate(`/procurement-requests?tab=Update Quote`)} />
                             <h2 className="text-base pl-2 font-bold tracking-tight"><span className="text-red-700">PR-{orderData?.name?.slice(-4)}</span>: Update Quote</h2>
                         </div>
                         <ProcurementHeaderCard orderData={orderData} />
@@ -459,7 +458,7 @@ export const UpdateQuote = () => {
                                 </AccordionContent>
                             </AccordionItem>
                         </Accordion>
-                    </div>}
+                    </div>
         </>
     )
 }

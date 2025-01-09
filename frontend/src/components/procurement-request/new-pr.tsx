@@ -71,6 +71,7 @@ import { TailSpin } from "react-loader-spinner";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { v4 as uuidv4 } from "uuid"; // Import uuid for unique IDs
 import Fuse from "fuse.js";
+import { Badge } from "../ui/badge";
 
 const NewPR = () => {
   const { id } = useParams<{ id: string }>();
@@ -114,6 +115,11 @@ export const NewPRPage = ({
     limit: 1000,
     filters: [["role_profile", "=", "Nirmaan Project Lead Profile"]],
   });
+
+  const {data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error} = useFrappeGetDocList("Category Makelist", {
+    fields: ["*"],
+    limit: 10000
+  })
 
   const [page, setPage] = useState<string>("wplist");
   const [curItem, setCurItem] = useState<string>("");
@@ -256,6 +262,7 @@ export const NewPRPage = ({
     isCompleted: submit_complete,
     error: submit_error,
   } = useFrappeCreateDoc();
+
   const {
     updateDoc,
     loading: updateLoading,
@@ -270,7 +277,12 @@ export const NewPRPage = ({
           category.name === item.category && category.status === item.status
       );
       if (!isDuplicate) {
-        newCategories.push({ name: item.category, status: item.status });
+        if(item.status === "Pending") {
+          const makes = category_make_list?.filter(i => i?.category === item.category)?.map(i => i?.make);
+          newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
+        } else {
+          newCategories.push({ name: item.category, status: item.status });
+        }
       }
     });
     setOrderData((prevState) => ({
@@ -1013,7 +1025,7 @@ export const NewPRPage = ({
               Change Category
             </button>
           </div>
-          <h3 className="font-bold">{curCategory}</h3>
+            <h3 className="font-bold">{curCategory}</h3>
           <div className="flex space-x-2">
             <div className="w-1/2 md:w-2/3">
               <h5 className="text-xs text-gray-400">Items</h5>
@@ -1565,9 +1577,18 @@ export const NewPRPage = ({
                   ?.map((cat) => {
                     return (
                       <div>
-                        <h3 className="text-sm font-semibold py-2">
-                          {cat.name}
-                        </h3>
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold py-2">
+                            {cat.name}
+                          </h3>
+                          <div className="text-sm font-bold text-gray-500">
+                          {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
+                            category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
+                              <i>{i?.make}{index < arr.length - 1 && ", "}</i>
+                            ))
+                          ) : "--"}
+                          </div>
+                        </div>
                         <table className="table-auto md:w-full">
                           <thead>
                             <tr className="bg-gray-200">
