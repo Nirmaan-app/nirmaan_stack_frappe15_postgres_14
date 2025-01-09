@@ -65,9 +65,7 @@ export const ProcurementOrder = () => {
   >([]); // State for dynamic category options
 
   const [page, setPage] = useState<string>("approve");
-  const [uniqueVendors, setUniqueVendors] = useState({
-    list: [],
-  });
+
   const [orderData, setOrderData] = useState({
     project: "",
     work_package: "",
@@ -80,14 +78,9 @@ export const ProcurementOrder = () => {
   });
   const [categories, setCategories] = useState({});
   const [selectedCategories, setSelectedCategories] = useState(null);
-  const [uniqueCategories, setUniqueCategories] = useState({
-    list: [],
-  });
   const [comments, setComments] = useState([]);
   // console.log("selectedCategories", selectedCategories)
   // console.log("orderData", orderData)
-
-  // console.log("unique categories", uniqueCategories)
 
   const {
     data: category_data,
@@ -128,8 +121,6 @@ export const ProcurementOrder = () => {
   const {
     data: vendor_list,
     isLoading: vendor_list_loading,
-    error: vendor_list_error,
-    mutate: vendor_list_mutate,
   } = useFrappeGetDocList(
     "Vendors",
     {
@@ -353,6 +344,7 @@ export const ProcurementOrder = () => {
     updatedCategories[category] = newVendors;
     setSelectedCategories(updatedCategories);
   };
+
   const getCategoryByName = (name) => {
     const fieldName = `${name}`;
     return categories[fieldName];
@@ -364,19 +356,12 @@ export const ProcurementOrder = () => {
       orderData.category_list.list.length
     )
       return;
-    const cats = uniqueCategories.list;
     const promises = [];
 
     orderData.procurement_list.list.forEach((item) => {
-      const categoryExists = cats.some(
-        (category) => category === item.category
-      );
-      if (!categoryExists) {
-        cats.push(item.category);
-      }
-
-      const curCategory = `${item.category}`;
-      selectedCategories[curCategory].forEach((cat) => {
+      const curCategory = item.category;
+      const makes = orderData?.category_list?.list?.find(i => i?.name === curCategory)?.makes?.map(j => ({make: j, enabled : "false"})) || [];
+      selectedCategories[curCategory].forEach((ven) => {
         const new_procurement_list = procurement_request_list?.find(
           (value) => value.name === orderId
         ).procurement_list;
@@ -388,20 +373,10 @@ export const ProcurementOrder = () => {
           procurement_task: orderId,
           category: item.category,
           item: item.name,
-          vendor: cat,
+          vendor: ven,
           quantity: new_quantity,
+          makes: {list : makes}
         };
-
-        const vendors = uniqueVendors.list;
-        vendors.push(cat);
-
-        const removeDuplicates = (array) => {
-          return Array.from(new Set(array));
-        };
-        const uniqueList = removeDuplicates(vendors);
-        setUniqueVendors({
-          list: uniqueList,
-        });
 
         promises.push(
           createDoc("Quotation Requests", quotation_request)
@@ -415,10 +390,6 @@ export const ProcurementOrder = () => {
       });
     });
 
-    setUniqueCategories({
-      list: cats,
-    });
-
     try {
       await Promise.all(promises);
       updateDoc("Procurement Requests", orderId, {
@@ -426,7 +397,7 @@ export const ProcurementOrder = () => {
       })
         .then(() => {
           console.log(orderId);
-          navigate(`/update-quote/${orderId}`);
+          navigate(`/procurement-requests/${orderId}?tab=Update Quote`);
         })
         .catch(() => {
           console.log("error", update_error);
@@ -435,8 +406,6 @@ export const ProcurementOrder = () => {
       console.error("Error in creating documents:", error);
     }
   };
-
-  // console.log("orderdata", orderData)
 
   if (
     vendor_category_list_loading ||
@@ -473,7 +442,7 @@ export const ProcurementOrder = () => {
           </p>
           <button
             className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-            onClick={() => navigate("/procure-request")}
+            onClick={() => navigate("/procurement-requests?tab=New PR Request")}
           >
             Go Back to PR List
           </button>
@@ -501,7 +470,7 @@ export const ProcurementOrder = () => {
           <ProcurementHeaderCard orderData={orderData} />
           <div className="overflow-x-auto">
             <div className="min-w-full inline-block align-middle">
-              {orderData?.category_list.list.map((cat: any) => {
+              {orderData?.category_list?.list?.map((cat: any) => {
                 return (
                   <div className="p-5">
                     {/* <div className="text-base font-semibold text-black p-2">{cat.name}</div> */}
@@ -512,6 +481,13 @@ export const ProcurementOrder = () => {
                             <span className="text-red-700 pr-1 font-extrabold">
                               {cat.name}
                             </span>
+                            <div className="text-xs font-bold text-gray-500">
+                              {cat?.makes?.length > 0 ? (
+                                cat?.makes?.map((i, index, arr) => (
+                                  <i>{i}{index < arr.length - 1 && ", "}</i>
+                                ))
+                              ) : "--"}
+                            </div>
                           </TableHead>
                           <TableHead className="w-[20%]">UOM</TableHead>
                           <TableHead className="w-[10%]">Qty</TableHead>
@@ -685,36 +661,45 @@ export const ProcurementOrder = () => {
                           {cat.name}
                         </div>
                       </HoverCardTrigger>
-                      <HoverCardContent className="bg-white p-4 rounded-lg shadow-lg w-[400px]">
+                      <HoverCardContent className="w-[400px]">
                         <h3 className="text-lg font-semibold mb-2">Items</h3>
-                        <ul className="bg-gray-50 space-y-2 list-disc rounded-md">
+                        <ul className=" ml-6 list-disc">
                           {orderData?.procurement_list?.list
                             ?.filter((item) => item.category === cat.name)
                             .map((item) => (
-                              <li key={item.name} className="p-1 ml-6">
+                              <li key={item.name} className="p-1">
                                 <span className="text-gray-800">
                                   {item.item}
                                   <span className="text-red-600 ml-2">
                                     ({item.quantity} {item.unit})
                                   </span>
                                 </span>
-                                {/* </span> */}
                               </li>
                             ))}
                         </ul>
                       </HoverCardContent>
                     </HoverCard>
-                    <div className="text-sm text-gray-400">
+                    {/* <div className="text-sm text-gray-400">
                       Select vendors for{" "}
                       <span className="text-red-700 italic">{cat.name}</span>{" "}
                       category
-                    </div>
+                    </div> */}
+                    {/* <div className="flex items-center gap-2"> */}
+                      <strong className="text-sm">Approved Makes:</strong>
+                      <div className="text-xs font-bold text-gray-500 inline ml-2">
+                              {cat?.makes?.length > 0 ? (
+                                cat?.makes?.map((i, index, arr) => (
+                                  <i>{i}{index < arr.length - 1 && ", "}</i>
+                                ))
+                              ) : "--"}
+                        </div>
+                    {/* </div> */}
                   </div>
                   <Sheet>
                     <SheetTrigger className="text-blue-500">
                       <div className="text-base text-blue-400 flex items-center gap-1">
-                        <CirclePlus className="w-5 h-5" />
-                        Add Vendor
+                        <CirclePlus className="w-4 h-4" />
+                        <span className="max-sm:hidden">Add</span> Vendor
                       </div>
                     </SheetTrigger>
                     <SheetContent className="overflow-auto">
