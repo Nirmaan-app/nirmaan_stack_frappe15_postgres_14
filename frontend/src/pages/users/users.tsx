@@ -31,7 +31,8 @@ export default function Users() {
     { label: "Project Lead", value: "Nirmaan Project Lead Profile" },
     { label: "Procurement Executive", value: "Nirmaan Procurement Executive Profile" },
     { label: "Admin Profile", value: "Nirmaan Admin Profile" },
-    { label: "Design Executive", value: "Nirmaan Design Executive Profile" }
+    { label: "Design Executive", value: "Nirmaan Design Executive Profile" },
+    { label: "Accountant", value: "Nirmaan Accountant Profile" }
     ]
 
 

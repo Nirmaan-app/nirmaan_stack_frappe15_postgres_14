@@ -1,70 +1,148 @@
-import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects"
-import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests"
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk"
-import { useEffect, useMemo, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
-import { NewPRSkeleton } from "../ui/skeleton"
-import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers"
-import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments"
-import { ArrowBigUpDash, ArrowLeft, CheckCheck, CirclePlus, Settings2, Undo2 } from "lucide-react"
-import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table"
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar"
-import { formatDate } from "@/utils/FormatDate"
-import Select from 'react-select'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "../ui/sheet"
-import { NewVendor } from "@/pages/vendors/new-vendor"
-import { Button } from "../ui/button"
-import { Table as AntTable, ConfigProvider, TableColumnsType } from "antd"
-import formatToIndianRupee from "@/utils/FormatPrice"
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog"
-import { Textarea } from "../ui/textarea"
-import { useUserData } from "@/hooks/useUserData"
-import { toast } from "../ui/use-toast"
-import { TailSpin } from "react-loader-spinner"
-import { Input } from "../ui/input"
+import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
+import { ServiceRequests as ServiceRequestsType } from "@/types/NirmaanStack/ServiceRequests";
+import {
+  useFrappeCreateDoc,
+  useFrappeGetDoc,
+  useFrappeGetDocList,
+  useFrappeUpdateDoc,
+  useSWRConfig,
+} from "frappe-react-sdk";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { NewPRSkeleton } from "../ui/skeleton";
+import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
+import {
+  ArrowBigUpDash,
+  ArrowLeft,
+  CheckCheck,
+  CirclePlus,
+  Settings2,
+  Trash2,
+  Undo2,
+} from "lucide-react";
+import { ProcurementHeaderCard } from "../ui/ProcurementHeaderCard";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../ui/table";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { formatDate } from "@/utils/FormatDate";
+import ReactSelect from "react-select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "../ui/sheet";
+import { NewVendor } from "@/pages/vendors/new-vendor";
+import { Button } from "../ui/button";
+import { Table as AntTable, ConfigProvider, TableColumnsType } from "antd";
+import formatToIndianRupee from "@/utils/FormatPrice";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "../ui/dialog";
+import { Textarea } from "../ui/textarea";
+import { useUserData } from "@/hooks/useUserData";
+import { toast } from "../ui/use-toast";
+import { TailSpin } from "react-loader-spinner";
+import { Input } from "../ui/input";
+import { Select, SelectContent, SelectItem, SelectValue, SelectTrigger } from "../ui/select";
+import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 
 const SelectServiceVendor = () => {
-    const { srId: id }: any = useParams()
+  const { srId : id }: any = useParams();
+  const [project, setProject] = useState<string>();
 
-    const { data: sr_data, isLoading: sr_data_loading, error: sr_data_error } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id)
+  const {
+    data: sr_data,
+    isLoading: sr_data_loading,
+    error: sr_data_error,
+  } = useFrappeGetDoc<ServiceRequestsType>("Service Requests", id);
 
-    const { data: usersList, isLoading: userLoading, error: userError } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
-        fields: ["*"],
-        limit: 1000,
-    })
+  useEffect(() => {
+    if (sr_data) {
+      setProject(sr_data?.project);
+    }
+  }, [sr_data]);
 
-    const { data: universalComments, isLoading: universalCommentsLoading, error: universalCommentsError } = useFrappeGetDocList<NirmaanCommentsType>("Nirmaan Comments", {
-        fields: ["*"],
-        limit: 1000,
-        filters: [["reference_name", "=", id]],
-        orderBy: { field: "creation", order: "desc" }
-    })
+  const {
+    data: project_data,
+    isLoading: project_loading,
+    error: project_error,
+  } = useFrappeGetDoc<ProjectsType>("Projects", project);
 
-    // console.log("universalComments", universalComments)
+  const {
+    data: usersList,
+    isLoading: userLoading,
+    error: userError,
+  } = useFrappeGetDocList<NirmaanUsersType>("Nirmaan Users", {
+    fields: ["*"],
+    limit: 1000,
+  });
 
-    return (
-        <>  {(sr_data_loading || userLoading || universalCommentsLoading) ? <NewPRSkeleton /> : <SelectServiceVendorPage sr_data={sr_data} universalComments={universalComments} usersList={usersList} />}
-            {(sr_data_error || userError || universalCommentsError) && <h1>Error</h1>}
-        </>
-    )
+  const {
+    data: universalComments,
+    isLoading: universalCommentsLoading,
+    error: universalCommentsError,
+  } = useFrappeGetDocList<NirmaanCommentsType>("Nirmaan Comments", {
+    fields: ["*"],
+    limit: 1000,
+    filters: [["reference_name", "=", id]],
+    orderBy: { field: "creation", order: "desc" },
+  });
+
+  // console.log("universalComments", universalComments)
+
+  return (
+    <>
+      {" "}
+      {sr_data_loading ||
+      project_loading ||
+      userLoading ||
+      universalCommentsLoading ? (
+        <NewPRSkeleton />
+      ) : (
+        <SelectServiceVendorPage
+          sr_data={sr_data}
+          project_data={project_data}
+          universalComments={universalComments}
+          usersList={usersList}
+        />
+      )}
+      {(sr_data_error ||
+        project_error ||
+        userError ||
+        universalCommentsError) && <h1>Error</h1>}
+    </>
+  );
 };
 
 interface SelectServiceVendorPageProps {
     sr_data: ServiceRequestsType | undefined
     usersList?: NirmaanUsersType[] | undefined
     universalComments: NirmaanCommentsType[] | undefined
-    resolve?: boolean
 }
 
 interface DataType {
-    key: React.ReactNode;
-    category: string | null;
-    description: string;
-    rate: number | null;
-    selectedVendor: string;
-    amount: number;
-    children?: DataType[];
+  key: React.ReactNode;
+  category: string | null;
+  description: string;
+  rate: number | null;
+  selectedVendor: string;
+  amount: number;
+  children?: DataType[];
 }
 
 export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments }: SelectServiceVendorPageProps) => {
@@ -83,6 +161,8 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
   );
   const [isNextEnabled, setIsNextEnabled] = useState(false);
   const [expandedRowKeys, setExpandedRowKeys] = useState([]);
+
+  // console.log("sr_data", JSON.parse(sr_data?.service_order_list))
 
   const groupedData = useMemo(() => {
     return order?.reduce((acc, item) => {
@@ -175,6 +255,14 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
     // },
   ];
 
+  const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
+    fields: ["*"],
+    filters: [['work_package', '=', 'Services']],
+    orderBy: { field: 'name', order: 'asc' }
+  })
+
+  console.log("category_data", category_data)
+
   const {
     data: vendor_list,
     isLoading: vendor_list_loading,
@@ -208,11 +296,18 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
   const {
     createDoc: createDoc,
     loading: create_loading,
+    isCompleted: submit_complete,
+    error: submit_error,
   } = useFrappeCreateDoc();
+
   const {
     updateDoc: updateDoc,
     loading: update_loading,
+    isCompleted: update_complete,
+    error: update_error,
   } = useFrappeUpdateDoc();
+
+  console.log("orderData", order)
 
   // const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
   //     {
@@ -451,9 +546,9 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
             </div>
             <ProcurementHeaderCard orderData={sr_data} sr={true} />
 
-            <div className="flex items-center justify-between">
+            <div className="flex justify-between items-center">
               <div className="text-lg text-gray-400">
-                Select vendors for this SR:
+                Select vendor for this SR:
               </div>
               <Sheet>
                 <SheetTrigger className="text-blue-500">
@@ -481,7 +576,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
                 </SheetContent>
               </Sheet>
             </div>
-            <Select
+            <ReactSelect
               className="w-full"
               value={selectedVendor}
               options={vendorOptions}
@@ -496,23 +591,36 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-red-100">
-                      <TableHead className="w-[10%]">
-                        <span className="text-red-700 pr-1 font-extrabold">
+                      <TableHead className="w-[10%] text-red-700 font-extrabold">
                           Service
-                        </span>
                       </TableHead>
                       <TableHead className="w-[50%]">Description</TableHead>
                       <TableHead className="w-[10%]">Unit</TableHead>
                       <TableHead className="w-[10%]">Quantity</TableHead>
-                      <TableHead className="w-[10%]">Rate</TableHead>
+                      <TableHead className="w-[20%]">Rate</TableHead>
                       <TableHead className="w-[10%]">Amount</TableHead>
+                      <TableHead className="w-[10%]">Delete</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {order?.map((item: any) => (
                       <TableRow key={item.id}>
                         <TableCell className="w-[10%] font-semibold">
-                          {item?.category}
+                          {/* {item.category} */}
+                          <Select
+                            value={item.category}
+                            onValueChange={(value) => handleInputChange(item.id, "category", value)}
+                          >
+                            <SelectTrigger >
+                              <SelectValue className="text-gray-200" placeholder="Select Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {category_data
+                                ?.map((cat) => (
+                                  <SelectItem value={cat?.name}>{cat?.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
                         </TableCell>
                         {/* Description Field */}
                         <TableCell className="w-[50%] whitespace-pre-wrap">
@@ -553,10 +661,9 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
                             }
                           />
                         </TableCell>
-                        <TableCell className="w-[10%]">
-                          <input
+                        <TableCell className="w-[20%]">
+                          <Input
                             type="text"
-                            className="border p-1 w-full rounded-md"
                             value={
                               amounts[item.id] ? `₹ ${amounts[item.id]}` : "₹"
                             }
@@ -571,20 +678,29 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
                             item?.quantity * (amounts[item.id] || 0)
                           )}
                         </TableCell>
+                        <TableCell className="w-[10%]">
+                          <Trash2 className="text-red-500 cursor-pointer" onClick={() => {
+                            setOrder(prev => prev.filter(i => i.id !== item.id))
+                            const updatedAmounts = { ...amounts }
+                            delete updatedAmounts[item.id]
+                            setAmounts(updatedAmounts)
+                          }} />
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </div>
             </div>
-            <div className="flex justify-end mt-4">
+            <div className="flex justify-between items-center mt-4 pl-2">
+              <Button onClick={() => setOrder(prev => [...prev, {id : uuidv4(), category: "", description: "", quantity: "", uom: "", rate: ""}])}>New Service</Button>
               <Button
                 disabled={
                   !isNextEnabled ||
                   order?.some(
                     (i) =>
-                      !parseFloat(i?.quantity) || !i?.uom || !i?.description
-                  )
+                      !parseFloat(i?.quantity) || !i?.uom || !i?.description || !i?.category
+                  ) || order.length === 0
                 }
                 onClick={handleSaveAmounts}
               >
@@ -592,7 +708,7 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
               </Button>
             </div>
             <div className="flex items-center space-y-2">
-              <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">
+              <h2 className="text-base pt-1 pl-2 font-bold tracking-tight">
                 SR Comments
               </h2>
             </div>
@@ -778,21 +894,31 @@ export const SelectServiceVendorPage = ({ sr_data, usersList, universalComments 
       )}
     </>
   );
-}
+};
 
-export const Component = SelectServiceVendor
+export const Component = SelectServiceVendor;
 
 const CustomSingleValue = ({ data }) => (
-    <div>
-        <strong>{data.vendor_name}</strong> <i>({data.city}, {data.state})</i>
-    </div>
+  <div>
+    <strong>{data.vendor_name}</strong>{" "}
+    <i>
+      ({data.city}, {data.state})
+    </i>
+  </div>
 );
 
 const CustomOption = (props) => {
-    const { data, innerRef, innerProps } = props;
-    return (
-        <div ref={innerRef} {...innerProps} style={{ padding: "5px", cursor: "pointer" }}>
-            <strong className="text-primary">{data.vendor_name}</strong> <i>({data.city}, {data.state})</i>
-        </div>
-    );
+  const { data, innerRef, innerProps } = props;
+  return (
+    <div
+      ref={innerRef}
+      {...innerProps}
+      style={{ padding: "5px", cursor: "pointer" }}
+    >
+      <strong className="text-primary">{data.vendor_name}</strong>{" "}
+      <i>
+        ({data.city}, {data.state})
+      </i>
+    </div>
+  );
 };

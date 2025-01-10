@@ -10,6 +10,9 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card"
 import { ListChecks, MessageCircleMore, Paperclip } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { toast } from "../ui/use-toast";
+import { RadioGroup, RadioGroupItem } from "../ui/radiogroup";
+import { Label } from "../ui/label";
+import ReactSelect from 'react-select';
 
 interface Category {
     name: string;
@@ -17,37 +20,38 @@ interface Category {
 
 export default function QuotationForm({ vendor_id, pr_id }) {
 
-    const { data: quotation_request_list, isLoading: quotation_request_list_loading, error: quotation_request_list_error } = useFrappeGetDocList("Quotation Requests",
+    const { data: quotation_request_list, isLoading: quotation_request_list_loading, mutate: quotation_request_list_mutate } = useFrappeGetDocList("Quotation Requests",
         {
-            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity'],
+            fields: ['name', 'item', 'category', 'vendor', 'procurement_task', 'quote', 'lead_time', 'quantity', "makes"],
             filters: [["procurement_task", "=", pr_id], ["vendor", "=", vendor_id]],
             limit: 1000
         });
-    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocList("Vendors",
+
+    const { data: vendor_list } = useFrappeGetDocList("Vendors",
         {
             fields: ['name', 'vendor_name', 'vendor_address', 'vendor_type'],
             filters: [["vendor_type", "=", "Material"]],
             limit: 1000
         });
-    const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocList("Items",
+    const { data: item_list } = useFrappeGetDocList("Items",
         {
             fields: ['name', 'item_name', 'unit_name'],
             limit: 10000
         });
-    const { data: procurement_request_list, isLoading: procurement_request_list_loading, error: procurement_request_list_error } = useFrappeGetDocList("Procurement Requests",
+    const { data: procurement_request_list, isLoading: procurement_request_list_loading } = useFrappeGetDocList("Procurement Requests",
         {
             fields: ["*"],
             limit: 1000
         },
         "Procurement Requests"
     );
-    const { data: address_list, isLoading: address_list_loading, error: address_list_error } = useFrappeGetDocList("Address",
+    const { data: address_list } = useFrappeGetDocList("Address",
         {
             fields: ['name', 'address_title', 'address_line1', 'address_line2', 'city', 'state', 'pincode'],
             limit: 1000
         });
 
-    const { data: prAttachment, mutate: prAttachmentMutate } = useFrappeGetDocList("PR Attachments",
+    const { data: prAttachment, mutate: prAttachmentMutate, isLoading: prAttachmentLoading } = useFrappeGetDocList("PR Attachments",
 
         {
             fields: ["*"],
@@ -61,18 +65,47 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     });
     const [deliveryTime, setDeliveryTime] = useState<number | string | null>(null)
 
+    const [mandatoryMakesQs, setMandatoryMakesQs] = useState([])
+
+    const [saveEnabled, setSaveEnabled] = useState(false)
+
     useEffect(() => {
-        const cats = categories.list
+      if(procurement_request_list) {
+        const cats = []
+        const pr = procurement_request_list?.find(i => i.name === pr_id)
         quotation_request_list?.map((item) => {
             const categoryExists = cats.some(category => category.name === item.category);
             if (!categoryExists) {
-                cats.push({ name: item.category })
+                const makes = pr?.category_list?.list?.find(i => i?.name ===  item?.category)?.makes || [];
+                cats.push({ name: item.category, makes : makes })
             }
         })
         setCategories({
             list: cats
         })
-    }, [quotation_request_list]);
+      }
+
+      const mandatoryMakes = quotation_request_list?.map(item => (item?.makes?.list?.length > 0 && item?.makes?.list?.every(j => j?.enabled === "false")) && item?.name)?.filter(i => !!i) || []
+      setMandatoryMakesQs(mandatoryMakes)
+
+    }, [quotation_request_list, procurement_request_list]);
+
+    useEffect(() => {
+        const filteredMandatoryMakes = quotationData?.list?.filter(i => mandatoryMakesQs.includes(i?.qr_id))
+        const allMakesChanged = filteredMandatoryMakes?.every(i => {
+          if(i?.price !== undefined && i?.makes !== undefined) {
+            return true
+          } else if(i?.price === undefined && i?.makes !== undefined) {
+            return true
+          } else if(i?.price !== undefined && i?.makes === undefined) {
+            return false
+          }
+          return false
+        })
+
+        setSaveEnabled(allMakesChanged)
+
+    }, [quotationData, mandatoryMakesQs]);
 
     useEffect(() => {
         if (quotation_request_list) {
@@ -105,8 +138,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         return procurement_list?.find((i) => i.name === item)?.comment || ""
     }
 
-    const handlePriceChange = (item: string, value: number) => {
-        const new_qrid = quotation_request_list?.find(q => q.item === item)?.name;
+    const handlePriceChange = (new_qrid: string, value: number) => {
         const existingIndex = quotationData.list.findIndex(q => q.qr_id === new_qrid);
         const newList = [...quotationData.list];
 
@@ -121,13 +153,49 @@ export default function QuotationForm({ vendor_id, pr_id }) {
                 price: value
             });
         }
-        setQuotationData(prevState => ({
-            ...prevState,
-            list: newList
-        }));
+        setQuotationData({list: newList});
     };
-    const { createDoc: createDoc, loading: create_loading, isCompleted: create_submit_complete, error: create_submit_error } = useFrappeCreateDoc()
-    const { updateDoc: updateDoc, loading: update_loading, isCompleted: submit_complete, error: submit_error } = useFrappeUpdateDoc()
+
+    const handleMakeChange = (new_qrid, makes, make) => {
+      // Create a copy of the existing list
+      // const newList = [...makeChanges];
+      const newList = [...quotationData.list];
+    
+      // Find the index of the existing QR ID in the list
+      // const existingIndex = newList.findIndex((q) => q.qr_id === new_qrid);
+      const existingIndex = quotationData.list.findIndex(q => q.qr_id === new_qrid);
+    
+      if (existingIndex !== -1) {
+        // const makeIndex = existingMakes.findIndex((m) => m.make === make);
+    
+        // if (makeIndex !== -1) {
+        // existingMakes[makeIndex].enabled = "true";
+        // } else {
+        //   existingMakes.push({ make, enabled: checked ? "true" : "false" });
+        // }
+
+        const filteredMakes = makes?.map(m => m?.make === make ? { make, enabled: "true" } : {make : m?.make, enabled: "false"});
+    
+        newList[existingIndex] = {
+          ...newList[existingIndex],
+          makes: filteredMakes,
+        };
+      } else {
+        const updatedMakes = makes?.map((m) =>
+          m.make === make ? { make, enabled:  "true" } : {make : m?.make, enabled: "false"}
+        );
+    
+        newList.push({
+          qr_id: new_qrid,
+          makes: updatedMakes,
+        });
+      }
+
+      setQuotationData({list: newList});
+    };
+
+    const { createDoc: createDoc, loading: create_loading } = useFrappeCreateDoc()
+    const { updateDoc: updateDoc, loading: update_loading } = useFrappeUpdateDoc()
 
     const vendor_name = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_name;
     const vendor_address = vendor_list?.find(vendor => vendor.name === vendor_id).vendor_address;
@@ -140,8 +208,8 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         setSelectedFile(event.target.files[0]);
     };
 
-    const { upload: upload, loading: upload_loading, isCompleted: upload_complete, error: upload_error } = useFrappeFileUpload()
-    const { call, error: call_error } = useFrappePostCall('frappe.client.set_value')
+    const { upload: upload, loading: upload_loading } = useFrappeFileUpload()
+    const { call } = useFrappePostCall('frappe.client.set_value')
 
 
     useEffect(() => {
@@ -154,111 +222,38 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     }, [prAttachment])
 
     const {mutate} = useSWRConfig()
-    // const handleSubmit = async () => {
-    //     try {
-    //       // Update quotation requests for each item in the list.
-    //       await Promise.all(
-    //         quotationData.list.map(async (item) => {
-    //           try {
-    //             await updateDoc("Quotation Requests", item.qr_id, {
-    //               lead_time: deliveryTime,
-    //               quote: item.price,
-    //             });
-    //             await mutate(`Quotations Requests,Procurement_task=${pr_id}`)
-    //             toast({
-    //               title: "Success!",
-    //               description: `Quote(s) for ${vendor_name} updated successfully`,
-    //               variant: "success",
-    //             });
-    //           } catch (error) {
-    //             console.error(`Error updating quotation request for ${item.qr_id}:`, error);
-    //             toast({
-    //               title: "Failed!",
-    //               description: `There was an error while updating the Quote(s) for ${vendor_name}`,
-    //               variant: "destructive",
-    //             });
-    //           }
-    //         })
-    //       );
-      
-    //       // Handle file upload if a file is selected.
-    //       if (selectedFile) {
-    //         // Check if the selected file is an object (newly uploaded file) or a string (existing file).
-    //         if (typeof selectedFile === "object" || (typeof selectedFile === "string" && selectedFile !== prAttachment[0]?.rfq_pdf.split("/")[3])) {
-    //           let docId;
-      
-    //           // If a PR attachment for this vendor already exists, update the document. Otherwise, create a new document.
-    //           if (prAttachment.length > 0) {
-    //             docId = prAttachment[0].name;
-    //           } else {
-    //             const newDoc = await createDoc("PR Attachments", {
-    //               procurement_request: pr_id,
-    //               vendor: vendor_id,
-    //             });
-    //             docId = newDoc.name;
-    //             await prAttachmentMutate();
-    //           }
-      
-    //           // Upload the file and update the document's file URL.
-    //           const fileArgs = {
-    //             doctype: "PR Attachments",
-    //             docname: docId,
-    //             fieldname: "rfq_pdf",
-    //             isPrivate: true,
-    //           };
-      
-    //           const uploadedFile = await upload(selectedFile, fileArgs);
-    //           await call({
-    //             doctype: "PR Attachments",
-    //             name: docId,
-    //             fieldname: "rfq_pdf",
-    //             value: uploadedFile.file_url,
-    //           });
-      
-    //           console.log("File upload and document update successful");
-    //           toast({
-    //             title: "Success!",
-    //             description: "File uploaded and updated successfully.",
-    //             variant: "success",
-    //           });
-    //           await prAttachmentMutate();
-    //         }
-    //       }
-      
-    //       // Trigger the save button click if everything is completed successfully.
-    //       const btn = document.getElementById("save-button");
-    //       btn?.click();
-    //     } catch (error) {
-    //       console.error("Error during submission:", error);
-    //       toast({
-    //         title: "Submission Failed",
-    //         description: "An error occurred while submitting the form. Please try again.",
-    //         variant: "destructive",
-    //       });
-    //     } finally {
-    //       // Clear the selected file after submission.
-    //       setSelectedFile(null);
-    //     }
-    //   };
-      
+    
     const handleSubmit = async () => {
       try {
         const batchSize = 10; // Number of items per batch
         const promises = [];
     
-        for (let i = 0; i < quotationData.list.length; i += batchSize) {
-          const batch = quotationData.list.slice(i, i + batchSize);
-          promises.push(
-            Promise.all(
-              batch.map(async (item) => {
-                await updateDoc("Quotation Requests", item.qr_id, {
-                  lead_time: deliveryTime,
-                  quote: item.price,
-                });
-              })
-            )
-          );
-        }
+          for (let i = 0; i < quotationData.list.length; i += batchSize) {
+            const batch = quotationData.list.slice(i, i + batchSize);
+            promises.push(
+              Promise.all(
+                batch.map(async (item) => {
+                  if(item?.makes !== undefined && item?.price !== undefined) {
+                    await updateDoc("Quotation Requests", item.qr_id, {
+                      lead_time: deliveryTime,
+                      quote: !item.price ? null : item.price,
+                      makes: {list : item?.makes}
+                    });
+                  } else if(item?.makes === undefined && item?.price !== undefined){
+                    await updateDoc("Quotation Requests", item.qr_id, {
+                      lead_time: deliveryTime,
+                      quote: !item.price ? null : item.price,
+                    });
+                  } else {
+                    await updateDoc("Quotation Requests", item.qr_id, {
+                      lead_time: deliveryTime,
+                      makes: {list : item?.makes},
+                    });
+                  }
+                })
+              )
+            );
+          }
     
         // Wait for all the batches to complete.
         await Promise.all(promises);
@@ -270,6 +265,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
           variant: "success",
         });
     
+        await quotation_request_list_mutate()
         // Call mutate only once after all updates.
         await mutate(`Quotations Requests,Procurement_task=${pr_id}`);
     
@@ -333,8 +329,11 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         setSelectedFile(null);
       }
     };
-    
 
+    if(quotation_request_list_loading || procurement_request_list_loading || prAttachmentLoading) {
+      return <div>Loading...</div>
+    }
+    
     // console.log("selectedFile", selectedFile, typeof(selectedFile))
     // console.log("prAttachment", prAttachment)
 
@@ -348,10 +347,6 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-            {/* <div>
-              <label className="block text-sm font-medium text-gray-700">Attach File</label>
-              <Input type="file" disabled={is_present?.length > 0} onChange={handleFileChange} />
-            </div> */}
             <div className="flex flex-col gap-2">
                 <div className={`text-blue-500 cursor-pointer flex gap-1 items-center justify-center border rounded-md border-blue-500 p-2 mt-4 ${selectedFile && "opacity-50 cursor-not-allowed"}`}
                      onClick={() => document.getElementById("file-upload")?.click()}
@@ -390,35 +385,130 @@ export default function QuotationForm({ vendor_id, pr_id }) {
       {categories.list.map((cat, index) => (
         <Card key={index} className="mb-6">
           <CardHeader className="bg-gray-100 border-b">
-            <CardTitle className="text-lg font-medium">Category: {cat.name}</CardTitle>
+            <CardTitle className="text-lg font-medium flex items-center justify-between">
+              <span>Category: {cat.name}</span>
+              <div className="text-sm text-gray-400">
+                  {cat?.makes?.length > 0 ? (
+                    cat?.makes?.map((i, index, arr) => (
+                      <i>{i}{index < arr.length - 1 && ", "}</i>
+                    ))
+                  ) : "--"}
+              </div>
+            </CardTitle>
           </CardHeader>
-          <CardContent className="max-sm:p-2">
+          {/* <CardContent className="max-sm:p-2">
             {quotation_request_list?.map((q) => (
               q.category === cat.name && q.vendor === vendor_id && (
                 <div key={q.item} className="flex max-md:flex-col max-md:gap-2 items-center justify-between py-2 border-b last:border-none">
-                  <div className="w-1/4 max-md:w-full font-semibold text-black inline items-baseline">
-                  <span>{getItem(q.item)}</span>
-                  {getComment(q.item) && (
-                    <HoverCard>
-                         <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-5 h-5 ml-1 inline-block" /></HoverCardTrigger>
-                        <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                            <div className="relative pb-4">
-                                <span className="block">{getComment(q.item)}</span>
-                                <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
-                            </div>
-                        </HoverCardContent>
-                    </HoverCard>
-                  )}
+                  <div className="flex items-center max-md:justify-between">
+                    <div className="w-1/2 font-semibold text-black inline items-baseline">
+                      <span>{getItem(q.item)}</span>
+                      {getComment(q.item) && (
+                        <HoverCard>
+                             <HoverCardTrigger><MessageCircleMore className="text-blue-400 w-5 h-5 ml-1 inline-block" /></HoverCardTrigger>
+                            <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-2 rounded-md shadow-lg">
+                                <div className="relative pb-4">
+                                    <span className="block">{getComment(q.item)}</span>
+                                    <span className="text-xs absolute right-0 italic text-gray-200">-Comment by PL</span>
+                                </div>
+                            </HoverCardContent>
+                        </HoverCard>
+                      )}
+                    </div>
+                  <div className="mx-1 px-1 text-xs shadow-sm text-gray-500 bg-gray-100 rounded-md py-1 flex items-center ">
+                  {q?.makes?.list?.length > 0 ? (
+                    <MakesSelection
+                      q={q}
+                      quotationData={quotationData}
+                      handleMakeChange={handleMakeChange}
+                    />
+                  ) : <span>make(s) not specified!</span>}
                   </div>
-                  <div className="w-[70%] max-md:w-full flex gap-2">
+                  </div>
+                  <div className="w-[50%] max-md:w-full flex gap-2">
                     <Input value={getUnit(q.item)} disabled />
-                    <Input className="w-[24%]" value={q?.quantity} disabled />
-                    <Input type="number" placeholder="Enter Price" defaultValue={q?.quote} onChange={(e) => handlePriceChange(q.item, Number(e.target.value))} />
+                    <Input className="w-[45%]" value={q?.quantity} disabled />
+                    <Input type="number" placeholder="Enter Price" defaultValue={q?.quote} onChange={(e) => handlePriceChange(q.name, Number(e.target.value))} />
                   </div>
                 </div>
               )
             ))}
-          </CardContent>
+          </CardContent> */}
+          <CardContent className="max-sm:p-2 bg-gray-50 rounded-md">
+  {quotation_request_list?.map(
+    (q) =>
+      q.category === cat.name &&
+      q.vendor === vendor_id && (
+        <div
+          key={q.item}
+          className="flex flex-col gap-4 p-4 m-2 bg-white border border-gray-200 rounded-md shadow-sm hover:shadow-md transition-shadow"
+        >
+          {/* Item and Comment Section */}
+          <div className="flex gap-4 items-start">
+            <div className="text-base font-semibold text-gray-800 flex-1">
+              <span>{getItem(q.item)}</span>
+              {getComment(q.item) && (
+                <HoverCard>
+                  <HoverCardTrigger>
+                    <MessageCircleMore className="text-blue-400 w-5 h-5 ml-2 inline-block cursor-pointer" />
+                  </HoverCardTrigger>
+                  <HoverCardContent className="max-w-[300px] bg-gray-800 text-white p-3 rounded-md shadow-lg">
+                    <div className="relative pb-4">
+                      <span className="block">{getComment(q.item)}</span>
+                      <span className="text-xs absolute right-0 italic text-gray-400">
+                        - Comment by PL
+                      </span>
+                    </div>
+                  </HoverCardContent>
+                </HoverCard>
+              )}
+            </div>
+            <div className="text-sm flex-1">
+              {q?.makes?.list?.length > 0 ? (
+                <MakesSelection
+                  q={q}
+                  quotationData={quotationData}
+                  handleMakeChange={handleMakeChange}
+                />
+              ) : (
+                <span className="text-gray-500 bg-gray-100 rounded-md px-3 py-1 shadow-sm">Make(s) not specified!</span>
+              )}
+            </div>
+          </div>
+
+          {/* Input Section */}
+          <div className="flex  gap-4">
+            <div className="w-1/4">
+              <Input
+                value={getUnit(q.item)}
+                disabled
+                className="w-full text-gray-700 bg-gray-50 border-gray-300 focus:ring-2 focus:ring-blue-300 rounded-md"
+              />
+            </div>
+            <div className="w-1/4">
+              <Input
+                value={q?.quantity}
+                disabled
+                className="w-full text-gray-700 bg-gray-50 border-gray-300 focus:ring-2 focus:ring-blue-300 rounded-md"
+              />
+            </div>
+            <div className="w-1/2">
+              <Input
+                type="number"
+                placeholder="Enter Price"
+                defaultValue={q?.quote}
+                onChange={(e) =>
+                  handlePriceChange(q.name, Number(e.target.value))
+                }
+                className="w-full text-gray-700 bg-gray-50 border-gray-300 focus:ring-2 focus:ring-blue-300 rounded-md"
+              />
+            </div>
+          </div>
+        </div>
+      )
+  )}
+</CardContent>
+
         </Card>
       ))}
 
@@ -427,7 +517,7 @@ export default function QuotationForm({ vendor_id, pr_id }) {
         {(upload_loading || create_loading || update_loading) ? (
           <TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" />
         ) : (
-          <Button onClick={handleSubmit} disabled={!deliveryTime} className="flex items-center gap-1">
+          <Button onClick={handleSubmit} disabled={!deliveryTime || !saveEnabled} className="flex items-center gap-1">
             <ListChecks className="h-4 w-4" />
             Save</Button>
         )}
@@ -436,6 +526,42 @@ export default function QuotationForm({ vendor_id, pr_id }) {
     </div>
     )
 }
+
+
+const MakesSelection = ({ q, quotationData, handleMakeChange }) => {
+  // Prepare options for React Select
+  const editMakeOptions = q?.makes?.list?.map((i) => ({
+    value: i?.make,
+    label: i?.make,
+    isEnabled: i?.enabled === "true",
+  }));
+
+  // Get the selected make dynamically based on quotationData
+  const selectedMake = quotationData?.list
+    ?.find((j) => j?.qr_id === q?.name)
+    ?.makes?.find((m) => m?.enabled === "true");
+
+  // React Select expects the value as an object
+  const selectedMakeValue = selectedMake
+    ? { value: selectedMake?.make, label: selectedMake?.make }
+    : null;
+
+  return q?.makes?.list?.length > 0 ? (
+    <div className="w-full">
+      <ReactSelect
+        className="w-full"
+        placeholder="Select Make..."
+        value={selectedMakeValue}
+        options={editMakeOptions}
+        onChange={(selectedOption) =>
+          handleMakeChange(q?.name, q?.makes?.list, selectedOption?.value, true)
+        }
+      />
+    </div>
+  ) : (
+    <span>make(s) not specified!</span>
+  );
+};
 
 
 

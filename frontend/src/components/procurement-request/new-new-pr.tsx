@@ -167,6 +167,11 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
     limit: 100,
   });
 
+  const {data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error} = useFrappeGetDocList("Category Makelist", {
+    fields: ["*"],
+    limit: 10000
+  })
+
   const { data: project } = useFrappeGetDoc("Projects", projectId);
 
   const { createDoc, loading: createLoading } = useFrappeCreateDoc();
@@ -200,9 +205,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
         if (item.category === curCategory?.value) {
           options.push({
             value: item.name,
-            label: `${item.item_name}${
-              item.make_name ? "-" + item.make_name : ""
-            }`,
+            label: item.item_name,
             unit: item?.unit_name,
           });
         }
@@ -252,7 +255,12 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
           category.name === item?.category && category.status === item.status
       );
       if (!isDuplicate) {
-        newCategories.push({ name: item.category, status: item.status });
+        if(item.status === "Pending") {
+          const makes = category_make_list?.filter(i => i?.category === item.category)?.map(i => i?.make);
+          newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
+        } else {
+          newCategories.push({ name: item.category, status: item.status });
+        }
       }
     });
 
@@ -809,6 +817,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                       ?.map((cat, index) => {
                         return (
                           <div key={index} className="mb-4">
+                            <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4 ml-4">
                               <div className="flex items-center gap-2">
                                 <div className="w-1 h-1 rounded-full bg-black" />
@@ -820,6 +829,14 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                               <h3 className="text-sm font-semibold py-2">
                                 {cat.name}
                               </h3>
+                            </div>
+                            <div className="text-sm font-bold text-gray-500">
+                          {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
+                            category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
+                              <i>{i?.make}{index < arr.length - 1 && ", "}</i>
+                            ))
+                          ) : "--"}
+                          </div>
                             </div>
                             <table className="table-auto w-full">
                               <thead>
@@ -1457,7 +1474,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                             }
                           />
                         </div>
-                        <div className="flex flex-col gap-1">
+                        {/* <div className="flex flex-col gap-1">
                           <label
                             htmlFor="makeName"
                             className="block text-sm font-medium text-gray-700"
@@ -1477,7 +1494,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                               }))
                             }
                           />
-                        </div>
+                        </div> */}
 
                         <div className="flex flex-col gap-1">
                           <label
@@ -1595,7 +1612,35 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                               <li
                                 key={item.item_name}
                                 className="p-2 hover:bg-gray-100 flex justify-between items-center cursor-pointer"
-                                onMouseDown={() => {
+                                // onMouseDown={() => {
+                                //   setCurCategory({
+                                //     label: item?.category,
+                                //     value: item?.category,
+                                //     tax: parseFloat(
+                                //       category_list?.find(
+                                //         (i) => i?.name === item?.category
+                                //       )?.tax
+                                //     ),
+                                //   });
+                                //   setCurItem({
+                                //     label: item.item_name,
+                                //     value: item?.name,
+                                //     unit: item?.unit_name,
+                                //   });
+                                //   toggleRequestItemDialog();
+                                // }}
+                              >
+                                <p className="flex justify-between items-center">
+                              <strong>{item?.item_name}</strong>
+                              <span className="text-gray-500">
+                                {" "}
+                                - {item?.matchPercentage}% match
+                              </span>
+                            </p>
+                            <div className="flex justify-between items-center">
+                              <p className="text-gray-400 font-semibold">{item?.category}</p>
+                              <p
+                               onMouseDown={() => {
                                   setCurCategory({
                                     label: item?.category,
                                     value: item?.category,
@@ -1606,16 +1651,15 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                     ),
                                   });
                                   setCurItem({
-                                    label: `${item.item_name}${
-                                      item.make_name ? "-" + item.make_name : ""
-                                    }`,
+                                    label: item.item_name,
                                     value: item?.name,
                                     unit: item?.unit_name,
                                   });
                                   toggleRequestItemDialog();
                                 }}
-                              >
-                                <span>
+                               className="text-primary font-bold text-xs cursor-pointer">Add Item</p>
+                            </div>
+                                {/* <span>
                                   <strong>{item.item_name}</strong>
                                   <span className="text-gray-500">
                                     {" "}
@@ -1629,7 +1673,7 @@ export const NewProcurementRequest = ({ resolve = false, edit = false }) => {
                                       <strong>Recommended</strong>
                                     </p>
                                   </div>
-                                )}
+                                )} */}
                               </li>
                             ))}
                           </ul>

@@ -39,9 +39,7 @@ export const ProcurementOrder = () => {
     const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]); // State for dynamic category options
 
     const [page, setPage] = useState<string>('approve')
-    const [uniqueVendors, setUniqueVendors] = useState({
-        list: []
-    })
+    
     const [orderData, setOrderData] = useState({
         project: '',
         work_package: '',
@@ -54,14 +52,8 @@ export const ProcurementOrder = () => {
     })
     const [categories, setCategories] = useState({})
     const [selectedCategories, setSelectedCategories] = useState(null)
-    const [uniqueCategories, setUniqueCategories] = useState({
-        list: []
-    })
+    
     const [comments, setComments] = useState([])
-    // console.log("selectedCategories", selectedCategories)
-    // console.log("orderData", orderData)
-
-    // console.log("unique categories", uniqueCategories)
 
     const { data: category_data, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
         fields: ["*"],
@@ -304,16 +296,13 @@ export const ProcurementOrder = () => {
 
     const handleSubmit = async () => {
         if (Object.keys(selectedCategories).length != orderData.category_list.list.length) return
-        const cats = uniqueCategories.list;
+
         const promises = [];
 
         orderData.procurement_list.list.forEach((item) => {
-            const categoryExists = cats.some(category => category === item.category);
-            if (!categoryExists) {
-                cats.push(item.category);
-            }
+            const curCategory = item.category;
+            const makes = orderData?.category_list?.list?.find(i => i?.name === curCategory)?.makes?.map(j => ({make: j, enabled : "false"})) || [];
 
-            const curCategory = `${item.category}`;
             selectedCategories[curCategory].forEach((cat) => {
                 const new_procurement_list = procurement_request_list?.find(value => value.name === orderId).procurement_list;
                 const new_quantity = new_procurement_list?.list.find(value => value.name === item.name).quantity;
@@ -323,19 +312,9 @@ export const ProcurementOrder = () => {
                     category: item.category,
                     item: item.name,
                     vendor: cat,
-                    quantity: new_quantity
+                    quantity: new_quantity,
+                    makes: {list : makes}
                 };
-
-                const vendors = uniqueVendors.list;
-                vendors.push(cat);
-
-                const removeDuplicates = (array) => {
-                    return Array.from(new Set(array));
-                };
-                const uniqueList = removeDuplicates(vendors);
-                setUniqueVendors({
-                    list: uniqueList
-                });
 
                 promises.push(
                     createDoc('Quotation Requests', quotation_request)
@@ -349,10 +328,6 @@ export const ProcurementOrder = () => {
             });
         });
 
-        setUniqueCategories({
-            list: cats
-        });
-
         try {
             await Promise.all(promises);
             await updateDoc('Procurement Requests', orderId, {
@@ -360,6 +335,7 @@ export const ProcurementOrder = () => {
             })
             await mutate("Procurement Requests PRList")
             await mutate(`Procurement Requests ${orderId}`)
+
             setOrderData({
                 project: '',
                 work_package: '',
@@ -370,7 +346,8 @@ export const ProcurementOrder = () => {
                     list: []
                 }
             })
-            navigate(`/update-quote/${orderId}`);
+
+            navigate(`/procurement-requests/${orderId}?tab=Update Quote`);
 
         } catch (error) {
             console.error("Error in creating documents:", error);
@@ -429,7 +406,16 @@ export const ProcurementOrder = () => {
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-red-100">
-                                                <TableHead className="w-[50%]"><span className="text-red-700 pr-1 font-extrabold">{cat.name}</span></TableHead>
+                                                <TableHead className="w-[50%]">
+                                                    <span className="text-red-700 pr-1 font-extrabold">{cat.name}</span>
+                                                    <div className="text-xs font-bold text-gray-500">
+                                                      {cat?.makes?.length > 0 ? (
+                                                        cat?.makes?.map((i, index, arr) => (
+                                                          <i>{i}{index < arr.length - 1 && ", "}</i>
+                                                        ))
+                                                      ) : "--"}
+                                                    </div>
+                                                </TableHead>
                                                 <TableHead className="w-[20%]">UOM</TableHead>
                                                 <TableHead className="w-[10%]">Qty</TableHead>
                                                 <TableHead className="w-[10%]">Est. Amt</TableHead>
@@ -439,7 +425,7 @@ export const ProcurementOrder = () => {
                                             {orderData?.procurement_list.list.map((item: any) => {
                                                 if (item.category === cat.name) {
                                                     const quotesForItem = quote_data
-                                                        ?.filter(value => value.item_id === item.name && value.quote != null)
+                                                        ?.filter(value => value.item_id === item.name && ![null, "0", 0, undefined].includes(value.quote))
                                                         ?.map(value => value.quote);
                                                     let minQuote;
                                                     if (quotesForItem && quotesForItem.length > 0) minQuote = Math.min(...quotesForItem);
@@ -573,12 +559,20 @@ export const ProcurementOrder = () => {
                                             </ul>
                                         </HoverCardContent>
                                     </HoverCard>
-                                    <div className="text-sm text-gray-400">Select vendors for <span className="text-red-700 italic">{cat.name}</span> category</div>
+                                    {/* <div className="text-sm text-gray-400">Select vendors for <span className="text-red-700 italic">{cat.name}</span> category</div> */}
+                                    <strong className="text-sm">Approved Makes:</strong>
+                                    <div className="text-xs font-bold text-gray-500 inline ml-2">
+                                            {cat?.makes?.length > 0 ? (
+                                              cat?.makes?.map((i, index, arr) => (
+                                                <i>{i}{index < arr.length - 1 && ", "}</i>
+                                              ))
+                                            ) : "--"}
+                                      </div>
                                 </div>
                                 <Sheet>
                                     <SheetTrigger className="text-blue-500">
-                                        <div className="text-base text-blue-400" >
-                                            Add Vendor<CirclePlus className="w-4 h-4 inline-block mb-1 ml-1" />
+                                        <div className="text-base text-blue-400">
+                                        <span className="max-sm:hidden">Add</span> Vendor<CirclePlus className="w-4 h-4 inline-block mb-1 ml-1" />
                                         </div>
                                     </SheetTrigger>
                                     <SheetContent className='overflow-auto'>

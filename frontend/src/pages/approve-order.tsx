@@ -80,6 +80,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { TailSpin } from "react-loader-spinner";
 import { ProcurementActionsHeaderCard } from "@/components/ui/ProcurementActionsHeaderCard";
+import Fuse from "fuse.js";
 
 const ApprovePRList = () => {
   const { prId: id } = useParams<{ prId: string }>();
@@ -239,7 +240,7 @@ const ApprovePRListPage = ({
 
   const { data: quote_data } = useFrappeGetDocList("Approved Quotations", {
     fields: ["item_id", "quote"],
-    limit: 2000,
+    limit: 10000,
   });
 
   const { data: universalComments } = useFrappeGetDocList("Nirmaan Comments", {
@@ -266,6 +267,11 @@ const ApprovePRListPage = ({
 
   // console.log("universalCOmment", universalComments)
 
+  const {data: category_make_list, isLoading: category_make_list_loading, error: category_make_list_error} = useFrappeGetDocList("Category Makelist", {
+    fields: ["*"],
+    limit: 10000
+  })
+
   const {
     createDoc: createDoc,
     error: update_error,
@@ -283,7 +289,7 @@ const ApprovePRListPage = ({
   const [quantity, setQuantity] = useState<number | null | string>(null);
   // const [item_id, setItem_id] = useState<string>('');
   // const [categories, setCategories] = useState<{ list: Category[] }>({ list: [] });
-  const [make, setMake] = useState("");
+  // const [make, setMake] = useState("");
   const [tax, setTax] = useState<number | null>(null);
   const [dynamicPage, setDynamicPage] = useState<string | null>(null);
   const [comments, setComments] = useState({});
@@ -292,6 +298,16 @@ const ApprovePRListPage = ({
   const [uploadedFiles, setUploadedFiles] = useState({});
   const [managersIdList, setManagersIdList] = useState(null);
   const [requestCategory, setRequestCategory] = useState("");
+
+  const [requestItemName, setRequestItemName] = useState("");
+
+  const [requestItemDialog, setRequestItemDialog] = useState(false);
+
+  const toggleRequestItemDialog = () => {
+    setRequestItemDialog((prevState) => !prevState);
+  };
+
+  const [fuzzyMatches, setFuzzyMatches] = useState([]);
 
   useEffect(() => {
     if (usersList) {
@@ -418,9 +434,7 @@ const ApprovePRListPage = ({
       if (item.category === curCategory)
         item_options.push({
           value: item.item_name,
-          label: `${item.item_name}${
-            item.make_name ? "-" + item.make_name : ""
-          }`,
+          label: `${item.item_name}`,
         });
     });
   }
@@ -434,7 +448,12 @@ const ApprovePRListPage = ({
             category.name === item.category && category?.status === item.status
         );
         if (!isDuplicate) {
-          newCategories.push({ name: item.category, status: item.status });
+          if(item.status === "Pending") {
+            const makes = category_make_list?.filter(i => i?.category === item.category)?.map(i => i?.make);
+            newCategories.push({ name: item.category, status: item.status, makes: makes || [] });
+          } else {
+            newCategories.push({ name: item.category, status: item.status });
+          }
         }
       });
     } else {
@@ -443,7 +462,8 @@ const ApprovePRListPage = ({
           (category) => category.name === item.category
         );
         if (!isDuplicate) {
-          newCategories.push({ name: item.category });
+          const makes = category_make_list?.filter(i => i?.category === item.category)?.map(i => i?.make);
+          newCategories.push({ name: item.category, makes : makes || []  });
         }
       });
     }
@@ -461,7 +481,7 @@ const ApprovePRListPage = ({
     item_list?.map((item) => {
       if (item.item_name == selectedItem.value) {
         setUnit(item.unit_name);
-        setMake(item.make_name);
+        // setMake(item.make_name);
       }
     });
   };
@@ -469,20 +489,20 @@ const ApprovePRListPage = ({
   const handleAdd = () => {
     if (curItem && Number(quantity)) {
       let itemIdToUpdate = null;
-      let itemMake = null;
+      // let itemMake = null;
 
       // Find item ID and make
       item_list.forEach((item) => {
         if (item.item_name === curItem) {
           itemIdToUpdate = item.name;
-          itemMake = item.make_name;
+          // itemMake = item.make_name;
         }
       });
 
       if (itemIdToUpdate) {
         const curRequest = [...orderData.procurement_list.list];
         const curValue = {
-          item: `${curItem}${itemMake ? "-" + itemMake : ""}`,
+          item: `${curItem}`,
           name: itemIdToUpdate,
           unit: unit,
           quantity: Number(quantity),
@@ -530,7 +550,7 @@ const ApprovePRListPage = ({
         setCurItem("");
         setUnit("");
         // setItem_id('');
-        setMake("");
+        // setMake("");
       }
     }
   };
@@ -730,7 +750,7 @@ const ApprovePRListPage = ({
   const handleCreateItem = () => {
     setUnit("");
     setCurItem("");
-    setMake("");
+    // setMake("");
     setPage("additem");
   };
 
@@ -744,7 +764,7 @@ const ApprovePRListPage = ({
       category: curCategory,
       unit_name: unit,
       item_name: curItem,
-      make_name: make,
+      // make_name: make,
     };
     // console.log("itemData", itemData)
     createDoc("Items", itemData)
@@ -752,7 +772,7 @@ const ApprovePRListPage = ({
         // console.log(itemData)
         setUnit("");
         setCurItem("");
-        setMake("");
+        // setMake("");
         setPage("itemlist");
         item_list_mutate();
       })
@@ -868,6 +888,118 @@ const ApprovePRListPage = ({
     }
   };
 
+  const fuse = new Fuse(item_list, {
+    keys: ["item_name"], // Fields to search
+    threshold: 0.3, // Lower threshold for stricter matches
+    distance: 100, // Maximum distance for matching
+    includeScore: true, // Include scores for sorting
+  });
+
+  const handleFuzzySearch = (input) => {
+    if (!input.trim()) {
+      setFuzzyMatches([]);
+      return;
+    }
+
+    const results = fuse.search(input);
+    if (results.length > 0) {
+      const matches = results.map((result) => ({
+        ...result.item,
+        matchPercentage: Math.round((1 - result.score) * 100), // Convert score to percentage
+      }));
+      setFuzzyMatches(matches);
+    } else {
+      setFuzzyMatches([]);
+    }
+  };
+
+  const handleAddMatchingItem = (item, requestItem) => {
+
+    if (item?.item_name && item?.quantity) {
+      let itemIdToUpdate = null;
+      // let itemMake = null;
+
+      // Find item ID and make
+      item_list?.forEach((i) => {
+        if (i.item_name === item?.item_name) {
+          itemIdToUpdate = i.name;
+          // itemMake = i.make_name;
+        }
+      });
+
+      if (itemIdToUpdate) {
+        let curRequest = [...orderData.procurement_list.list];
+
+        curRequest = curRequest.filter((curValue) => curValue.name !== requestItem?.name);
+
+        const curValue = {
+          item: `${item?.item_name}`,
+          name: itemIdToUpdate,
+          unit: item?.unit,
+          quantity: item?.quantity,
+          category: item?.category,
+          tax: parseFloat(category_list?.find((c) => c.name === item?.category)?.tax),
+          status: "Pending",
+        };
+
+        // Check if item exists in the current list
+        const isDuplicate = curRequest.some(
+          (j) => j.name === curValue.name
+        );
+
+        if (!isDuplicate) {
+
+          // Check if the stack has this item and remove it
+          const itemInStackIndex = stack.findIndex(
+            (stackItem) => stackItem?.name === curValue.name
+          );
+
+          if (itemInStackIndex > -1) {
+            stack.splice(itemInStackIndex, 1);
+            setStack([...stack]); // Update stack state after removal
+          }
+
+          // Add item to the current request list
+          curRequest.push(curValue);
+
+          setOrderData((prevState) => ({
+            ...prevState,
+            procurement_list: {
+              list: curRequest,
+            }
+          }));
+
+          toast({
+            title: "Success!",
+            description: (
+              <ul className="pl-2 list-disc">
+                <li>Item <strong>{item?.item_name}</strong> added to the order_list successfully!</li>
+                <li>The requested item <strong>{requestItem?.item_name}</strong> is now removed from the order_list!</li>
+              </ul>
+            ),
+            variant: "success",
+          })
+
+          toggleRequestItemDialog()
+        } else {
+          toast({
+            title: "Invalid Request!",
+            description: (
+              <span>
+                The <b>item: {item?.item_name}</b> cannot be added because it is already present in the order_list!
+              </span>
+            ),
+          });
+        }
+        setCurItem("");
+        setUnit("");
+        setQuantity("");
+        setRequestCategory("");
+      }
+    }
+  }
+
+
   // console.log("stack", stack)
   // console.log("uploadedFiles", uploadedFiles)
 
@@ -974,7 +1106,7 @@ const ApprovePRListPage = ({
                 <div
                   onClick={() => {
                     setCurItem("");
-                    setMake("");
+                    // setMake("");
                     setPage("categorylist");
                   }}
                   className="text-blue-400 underline flex items-center gap-1 cursor-pointer"
@@ -986,7 +1118,7 @@ const ApprovePRListPage = ({
                   className="text-red-600"
                   onClick={() => {
                     setCurItem("");
-                    setMake("");
+                    // setMake("");
                     setCurCategory("");
                   }}
                 >
@@ -1000,7 +1132,7 @@ const ApprovePRListPage = ({
                   <ReactSelect
                     value={{
                       value: curItem,
-                      label: `${curItem}${make ? "-" + make : ""}`,
+                      label: `${curItem}`,
                     }}
                     options={item_options}
                     onChange={handleChange}
@@ -1105,6 +1237,7 @@ const ApprovePRListPage = ({
                   ?.map((cat) => {
                     return (
                       <div key={cat.name}>
+                        <div className="flex items-center justify-between">
                         <div key={cat.id} className="flex gap-1 items-center">
                           <h3 className="text-sm font-semibold py-2">
                             {cat.name}
@@ -1143,6 +1276,14 @@ const ApprovePRListPage = ({
                               </button>
                             </div>
                           )}
+                        </div>
+                        <div className="text-sm font-bold text-gray-500">
+                          {category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
+                            category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
+                              <i>{i?.make}{index < arr.length - 1 && ", "}</i>
+                            ))
+                          ) : "--"}
+                          </div>
                         </div>
                         <table className="table-auto w-full">
                           <thead>
@@ -1360,17 +1501,20 @@ const ApprovePRListPage = ({
                                     </td>
                                     <td className="w-[10%] border-b-2 px-4 py-1 text-sm text-center ">
                                       <div className="flex items-center gap-1">
-                                        <AlertDialog>
-                                          <AlertDialogTrigger>
+                                        <AlertDialog open={requestItemDialog} onClose={toggleRequestItemDialog}>
+                                          <AlertDialogTrigger
+                                          onClick={() => {
+                                            handleFuzzySearch(item.item);
+                                            setCurItem(item.item);
+                                            setRequestItemName({item_name : item.item, name : item?.name})
+                                            setUnit(item.unit);
+                                            setQuantity(item.quantity);
+                                            setRequestCategory(
+                                              item.category
+                                            );
+                                          }}
+                                          >
                                             <ListChecks
-                                              onClick={() => {
-                                                setCurItem(item.item);
-                                                setUnit(item.unit);
-                                                setQuantity(item.quantity);
-                                                setRequestCategory(
-                                                  item.category
-                                                );
-                                              }}
                                               className="h-4 w-4 text-green-600"
                                             />
                                           </AlertDialogTrigger>
@@ -1379,7 +1523,7 @@ const ApprovePRListPage = ({
                                               <AlertDialogTitle>
                                                 Approve and Add{" "}
                                                 <span className="text-primary">
-                                                  {item.item}
+                                                  {curItem}
                                                 </span>
                                               </AlertDialogTitle>
                                             </AlertDialogHeader>
@@ -1394,7 +1538,7 @@ const ApprovePRListPage = ({
                                                   Category
                                                 </h5>
                                                 <Select
-                                                  defaultValue={item.category}
+                                                  defaultValue={requestCategory}
                                                   onValueChange={(value) =>
                                                     setRequestCategory(value)
                                                   }
@@ -1579,11 +1723,42 @@ const ApprovePRListPage = ({
                                                 </>
                                               )}
                                             </AlertDialogDescription>
+                                            {fuzzyMatches?.length > 0 && (
+                                              <div className="border rounded p-2 bg-red-50 text-sm">
+                                                <h3 className="text-sm">Below are the top 3 matches for the above requested item <span className="text-primary">{curItem}</span></h3>
+                                                <span className="text-xs italic">- You can click on <span className="bg-gray-200">Add this item</span> button to add the item to the order_list automatically with the default quantity as {quantity}!</span>
+                                                <p className="text-xs italic">- This will also permanently remove the current request item entry from the order_list!</p>
+                                              <div className="flex flex-col gap-2 mt-4 border rounded p-2 bg-gray-50">
+                                                {fuzzyMatches?.slice(0, 3)?.map((i, index) => (
+                                                  <div className="flex flex-col gap-1 border-b pb-1">
+                                                    <p className="flex justify-between items-center">
+                                                      <strong>{i?.item_name}</strong>
+                                                      <span className="text-gray-500">
+                                                        {" "}
+                                                        - {i?.matchPercentage}% match
+                                                      </span>
+                                                    </p>
+                                                    <div className="flex justify-between items-center">
+                                                      <p className="text-gray-400 font-semibold">{i?.category}</p>
+                                                      <p
+                                                       onClick={() => handleAddMatchingItem({item_name : i?.item_name, unit: i?.unit_name, quantity: quantity || 1, category: i?.category}, requestItemName)}
+                                                       className="text-primary font-bold text-xs cursor-pointer border p-1 rounded-md bg-gray-200">Add this item</p>
+                                                    </div>
+
+                                                  </div>
+                                                ))}
+                                              </div>
+                                              </div>
+                                            )}
                                           </AlertDialogContent>
                                         </AlertDialog>
                                         <span>|</span>
                                         <AlertDialog>
-                                          <AlertDialogTrigger>
+                                          <AlertDialogTrigger
+                                          onClick={() => {
+                                            setCurItem(item.item);
+                                          }}
+                                          >
                                             <Trash className="w-4 h-4 text-primary cursor-pointer" />
                                           </AlertDialogTrigger>
                                           <AlertDialogContent>
@@ -1591,7 +1766,7 @@ const ApprovePRListPage = ({
                                               <AlertDialogTitle>
                                                 Reject{" "}
                                                 <span className="text-primary">
-                                                  {item.item}
+                                                  {curItem}
                                                 </span>
                                               </AlertDialogTitle>
                                             </AlertDialogHeader>
@@ -1607,7 +1782,7 @@ const ApprovePRListPage = ({
                                               </AlertDialogCancel>
                                               <AlertDialogAction
                                                 onClick={() =>
-                                                  handleDelete(item.item)
+                                                  handleDelete(curItem)
                                                 }
                                                 className="flex items-center gap-1"
                                               >
@@ -1769,9 +1944,16 @@ const ApprovePRListPage = ({
                       <TableHeader>
                         <TableRow className="bg-red-100">
                           <TableHead className="w-[50%]">
-                            <span className="text-red-700 pr-1 font-extrabold">
-                              {cat.name}
-                            </span>
+                            <div>
+                              <span className="text-red-700 pr-1 font-extrabold">
+                                {cat.name}
+                              </span>
+                              ({category_make_list?.filter(i => i?.category === cat?.name)?.length > 0 ? (
+                                category_make_list?.filter(i => i?.category === cat?.name)?.map((i, index, arr) => (
+                                  <i>{i?.make}{index < arr.length - 1 && ", "}</i>
+                                ))
+                              ) : "--"})
+                            </div>
                             {uploadedFiles[cat.name] && (
                               <div className="flex gap-1 items-end">
                                 <p>Attached File:</p>{" "}
@@ -2016,7 +2198,7 @@ const ApprovePRListPage = ({
               className="cursor-pointer"
               onClick={() => {
                 setCurItem("");
-                setMake("");
+                // setMake("");
                 setPage("itemlist");
               }}
             />
@@ -2030,7 +2212,7 @@ const ApprovePRListPage = ({
               <button
                 onClick={() => {
                   setCurItem("");
-                  setMake("");
+                  // setMake("");
                   setPage("categorylist2");
                 }}
                 className="text-blue-500 underline ml-1"
@@ -2054,7 +2236,7 @@ const ApprovePRListPage = ({
               onChange={(e) => setCurItem(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
             />
-            <label
+            {/* <label
               htmlFor="makeName"
               className="block text-sm font-medium text-gray-700"
             >
@@ -2066,7 +2248,7 @@ const ApprovePRListPage = ({
               value={make}
               onChange={(e) => setMake(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            />
+            /> */}
           </div>
           <div className="mb-4">
             <label

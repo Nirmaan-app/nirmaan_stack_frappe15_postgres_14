@@ -146,6 +146,10 @@ import logo from "@/assets/logo-svg.svg";
 import { ProcurementOrders as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { EditProjectForm } from "./edit-project-form";
+import { Component as ProjectEstimates } from '../../components/add-project-estimates';
+import ReactSelect from "react-select";
+import { TailSpin } from "react-loader-spinner";
+ 
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -257,6 +261,10 @@ const ProjectView = ({
   const [statusCounts, setStatusCounts] = useState({});
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
+  const [options, setOptions] = useState(null);
+
+  const [makeOptions, setMakeOptions] = useState(null);
+
   const toggleEditSheet = () => {
     setEditSheetOpen((prevState) => !prevState);
   };
@@ -264,6 +272,7 @@ const ProjectView = ({
   const [searchParams] = useSearchParams(); // Only for initialization
   const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "All");
   const [activePage, setActivePage] = useState(searchParams.get("page") || "overview");
+  const [makesTab, setMakesTab] = useState(searchParams.get("makesTab") || "");
 
   // Synchronize state with search parameters on initial load
   useEffect(() => {
@@ -272,6 +281,10 @@ const ProjectView = ({
 
     setActiveTab(currentTab);
     setActivePage(currentPage);
+
+    const MakesTab = makeOptions?.[0]?.value
+    const currentMakesTab = searchParams.get("makesTab") || MakesTab;
+    setMakesTab(currentMakesTab);
   }, []);
 
   const updateURL = (key, value) => {
@@ -286,19 +299,49 @@ const ProjectView = ({
     updateURL("tab", tab);
   };
 
+  const setProjectMakesTab = (tab) => {
+    if (makesTab === tab) return; // Prevent redundant updates
+    setMakesTab(tab);
+    updateURL("makesTab", tab);
+  };
+
   const onClick: MenuProps["onClick"] = (e) => {
     if (activePage === e.key) return; // Prevent redundant updates
 
     const newPage = e.key;
-    if (newPage === "projectspends") {
-      setActiveTab("All");
+    if (newPage === "projectspends" || newPage === "projectestimates" || newPage === "projectmakes") {
+      if(newPage === "projectspends") {
+        setActiveTab("All");
+      } else if(newPage === "projectmakes") {
+        setMakesTab(makeOptions?.[0]?.value)
+      }
       updateURL("page", newPage);
-      updateURL("tab", "All");
+      if(newPage === "projectspends") {
+        updateURL("tab", "All");
+        const url = new URL(window.location);
+        url.searchParams.delete("eTab");
+        url.searchParams.delete("makesTab");
+        window.history.pushState({}, "", url); // Remove tab param
+      } else if(newPage === "projectmakes") {
+        updateURL("makesTab", makeOptions?.[0]?.value);
+        const url = new URL(window.location);
+        url.searchParams.delete("eTab");
+        url.searchParams.delete("tab");
+        window.history.pushState({}, "", url); // Remove tab param
+      } else {
+        updateURL("eTab", "All");
+        const url = new URL(window.location);
+        url.searchParams.delete("tab");
+        url.searchParams.delete("makesTab");
+        window.history.pushState({}, "", url); // Remove tab param
+      }
     } else {
       setActiveTab(""); // Clear tab state if moving away from project spends
       updateURL("page", newPage);
       const url = new URL(window.location);
       url.searchParams.delete("tab");
+      url.searchParams.delete("eTab");
+      url.searchParams.delete("makesTab");
       window.history.pushState({}, "", url); // Remove tab param
     }
 
@@ -497,11 +540,13 @@ const ProjectView = ({
       if (user) {
         const { role_profile, full_name } = user;
 
-        if (!acc[role_profile.split(" ").slice(1, 3).join(" ")]) {
-          acc[role_profile.split(" ").slice(1, 3).join(" ")] = [];
+        const formattedRoleProfile = role_profile.replace(/Nirmaan\s|\sProfile/g, "");
+
+        if (!acc[formattedRoleProfile]) {
+          acc[formattedRoleProfile] = [];
         }
 
-        acc[role_profile.split(" ").slice(1, 3).join(" ")].push(full_name);
+        acc[formattedRoleProfile].push(full_name);
       }
 
       return acc;
@@ -580,6 +625,14 @@ const ProjectView = ({
           key: "projectspends",
         }
       : null,
+      {
+        label: "Project Estimates",
+        key: "projectestimates"
+      },
+      {
+        label: "Project Makes",
+        key: "projectmakes"
+      }
   ];
 
   const [areaNames, setAreaNames] = useState(null);
@@ -1341,11 +1394,11 @@ const ProjectView = ({
     const filteredProjectEstimates = project_estimates?.filter((i) => i?.work_package !== "Services" && !allItemIds.includes(i?.item))
 
     filteredProjectEstimates?.forEach((item) => {
-      if (!groupedData[item.work_package]) {
-        groupedData[item.work_package] = {};
+      if (!groupedData[item?.work_package]) {
+        groupedData[item?.work_package] = {};
       }
-      if (!groupedData[item.work_package][item.category]) {
-        groupedData[item.work_package][item.category] = [];
+      if (!groupedData[item?.work_package][item?.category]) {
+        groupedData[item?.work_package][item?.category] = [];
       }
 
       groupedData[item.work_package][item.category].push({
@@ -1459,8 +1512,6 @@ const ProjectView = ({
 
   // workPackages.push({work_package_name : "Tool & Equipments"})
 
-  const [options, setOptions] = useState(null);
-
   useEffect(() => {
     if (data) {
       const workPackages =
@@ -1483,6 +1534,8 @@ const ProjectView = ({
         if (b.label === "All") return 1;
         return a.label.localeCompare(b.label);
       });
+
+      setMakeOptions(options?.filter(i => !["All", "Tool & Equipments", "Services"].includes(i.label)));
 
       setOptions(options);
       // setSelectedPackage("All");
@@ -1914,7 +1967,7 @@ const ProjectView = ({
                                 <SelectValue placeholder="Select User" />
                               </SelectTrigger>
                               <SelectContent>
-                                {userOptions.length
+                                {userOptions.length > 0
                                   ? userOptions?.map((option) => (
                                       <SelectItem value={option?.value}>
                                         {option?.label}
@@ -2337,6 +2390,14 @@ const ProjectView = ({
             </div>
           )}
         </>
+      )}
+
+      {activePage === "projectestimates" && (
+        <ProjectEstimates projectTab  />
+      )}
+
+      {activePage === "projectmakes" && (
+        <ProjectMakesTab projectData={data} project_mutate={project_mutate} options={makeOptions} setProjectMakesTab={setProjectMakesTab} makesTab={makesTab} />
       )}
 
       {activePage === "SRSummary" && (
@@ -3818,3 +3879,176 @@ export const ToolandEquipementAccordion = ({
     </div>
   );
 };
+
+export const ProjectMakesTab = ({projectData, options, makesTab, setProjectMakesTab, project_mutate}) => {
+
+  console.log("projectData", projectData)
+
+  const [wPmakesData, setWPMakesData] = useState([])
+  
+  const [editCategory, setEditCategory] = useState(null)
+
+  const [selectedMakes, setSelectedMakes] = useState([])
+
+  const [reactSelectOptions, setReactSelectOptions] = useState([])
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  console.log("wpmakes", wPmakesData)
+
+  const toggleDialog = () => {
+    setDialogOpen((prevState) => !prevState);
+  };
+
+  const {updateDoc, loading: updateLoading} = useFrappeUpdateDoc()
+
+  const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList("Category Makelist", {
+    fields: ["make", "category"],
+    limit: 10000,
+  });
+
+  useEffect(() => {
+    if(makesTab) {
+      const filteredWPMakes = JSON.parse(projectData?.project_work_packages)?.work_packages?.find(wp => wp?.work_package_name === makesTab)?.category_list?.list
+      setWPMakesData(filteredWPMakes)
+    }
+  }, [makesTab, projectData])
+
+  useEffect(() => {
+    if(editCategory?.makes?.length > 0) {
+      const options = []
+      editCategory?.makes?.forEach(i => {
+        options.push({label : i, value : i})
+      })
+      setSelectedMakes(options)
+    } else {
+      setSelectedMakes([])
+    }
+
+    if(editCategory?.name) {
+      const categoryMakes = categoryMakeList?.filter((i) => i?.category === editCategory?.name)?.map(j => ({label : j?.make, value : j?.make})) || []
+      setReactSelectOptions(categoryMakes)
+    }
+  }, [editCategory])
+
+  const handleUpdateMakes = async () => {
+    try {
+      const reformattedMakes = selectedMakes?.map(i => i?.value)
+
+      const updatedWorkPackages = [...JSON.parse(projectData?.project_work_packages)?.work_packages]
+
+      updatedWorkPackages.forEach(wp => {
+        if(wp?.work_package_name === makesTab) {
+          wp.category_list.list.forEach(cat => {
+            if(cat?.name === editCategory?.name) {
+              cat.makes = reformattedMakes
+            }
+          })
+        }
+      })
+
+      await updateDoc("Projects", projectData?.name, {
+        project_work_packages: {work_packages: updatedWorkPackages}
+      })
+
+      await project_mutate()
+
+      toast({
+        title: "Success!",
+        description: `${editCategory?.name} Makes updated successfully!`,
+        variant: "success",
+      })
+
+      toggleDialog()
+
+    } catch (error) {
+      console.log("error while updating makes", error);
+      toast({
+        title: "Failed!",
+        description: `${error?.message}`,
+        variant: "destructive",
+      });
+    }
+  }
+
+  return (
+    <>
+    {options && (
+      <Radio.Group
+        block
+        options={options}
+        defaultValue="All"
+        optionType="button"
+        buttonStyle="solid"
+        value={makesTab}
+        onChange={(e) => setProjectMakesTab(e.target.value)}
+      />
+    )}
+
+      <Table>
+        <TableHeader className="bg-red-100">
+          <TableRow>
+            <TableHead className="w-[35%]">Category</TableHead>
+            <TableHead className="w-[50%]">Makes</TableHead>
+            <TableHead>Add/Edit</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {wPmakesData?.map((wpmake, index) => (
+            <TableRow key={index}>
+              <TableCell>{wpmake?.name}</TableCell>
+              <TableCell>
+                <div className="flex flex-wrap gap-2">
+                {wpmake?.makes?.length > 0 ? (
+                wpmake?.makes?.map((make) => (
+                  <Badge key={make}>{make}</Badge>
+                ))
+              ) : (
+                <span>--</span>
+              )}
+              </div>
+              </TableCell>
+              <TableCell>
+                <Dialog open={dialogOpen} onOpenChange={toggleDialog}>
+                  <DialogTrigger onClick={() => setEditCategory(wpmake)} asChild>
+                    <Button
+                      variant="outline"
+                    >
+                      Edit
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Edit <span className="text-primary">{editCategory?.name}</span> makes</DialogTitle>
+                      <DialogDescription className="pt-4">
+                          <ReactSelect 
+                            options={reactSelectOptions}
+                            value={selectedMakes}
+                            className="w-full"
+                            placeholder="Select Makes..."
+                            isMulti
+                            onChange={(selected) =>
+                              setSelectedMakes(selected)
+                            }
+                          />
+                      </DialogDescription>
+                      <div className="pt-4 flex justify-end gap-2 items-center">
+                        {updateLoading ? <TailSpin color="red" height={30} width={30} /> : (
+                          <>
+                          <DialogClose asChild>
+                            <Button variant="secondary">Cancel</Button>
+                          </DialogClose>
+                          <Button onClick={handleUpdateMakes}>Save</Button>
+                          </>
+                        )}
+                      </div>
+                    </DialogHeader>
+                  </DialogContent>
+                </Dialog>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </>
+  )
+}
